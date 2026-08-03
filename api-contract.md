@@ -1,0 +1,250 @@
+# RASCAL — API Contract
+
+Plain JSON over HTTPS. No client-specific serialization anywhere in the wire format — this is the insurance policy for a web client later.
+
+Base: `/v1`. Auth: bearer token. All timestamps ISO 8601 UTC. All IDs UUID.
+
+Last updated: **Aug 3, 2026** — build-ready.
+
+---
+
+## Health
+
+**`GET /health`** → `{ "status": "ok", "db": "ok" }`
+
+Unauthenticated. The only route outside `/v1`. Fly's health check hits this; it touches
+the database so a green check means the app can actually serve.
+
+---
+
+## Auth
+
+**`POST /auth/apple`**
+Body: `{ identity_token, authorization_code, display_name? }`
+Exchanges an Apple credential for a session. Creates a `users` row on first sight, then a `credentials` row. Returns `{ access_token, refresh_token, user }`.
+
+Verification is real: fetch Apple's JWKS, verify the signature, check `iss`, `aud`
+against the bundle ID, and `exp`. Cache the JWKS with a TTL; don't fetch it per request.
+
+**`POST /auth/refresh`**
+Body: `{ refresh_token }` → `{ access_token, refresh_token }`
+
+Rotating. The presented token is revoked and a new pair issued. A revoked token presented
+again is a 401 with code `refresh_token_reused`.
+
+**`POST /auth/logout`** — revokes the presented refresh token.
+
+**`POST /auth/dev-login`** — **registered only when `ENVIRONMENT == "local"`.** Creates or
+returns a fixture user plus a token pair, so the iOS client and curl can hit the API
+before Apple Developer enrollment clears. This route must not exist in a production build,
+and there's a test that asserts it.
+
+Access tokens live 15 minutes. Refresh tokens live 30 days.
+
+Later: `POST /auth/password` and `POST /auth/google` slot in with no schema change. That's the point.
+
+### Authorization
+
+Every child-scoped route resolves the child and checks `guardians` for a non-revoked row
+with sufficient role — `parent` reads and writes, `viewer` reads only. This lives in **one
+FastAPI dependency**, not in handler bodies. Routes that reach a child indirectly (an
+entry id, a media id, an assignment id) resolve the owning child and run the same check.
+
+Failure is `403` with code `not_authorized`. Never `404` — leaking existence is fine here
+and a wrong 404 sends me debugging the wrong thing.
+
+---
+
+## Children
+
+**`GET /children`** → children the caller can see, with `role` on each.
+
+**`POST /children`**
+Body: `{ name, birthdate, family_timezone }` → creates the child and a `parent` guardian row for the caller.
+
+**`PATCH /children/{id}`** — name, birthdate, timezone, avatar.
+
+**`POST /children/{id}/guardians`**
+Body: `{ email, role }` → creates an invite. P2.
+
+---
+
+## Today
+
+**`GET /children/{id}/today`**
+
+The single call the home screen makes. Returns everything the Today screen renders:
+
+```json
+{
+  "date": "2026-08-14",
+  "child": { "id": "...", "name": "Miles", "age_months": 50 },
+  "today": [
+    { "id": "...", "slot": "mission", "body": "Record him telling you a story...",
+      "kind": "audio", "completion_mode": "media", "theme": "voice",
+      "status": "pending", "expires_on": "2026-08-28" },
+    { "id": "...", "slot": "question", "body": "What did he say this week...",
+      "kind": "question", "completion_mode": "text", "theme": "his-words",
+      "status": "pending", "expires_on": "2026-08-28" }
+  ],
+  "waiting": [ ... ],
+  "done_today": [ ... ]
+}
+```
+
+`waiting` is pending assignments from previous days, oldest first. `done_today` is anything completed with `occurred_at` today.
+
+**`POST /assignments/{id}/dismiss`** → `status = dismissed`.
+
+**`POST /assignments/{id}/custom`**
+Body: `{ body }` — replaces today's assignment with a parent-authored one. Keeps the slot filled.
+
+---
+
+## Entries
+
+**`POST /entries`**
+Body:
+```json
+{
+  "id": "client-generated-uuid",
+  "child_id": "...",
+  "assignment_id": null,
+  "occurred_at": "2026-08-14T18:22:00Z",
+  "title": null,
+  "body": "He called it a 'hangaburger' again.",
+  "entry_type": "text",
+  "unlock_at_age": null,
+  "tags": ["his-words"]
+}
+```
+Header: `Idempotency-Key: {uuid}`. Retries are safe — a replay returns the original `201`
+body byte-for-byte, never a second row and never a `409`. The key is scoped to the user.
+
+Server computes and stores `child_age_months` from `occurred_at` minus birthdate. If
+`assignment_id` is set and the assignment is pending, it flips to `done` in the same
+transaction. If the assignment is already `done`, `dismissed`, or `expired`, the entry
+still saves — the archive matters more than the bookkeeping — and the assignment is left
+alone.
+
+**`GET /entries`**
+Query: `child_id`, `before`, `after`, `type`, `tag`, `q`, `limit`, `cursor`.
+Returns entries newest-first by `occurred_at`, with media summaries inline (thumb keys, counts, durations) so the timeline renders without N+1 calls.
+
+Cursor is opaque and encodes `(occurred_at, id)` — keyset pagination, not `OFFSET`.
+Backdating inserts rows into the middle of the order, and offset paging would skip them.
+`limit` defaults to 50, caps at 200. Soft-deleted entries are excluded here.
+
+**`GET /entries/{id}`** — full detail including all media, transcripts, tags, and the originating prompt.
+
+**`PATCH /entries/{id}`** — title, body, occurred_at, unlock_at_age, tags.
+
+**`DELETE /entries/{id}`** — soft delete. Sets `deleted_at`, keeps the row.
+
+---
+
+## Media
+
+Three-step upload. The server never proxies bytes.
+
+**`POST /media/upload-url`**
+Body: `{ entry_id, kind, filename, bytes, content_type }`
+→ `{ media_id, upload_url, parts?, s3_key }`
+
+Single presigned PUT under ~15MB; presigned multipart above that. Video always assumes multipart.
+
+**Client uploads directly to S3** on a background `URLSession`. This survives app backgrounding and cellular flakiness, which matters more than anything else in the capture path.
+
+**`POST /media/{id}/complete`**
+Body: `{ etags?, captured_at, duration_seconds? }`
+Server marks `upload_status = complete`, kicks off thumbnail and poster-frame generation.
+
+**`PATCH /media/{id}/derived`**
+Body: `{ transcript?, caption?, tags? }`
+**This is the on-device AI write-back endpoint.** The phone transcribes locally, then persists the text here so search works everywhere — including from a browser that will never have an on-device model.
+
+Tags written here get `entry_tags.source = 'device_ai'`. They never overwrite or delete a
+row with `source = 'user'` — re-running extraction must be free, and it must never eat a
+tag I typed. Idempotent: sending the same transcript twice changes nothing.
+
+---
+
+## Moments
+
+**`GET /children/{id}/moments`**
+Query: `date` (defaults today)
+Returns entries from this month/day in prior years, grouped by years-ago. If empty, returns `{ "fallback": "random", "entries": [...] }` so the client can render the warm redirect instead of a void.
+
+---
+
+## Sync
+
+**`GET /sync?child_id={id}&since={cursor}`**
+
+```json
+{
+  "entries": [...],
+  "media": [...],
+  "assignments": [...],
+  "tags": [...],
+  "cursor": "2026-08-14T18:22:00.481Z"
+}
+```
+
+Every entity carries `updated_at` and `deleted_at`. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record.
+
+**`POST /sync/push`**
+Body: `{ entries: [...], media: [...], idempotency_keys: {...} }`
+Batched offline queue drain. Returns per-record accept/conflict so the client can reconcile without a full refetch.
+
+---
+
+## Prompts (admin, me only)
+
+**`GET /prompts`** — filterable by kind, theme, age band, source.
+**`POST /prompts`** — hand-authored additions.
+**`POST /prompts/batch-review`** — accept/reject LLM-generated candidates sitting in the review queue.
+
+The library is content. It's authored and reviewed server-side, never generated at request time and never authored on-device.
+
+---
+
+## Debug (local only)
+
+Registered only when `ENVIRONMENT == "local"`, same gating as `dev-login`. These exist
+because building the daily loop means running the daily loop dozens of times in one
+evening, and waiting until 5am tomorrow is not a development strategy.
+
+**`POST /debug/scheduler/run`**
+Body: `{ date, child_id? }` → runs the full scheduler for an arbitrary date. Idempotent,
+same as the real job.
+
+**`POST /debug/reset-today`**
+Body: `{ child_id, date? }` → deletes today's assignments for that child so the scheduler
+can be re-run against a changed prompt library.
+
+---
+
+## Error shape
+
+```json
+{ "error": { "code": "assignment_expired", "message": "...", "field": null } }
+```
+
+Stable machine-readable `code`, human `message`. The client switches on `code`, never on message text. Codes live in one enum server-side; adding one is a deliberate act.
+
+| Code | Status |
+|---|---|
+| `unauthenticated` | 401 |
+| `token_expired` | 401 |
+| `refresh_token_reused` | 401 |
+| `not_authorized` | 403 |
+| `not_found` | 404 |
+| `validation_failed` | 422 |
+| `assignment_expired` | 409 |
+| `upload_incomplete` | 409 |
+| `conflict` | 409 |
+| `internal_error` | 500 |
+
+Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
+a `psycopg` message in a client alert is a leak, not a debugging aid.
