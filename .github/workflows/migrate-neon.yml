@@ -1,0 +1,88 @@
+name: Migrate Neon
+
+# Runs the migrations against Neon before Fly exists, so deploy day is not the first time
+# the real database has seen this schema. "It works on Postgres 16" is what CI proves; that
+# Neon in particular accepts the generated tsvector columns, the GIN indexes, the
+# set_updated_at() trigger, and every named CHECK constraint is a separate assumption, and
+# this is what turns it into a fact.
+#
+# Manual only. Nothing about deployment should depend on a human remembering to click this —
+# `fly.toml`'s release_command runs `alembic upgrade head` on every deploy and stays the one
+# path that matters. This is a pre-flight check, not a second migration path.
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "Also load the prompt library (idempotent — safe to re-run)"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  group: migrate-neon
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the database URL
+        env:
+          # Both are Neon's DIRECT endpoint. DIRECT_DATABASE_URL is the name the app and the
+          # runbook use; BACKUP_DATABASE_URL is the one that exists first, because the backup
+          # workflow needs the same endpoint for pg_dump. Either will do — migrations must not
+          # go through the pooler, and neither of these is the pooler.
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL }}
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          raw="${DIRECT_DATABASE_URL:-${BACKUP_DATABASE_URL:-}}"
+          if [ -z "$raw" ]; then
+            echo "::error::Set DIRECT_DATABASE_URL or BACKUP_DATABASE_URL to Neon's direct"
+            echo "::error::(non-pooler) connection string. See docs/DEPLOY.md section 2."
+            exit 1
+          fi
+
+          # Refuse the pooled endpoint outright. Neon's pooler is PgBouncer in transaction
+          # mode: Alembic's advisory locks and prepared statements do not survive it, and the
+          # failure is a confusing mid-migration error rather than a refusal.
+          case "$raw" in
+            *-pooler.*)
+              echo "::error::That is the POOLED endpoint. Alembic cannot migrate through"
+              echo "::error::PgBouncer in transaction mode. Use the host without '-pooler'."
+              exit 1
+              ;;
+          esac
+
+          # SQLAlchemy needs the driver in the scheme; psql and pg_dump must not have it.
+          url="${raw/postgresql+psycopg:\/\//postgresql:\/\/}"
+          echo "::add-mask::$url"
+          echo "DATABASE_URL=${url/postgresql:\/\//postgresql+psycopg://}" >> "$GITHUB_ENV"
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Show what is about to change
+        working-directory: api
+        run: |
+          echo "current revision:"
+          uv run alembic current || echo "  (none — this database has never been migrated)"
+          echo "target:"
+          uv run alembic heads
+
+      - name: Migrate
+        working-directory: api
+        run: uv run alembic upgrade head
+
+      - name: Seed the prompt library
+        if: ${{ inputs.seed }}
+        working-directory: api
+        run: uv run python -m rascal.jobs.seed
+
+      - name: Verify the schema Neon actually got
+        working-directory: api
+        run: uv run python ../.github/scripts/verify_schema.py

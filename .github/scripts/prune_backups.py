@@ -35,9 +35,7 @@ def _taken_at(key: str) -> datetime | None:
     return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ")
 
 
-def _newest_per_bucket(
-    backups: list[tuple[str, datetime]], fmt: str, keep: int
-) -> set[str]:
+def _newest_per_bucket(backups: list[tuple[str, datetime]], fmt: str, keep: int) -> set[str]:
     """The newest key in each calendar bucket, for the most recent `keep` buckets."""
     by_bucket: OrderedDict[str, tuple[str, datetime]] = OrderedDict()
     for key, taken in sorted(backups, key=lambda item: item[1], reverse=True):
@@ -52,9 +50,7 @@ def main() -> int:
 
     backups: list[tuple[str, datetime]] = []
     unparseable: list[str] = []
-    for page in s3.get_paginator("list_objects_v2").paginate(
-        Bucket=BUCKET, Prefix=PREFIX
-    ):
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=PREFIX):
         for obj in page.get("Contents", []):
             taken = _taken_at(obj["Key"])
             if taken is None:
@@ -81,15 +77,13 @@ def main() -> int:
     # Checked *before* deleting anything: cheap insurance against a bug in the selection
     # emptying the whole prefix.
     if not keep:
-        print(
-            "::error::Retention selected nothing to keep. Refusing to delete anything."
-        )
+        print("::error::Retention selected nothing to keep. Refusing to delete anything.")
         return 1
 
     doomed = [(key, taken) for key, taken in backups if key not in keep]
     print(f"{len(backups)} backup(s): keeping {len(keep)}, deleting {len(doomed)}")
 
-    for key, taken in sorted(doomed, key=lambda item: item[1]):
+    for key, _taken in sorted(doomed, key=lambda item: item[1]):
         print(f"  - {key}")
         s3.delete_object(Bucket=BUCKET, Key=key)
     return 0

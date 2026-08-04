@@ -19,9 +19,11 @@ jobs:
           enable-cache: true
       - run: uv sync --all-groups
         working-directory: api
-      - run: uv run ruff check .
+      # `.github/scripts` too — the backup pruner and the schema verifier are real Python
+      # that nothing else lints, and both run against production data.
+      - run: uv run ruff check . ../.github
         working-directory: api
-      - run: uv run ruff format --check .
+      - run: uv run ruff format --check . ../.github
         working-directory: api
 
   test:
