@@ -254,3 +254,17 @@ that file left open.
 - **`ENVIRONMENT=prod` is a plain `[env]` value, not a secret.** It is not sensitive, and
   having it visible in `fly.toml` is what makes "dev-login cannot exist in production"
   auditable at a glance.
+
+## M7 — Documentation and the acceptance test
+
+- **The acceptance test seeds the real library**, not fixtures, and runs against a Saturday
+  so the weekly slot fires too — the simplest possible day would not have exercised
+  `slots_for`.
+- **The acceptance test asserts the reverse direction as well**: after both entries, `today`
+  holds only the weekly item and `done_today` holds the question and the mission. A test
+  that only checks what was created would pass with a broken Today screen.
+- **A second test asserts the OpenAPI document covers every path in the contract**, so
+  `make dev` serving `/docs` is a checked property rather than a claim.
+- **`docs/blocked.md` separates "blocked on you" from "deferred by decision".** Three things
+  need a credential you hold; three were left out on purpose and say why; two are judgment
+  calls flagged for review because they are cheap to change now and expensive later.
