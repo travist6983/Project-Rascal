@@ -12,14 +12,15 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from rascal.config import get_settings
+from rascal.config import get_database_settings
 
 
 @lru_cache(maxsize=1)
 def get_engine() -> AsyncEngine:
-    settings = get_settings()
+    # The engine needs a URL, not the whole configuration surface. That is what lets the
+    # seed job run in a context that has a database and no S3 credentials.
     return create_async_engine(
-        settings.database_url,
+        get_database_settings().database_url,
         pool_pre_ping=True,
         # Neon closes idle connections; recycling well inside that window avoids a cold 500.
         pool_recycle=1800,

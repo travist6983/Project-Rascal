@@ -30,7 +30,7 @@ API_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("ENVIRONMENT", "local")
 
 from rascal import db as db_module  # noqa: E402
-from rascal.config import get_settings  # noqa: E402
+from rascal.config import get_database_settings, get_settings  # noqa: E402
 
 
 def _install_test_database_url() -> None:
@@ -43,7 +43,9 @@ def _install_test_database_url() -> None:
     configured = sa.engine.make_url(get_settings().database_url)
     test_url = configured.set(database=f"{configured.database}_test")
     os.environ["DATABASE_URL"] = test_url.render_as_string(hide_password=False)
-    get_settings.cache_clear()  # environment beats .env, so the next read is the test URL
+    # Environment beats .env, so the next read of either is the test URL.
+    get_settings.cache_clear()
+    get_database_settings.cache_clear()
 
 
 _install_test_database_url()

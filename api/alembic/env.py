@@ -9,7 +9,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from rascal.config import get_settings
+from rascal.config import get_database_settings
 from rascal.models import Base
 
 config = context.config
@@ -17,7 +17,9 @@ target_metadata = Base.metadata
 
 
 def _url() -> str:
-    return get_settings().sync_database_url
+    # Deliberately not the full app settings: a migration needs a connection string, and
+    # nothing else. See `DatabaseSettings`.
+    return get_database_settings().sync_database_url
 
 
 def run_migrations_offline() -> None:
