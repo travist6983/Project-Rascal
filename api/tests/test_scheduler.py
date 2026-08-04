@@ -637,3 +637,116 @@ async def test_a_client_may_override_the_inherited_unlock_age(
         headers=auth_headers(user),
     )
     assert created.json()["unlock_at_age"] == 13
+
+
+# --- C2: hourly firing, filtered on each child's local hour -------------------------------
+
+
+async def test_the_hourly_job_only_serves_children_for_whom_it_is_five_am(
+    session: AsyncSession,
+) -> None:
+    """One daily UTC cron is 5am in exactly one timezone. Hourly plus a filter is 5am in all."""
+    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
+    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    # 09:00 UTC on 2026-08-22 is 05:00 in Detroit (EDT, UTC-4) and 21:00 in Auckland.
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=30)
+    await session.commit()
+
+    assert run.skipped_off_hour == 1
+    served = set((await session.execute(sa.select(Assignment.child_id).distinct())).scalars().all())
+    assert served == {detroit.id}
+
+
+async def test_every_timezone_gets_its_own_five_am_across_a_day_of_firings(
+    session: AsyncSession,
+) -> None:
+    """The point of the change: nobody's mission arrives at 9pm."""
+    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
+    auckland = await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    # Twenty-four hourly firings, exactly as the Fly machine would produce them.
+    for hour in range(24):
+        instant = dt.datetime(2026, 8, 22, hour, 0, tzinfo=dt.UTC)
+        await run_scheduler(session, as_of=instant, only_local_hour=5, seed=31)
+        await session.commit()
+
+    served = dict(
+        (
+            await session.execute(sa.select(Assignment.child_id, Assignment.assigned_on).distinct())
+        ).all()
+    )
+    assert set(served) == {detroit.id, auckland.id}
+    # Each was served on their *own* local date, not on a shared UTC one. Within a single UTC
+    # day of firings, 5am in Detroit (UTC-4) is the 22nd and 5am in Auckland (UTC+12) is
+    # already the 23rd — which is exactly the point.
+    assert served[detroit.id] == dt.date(2026, 8, 22)
+    assert served[auckland.id] == dt.date(2026, 8, 23)
+
+
+async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
+    session: AsyncSession,
+) -> None:
+    """A fixed UTC hour drifts when the clocks change. A local-hour filter cannot."""
+    child = await make_child(session, name="Miles", timezone="America/Detroit")
+    await _library(session)
+    await session.commit()
+
+    # Detroit is UTC-4 in August and UTC-5 in December, so 5am local is a different UTC hour
+    # on either side of the change. Both firings must find the child.
+    summer = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    winter = dt.datetime(2026, 12, 12, 10, 0, tzinfo=dt.UTC)
+
+    for instant in (summer, winter):
+        run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=32)
+        await session.commit()
+        assert run.skipped_off_hour == 0, instant
+
+    days = set(
+        (
+            await session.execute(
+                sa.select(Assignment.assigned_on).where(Assignment.child_id == child.id).distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert days == {dt.date(2026, 8, 22), dt.date(2026, 12, 12)}
+
+
+async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
+    session: AsyncSession,
+) -> None:
+    """A double-fire has to be free, because Fly's scheduler makes no exactly-once promise."""
+    await make_child(session, timezone="America/Detroit")
+    await _library(session)
+    await session.commit()
+
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    first = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=33)
+    await session.commit()
+    second = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=34)
+    await session.commit()
+
+    assert first.created == 3  # question, mission, weekly (2026-08-22 is a Saturday)
+    assert second.created == 0
+
+
+async def test_without_the_filter_every_child_is_served(session: AsyncSession) -> None:
+    """`--any-hour` and `--date` are deliberate manual runs; the wall clock stops mattering."""
+    await make_child(session, name="Miles", timezone="America/Detroit")
+    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    run = await run_scheduler(session, as_of=dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC), seed=35)
+    await session.commit()
+
+    assert run.skipped_off_hour == 0
+    served = set((await session.execute(sa.select(Assignment.child_id).distinct())).scalars().all())
+    assert len(served) == 2

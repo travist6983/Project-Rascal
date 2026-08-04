@@ -24,9 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import DEFAULT_EXPIRY_DAYS, Slot
 from rascal.models import Assignment, Child, Prompt
-from rascal.services.dates import local_date
+from rascal.services.dates import local_date, local_hour
 
 log = logging.getLogger("rascal.scheduler")
+
+# docs/data-model.md: "Runs 5am in each child's family_timezone."
+SCHEDULER_LOCAL_HOUR = 5
 
 # docs/data-model.md §Scheduler logic.
 COOLDOWN_DAYS = 180
@@ -67,6 +70,8 @@ class SchedulerRun:
     expired: int = 0
     created: int = 0
     skipped_existing: int = 0
+    # Children the hourly job passed over because it is not 5am where they live.
+    skipped_off_hour: int = 0
     exhausted: list[str] = field(default_factory=list)
 
 
@@ -290,12 +295,17 @@ async def run_scheduler(
     as_of_date: dt.date | None = None,
     child_id: uuid.UUID | None = None,
     seed: int | None = None,
+    only_local_hour: int | None = None,
 ) -> SchedulerRun:
     """Expire what lapsed, then fill every slot for every child.
 
     Pass `as_of` (an instant) for the real job: each child's date is that instant read in
     their own `family_timezone`. Pass `as_of_date` (a plain date) to run a specific calendar
     day for everyone, which is what backfilling and the debug route want.
+
+    `only_local_hour` skips children for whom it is not currently that hour on the wall. The
+    hourly job passes 5, so every timezone gets its 5am regardless of where it sits against
+    UTC — and regardless of what DST did to that offset last weekend.
     """
     if as_of is not None and as_of_date is not None:
         raise ValueError("pass as_of or as_of_date, not both")
@@ -310,6 +320,12 @@ async def run_scheduler(
     children = list((await session.execute(statement)).scalars().all())
 
     for child in children:
+        if only_local_hour is not None and (
+            local_hour(instant, child.family_timezone) != only_local_hour
+        ):
+            run.skipped_off_hour += 1
+            continue
+
         # Never UTC and never the server's local time: without this the 5am job hands you
         # tomorrow's mission at 9pm.
         day = as_of_date or local_date(instant, child.family_timezone)
@@ -324,6 +340,7 @@ async def run_scheduler(
         # and logging raises rather than shadowing them.
         extra={
             "children": len(children),
+            "children_off_hour": run.skipped_off_hour,
             "assignments_expired": run.expired,
             "assignments_created": run.created,
             "assignments_skipped": run.skipped_existing,

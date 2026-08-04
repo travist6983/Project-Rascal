@@ -337,7 +337,9 @@ async def test_a_token_signed_with_the_wrong_secret_is_rejected(client: AsyncCli
             "typ": "access",
             "exp": int((dt.datetime.now(tz=dt.UTC) + dt.timedelta(minutes=5)).timestamp()),
         },
-        "not-the-real-secret",
+        # Wrong, but long enough not to trip PyJWT's InsecureKeyLengthWarning — the point
+        # of the test is the wrong key, not a short one.
+        "not-the-real-secret-but-long-enough-to-be-a-real-one",
         algorithm="HS256",
     )
     response = await client.get("/v1/children", headers={"Authorization": f"Bearer {forged}"})

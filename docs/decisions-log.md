@@ -337,3 +337,23 @@ that file left open.
   prompt locally.
 - **The acceptance test now runs the fullest day the scheduler can produce** — Saturday the
   15th, four slots — rather than the three it asserted before.
+
+## C — Build and deploy hygiene
+
+- **C1: the uv pin is now 0.8.17**, the version that generated `uv.lock` (`revision = 3`).
+  **The image was still not built — the Docker daemon was unavailable in this session too.**
+  The pin is a reasoned fix, not a verified one.
+- **C2: the local-hour filter is a `run_scheduler` argument, not a hard-coded 5.** The job
+  passes `SCHEDULER_LOCAL_HOUR`; tests pass it explicitly; `--any-hour` and `--date` pass
+  nothing. One code path, three deliberate callers.
+- **C2: an explicit `--date` implies no hour filter.** A backfill for a named day is a
+  deliberate act and has nothing to do with what time it is right now.
+- **C2: `SchedulerRun` gained `skipped_off_hour`** so the 23 daily no-op runs say why they
+  did nothing, rather than looking like a scheduler that stopped working.
+- **C3: the 19-byte key was never `JWT_SECRET` — I misdiagnosed this in the last session.**
+  `.env.example` held a 43-byte value. The warning came from
+  `tests/test_auth.py::test_a_token_signed_with_the_wrong_secret_is_rejected`, which forges
+  a token with the literal `"not-the-real-secret"` (19 bytes). Lengthening the example alone
+  would not have silenced it. The forged key is now long enough — the point of that test is
+  the *wrong* key, not a short one — and `.env.example` is a 32-byte value regardless,
+  because it is better hygiene and the generation command belongs next to it.

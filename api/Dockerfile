@@ -5,7 +5,9 @@
 # reaches the runtime image except that virtualenv and the application source.
 FROM python:3.12-slim-bookworm AS build
 
-COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
+# Must be able to read uv.lock's format. The committed lock is revision 3, which uv
+# 0.5.x does not understand — `uv sync --frozen` rejects it outright.
+COPY --from=ghcr.io/astral-sh/uv:0.8.17 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

@@ -33,6 +33,18 @@ def local_date(instant: dt.datetime, timezone: str) -> dt.date:
     return instant.astimezone(zone(timezone)).date()
 
 
+def local_hour(instant: dt.datetime, timezone: str) -> int:
+    """The hour of the clock on the wall in that zone, 0-23.
+
+    The scheduler fires hourly and uses this to pick out the children for whom it is
+    currently 5am. One daily UTC cron can only ever be 5am in one place, and it drifts an
+    hour against DST twice a year.
+    """
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=dt.UTC)
+    return instant.astimezone(zone(timezone)).hour
+
+
 def today_in(timezone: str, *, now: dt.datetime | None = None) -> dt.date:
     return local_date(now or dt.datetime.now(tz=dt.UTC), timezone)
 

@@ -236,7 +236,7 @@ fly ssh console --app rascal-api --command "python -m rascal.jobs.seed"
 Safe to run as often as you like: the loader is keyed on a hash of `(kind, cadence, body)`,
 so it updates and inserts but never duplicates and never deletes.
 
-### The daily scheduler
+### The scheduler
 
 `fly.toml` has no stanza for a scheduled machine, so it is created once with the CLI and is
 then not managed by `fly deploy`:
@@ -244,16 +244,22 @@ then not managed by `fly deploy`:
 ```bash
 fly machine run . \
   --app rascal-api \
-  --schedule daily \
+  --schedule hourly \
   --region ord \
   --vm-size shared-cpu-1x \
   --vm-memory 512 \
   --command "python -m rascal.jobs.scheduler"
 ```
 
-The job derives each child's date from the run instant in their own `family_timezone`, so
-one daily UTC firing serves every timezone correctly. It is idempotent, so a duplicate
-firing or a manual re-run costs nothing.
+**Hourly, not daily.** A single daily cron fires at one fixed UTC hour. That hour is 5am in
+exactly one timezone, it is the middle of the evening in half the world, and it drifts by an
+hour against your own DST twice a year. Instead the job fires every hour and does work only
+for the children for whom it is currently 5am on the wall — so every timezone gets its own
+5am, correctly, forever, with no configuration.
+
+That costs 24 tiny wakeups a day, which is nothing. Twenty-three of them find no child at
+5am, log that, and exit. The run is idempotent on `(child_id, assigned_on, slot)`, so a
+double-fire or a retry costs nothing either.
 
 **After a `fly deploy` that changes scheduler behaviour**, the scheduled machine is still on
 the old image. Destroy and recreate it:
@@ -267,7 +273,13 @@ fly machine destroy --app rascal-api --force <machine-id>
 Run it by hand any time:
 
 ```bash
+# Only children for whom it is currently 5am — exactly what the hourly machine does.
 fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler"
+
+# Every child, right now, whatever their local time.
+fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler --any-hour"
+
+# A specific calendar day for every child — a backfill, or a morning you slept through.
 fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler --date 2026-08-14"
 ```
 
