@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-groups
+        working-directory: api
+      - run: uv run ruff check .
+        working-directory: api
+      - run: uv run ruff format --check .
+        working-directory: api
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: rascal
+          POSTGRES_PASSWORD: rascal
+          POSTGRES_DB: rascal
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U rascal -d rascal"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      ENVIRONMENT: local
+      DATABASE_URL: postgresql+psycopg://rascal:rascal@localhost:5433/rascal
+      JWT_SECRET: ci-secret-not-for-production
+      S3_BUCKET: rascal-media-ci
+      S3_REGION: us-east-2
+      AWS_ACCESS_KEY_ID: ci-access-key
+      AWS_SECRET_ACCESS_KEY: ci-secret-key
+      APPLE_BUNDLE_ID: com.example.rascal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-groups
+        working-directory: api
+      - run: uv run pytest -q
+        working-directory: api

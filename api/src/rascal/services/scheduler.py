@@ -1,0 +1,325 @@
+"""The daily scheduler.
+
+Runs 5am in each child's `family_timezone`. `assigned_on` is the date **in that zone**,
+derived from the run instant, so two children in different zones get different dates from
+the same UTC moment — and that is correct.
+
+Selection is split in two. :func:`choose_prompt` is pure: candidates in, one prompt out, no
+database and no clock. :func:`run_scheduler` is the impure half that reads the pool and
+writes rows. The pure half is where the cooldown, theme rotation, and age-window rules live,
+and it is the half worth unit tests.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import logging
+import random
+import uuid
+from dataclasses import dataclass, field
+
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from rascal.constants import DEFAULT_EXPIRY_DAYS, Slot
+from rascal.models import Assignment, Child, Prompt
+from rascal.services.dates import local_date
+
+log = logging.getLogger("rascal.scheduler")
+
+# docs/data-model.md §Scheduler logic.
+COOLDOWN_DAYS = 180
+RELAXED_COOLDOWN_DAYS = 90
+THEME_ROTATION_DAYS = 2
+
+# A prompt this child has never seen beats one they have. Everything else is even.
+UNSEEN_WEIGHT = 3.0
+SEEN_WEIGHT = 1.0
+
+# What each slot draws from. The mission slot is everything you go and do; the question slot
+# is the one you answer.
+MISSION_KINDS = ("photo", "video", "audio", "activity", "measurement")
+
+
+@dataclass(frozen=True)
+class SlotSpec:
+    cadence: str
+    kinds: tuple[str, ...] | None  # None means any kind at that cadence
+
+
+SLOT_SPECS: dict[Slot, SlotSpec] = {
+    "question": SlotSpec(cadence="daily", kinds=("question",)),
+    "mission": SlotSpec(cadence="daily", kinds=MISSION_KINDS),
+    "weekly": SlotSpec(cadence="weekly", kinds=None),
+    # Measurement *and* letters. Both are cadence monthly, and letters have no slot of their
+    # own — see docs/decisions-log.md.
+    "monthly": SlotSpec(cadence="monthly", kinds=None),
+}
+
+
+@dataclass
+class SchedulerRun:
+    """What a run did, for the log line and for the debug route's response."""
+
+    as_of: dt.date | None = None
+    expired: int = 0
+    created: int = 0
+    skipped_existing: int = 0
+    exhausted: list[str] = field(default_factory=list)
+
+
+# --- The pure half -----------------------------------------------------------------------
+
+
+def _eligible(prompt: Prompt, age_months: int, month: int) -> bool:
+    """Cadence and kind are filtered in SQL; this is the age window and the seasonal tag."""
+    return prompt.covers_age(age_months) and prompt.covers_month(month)
+
+
+def choose_prompt(
+    candidates: list[Prompt],
+    *,
+    age_months: int,
+    month: int,
+    served_recently: dict[uuid.UUID, int],
+    recent_themes: set[str],
+    rng: random.Random,
+) -> Prompt | None:
+    """Pick one prompt. Pure — no database, no clock, no randomness you cannot seed.
+
+    `served_recently` maps a prompt id to how many days ago this child last saw it.
+
+    The pool narrows from strictest to loosest, and the order matters: an age-inappropriate
+    prompt is worse than a repeat, so the age window is the *last* thing to give.
+
+      1. age + season, 180-day cooldown, no theme served in the last two days
+      2. age + season, 90-day cooldown, theme rotation still on   <- cooldown relaxes first
+      3. age + season, 90-day cooldown, theme rotation dropped
+      4. age + season, no cooldown at all
+      5. season only                                              <- age window relaxes last
+      6. anything in the pool
+    """
+    in_window = [p for p in candidates if _eligible(p, age_months, month)]
+    in_season = [p for p in candidates if p.covers_month(month)]
+
+    def outside(pool: list[Prompt], cooldown: int) -> list[Prompt]:
+        return [p for p in pool if served_recently.get(p.id, cooldown + 1) > cooldown]
+
+    def fresh_theme(pool: list[Prompt]) -> list[Prompt]:
+        return [p for p in pool if p.theme not in recent_themes]
+
+    ladders = (
+        fresh_theme(outside(in_window, COOLDOWN_DAYS)),
+        fresh_theme(outside(in_window, RELAXED_COOLDOWN_DAYS)),
+        outside(in_window, RELAXED_COOLDOWN_DAYS),
+        in_window,
+        in_season,
+        candidates,
+    )
+    for pool in ladders:
+        if pool:
+            return _weighted_pick(pool, served_recently, rng)
+    return None
+
+
+def _weighted_pick(
+    pool: list[Prompt], served_recently: dict[uuid.UUID, int], rng: random.Random
+) -> Prompt:
+    weights = [UNSEEN_WEIGHT if p.id not in served_recently else SEEN_WEIGHT for p in pool]
+    return rng.choices(pool, weights=weights, k=1)[0]
+
+
+# --- The impure half ---------------------------------------------------------------------
+
+
+async def _candidates(session: AsyncSession, spec: SlotSpec) -> list[Prompt]:
+    clauses = [Prompt.active.is_(True), Prompt.cadence == spec.cadence]
+    if spec.kinds is not None:
+        clauses.append(Prompt.kind.in_(spec.kinds))
+    rows = await session.execute(select(Prompt).where(*clauses))
+    return list(rows.scalars().all())
+
+
+async def _history(
+    session: AsyncSession, child_id: uuid.UUID, as_of_date: dt.date
+) -> tuple[dict[uuid.UUID, int], set[str]]:
+    """How long ago this child saw each prompt, and the themes from the last two days.
+
+    The theme window includes `as_of_date` itself, so the mission picked seconds after the
+    question does not land on the same theme.
+    """
+    horizon = as_of_date - dt.timedelta(days=COOLDOWN_DAYS)
+    rows = (
+        await session.execute(
+            select(Assignment.prompt_id, Assignment.assigned_on, Prompt.theme)
+            .join(Prompt, Prompt.id == Assignment.prompt_id)
+            .where(Assignment.child_id == child_id, Assignment.assigned_on >= horizon)
+        )
+    ).all()
+
+    served: dict[uuid.UUID, int] = {}
+    themes: set[str] = set()
+    theme_cutoff = as_of_date - dt.timedelta(days=THEME_ROTATION_DAYS)
+    for prompt_id, assigned_on, theme in rows:
+        days_ago = (as_of_date - assigned_on).days
+        served[prompt_id] = min(served.get(prompt_id, days_ago), days_ago)
+        if assigned_on >= theme_cutoff:
+            themes.add(theme)
+    return served, themes
+
+
+async def select_prompt(
+    child: Child,
+    slot: Slot,
+    as_of_date: dt.date,
+    session: AsyncSession,
+    *,
+    rng: random.Random | None = None,
+) -> Prompt | None:
+    """The signature `docs/data-model.md` describes: one child, one slot, one date.
+
+    A thin wrapper that loads the pool and this child's history, then hands both to the pure
+    :func:`choose_prompt`.
+    """
+    from rascal.services.dates import age_in_months
+
+    spec = SLOT_SPECS[slot]
+    candidates = await _candidates(session, spec)
+    served, themes = await _history(session, child.id, as_of_date)
+    return choose_prompt(
+        candidates,
+        age_months=age_in_months(child.birthdate, as_of_date),
+        month=as_of_date.month,
+        served_recently=served,
+        recent_themes=themes,
+        rng=rng or random.Random(),
+    )
+
+
+def slots_for(day: dt.date) -> list[Slot]:
+    """The daily pair, plus the weekly on Saturday and the monthly on the 1st."""
+    slots: list[Slot] = ["question", "mission"]
+    if day.weekday() == 5:  # Saturday
+        slots.append("weekly")
+    if day.day == 1:
+        slots.append("monthly")
+    return slots
+
+
+async def _expire_stale(session: AsyncSession, child: Child, today: dt.date) -> int:
+    result = await session.execute(
+        update(Assignment)
+        .where(
+            Assignment.child_id == child.id,
+            Assignment.status == "pending",
+            Assignment.expires_on < today,
+        )
+        .values(status="expired")
+    )
+    return result.rowcount or 0
+
+
+async def _fill_slot(
+    session: AsyncSession,
+    child: Child,
+    slot: Slot,
+    day: dt.date,
+    rng: random.Random,
+    run: SchedulerRun,
+) -> None:
+    # Cheap pre-check so an already-filled slot does not burn a selection. The unique index
+    # is still what guarantees correctness under a concurrent run.
+    already = await session.scalar(
+        select(Assignment.id).where(
+            Assignment.child_id == child.id,
+            Assignment.assigned_on == day,
+            Assignment.slot == slot,
+        )
+    )
+    if already is not None:
+        run.skipped_existing += 1
+        return
+
+    prompt = await select_prompt(child, slot, day, session, rng=rng)
+    if prompt is None:
+        # No fake data and no fallback prompt: an empty slot is honest, and the log line
+        # says which child and which slot to go and fix.
+        run.exhausted.append(f"{child.id}:{slot}")
+        log.warning(
+            "no eligible prompt",
+            extra={"child_id": str(child.id), "slot": slot, "assigned_on": day.isoformat()},
+        )
+        return
+
+    result = await session.execute(
+        insert(Assignment)
+        .values(
+            id=uuid.uuid4(),
+            child_id=child.id,
+            prompt_id=prompt.id,
+            slot=slot,
+            assigned_on=day,
+            expires_on=day + dt.timedelta(days=DEFAULT_EXPIRY_DAYS),
+            status="pending",
+        )
+        # The unique index on (child_id, assigned_on, slot) is what makes reruns free.
+        .on_conflict_do_nothing(
+            index_elements=[Assignment.child_id, Assignment.assigned_on, Assignment.slot]
+        )
+        .returning(Assignment.id)
+    )
+    if result.scalar_one_or_none() is None:
+        run.skipped_existing += 1
+    else:
+        run.created += 1
+
+
+async def run_scheduler(
+    session: AsyncSession,
+    *,
+    as_of: dt.datetime | None = None,
+    as_of_date: dt.date | None = None,
+    child_id: uuid.UUID | None = None,
+    seed: int | None = None,
+) -> SchedulerRun:
+    """Expire what lapsed, then fill every slot for every child.
+
+    Pass `as_of` (an instant) for the real job: each child's date is that instant read in
+    their own `family_timezone`. Pass `as_of_date` (a plain date) to run a specific calendar
+    day for everyone, which is what backfilling and the debug route want.
+    """
+    if as_of is not None and as_of_date is not None:
+        raise ValueError("pass as_of or as_of_date, not both")
+    instant = as_of or dt.datetime.now(tz=dt.UTC)
+
+    rng = random.Random(seed)
+    run = SchedulerRun(as_of=as_of_date)
+
+    statement = select(Child)
+    if child_id is not None:
+        statement = statement.where(Child.id == child_id)
+    children = list((await session.execute(statement)).scalars().all())
+
+    for child in children:
+        # Never UTC and never the server's local time: without this the 5am job hands you
+        # tomorrow's mission at 9pm.
+        day = as_of_date or local_date(instant, child.family_timezone)
+        run.expired += await _expire_stale(session, child, day)
+        for slot in slots_for(day):
+            await _fill_slot(session, child, slot, day, rng, run)
+
+    await session.flush()
+    log.info(
+        "scheduler run",
+        # Deliberately prefixed: `created` and `message` are reserved LogRecord attributes
+        # and logging raises rather than shadowing them.
+        extra={
+            "children": len(children),
+            "assignments_expired": run.expired,
+            "assignments_created": run.created,
+            "assignments_skipped": run.skipped_existing,
+            "slots_exhausted": len(run.exhausted),
+        },
+    )
+    return run

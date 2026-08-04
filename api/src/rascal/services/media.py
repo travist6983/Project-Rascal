@@ -1,0 +1,203 @@
+"""Media: presigned upload, completion, and the on-device AI write-back.
+
+Bytes go device → S3 on a background `URLSession`. This service only ever holds keys and
+metadata, which is what lets the same endpoints serve a browser unchanged.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import math
+import uuid
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from rascal.config import Settings
+from rascal.constants import MediaKind
+from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
+from rascal.models import Entry, EntryTag, Media
+from rascal.schemas.media import CompletedPart, UploadPart
+from rascal.services import s3
+
+# S3 refuses more than 10,000 parts in a single multipart upload.
+MAX_PARTS = 10_000
+
+
+@dataclass(frozen=True)
+class UploadPlan:
+    media: Media
+    upload_url: str | None
+    parts: list[UploadPart] | None
+    multipart: bool
+
+
+def _now() -> dt.datetime:
+    return dt.datetime.now(tz=dt.UTC)
+
+
+def build_key(child_id: uuid.UUID, entry_id: uuid.UUID, media_id: uuid.UUID, filename: str) -> str:
+    """Keys are prefixed by child so a per-child export or lifecycle rule is a prefix scan."""
+    suffix = PurePosixPath(filename).suffix.lower()[:16]
+    return f"children/{child_id}/entries/{entry_id}/{media_id}{suffix}"
+
+
+def wants_multipart(kind: MediaKind, size: int, settings: Settings) -> bool:
+    """Video always assumes multipart; everything else crosses over at the threshold."""
+    return kind == "video" or size > settings.multipart_threshold_bytes
+
+
+async def plan_upload(
+    session: AsyncSession,
+    child_id: uuid.UUID,
+    *,
+    entry_id: uuid.UUID,
+    kind: MediaKind,
+    filename: str,
+    size: int,
+    content_type: str,
+    media_id: uuid.UUID | None,
+    settings: Settings,
+) -> UploadPlan:
+    entry = await session.get(Entry, entry_id)
+    if entry is None or entry.deleted_at is not None:
+        raise not_found("Entry")
+    if entry.child_id != child_id:
+        raise validation_failed("That entry belongs to a different child.", field="entry_id")
+
+    media_id = media_id or uuid.uuid4()
+    if await session.get(Media, media_id) is not None:
+        raise RascalError(
+            ErrorCode.CONFLICT, "Media with this id already exists.", field="media_id"
+        )
+
+    key = build_key(child_id, entry_id, media_id, filename)
+    media = Media(
+        id=media_id,
+        entry_id=entry_id,
+        s3_key=key,
+        kind=kind,
+        bytes=size,
+        upload_status="pending",
+        # Thumbnail and poster-frame generation is out of P0 scope, so this stays null.
+        thumb_key=None,
+    )
+
+    if not wants_multipart(kind, size, settings):
+        media.s3_upload_id = None
+        session.add(media)
+        await session.flush()
+        return UploadPlan(
+            media=media,
+            upload_url=s3.presign_put(key, content_type, settings),
+            parts=None,
+            multipart=False,
+        )
+
+    chunk = settings.multipart_chunk_bytes
+    part_count = max(1, math.ceil(size / chunk))
+    if part_count > MAX_PARTS:
+        raise validation_failed(
+            f"{size} bytes needs more than {MAX_PARTS} parts at the configured chunk size.",
+            field="bytes",
+        )
+
+    upload_id = await s3.create_multipart_upload(key, content_type, settings)
+    media.s3_upload_id = upload_id
+    session.add(media)
+    await session.flush()
+
+    parts = [
+        UploadPart(part_number=number, upload_url=s3.presign_part(key, upload_id, number, settings))
+        for number in range(1, part_count + 1)
+    ]
+    return UploadPlan(media=media, upload_url=None, parts=parts, multipart=True)
+
+
+async def complete_upload(
+    session: AsyncSession,
+    media: Media,
+    *,
+    etags: list[CompletedPart] | None,
+    captured_at: dt.datetime | None,
+    duration_seconds: int | None,
+    settings: Settings,
+) -> Media:
+    """Mark the object uploaded. `thumb_key` stays null — that pipeline is out of P0 scope."""
+    if media.s3_upload_id:
+        if not etags:
+            raise RascalError(
+                ErrorCode.UPLOAD_INCOMPLETE,
+                "This was a multipart upload; etags for every part are required.",
+                field="etags",
+            )
+        parts = [
+            {"PartNumber": part.part_number, "ETag": part.etag}
+            for part in sorted(etags, key=lambda p: p.part_number)
+        ]
+        await s3.complete_multipart_upload(media.s3_key, media.s3_upload_id, parts, settings)
+        media.s3_upload_id = None
+
+    media.upload_status = "complete"
+    if captured_at is not None:
+        media.captured_at = captured_at
+    if duration_seconds is not None:
+        media.duration_seconds = duration_seconds
+    await session.flush()
+    return media
+
+
+async def write_derived(
+    session: AsyncSession,
+    media: Media,
+    *,
+    transcript: str | None,
+    caption: str | None,
+    tags: list[str] | None,
+) -> tuple[Media, list[EntryTag]]:
+    """Persist what the phone's models produced.
+
+    This is durable data, not a cache — the server never regenerates it, and a browser that
+    will never have an on-device model reads the same rows. Idempotent: sending the same
+    transcript twice changes nothing.
+    """
+    if transcript is not None:
+        media.transcript = transcript
+    if caption is not None:
+        media.caption = caption
+
+    if tags is not None:
+        from rascal.services.entries import apply_tags
+
+        entry = await session.scalar(
+            select(Entry).where(Entry.id == media.entry_id).options(selectinload(Entry.entry_tags))
+        )
+        if entry is None:
+            raise not_found("Entry")
+        # source='device_ai'. apply_tags refuses to touch a row a human wrote.
+        await apply_tags(session, entry, tags, "device_ai")
+
+    await session.flush()
+
+    links = (
+        (
+            await session.execute(
+                select(EntryTag)
+                .where(EntryTag.entry_id == media.entry_id, EntryTag.deleted_at.is_(None))
+                .options(selectinload(EntryTag.tag))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return media, list(links)
+
+
+async def load_media(session: AsyncSession, media_id: uuid.UUID) -> Media:
+    media = await session.get(Media, media_id)
+    if media is None or media.deleted_at is not None:
+        raise not_found("Media")
+    return media

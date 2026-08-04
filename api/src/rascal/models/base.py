@@ -1,0 +1,82 @@
+"""The declarative base and the column types every table shares."""
+
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+from typing import Annotated
+
+from sqlalchemy import CheckConstraint, DateTime, MetaData, func
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import DeclarativeBase, mapped_column
+
+# Explicit names for every constraint and index. Alembic autogenerate against unnamed
+# constraints produces migrations that cannot be reversed cleanly.
+NAMING_CONVENTION = {
+    "ix": "ix_%(table_name)s_%(column_0_N_name)s",
+    "uq": "uq_%(table_name)s_%(column_0_N_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_N_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+uuid_pk = Annotated[
+    uuid.UUID,
+    mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4),
+]
+
+# entries and media carry UUIDs minted on the phone, so a record exists offline before the
+# server ever sees it. Same column type; the only difference is who calls uuid4().
+client_uuid_pk = Annotated[
+    uuid.UUID,
+    mapped_column(PGUUID(as_uuid=True), primary_key=True),
+]
+
+uuid_fk = Annotated[uuid.UUID, mapped_column(PGUUID(as_uuid=True))]
+
+# timestamptz everywhere. A naive timestamp in an archive spanning eighteen years and two
+# timezones is a bug that only shows up years later.
+created = Annotated[
+    dt.datetime,
+    mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False),
+]
+
+# Written by the set_updated_at() trigger, never by application code.
+updated = Annotated[
+    dt.datetime,
+    mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    ),
+]
+
+moment = Annotated[dt.datetime, mapped_column(DateTime(timezone=True))]
+optional_moment = Annotated[
+    dt.datetime | None, mapped_column(DateTime(timezone=True), nullable=True)
+]
+
+
+def one_of(column: str, values: tuple[str, ...], *, name: str) -> CheckConstraint:
+    """A named CHECK restricting a text column to a fixed set."""
+    rendered = ", ".join(f"'{value}'" for value in values)
+    return CheckConstraint(f"{column} IN ({rendered})", name=name)
+
+
+# Tables carrying an updated_at column, and therefore the set_updated_at() trigger. The
+# migration reads this list, so adding a table with updated_at is a one-line change.
+TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
+    "users",
+    "children",
+    "prompts",
+    "assignments",
+    "entries",
+    "media",
+    "tags",
+    "entry_tags",
+)
