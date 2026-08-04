@@ -12,6 +12,7 @@ the library, and the rejected ones are the specific failures the library warns a
 from __future__ import annotations
 
 import datetime as dt
+import importlib
 
 import pytest
 from scripts.generate_prompts import (
@@ -252,3 +253,36 @@ def test_a_pipe_in_a_prompt_does_not_break_the_table() -> None:
     assert "\\|" in body_row
     # Only the cell delimiters count as delimiters: four cells, not five.
     assert body_row.replace("\\|", "").count("|") == 5
+
+
+# --- Configuration ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, "claude-sonnet-5"),
+        # The one that matters: `${{ vars.ANTHROPIC_MODEL }}` on an unset repository variable
+        # arrives as an empty string, not as an absent one. A `get` default would sail past
+        # this and hand the API `"model": ""`.
+        ("", "claude-sonnet-5"),
+        ("   ", "claude-sonnet-5"),
+        ("some-other-model", "some-other-model"),
+    ],
+)
+def test_an_unset_model_variable_falls_back_rather_than_sending_an_empty_string(
+    value: str | None, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if value is None:
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    else:
+        monkeypatch.setenv("ANTHROPIC_MODEL", value)
+
+    module = importlib.reload(importlib.import_module("scripts.generate_prompts"))
+    try:
+        resolved = module.MODEL
+        assert resolved == expected
+    finally:
+        # Leave the module as the rest of the suite imported it.
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        importlib.reload(module)

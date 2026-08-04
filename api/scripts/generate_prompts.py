@@ -45,7 +45,10 @@ CANDIDATES = REPO / "docs" / "prompt-candidates"
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 # Overridable, because the right model for this changes faster than this file does.
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+# `or` rather than a `get` default: the workflow passes `${{ vars.ANTHROPIC_MODEL }}`, and an
+# unset repository variable arrives as an empty string rather than as an absent one. A `get`
+# default would hand the API `"model": ""` and take a 400 for it.
+MODEL = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
 MAX_TOKENS = 8192
 
 # What each kind's prompts have to look like, mirrored from the library's own headings.
