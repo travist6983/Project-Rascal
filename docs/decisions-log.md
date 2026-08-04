@@ -72,3 +72,34 @@ that file left open.
 - **Extra indexes beyond the spec:** `ix_assignments_child_id_status_assigned_on` (the
   `/today` and expiry queries), `ix_media_entry_id` and `ix_entry_tags_tag_id` (foreign keys
   Postgres does not index for you), `uq_tags_child_id_name` (tags are per child).
+
+## M2 — Prompt seeding
+
+- **The markdown-to-YAML converter lives at `api/scripts/mission_library_to_yaml.py`.** The
+  task calls it a one-time conversion, but `docs/mission-library.md` tells you to regenerate
+  the YAML after adding prompts — so it is a committed, re-runnable script rather than a
+  throwaway. It is the only code in the repo that reads markdown, and it never runs at
+  request time.
+- **113 prompts convert from the library**, against the "~105" in the doc's header: 30
+  question, 23 photo, 12 video, 12 audio, 25 activity, 3 measurement, 8 letter. (Kind counts
+  cut across cadence — the weekly and monthly tables contribute activity, video, photo, and
+  measurement rows.)
+- **The coverage table at the bottom of `docs/mission-library.md` under-counts four kinds.**
+  Eligible at 48 months, the seed file actually holds question 30 (doc 30), photo 22 (doc
+  "~19", or 18 once seasonal prompts are filtered), video 11 (doc 9), audio 11 (doc 11),
+  activity 16 (doc 15), weekly 10 (doc 9), monthly 4 (doc 4), letter 8 (doc 8). The doc was
+  written before the last few prompts were added. The test asserts the exact figures *and*
+  treats the doc's table as a floor, so drift is caught in either direction without
+  hard-coding a stale number.
+- **`content_hash` joins `(kind, cadence, body)` with unit separators (`\x1f`)** so a body
+  containing the delimiter cannot collide with a different kind or cadence.
+- **The upsert's `DO UPDATE` carries a `WHERE ... IS DISTINCT FROM` guard.** Without it every
+  re-seed would touch all 113 rows, fire the `updated_at` trigger, and make every client
+  resync the whole library for nothing.
+- **`body` is not in the updatable field set.** It is part of the identity hash, so an edited
+  body is a new prompt — which is correct: the old one may already have assignments and
+  entries pointing at it.
+- **The loader validates the YAML before touching the database**, so a bad seed file fails
+  with a line reference rather than a CHECK constraint violation halfway through.
+- **A test regenerates the YAML from the markdown and compares.** Drift between the authoring
+  surface and the seed file is a silent content bug otherwise.

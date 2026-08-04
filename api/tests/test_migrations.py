@@ -127,7 +127,7 @@ def test_upgrade_creates_every_named_object_then_downgrade_leaves_nothing(
     engine = sa.create_engine(scratch_url)
     with engine.connect() as conn:
         tables = _names(conn, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-        assert EXPECTED_TABLES <= tables
+        assert tables >= EXPECTED_TABLES
 
         indexes = _names(conn, "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
         missing = EXPECTED_INDEXES - indexes
