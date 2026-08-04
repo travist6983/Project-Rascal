@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.models import Entry, EntryTag, Media, Tag
+from rascal.services.entries import refresh_entry_type
 
 
 async def _world(session: AsyncSession):
@@ -102,8 +103,9 @@ async def test_a_did_it_entry_needs_no_media(client: AsyncClient, session: Async
     body = response.json()
     assert body["media"] == []
     assert body["body"] is None
-    # entry_type is denormalized from the prompt when the client omits it.
-    assert body["entry_type"] == "activity"
+    # entry_type describes the artifact, not the prompt: nothing was captured and nothing was
+    # written, so this is a did_it.
+    assert body["entry_type"] == "did_it"
 
 
 async def test_completing_a_pending_assignment_flips_it_to_done(
@@ -348,17 +350,34 @@ async def test_media_summaries_come_inline_with_no_extra_call(
 
 async def test_filters_narrow_the_timeline(client: AsyncClient, session: AsyncSession) -> None:
     user, child = await _world(session)
-    await client.post(
+    photographed = await client.post(
         "/v1/entries",
-        json=_entry_body(child, body="a photo day", entry_type="photo", tags=["outdoors"]),
+        json=_entry_body(child, body="a photo day", tags=["outdoors"]),
         headers=auth_headers(user),
     )
     await client.post(
         "/v1/entries",
-        json=_entry_body(child, body="a written day", entry_type="text", tags=[]),
+        json=_entry_body(child, body="a written day", tags=[]),
         headers=auth_headers(user),
     )
     headers = auth_headers(user)
+
+    # entry_type follows the artifact, so the photo entry only becomes a photo entry once a
+    # photo is actually attached to it.
+    session.add(
+        Media(
+            id=uuid.uuid4(),
+            entry_id=uuid.UUID(photographed.json()["id"]),
+            s3_key="children/x/day.jpg",
+            kind="photo",
+            bytes=4096,
+            upload_status="complete",
+        )
+    )
+    await session.commit()
+    stored = await session.get(Entry, uuid.UUID(photographed.json()["id"]))
+    await refresh_entry_type(session, stored)
+    await session.commit()
 
     by_type = await client.get(
         "/v1/entries", params={"child_id": str(child.id), "type": "photo"}, headers=headers
@@ -499,3 +518,178 @@ async def test_a_deleted_entry_is_a_404_on_read(client: AsyncClient, session: As
 
     response = await client.get(f"/v1/entries/{entry_id}", headers=auth_headers(user))
     assert response.status_code == 404
+
+
+# --- A1: deleting an entry releases its assignment ---------------------------------------
+
+
+async def test_deleting_an_entry_puts_its_assignment_back_on_the_today_screen(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The wrong-photo-redo-it path. Without this the mission is stranded `done` all day."""
+    user, child = await _world(session)
+    prompt = await make_prompt(session, body="Record him singing.")
+    assignment = await make_assignment(
+        session, child, prompt, slot="mission", assigned_on=dt.date(2026, 8, 14)
+    )
+    await session.commit()
+    headers = auth_headers(user)
+
+    first = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        headers=headers,
+    )
+    assert first.status_code == 201
+    await session.refresh(assignment)
+    assert assignment.status == "done"
+
+    assert (
+        await client.delete(f"/v1/entries/{first.json()['id']}", headers=headers)
+    ).status_code == 204
+
+    await session.refresh(assignment)
+    assert assignment.status == "pending"
+    assert assignment.completed_by is None
+
+    screen = (
+        await client.get(
+            f"/v1/children/{child.id}/today",
+            params={"date": "2026-08-14"},
+            headers=headers,
+        )
+    ).json()
+    assert [item["id"] for item in screen["today"]] == [str(assignment.id)]
+    assert screen["done_today"] == []
+
+    # And redoing it lands in done_today, so the day can actually be completed.
+    second = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        headers=headers,
+    )
+    assert second.status_code == 201
+    after = (
+        await client.get(
+            f"/v1/children/{child.id}/today",
+            params={"date": "2026-08-14"},
+            headers=headers,
+        )
+    ).json()
+    assert after["today"] == []
+    assert [item["id"] for item in after["done_today"]] == [str(assignment.id)]
+
+
+async def test_deleting_one_of_two_entries_leaves_the_assignment_done(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Two entries can answer one mission; deleting the first must not unmark the second."""
+    user, child = await _world(session)
+    prompt = await make_prompt(session)
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    await session.commit()
+    headers = auth_headers(user)
+
+    first = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        headers=headers,
+    )
+    await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        headers=headers,
+    )
+
+    await client.delete(f"/v1/entries/{first.json()['id']}", headers=headers)
+
+    await session.refresh(assignment)
+    assert assignment.status == "done"
+
+
+async def test_deleting_a_freeform_entry_touches_no_assignment(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, child = await _world(session)
+    created = await client.post(
+        "/v1/entries", json=_entry_body(child, tags=[]), headers=auth_headers(user)
+    )
+    response = await client.delete(
+        f"/v1/entries/{created.json()['id']}", headers=auth_headers(user)
+    )
+    assert response.status_code == 204
+
+
+# --- A2: entry_type describes the artifact -----------------------------------------------
+
+
+async def test_a_did_it_completion_of_an_audio_mission_is_not_an_audio_entry(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The Voice filter must not surface an entry with no audio in it."""
+    user, child = await _world(session)
+    prompt = await make_prompt(
+        session,
+        kind="audio",
+        completion_mode="media",
+        body="Record him telling you a story.",
+    )
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    await session.commit()
+    headers = auth_headers(user)
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), body=None, tags=[]),
+        headers=headers,
+    )
+    assert created.json()["entry_type"] == "did_it"
+
+    filtered = await client.get(
+        "/v1/entries", params={"child_id": str(child.id), "type": "audio"}, headers=headers
+    )
+    assert filtered.json()["entries"] == []
+
+    # What was asked is not lost — it is still reachable through the assignment's prompt.
+    detail = await client.get(f"/v1/entries/{created.json()['id']}", headers=headers)
+    assert detail.json()["prompt"]["kind"] == "audio"
+
+
+async def test_a_body_makes_it_a_text_entry(client: AsyncClient, session: AsyncSession) -> None:
+    user, child = await _world(session)
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, body="He said 'pusgetti' again.", tags=[]),
+        headers=auth_headers(user),
+    )
+    assert created.json()["entry_type"] == "text"
+
+
+async def test_a_client_supplied_entry_type_is_ignored(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The server owns derived data, the same way it owns child_age_months."""
+    user, child = await _world(session)
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, body=None, entry_type="video", tags=[]),
+        headers=auth_headers(user),
+    )
+    assert created.json()["entry_type"] == "did_it"
+
+
+async def test_adding_a_body_to_a_did_it_entry_makes_it_text(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, child = await _world(session)
+    created = await client.post(
+        "/v1/entries", json=_entry_body(child, body=None, tags=[]), headers=auth_headers(user)
+    )
+    assert created.json()["entry_type"] == "did_it"
+
+    patched = await client.patch(
+        f"/v1/entries/{created.json()['id']}",
+        json={"body": "Actually, here is what happened."},
+        headers=auth_headers(user),
+    )
+    assert patched.json()["entry_type"] == "text"

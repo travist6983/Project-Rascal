@@ -11,6 +11,7 @@ import binascii
 import datetime as dt
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import Select, and_, func, or_, select
@@ -222,12 +223,48 @@ async def _resolve_assignment(
     return assignment, prompt
 
 
-def _entry_type_for(explicit: EntryType | None, prompt: Prompt | None) -> EntryType:
-    if explicit is not None:
-        return explicit
-    # Denormalized from the prompt so the timeline can filter without a join. A freeform
-    # entry has no prompt to copy, and `text` is what carries it.
-    return prompt.kind if prompt is not None else "text"
+def derive_entry_type(body: str | None, media: Sequence[Media]) -> EntryType:
+    """What the entry actually contains — never what was asked.
+
+    A `did_it` completion of an audio mission is not an audio entry: there is no audio in
+    it, and a Voice filter that surfaces it is lying. What was asked is still recoverable
+    through `assignment_id` -> `prompt.kind`, so nothing is lost by describing the artifact
+    instead of the prompt.
+    """
+    attached = sorted(
+        (item for item in media if item.deleted_at is None),
+        # Deterministic: the relationship's order is not, and "the first attached kind" has
+        # to mean the same thing on every recompute.
+        key=lambda item: (item.created_at, str(item.id)),
+    )
+    if attached:
+        return attached[0].kind  # mixed media takes the first attached kind
+    if body:
+        return "text"
+    return "did_it"
+
+
+async def refresh_entry_type(session: AsyncSession, entry: Entry) -> bool:
+    """Recompute after media lands or the body changes. True if the value moved.
+
+    Media arrives after the entry exists, so the type assigned at creation is provisional.
+    When this writes, the `set_updated_at()` trigger moves the sync cursor for free.
+    """
+    attached = (
+        (
+            await session.execute(
+                select(Media).where(Media.entry_id == entry.id, Media.deleted_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    derived = derive_entry_type(entry.body, list(attached))
+    if derived == entry.entry_type:
+        return False
+    entry.entry_type = derived
+    await session.flush()
+    return True
 
 
 async def create_entry(
@@ -240,7 +277,6 @@ async def create_entry(
     assignment_id: uuid.UUID | None = None,
     title: str | None = None,
     body: str | None = None,
-    entry_type: EntryType | None = None,
     unlock_at_age: int | None = None,
     tags: list[str] | None = None,
 ) -> Entry:
@@ -274,7 +310,9 @@ async def create_entry(
         child_age_months=age_at_instant(child.birthdate, occurred_at, child.family_timezone),
         title=title,
         body=body,
-        entry_type=_entry_type_for(entry_type, prompt),
+        # No media exists yet — it is uploaded against the entry afterwards — so this is
+        # `text` or `did_it`, and POST /media/{id}/complete recomputes it.
+        entry_type=derive_entry_type(body, []),
         unlock_at_age=unlock_at_age,
     )
     session.add(entry)
@@ -401,8 +439,37 @@ async def update_entry(
     if tags is not None:
         await apply_tags(session, entry, tags, "user")
 
+    if "body" in fields:
+        # Adding a body to a did_it entry makes it a text entry. The type describes what is
+        # in the row, so it has to follow an edit of the row.
+        await refresh_entry_type(session, entry)
+
     await session.flush()
     return await load_entry(session, entry.id)
+
+
+async def release_assignment(session: AsyncSession, assignment_id: uuid.UUID) -> bool:
+    """Put a completed assignment back on the Today screen. True if it moved.
+
+    Only when nothing else still completes it: two entries can answer one mission, and
+    deleting the first must not unmark the second.
+    """
+    assignment = await session.get(Assignment, assignment_id)
+    if assignment is None or assignment.status != "done":
+        return False
+
+    still_completed = await session.scalar(
+        select(Entry.id)
+        .where(Entry.assignment_id == assignment_id, Entry.deleted_at.is_(None))
+        .limit(1)
+    )
+    if still_completed is not None:
+        return False
+
+    assignment.status = "pending"
+    assignment.completed_by = None
+    await session.flush()
+    return True
 
 
 async def soft_delete_entry(session: AsyncSession, entry: Entry) -> None:
@@ -416,6 +483,11 @@ async def soft_delete_entry(session: AsyncSession, entry: Entry) -> None:
         if item.deleted_at is None:
             item.deleted_at = now
     await session.flush()
+
+    if entry.assignment_id is not None:
+        # The wrong-photo-redo-it path. Without this the mission is stranded `done` with
+        # nothing to show for it, and the slot is gone for the day.
+        await release_assignment(session, entry.assignment_id)
 
 
 # --- On This Day -------------------------------------------------------------------------

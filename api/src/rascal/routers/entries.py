@@ -62,7 +62,6 @@ async def create_entry(
         assignment_id=payload.assignment_id,
         title=payload.title,
         body=payload.body,
-        entry_type=payload.entry_type,
         unlock_at_age=payload.unlock_at_age,
         tags=payload.tags,
     )

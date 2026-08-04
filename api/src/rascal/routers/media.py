@@ -61,6 +61,7 @@ async def upload_url(
         upload_url=plan.upload_url,
         parts=plan.parts,
         multipart=plan.multipart,
+        chunk_bytes=plan.chunk_bytes,
         expires_in=settings.presign_ttl_seconds,
     )
 

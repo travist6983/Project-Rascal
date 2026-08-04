@@ -34,6 +34,10 @@ class UploadUrlResponse(ApiModel):
     upload_url: str | None = None
     parts: list[UploadPart] | None = None
     multipart: bool
+    # Split the file at exactly this size. The presigned part count was computed from it, so
+    # a client that guesses a different chunk size ends up with the wrong number of parts.
+    # Null for a single PUT, where there is nothing to split.
+    chunk_bytes: int | None = None
     expires_in: int
 
 

@@ -56,6 +56,7 @@ class PushEntry(ApiModel):
     occurred_at: dt.datetime
     title: str | None = None
     body: str | None = None
+    # Ignored, same as on POST /entries: the server derives it from the artifact.
     entry_type: str | None = None
     unlock_at_age: int | None = None
     tags: list[str] | None = None

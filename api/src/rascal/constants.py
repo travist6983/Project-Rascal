@@ -41,12 +41,12 @@ SLOTS: Final = ("question", "mission", "weekly", "monthly")
 AssignmentStatus = Literal["pending", "done", "dismissed", "expired"]
 ASSIGNMENT_STATUSES: Final = ("pending", "done", "dismissed", "expired")
 
-# Denormalized onto entries from the originating prompt so the timeline can filter without
-# a join. Freeform entries have no prompt, so `text` is the value that carries them.
-EntryType = Literal[
-    "question", "photo", "video", "audio", "activity", "measurement", "letter", "text"
-]
-ENTRY_TYPES: Final = (*PROMPT_KINDS, "text")
+# What the entry actually *contains*, not what was asked — so the Voice filter never
+# surfaces an entry with no audio in it. Derived server-side from the body and the attached
+# media; the prompt that caused the entry is still recoverable through
+# assignment_id -> prompt.kind.
+EntryType = Literal["photo", "video", "audio", "text", "did_it"]
+ENTRY_TYPES: Final = ("photo", "video", "audio", "text", "did_it")
 
 MediaKind = Literal["photo", "video", "audio"]
 MEDIA_KINDS: Final = ("photo", "video", "audio")

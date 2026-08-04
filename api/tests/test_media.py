@@ -6,6 +6,7 @@ S3 is `moto`. Nothing here talks to AWS.
 from __future__ import annotations
 
 import datetime as dt
+import math
 import uuid
 from collections.abc import Iterator
 
@@ -333,3 +334,130 @@ async def test_derived_on_someone_elses_media_is_403(
     stored = await session.get(Media, uuid.UUID(media_id))
     await session.refresh(stored)
     assert stored.transcript is None
+
+
+# --- A2/A3/A5: artifact type, chunk size, and a fresh updated_at --------------------------
+
+
+async def test_completing_an_upload_turns_a_did_it_entry_into_a_media_entry(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Media arrives after the entry exists, so the type assigned at creation is provisional."""
+    user, child, entry = await _entry(session)
+    entry.entry_type = "did_it"
+    entry.body = None
+    await session.commit()
+
+    media_id = await _media_for(client, user, entry)
+    await client.post(
+        f"/v1/media/{media_id}/complete",
+        json={"captured_at": "2026-08-14T18:00:00Z"},
+        headers=auth_headers(user),
+    )
+
+    await session.refresh(entry)
+    assert entry.entry_type == "audio"
+
+    listed = await client.get(
+        "/v1/entries",
+        params={"child_id": str(child.id), "type": "audio"},
+        headers=auth_headers(user),
+    )
+    assert [e["id"] for e in listed.json()["entries"]] == [str(entry.id)]
+
+
+async def test_completing_an_upload_moves_the_entrys_sync_cursor(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """A recomputed entry_type has to reach the other device, so updated_at must move."""
+    user, _, entry = await _entry(session)
+    entry.entry_type = "did_it"
+    entry.body = None
+    await session.commit()
+    before = entry.updated_at
+
+    media_id = await _media_for(client, user, entry)
+    await client.post(f"/v1/media/{media_id}/complete", json={}, headers=auth_headers(user))
+
+    await session.refresh(entry)
+    assert entry.updated_at > before
+
+
+async def test_a_multipart_plan_tells_the_client_where_to_split(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Without chunk_bytes the uploader has to guess, and a wrong guess mismatches the parts."""
+    user, _, entry = await _entry(session)
+    settings = get_settings()
+    size = settings.multipart_threshold_bytes + 1
+
+    response = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "kind": "photo",
+            "filename": "huge.jpg",
+            "bytes": size,
+            "content_type": "image/jpeg",
+        },
+        headers=auth_headers(user),
+    )
+
+    body = response.json()
+    assert body["chunk_bytes"] == settings.multipart_chunk_bytes
+    # The part count the server presigned is exactly what that chunk size produces.
+    assert len(body["parts"]) == math.ceil(size / body["chunk_bytes"])
+
+
+async def test_a_single_put_has_no_chunk_size(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    user, _, entry = await _entry(session)
+    response = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "kind": "photo",
+            "filename": "small.jpg",
+            "bytes": 1024,
+            "content_type": "image/jpeg",
+        },
+        headers=auth_headers(user),
+    )
+    assert response.json()["multipart"] is False
+    assert response.json()["chunk_bytes"] is None
+
+
+async def test_complete_returns_the_updated_at_the_trigger_wrote(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """A stale updated_at in a write response disagrees with what /sync will report."""
+    user, _, entry = await _entry(session)
+    media_id = await _media_for(client, user, entry)
+
+    response = await client.post(
+        f"/v1/media/{media_id}/complete", json={}, headers=auth_headers(user)
+    )
+
+    stored = await session.scalar(
+        sa.select(Media.updated_at).where(Media.id == uuid.UUID(media_id))
+    )
+    assert dt.datetime.fromisoformat(response.json()["updated_at"]) == stored
+
+
+async def test_derived_returns_the_updated_at_the_trigger_wrote(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    user, _, entry = await _entry(session)
+    media_id = await _media_for(client, user, entry)
+
+    response = await client.patch(
+        f"/v1/media/{media_id}/derived",
+        json={"transcript": "once upon a time"},
+        headers=auth_headers(user),
+    )
+
+    stored = await session.scalar(
+        sa.select(Media.updated_at).where(Media.id == uuid.UUID(media_id))
+    )
+    assert dt.datetime.fromisoformat(response.json()["media"]["updated_at"]) == stored

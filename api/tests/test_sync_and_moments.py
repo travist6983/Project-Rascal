@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import uuid
 
 import sqlalchemy as sa
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.models import Entry
+from rascal.services.sync import CURSOR_OVERLAP_SECONDS
 
 
 async def _world(session: AsyncSession):
@@ -68,10 +70,15 @@ async def test_a_pull_since_a_cursor_returns_only_what_changed(
     ).json()
 
     await _entry(client, user, child, body="second")
+
+    # The returned cursor is deliberately lagged by CURSOR_OVERLAP_SECONDS, so it re-delivers
+    # rather than risks skipping. Filtering still works: pull from the newest row's own
+    # updated_at and only what came after it comes back.
+    newest = max(entry["updated_at"] for entry in first["entries"])
     second = (
         await client.get(
             "/v1/sync",
-            params={"child_id": str(child.id), "since": first["cursor"]},
+            params={"child_id": str(child.id), "since": newest},
             headers=auth_headers(user),
         )
     ).json()
@@ -422,3 +429,72 @@ async def test_error_codes_are_the_documented_ones() -> None:
         "conflict",
         "internal_error",
     }
+
+
+# --- A4: the sync cursor overlap window ---------------------------------------------------
+
+
+async def test_the_returned_cursor_lags_the_newest_row(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, child = await _world(session)
+    await _entry(client, user, child)
+
+    body = (
+        await client.get("/v1/sync", params={"child_id": str(child.id)}, headers=auth_headers(user))
+    ).json()
+
+    newest = max(dt.datetime.fromisoformat(e["updated_at"]) for e in body["entries"])
+    cursor = dt.datetime.fromisoformat(body["cursor"])
+    assert newest - cursor == dt.timedelta(seconds=CURSOR_OVERLAP_SECONDS)
+
+
+async def test_a_row_committed_by_a_slow_transaction_is_not_skipped(
+    client: AsyncClient, session: AsyncSession, engine
+) -> None:
+    """The bug the overlap window exists for.
+
+    `set_updated_at()` uses `now()`, which is transaction-*start* time. A transaction that
+    opens, takes its time, and commits leaves a row whose `updated_at` is already behind a
+    cursor another device advanced past in the meantime — and that row would then never sync
+    again. Without the lag this test fails: the slow row is invisible on the second pull.
+    """
+    user, child = await _world(session)
+    headers = auth_headers(user)
+
+    slow = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)()
+    try:
+        # Open the transaction and stamp the row — updated_at is fixed at this instant.
+        slow_entry = Entry(
+            id=uuid.uuid4(),
+            child_id=child.id,
+            author_id=user.id,
+            occurred_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC),
+            child_age_months=50,
+            entry_type="text",
+            body="written on the subway, committed much later",
+        )
+        slow.add(slow_entry)
+        await slow.flush()
+
+        # Time passes while that transaction is still open, and the other device syncs.
+        await asyncio.sleep(1.5)
+        pull = (
+            await client.get("/v1/sync", params={"child_id": str(child.id)}, headers=headers)
+        ).json()
+        cursor = pull["cursor"]
+        assert [e["body"] for e in pull["entries"]] == []  # uncommitted, so invisible
+
+        await slow.commit()
+    finally:
+        await slow.close()
+
+    after = (
+        await client.get(
+            "/v1/sync",
+            params={"child_id": str(child.id), "since": cursor},
+            headers=headers,
+        )
+    ).json()
+
+    assert [e["body"] for e in after["entries"]] == ["written on the subway, committed much later"]

@@ -13,7 +13,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from rascal.constants import ENTRY_TYPES
 from rascal.errors import RascalError
 from rascal.models import Assignment, Child, Entry, EntryTag, Media, Tag, User
 from rascal.schemas.media import MediaOut
@@ -26,11 +25,26 @@ from rascal.schemas.sync import (
     SyncTag,
 )
 from rascal.services.dates import age_at_instant
-from rascal.services.entries import apply_tags, create_entry, to_entry_out
+from rascal.services.entries import (
+    apply_tags,
+    create_entry,
+    refresh_entry_type,
+    to_entry_out,
+)
 from rascal.services.idempotency import remember, replay
 from rascal.services.today import to_assignment_out
 
 PUSH_ENDPOINT = "POST /v1/sync/push"
+
+# set_updated_at() uses now(), which is transaction-*start* time, so a row can commit with an
+# updated_at already behind a cursor another device advanced past — and then never sync
+# again. The cursor is handed back lagged by this much, so any row written by a transaction
+# shorter than the window is re-delivered rather than lost. Clients upsert by id, and
+# re-delivery is free: entries are last-write-wins on a client-generated UUID.
+#
+# The window bounds the longest write transaction. A POST /sync/push batch must stay well
+# under it; if batch push ever grows past 30s, this grows with it.
+CURSOR_OVERLAP_SECONDS = 30
 
 
 def _now() -> dt.datetime:
@@ -103,9 +117,9 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
         *(row.updated_at for row in assignments),
         *(link.updated_at for link, _ in tag_rows),
     ]
-    # The cursor is the newest thing actually returned, so nothing between the old cursor
-    # and now can be skipped by a clock difference.
-    cursor = max(stamps) if stamps else (since or _now())
+    # Lagged deliberately — see CURSOR_OVERLAP_SECONDS.
+    newest = max(stamps) if stamps else _now()
+    cursor = newest - dt.timedelta(seconds=CURSOR_OVERLAP_SECONDS)
 
     return SyncResponse(
         entries=[to_entry_out(entry) for entry in entries],
@@ -141,7 +155,6 @@ async def _apply_entry(
     existing = await session.get(Entry, incoming.id)
 
     if existing is None:
-        entry_type = incoming.entry_type if incoming.entry_type in ENTRY_TYPES else None
         entry = await create_entry(
             session,
             child,
@@ -151,7 +164,6 @@ async def _apply_entry(
             assignment_id=incoming.assignment_id,
             title=incoming.title,
             body=incoming.body,
-            entry_type=entry_type,
             unlock_at_age=incoming.unlock_at_age,
             tags=incoming.tags or [],
         )
@@ -170,14 +182,14 @@ async def _apply_entry(
     existing.occurred_at = incoming.occurred_at
     existing.title = incoming.title
     existing.body = incoming.body
-    if incoming.entry_type in ENTRY_TYPES:
-        existing.entry_type = incoming.entry_type
     existing.unlock_at_age = incoming.unlock_at_age
     existing.deleted_at = incoming.deleted_at
     existing.child_age_months = age_at_instant(
         child.birthdate, incoming.occurred_at, child.family_timezone
     )
     await session.flush()
+    # entry_type describes the artifact, so it follows the body the client just pushed.
+    await refresh_entry_type(session, existing)
 
     if incoming.tags is not None:
         await apply_tags(session, existing, incoming.tags, "user")

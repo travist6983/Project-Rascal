@@ -268,3 +268,41 @@ that file left open.
 - **`docs/blocked.md` separates "blocked on you" from "deferred by decision".** Three things
   need a credential you hold; three were left out on purpose and say why; two are judgment
   calls flagged for review because they are cheap to change now and expensive later.
+
+---
+
+# Task 02 — hardening pass
+
+## A — Correctness
+
+- **A1: releasing an assignment checks for other live entries first.** Two entries can answer
+  one mission, so deleting the first must not unmark the second. `release_assignment` only
+  reverts when nothing else still completes it.
+- **A1: `completed_by` is nulled alongside the status.** A `pending` row carrying a
+  `completed_by` would be a lie the next reader has to reconcile.
+- **A2: `ENTRY_TYPES` narrowed to what the derivation can produce** — `photo`, `video`,
+  `audio`, `text`, `did_it`. `question`, `activity`, `measurement`, and `letter` can no
+  longer be written, so leaving them in the CHECK would advertise filter values that always
+  return nothing. Narrowing is free while the database is empty, which is the whole reason
+  to do it now. Migration `0002_entry_type_artifact`, reversible.
+- **A2: title-only entries are `did_it`, not `text`.** The rule as specified is "text when
+  there's a body"; a title with no body is a rare composer state and inventing a fourth case
+  would be guessing. Flagged here because it is the one edge the spec did not name.
+- **A2: `entry_type` on `POST /entries` and `POST /sync/push` is accepted and ignored**,
+  marked deprecated in the schema, rather than removed. Removing it would 422 an existing
+  client for sending a field it has always sent; ignoring it makes the server authoritative
+  the same way it already is for `child_age_months`.
+- **A2: `PATCH /entries/{id}` recomputes the type when the body changes.** Not named in the
+  task, but without it adding a body to a `did_it` entry leaves a stale type, which is the
+  same class of bug the item exists to fix.
+- **A2: "first attached kind" is ordered by `(created_at, id)`.** The relationship's order is
+  not deterministic, and the phrase has to mean the same thing on every recompute.
+- **A3: `chunk_bytes` is null for a single PUT.** There is nothing to split, and returning
+  the constant anyway would imply the client should chunk when it should not.
+- **A4: the lag applies uniformly, including when nothing changed** — `cursor = newest -
+  30s`, and `newest` falls back to now on an empty pull. A special case for the empty branch
+  would be a second rule to reason about for no benefit.
+- **A5: audited every write path that returns `updated_at`.** Only the two media routes were
+  stale. Entry paths already re-read through `_loaded(...populate_existing)`, child create
+  and update already called `session.refresh`, `create_prompt` already refreshed, and
+  `AssignmentOut` carries no `updated_at` on the wire.
