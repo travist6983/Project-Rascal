@@ -141,33 +141,54 @@ def child_access_from_query(required_role: GuardianRole = "viewer") -> ChildAcce
     return dependency
 
 
-def child_access_from_body(required_role: GuardianRole = "parent") -> ChildAccessDependency:
-    """For routes that name the child in the JSON body, like `POST /entries`.
+async def _uuid_from_body(request: Request, field: str) -> uuid.UUID:
+    """Pull one id out of the already-parsed JSON body.
 
-    Reads the already-parsed body off the request rather than re-declaring it, so the
-    handler's own body model stays the single description of the payload.
+    Reading the body here rather than re-declaring it keeps the handler's own body model as
+    the single description of the payload. Starlette caches the bytes, so this is not a
+    second read.
     """
+    try:
+        body = await request.json()
+    except ValueError as exc:
+        raise RascalError(ErrorCode.VALIDATION_FAILED, "Body must be JSON.") from exc
+    raw = body.get(field) if isinstance(body, dict) else None
+    if raw is None:
+        raise RascalError(ErrorCode.VALIDATION_FAILED, f"{field} is required.", field=field)
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError as exc:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED, f"{field} must be a UUID.", field=field
+        ) from exc
+
+
+def child_access_from_body(required_role: GuardianRole = "parent") -> ChildAccessDependency:
+    """For routes that name the child in the JSON body, like `POST /entries`."""
 
     async def dependency(
         request: Request,
         session: SessionDep,
         user: CurrentUser,
     ) -> ChildAccess:
-        try:
-            body = await request.json()
-        except ValueError as exc:
-            raise RascalError(ErrorCode.VALIDATION_FAILED, "Body must be JSON.") from exc
-        raw = body.get("child_id") if isinstance(body, dict) else None
-        if raw is None:
-            raise RascalError(
-                ErrorCode.VALIDATION_FAILED, "child_id is required.", field="child_id"
-            )
-        try:
-            child_id = uuid.UUID(str(raw))
-        except ValueError as exc:
-            raise RascalError(
-                ErrorCode.VALIDATION_FAILED, "child_id must be a UUID.", field="child_id"
-            ) from exc
+        child_id = await _uuid_from_body(request, "child_id")
+        return await require_child_access(session, user, child_id, required_role)
+
+    return dependency
+
+
+def entry_access_from_body(required_role: GuardianRole = "parent") -> ChildAccessDependency:
+    """For routes that name the *entry* in the body, like `POST /media/upload-url`."""
+
+    async def dependency(
+        request: Request,
+        session: SessionDep,
+        user: CurrentUser,
+    ) -> ChildAccess:
+        entry_id = await _uuid_from_body(request, "entry_id")
+        child_id = await session.scalar(select(Entry.child_id).where(Entry.id == entry_id))
+        if child_id is None:
+            raise not_found("Entry")
         return await require_child_access(session, user, child_id, required_role)
 
     return dependency

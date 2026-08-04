@@ -138,3 +138,55 @@ that file left open.
 - **`GET /children` returns `age_months` alongside `role`**, computed in the child's
   `family_timezone`. The client would otherwise have to compute an age, and rule 1 says the
   server owns that.
+
+## M4 — Core endpoints
+
+- **Thumbnail and poster-frame generation is out of scope.** `POST /media/{id}/complete`
+  marks the row and leaves `thumb_key` null, per the task and `docs/decisions.md`.
+- **`POST /prompts/batch-review` is not implemented.** It accepts or rejects candidates
+  "sitting in the review queue", and the admin prompt review queue is on the task's explicit
+  out-of-scope list — the endpoint cannot exist without building the thing it operates on.
+  `GET /prompts` and `POST /prompts` are built. Recorded in `docs/blocked.md`.
+- **The `/prompts` routes require a token but no special role.** They are marked "admin, me
+  only" in the contract, but there is no admin concept anywhere in `docs/data-model.md` and
+  inventing one would be a schema change nobody asked for. P0 is one account.
+- **`q` on `GET /entries` is a case-insensitive substring match** over title and body, not
+  full-text search — Postgres `tsvector` search is P1 and explicitly out of scope.
+- **A duplicate entry id without an `Idempotency-Key` is a 409.** With the header it replays
+  the original 201. Retrying without the header is a genuine collision and saying so beats
+  guessing which of the two bodies the client meant.
+- **`entry_type` is optional on `POST /entries`** and denormalized from the assignment's
+  prompt when omitted. Freeform entries with no prompt fall back to `text`.
+- **`unlock_at_age` defaults from the prompt's `default_unlock_age`** when the client does
+  not send one. Letters are sealed by default, and the server owns that rule.
+- **Deleting an entry soft-deletes its media too.** Otherwise a client that already synced
+  the media row would keep rendering it after the entry vanished.
+- **Untagging soft-deletes the `entry_tags` link rather than removing the row**, so the
+  change syncs as a row. The `tags` row itself survives — it is vocabulary, not content.
+- **A user edit may drop a `device_ai` tag; a `device_ai` write may never drop a user tag.**
+  The protection runs one way. Re-running extraction has to be free, and a human is always
+  allowed to overrule the model.
+- **The `/sync` `tags` array carries entry-tag links** (`entry_id`, `tag_id`, `name`,
+  `source`, `updated_at`, `deleted_at`), for the reason recorded under M1.
+- **The sync cursor is the newest `updated_at` actually returned**, not "now" — a
+  server-clock cursor could skip a row written between the query and the response.
+- **`POST /sync/push` takes `child_id` at the top level.** The contract's body shows only
+  `entries`, `media`, and `idempotency_keys`, but every route has to resolve a child through
+  `deps.py`; a push whose records span two children could not be authorized as one request.
+- **`GET /children/{id}/moments` always returns all four keys** — `date`, `fallback`,
+  `groups`, `entries`. The contract describes the empty case as a different shape; returning
+  one predictable model instead means a typed client parses one thing. `fallback` says which
+  case happened.
+- **`GET /children/{id}/today` accepts an optional `date` override.** The server still owns
+  the computation; this only lets you look at another day while building the client, and it
+  is what the acceptance test uses to exercise an arbitrary date.
+- **`POST /assignments/{id}/custom` revives a dismissed or expired item.** You would not
+  hand-author a replacement in order to leave it off the screen.
+- **`_loaded()` sets `populate_existing`.** A handler that just wrote tags or media would
+  otherwise get the collection SQLAlchemy loaded earlier in the same session. Every writer
+  here flushes first, so there is nothing pending to clobber.
+- **`media_id` is optional on `POST /media/upload-url`.** The contract has the server mint
+  it, but `docs/data-model.md` says media UUIDs are client-generated for offline creation.
+  Accepting one covers both; omitting it keeps the documented behaviour.
+- **`bytes` and `duration_seconds` come from the client.** The server never sees the object,
+  so it has nothing else to go on.
