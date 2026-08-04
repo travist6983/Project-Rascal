@@ -1,8 +1,10 @@
 """The mission library.
 
-`POST /prompts/batch-review` is deliberately absent: the admin prompt review queue is
-explicitly out of scope, and the endpoint cannot exist without it. See docs/decisions-log.md
-and docs/blocked.md.
+`POST /prompts/batch-review` is not absent pending a decision — it is cut. The review queue
+it would have approved candidates from is a pull request: `scripts/generate_prompts.py`
+writes batches into `docs/prompt-candidates/` and the Prompt candidates workflow opens the
+PR. A branch with a diff is already an accept/reject interface with a comment thread, an
+audit trail, and an undo. See docs/decisions-log.md.
 """
 
 from __future__ import annotations
