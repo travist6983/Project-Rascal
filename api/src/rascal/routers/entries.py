@@ -82,12 +82,16 @@ async def create_entry(
 @router.get(
     "/entries",
     response_model=EntryPage,
-    summary="The timeline, newest first by occurred_at",
+    summary="The timeline, newest first by occurred_at — or search results, best match first",
     description=(
         "Keyset-paginated on `(occurred_at, id)`, never OFFSET — backdating inserts rows "
         "into the middle of the order and offset paging would skip them. Media summaries "
         "come inline so the timeline renders without N+1 calls. Soft-deleted entries are "
-        "excluded here; use `GET /sync` to see them."
+        "excluded here; use `GET /sync` to see them.\n\n"
+        "Passing `q` switches this to full-text search over titles, bodies, and the "
+        "transcripts the phone wrote back — ordered by relevance, then newest first, and "
+        "keyset-paginated on `(rank, occurred_at, id)`. A cursor from one mode is not valid "
+        "in the other. Every other filter still applies."
     ),
 )
 async def list_entries(
@@ -96,7 +100,13 @@ async def list_entries(
     after: dt.datetime | None = Query(default=None, description="occurred_at strictly after"),
     type: EntryType | None = Query(default=None, description="Filter by entry_type"),
     tag: str | None = Query(default=None),
-    q: str | None = Query(default=None, description="Substring match on title and body"),
+    q: str | None = Query(
+        default=None,
+        description=(
+            "Full-text search over title, body, caption, and transcript. Words are stemmed, "
+            'so "running" finds "ran". Supports "exact phrase" and -excluded.'
+        ),
+    ),
     limit: int = Query(default=service.DEFAULT_PAGE_SIZE, ge=1, le=service.MAX_PAGE_SIZE),
     cursor: str | None = Query(default=None, description="Opaque; from a previous next_cursor"),
     access: ChildAccess = Depends(child_access_from_query("viewer")),

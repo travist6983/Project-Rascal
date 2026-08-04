@@ -30,6 +30,7 @@ from rascal.schemas.entry import (
     PromptRef,
     TagOut,
 )
+from rascal.services import search
 from rascal.services.dates import age_at_instant
 
 MAX_PAGE_SIZE = 200
@@ -63,6 +64,44 @@ class Cursor:
         try:
             payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
             return cls(
+                occurred_at=dt.datetime.fromisoformat(payload["o"]),
+                entry_id=uuid.UUID(payload["i"]),
+            )
+        except (ValueError, KeyError, binascii.Error, TypeError) as exc:
+            raise validation_failed("cursor is not a valid pagination cursor.", "cursor") from exc
+
+
+@dataclass(frozen=True)
+class SearchCursor:
+    """Keyset position for a *ranked* page: `(rank, occurred_at, id)`.
+
+    Search is ordered by relevance, so the timeline's `(occurred_at, id)` position means
+    nothing here — a cursor from one mode decodes as invalid in the other, which is the
+    correct answer rather than a quietly wrong page.
+    """
+
+    rank: float
+    occurred_at: dt.datetime
+    entry_id: uuid.UUID
+
+    def encode(self) -> str:
+        payload = json.dumps(
+            {
+                # json round-trips a float through repr, so this is exact — and it has to be,
+                # because the next page's WHERE compares against it for equality.
+                "r": self.rank,
+                "o": self.occurred_at.isoformat(),
+                "i": str(self.entry_id),
+            }
+        )
+        return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def decode(cls, raw: str) -> SearchCursor:
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
+            return cls(
+                rank=float(payload["r"]),
                 occurred_at=dt.datetime.fromisoformat(payload["o"]),
                 entry_id=uuid.UUID(payload["i"]),
             )
@@ -386,7 +425,6 @@ def _filters(
     after: dt.datetime | None,
     entry_type: str | None,
     tag: str | None,
-    query: str | None,
 ) -> list:
     clauses = [Entry.child_id == child_id, Entry.deleted_at.is_(None)]
     if before is not None:
@@ -407,11 +445,6 @@ def _filters(
                 )
             )
         )
-    if query:
-        # A substring filter, not full-text search — Postgres tsvector search is P1 and
-        # explicitly out of scope here.
-        pattern = f"%{query.strip()}%"
-        clauses.append(or_(Entry.title.ilike(pattern), Entry.body.ilike(pattern)))
     return clauses
 
 
@@ -427,9 +460,27 @@ async def list_entries(
     limit: int = DEFAULT_PAGE_SIZE,
     cursor: str | None = None,
 ) -> tuple[list[Entry], str | None]:
-    """Newest first by `occurred_at`, keyset-paginated on `(occurred_at, id)`."""
+    """The timeline, or — when `query` is given — the search results.
+
+    Without `query`: newest first by `occurred_at`, keyset-paginated on `(occurred_at, id)`.
+    With it: best match first, keyset-paginated on `(rank, occurred_at, id)`. Both filter
+    `deleted_at IS NULL`; `/sync` is the only read path that returns deleted rows.
+    """
     limit = max(1, min(limit, MAX_PAGE_SIZE))
-    clauses = _filters(child_id, before, after, entry_type, tag, query)
+    if query and query.strip():
+        return await _search_entries(
+            session,
+            child_id,
+            query=query,
+            before=before,
+            after=after,
+            entry_type=entry_type,
+            tag=tag,
+            limit=limit,
+            cursor=cursor,
+        )
+
+    clauses = _filters(child_id, before, after, entry_type, tag)
 
     if cursor:
         position = Cursor.decode(cursor)
@@ -458,6 +509,97 @@ async def list_entries(
         last = rows[-1]
         next_cursor = Cursor(occurred_at=last.occurred_at, entry_id=last.id).encode()
     return rows, next_cursor
+
+
+def search_statement(
+    child_id: uuid.UUID,
+    *,
+    query: str,
+    before: dt.datetime | None = None,
+    after: dt.datetime | None = None,
+    entry_type: str | None = None,
+    tag: str | None = None,
+    limit: int = DEFAULT_PAGE_SIZE,
+    cursor: str | None = None,
+) -> Select:
+    """The ranked search query. Separate from its execution so its plan can be asserted on.
+
+    `tests/test_search.py` runs EXPLAIN over exactly this statement and fails if either GIN
+    index stops being reachable — the failure mode is a search that still returns the right
+    rows, just slower every year.
+    """
+    tsq = search.tsquery(query)
+    rank = search.rank_expression(tsq)
+
+    clauses = [*_filters(child_id, before, after, entry_type, tag), search.matches(tsq)]
+
+    if cursor:
+        position = SearchCursor.decode(cursor)
+        # The three-column keyset comparison, spelled out. Rank ties are the common case, not
+        # the edge case — ts_rank_cd hands out the same score constantly — so occurred_at and
+        # id are what actually make a page boundary stable.
+        clauses.append(
+            or_(
+                rank < position.rank,
+                and_(
+                    rank == position.rank,
+                    or_(
+                        Entry.occurred_at < position.occurred_at,
+                        and_(
+                            Entry.occurred_at == position.occurred_at,
+                            Entry.id < position.entry_id,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    return (
+        _loaded(select(Entry, rank.label("rank")))
+        .where(*clauses)
+        # Relevance first, then the timeline's own order, so equally-good matches still read
+        # newest to oldest.
+        .order_by(rank.desc(), Entry.occurred_at.desc(), Entry.id.desc())
+        # One extra row tells us whether there is a next page without a second count query.
+        .limit(limit + 1)
+    )
+
+
+async def _search_entries(
+    session: AsyncSession,
+    child_id: uuid.UUID,
+    *,
+    query: str,
+    before: dt.datetime | None,
+    after: dt.datetime | None,
+    entry_type: str | None,
+    tag: str | None,
+    limit: int,
+    cursor: str | None,
+) -> tuple[list[Entry], str | None]:
+    """Full-text search, best match first. See `rascal.services.search`."""
+    statement = search_statement(
+        child_id,
+        query=query,
+        before=before,
+        after=after,
+        entry_type=entry_type,
+        tag=tag,
+        limit=limit,
+        cursor=cursor,
+    )
+    rows = list((await session.execute(statement)).all())
+
+    next_cursor = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_entry, last_rank = rows[-1]
+        next_cursor = SearchCursor(
+            rank=float(last_rank),
+            occurred_at=last_entry.occurred_at,
+            entry_id=last_entry.id,
+        ).encode()
+    return [entry for entry, _ in rows], next_cursor
 
 
 # --- Update and delete -------------------------------------------------------------------

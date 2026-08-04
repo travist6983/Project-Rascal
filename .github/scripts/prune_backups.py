@@ -52,7 +52,9 @@ def main() -> int:
 
     backups: list[tuple[str, datetime]] = []
     unparseable: list[str] = []
-    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=PREFIX):
+    for page in s3.get_paginator("list_objects_v2").paginate(
+        Bucket=BUCKET, Prefix=PREFIX
+    ):
         for obj in page.get("Contents", []):
             taken = _taken_at(obj["Key"])
             if taken is None:
@@ -79,7 +81,9 @@ def main() -> int:
     # Checked *before* deleting anything: cheap insurance against a bug in the selection
     # emptying the whole prefix.
     if not keep:
-        print("::error::Retention selected nothing to keep. Refusing to delete anything.")
+        print(
+            "::error::Retention selected nothing to keep. Refusing to delete anything."
+        )
         return 1
 
     doomed = [(key, taken) for key, taken in backups if key not in keep]

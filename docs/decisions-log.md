@@ -456,3 +456,37 @@ that file left open.
   childhood is the account owner's to do.
 - **`format_version` in the manifest.** Whoever opens this in 2044 needs to know which shape
   they are looking at without this repo.
+
+## M3 — Full-text search
+
+- **Stored generated `tsvector` columns, not a trigger.** A generated column cannot drift:
+  there is no window in which a row is written and the vector is not, and no backfill to
+  remember after a bulk `UPDATE`. It also keeps rule "`updated_at` is the trigger's job"
+  from acquiring a sibling that application code might be tempted to maintain.
+- **The text search configuration is spelled out as `english`.** A generated column's
+  expression must be `IMMUTABLE`, and the one-argument `to_tsvector` reads a GUC. Naming it
+  is what makes the column legal, and it stops the index silently changing meaning if the
+  server default is ever retuned.
+- **`websearch_to_tsquery`, not `plainto_` or `to_tsquery`.** It is the only parser that
+  cannot be made to raise on whatever a person types into a search box, and it gives
+  `"exact phrase"` and `-excluded` for free. `to_tsquery` would 500 on an unbalanced paren.
+- **No prefix matching, and that is a trade.** `hangab` finds nothing. Buying it would mean
+  hand-assembling a tsquery out of user input, which is the exact thing
+  `websearch_to_tsquery` exists to avoid. Search is on submit, not per keystroke.
+- **The match predicate is a UNION of two id sets, not `entries.search_vector @@ q OR id IN
+  (...)`.** The two return identical rows, but the OR form makes Postgres fall back to a
+  sequential scan over `entries` — it will not combine an index condition with a hashed
+  subplan. `test_search.py` runs EXPLAIN over the real statement and fails if either GIN
+  index stops being reachable, because that regression is invisible until the archive is
+  large enough to hurt.
+- **Search paginates on `(rank, occurred_at, id)`, and its cursor is not interchangeable
+  with the timeline's.** Passing one across returns 422 rather than a quietly wrong page.
+- **The rank is cast to `double precision`.** `ts_rank_cd` returns `real`, and a float4 that
+  round-trips out through a cursor and back in as a float8 is not guaranteed to compare
+  equal to itself — which would drop or repeat a row at every page boundary.
+- **Captions are weighted below transcripts.** Both are on-device AI output, but a caption is
+  the machine describing a photo and a transcript is a child talking. The second should never
+  lose to the first.
+- **No `ts_headline`.** `EntryOut` already returns the full title and body, so the client can
+  mark up its own snippet; a server-rendered one would put HTML into a JSON API that a phone
+  and a browser would style differently.

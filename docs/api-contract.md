@@ -173,6 +173,46 @@ Cursor is opaque and encodes `(occurred_at, id)` — keyset pagination, not `OFF
 Backdating inserts rows into the middle of the order, and offset paging would skip them.
 `limit` defaults to 50, caps at 200. Soft-deleted entries are excluded here.
 
+### `q` — full-text search
+
+Passing a non-blank `q` switches this endpoint from the timeline to search. Everything else
+about it is unchanged: same response shape, same filters, same guardian check, same
+`deleted_at IS NULL`.
+
+**What it searches.** Postgres full-text over four fields, with these weights:
+
+| Weight | Field | Why |
+|---|---|---|
+| A | `entries.title` | A word in the title you chose is the strongest signal there is. |
+| B | `entries.body`, `media.transcript` | What was written, and what was said out loud. |
+| C | `media.caption` | Machine-written, so it never outranks a person. |
+
+`media.transcript` is what makes this matter: the phone transcribes on device, `PATCH
+/media/{id}/derived` persists the words, and from that moment they are findable from
+anything that speaks HTTP — including the browser in 2027 that will never have an on-device
+model. A media row with `deleted_at` set stops matching.
+
+**How queries are parsed.** `websearch_to_tsquery`, so:
+
+- Bare words are ANDed: `moon car` needs both.
+- `"exact phrase"` in double quotes matches in order.
+- `-word` excludes.
+- Punctuation is never a syntax error. `(((` is a search for nothing, not a 500.
+
+**Words are stemmed, not lemmatised.** `run` finds `running` and `runs`; it does not find
+`ran`. There is no prefix matching — `hangab` finds nothing, `hangaburgers` finds
+`hangaburger`. This is search-on-submit, not search-as-you-type. A query of nothing but
+stopwords (`the and of`) returns zero results, which is the honest answer.
+
+**Ordering and paging.** Best match first, then newest first among equal scores — rank ties
+are the common case, so `occurred_at` and `id` are what make a page boundary stable. The
+cursor encodes `(rank, occurred_at, id)`. **A cursor from the timeline is not valid in
+search and vice versa**; passing one across returns `422 validation_failed` rather than a
+quietly wrong page.
+
+No snippet is returned. `title` and `body` come back in full, so the client marks up its own
+highlight rather than being handed HTML in a JSON API.
+
 **`GET /entries/{id}`** — full detail including all media, transcripts, tags, and the originating prompt.
 
 **`PATCH /entries/{id}`** — title, body, occurred_at, unlock_at_age, tags.
