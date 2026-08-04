@@ -10,6 +10,10 @@ from rascal.config import Settings, get_settings
 from rascal.db import get_session
 from rascal.errors import register_error_handlers
 from rascal.logging_config import configure_logging
+from rascal.routers import auth, children
+
+# docs/api-contract.md: everything lives under /v1 except GET /health.
+API_PREFIX = "/v1"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -38,6 +42,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
         await session.execute(text("SELECT 1"))
         return {"status": "ok", "db": "ok"}
+
+    app.include_router(auth.router, prefix=API_PREFIX)
+    app.include_router(children.router, prefix=API_PREFIX)
+
+    if settings.is_local:
+        # dev-login and the debug routes must not exist in a production build. There is a
+        # test that asserts it.
+        app.include_router(auth.dev_router, prefix=API_PREFIX)
 
     return app
 

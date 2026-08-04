@@ -103,3 +103,38 @@ that file left open.
   with a line reference rather than a CHECK constraint violation halfway through.
 - **A test regenerates the YAML from the markdown and compares.** Drift between the authoring
   surface and the seed file is a silent content bug otherwise.
+
+## M3 — Auth and authorization
+
+- **Everything mounts under `/v1`**, per `docs/api-contract.md` ("Base: `/v1`",
+  "`GET /health` … the only route outside `/v1`"). So the contract's `POST /auth/apple` is
+  served at `/v1/auth/apple`.
+- **`dev-login` uses `provider = "password"` with the email as `subject_id`.** It is a local
+  account, so the password provider is the honest slot for it; using `apple` would put a
+  fake Apple subject in the table. No password is stored because none is checked — the route
+  only exists when `ENVIRONMENT == "local"`.
+- **`authorization_code` on `POST /auth/apple` is accepted and ignored.** The contract lists
+  it, but RASCAL verifies the identity token directly and never calls Apple's token
+  endpoint. Documented in the schema rather than silently dropped.
+- **A repeat Apple sign-in only fills gaps in `email` and `display_name`.** Apple sends the
+  name exactly once, at first authorization; a later login must not blank it.
+- **An unknown `kid` earns exactly one JWKS refetch** before failing. Apple rotates keys
+  without warning, and a cached key set would otherwise lock everyone out until the TTL.
+- **Refresh-token reuse commits the chain revocation before raising.** The request-scoped
+  session rolls back on an exception, so without an explicit commit the revocation — the
+  entire point of detecting reuse — would be discarded with the error response.
+- **Revoking an unknown or already-revoked token on logout is a no-op, not an error.** A
+  client retrying a logout should not see a failure.
+- **`deps.py` exposes five resolvers over one check.** `require_child_access` is the whole
+  of the authorization logic; `child_access` (path), `child_access_from_query`,
+  `child_access_from_body`, `entry_access`, `media_access`, and `assignment_access` differ
+  only in where they find the child id. Handlers never check ownership themselves.
+- **A guardian row pointing at a missing child is a 404, not a 403.** That is a data bug
+  rather than a permission problem, and conflating them would hide it. Every ordinary
+  permission failure — stranger, viewer attempting a write, revoked guardian, unknown child
+  id — is 403 `not_authorized`.
+- **`POST /children/{id}/guardians` is not implemented.** `docs/api-contract.md` marks it P2
+  and the guardian invite flow is explicitly out of scope for this task.
+- **`GET /children` returns `age_months` alongside `role`**, computed in the child's
+  `family_timezone`. The client would otherwise have to compute an age, and rule 1 says the
+  server owns that.
