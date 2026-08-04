@@ -72,17 +72,51 @@ verified one, and it is the most likely thing still standing between you and a g
 api/Dockerfile api/` once on your machine, or just push and let GitHub Actions be the first
 real execution of the CI workflow. Either tells us in a minute.
 
+## 4. `ANTHROPIC_API_KEY` — blocks generating an actual batch of prompt candidates
+
+`api/scripts/generate_prompts.py` is finished. It reads `docs/mission-library.md` as the
+style reference, asks for a batch against a target theme, age band, and kind, and filters
+what comes back against the library's four rejection rules — implemented in code, and tested
+in `api/tests/test_generate_prompts.py` against real prompts from the library, so a filter
+calibrated tightly enough to reject "get on the floor for ten minutes" fails the suite.
+
+Thirty-one tests cover the filters, the near-duplicate check, the request construction, and
+the rendering. **The one thing not covered is the model call itself, because there is no key
+in this environment.** No candidate file in this repo has been produced by a model; the
+folder holds a README and nothing else.
+
+**What I need:** an Anthropic API key as a repository secret.
+
+```bash
+# Actions -> Secrets and variables -> Actions -> New repository secret
+# Name: ANTHROPIC_API_KEY
+```
+
+Then run the **Prompt candidates** workflow from the Actions tab — `thinnest: 4` generates
+for `fears-comfort`, `making-building`, `outdoors`, and `sleep-routine`, which are the four
+thinnest themes in the library today (2, 4, 3, and 4 prompts respectively). It opens a pull
+request with the batch. Or locally:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+cd api && uv run python scripts/generate_prompts.py --thinnest 4
+```
+
+Optionally set the `ANTHROPIC_MODEL` repository *variable* to pin a model; the script
+defaults to a current one.
+
 ---
 
 ## Deferred by decision — not blocked, and not waiting on you
 
 These were left out on purpose. Each is a small piece of work if you decide otherwise.
 
-- **`POST /prompts/batch-review`.** It accepts or rejects candidates sitting in a review
-  queue, and the admin prompt review queue is explicitly out of scope. `GET /prompts` and
-  `POST /prompts` are built, and `POST /prompts` writes `source = "user"` — so `source =
-  "llm"` plus `active = false` is a review queue the moment you want one. Now that
-  `users.is_admin` exists, the authorization half is already done.
+- **`POST /prompts/batch-review`.** Not deferred any more — **cut**, and removed from
+  `docs/api-contract.md` rather than left in it as a promise. The review queue it approved
+  candidates from is a pull request now: `scripts/generate_prompts.py` writes batches into
+  `docs/prompt-candidates/` and the *Prompt candidates* workflow opens a PR with them. A
+  branch with a diff is already an accept/reject interface with a comment thread, an audit
+  trail, and an undo.
 - **`POST /children/{id}/guardians`.** P2 in the contract, and the guardian invite flow is
   out of scope. The `guardians` table, both roles, and the whole authorization path are
   built and tested — a viewer reads and cannot write, and a revoked guardian is refused

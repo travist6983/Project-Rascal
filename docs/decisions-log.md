@@ -490,3 +490,36 @@ that file left open.
 - **No `ts_headline`.** `EntryOut` already returns the full title and body, so the client can
   mark up its own snippet; a server-rendered one would put HTML into a JSON API that a phone
   and a browser would style differently.
+
+## M4 — Prompt generation
+
+- **The review queue is a pull request, and `POST /prompts/batch-review` is cut rather than
+  deferred.** A branch with a diff is already an accept/reject interface with a comment
+  thread, an audit trail, and an undo. It needs no table, no admin screen, and no endpoint.
+  Removed from `docs/api-contract.md` outright — a contract that lists an endpoint nobody
+  intends to build is worse than one that does not mention it.
+- **The trade, named:** reviewing on a phone means reviewing in the GitHub app, which is
+  worse than a purpose-built screen. Not worse enough to justify building the screen.
+- **The four rejection rules are implemented in code, not left to the instructions.** A model
+  told not to say "precious" mostly does not say "precious", and "mostly" is not a filter.
+- **The filters are deliberately narrow where narrowness costs accuracy.** The ability check
+  catches `hike`/`jog`/`swim` and stops. A rule aggressive enough to catch every physical
+  assumption would reject "get on the floor and play whatever he is playing for ten minutes",
+  which is one of the best prompts in the library — so `test_generate_prompts.py` runs the
+  real library through its own filters and fails if any of them would be rejected.
+- **Rejections are written into the worksheet, not discarded.** A batch where half the
+  candidates trip the same filter is telling you the instructions need work, and that signal
+  is invisible if the failures are thrown away.
+- **The feeling-not-action rule applies to missions only.** "What is he afraid of right now?"
+  is a question *about* a feeling and is exactly what the question set is for.
+- **Structured output via a forced tool call**, not JSON parsed out of prose. There is no
+  code path that has to recover from the model writing a sentence before the array.
+- **`httpx` calls the Messages API directly rather than adding the SDK.** httpx is already a
+  dependency; one script does not justify another.
+- **A missing `ANTHROPIC_API_KEY` exits 0 with a loud message.** It runs from a workflow, and
+  a red X for "not configured yet" says something untrue about the code. The workflow itself
+  fails on a missing key, because there it really is an error.
+- **A new branch per generated batch**, never a reused one. Two batches must not silently
+  overwrite each other while one is still open for review.
+- **The monthly schedule is commented out, not deleted.** A library that grows on a cron
+  without anyone asking is how you end up with three hundred prompts nobody chose.

@@ -210,9 +210,30 @@ The 180-day cooldown holds comfortably at this size. When the library grows past
 
 ## Expanding the library
 
-Batch-generate candidates **server-side with a real model**, into a review queue. Never at request time, never on-device. Feed the generator this file as the style reference, plus a target theme and age band, and ask for 20 candidates at a time. Reject anything that:
+Batch-generate candidates **server-side with a real model**. Never at request time, never
+on-device. Feed the generator this file as the style reference, plus a target theme and age
+band, and ask for 20 candidates at a time. Reject anything that:
 
 - uses the words *precious*, *cherish*, *treasure*, or *little moments*
 - describes a feeling instead of an action
 - couldn't be done in the middle of an ordinary Tuesday
 - assumes a two-parent household, a particular income, or a particular ability
+
+**This is built.** `api/scripts/generate_prompts.py` does exactly the above — including all
+four rejection rules, implemented in code and tested in `api/tests/test_generate_prompts.py`
+against real prompts from this file, so a filter that would reject "get on the floor for ten
+minutes" fails the suite.
+
+```
+uv run python scripts/generate_prompts.py --thinnest 4
+```
+
+Candidates land in `docs/prompt-candidates/<theme>-<date>.md`, and **the review queue is a
+pull request** — the *Prompt candidates* workflow opens one. Accepting a candidate means
+pasting its row into the right table above, regenerating the YAML, and deleting the
+worksheet. See `docs/prompt-candidates/README.md`.
+
+The filters are a spam trap, not an editor. They catch the failures that are textually
+detectable so that you are reading twelve plausible prompts instead of twenty with eight duds
+in them. The judgment is still yours, and this file is still the most valuable one in the
+project.
