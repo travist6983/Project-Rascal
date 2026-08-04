@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: rascal-postgres
+    environment:
+      POSTGRES_USER: rascal
+      POSTGRES_PASSWORD: rascal
+      POSTGRES_DB: rascal
+    ports:
+      # 5433 on the host so a locally installed Postgres on 5432 keeps working.
+      - "5433:5432"
+    volumes:
+      - rascal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rascal -d rascal"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  rascal-pgdata:
