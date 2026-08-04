@@ -12,8 +12,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-class Settings(BaseSettings):
-    """Every knob the service has. Missing required keys fail loudly at startup."""
+class DatabaseSettings(BaseSettings):
+    """Just enough configuration to open a connection, and nothing else.
+
+    Alembic and the seed job are not the API. A migration needs a database; it does not need
+    an S3 bucket, AWS credentials, or an Apple bundle id. Requiring those would mean any
+    context that only migrates — the pre-flight workflow against Neon, a restore drill, a
+    one-off shell — has to invent five values it will never use, and inventing them is how a
+    real misconfiguration gets papered over. `Settings` extends this, so the connection
+    fields are still declared exactly once.
+    """
 
     model_config = SettingsConfigDict(
         env_file=REPO_ROOT / ".env",
@@ -22,14 +30,27 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    environment: Literal["local", "prod"] = "local"
-
     database_url: str
     # Optional second connection string, used only by Alembic. Neon's pooled endpoint is
     # PgBouncer in transaction mode, which does not support the session-level machinery a
     # migration needs — advisory locks, prepared statements, some DDL. The app wants the
     # pooler; migrations want the direct endpoint. Unset locally, where there is no pooler.
     direct_database_url: str | None = None
+
+    @property
+    def sync_database_url(self) -> str:
+        """What Alembic connects with. psycopg3 drives both sync and async off one scheme.
+
+        Prefers `DIRECT_DATABASE_URL` when set, because a migration run through a
+        transaction-mode pooler fails in ways that read like anything but the real cause.
+        """
+        return self.direct_database_url or self.database_url
+
+
+class Settings(DatabaseSettings):
+    """Every knob the service has. Missing required keys fail loudly at startup."""
+
+    environment: Literal["local", "prod"] = "local"
 
     jwt_secret: str
 
@@ -61,16 +82,14 @@ class Settings(BaseSettings):
         """Gates dev-login and the /debug routes. Nothing else may branch on environment."""
         return self.environment == "local"
 
-    @property
-    def sync_database_url(self) -> str:
-        """What Alembic connects with. psycopg3 drives both sync and async off one scheme.
-
-        Prefers `DIRECT_DATABASE_URL` when set, because a migration run through a
-        transaction-mode pooler fails in ways that read like anything but the real cause.
-        """
-        return self.direct_database_url or self.database_url
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+@lru_cache(maxsize=1)
+def get_database_settings() -> DatabaseSettings:
+    """For the connection alone. The app itself always goes through `get_settings`, so a
+    missing `JWT_SECRET` still fails at startup rather than at the first request."""
+    return DatabaseSettings()  # type: ignore[call-arg]

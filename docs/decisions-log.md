@@ -523,3 +523,21 @@ that file left open.
   overwrite each other while one is still open for review.
 - **The monthly schedule is commented out, not deleted.** A library that grows on a cron
   without anyone asking is how you end up with three hundred prompts nobody chose.
+
+## Running a migration outside the app (pre-flight against Neon)
+
+- **`DatabaseSettings` is split out of `Settings`, and Alembic resolves its URL through the
+  narrow one.** The first real migration of the Neon database failed before Alembic ran:
+  `alembic/env.py` went through the full app settings, so a migration demanded an S3 bucket,
+  AWS credentials, and an Apple bundle id it would never use. Every context that only
+  migrates — the pre-flight workflow, a restore drill, a one-off shell — would have had to
+  invent five values, and inventing them is how a real misconfiguration gets papered over.
+- **The narrow model is a base class, not a copy.** `Settings` extends `DatabaseSettings`,
+  so `database_url`, `direct_database_url`, and `sync_database_url` are declared once and
+  cannot drift.
+- **`db.py` uses it too, which is what lets the seed job run on a database and nothing else.**
+  The service itself still goes through `get_settings()` in `create_app`, so a missing
+  `JWT_SECRET` fails at startup exactly as before — `test_config.py` asserts both halves,
+  and derives the app-only field list from the models so it cannot go vacuous.
+- **`make lint` now lints `.github` as well.** CI already did; the Makefile did not, and the
+  gap is how a formatting failure reached CI once already.

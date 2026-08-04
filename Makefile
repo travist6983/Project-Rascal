@@ -32,13 +32,15 @@ dev: install ## Run the API with reload at http://localhost:8000 (docs at /docs)
 test: install ## Run the test suite against a real Postgres
 	$(RUN) pytest -q
 
+# `../.github` is included because CI lints it. A target that checks less than CI does is
+# how a formatting failure gets discovered by the pull request instead of by the developer.
 lint: install ## Lint and check formatting
-	$(RUN) ruff check .
-	$(RUN) ruff format --check .
+	$(RUN) ruff check . ../.github
+	$(RUN) ruff format --check . ../.github
 
 fmt: install ## Autofix lint and format
-	$(RUN) ruff check --fix .
-	$(RUN) ruff format .
+	$(RUN) ruff check --fix . ../.github
+	$(RUN) ruff format . ../.github
 
 migrate: install ## Apply all migrations
 	$(RUN) alembic upgrade head
