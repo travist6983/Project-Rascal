@@ -319,7 +319,6 @@ def filename_for(child: Child, now: dt.datetime | None = None) -> str:
     the real name is in `manifest.json` in full.
     """
     stamp = (now or dt.datetime.now(tz=dt.UTC)).strftime("%Y%m%d")
-    slug = "".join(ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower()).strip(
-        "-"
-    )
+    ascii_only = (ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower())
+    slug = "".join(ascii_only).strip("-")
     return f"rascal-{slug or 'child'}-{stamp}.zip"

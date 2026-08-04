@@ -12,12 +12,15 @@ the library, and the rejected ones are the specific failures the library warns a
 from __future__ import annotations
 
 import datetime as dt
+import importlib
 
+import httpx as export_httpx
 import pytest
 from scripts.generate_prompts import (
     Candidate,
     _normalize,
     build_request,
+    call_model,
     judge,
     render,
     thinnest_themes,
@@ -252,3 +255,140 @@ def test_a_pipe_in_a_prompt_does_not_break_the_table() -> None:
     assert "\\|" in body_row
     # Only the cell delimiters count as delimiters: four cells, not five.
     assert body_row.replace("\\|", "").count("|") == 5
+
+
+# --- Configuration ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, "claude-sonnet-5"),
+        # The one that matters: `${{ vars.ANTHROPIC_MODEL }}` on an unset repository variable
+        # arrives as an empty string, not as an absent one. A `get` default would sail past
+        # this and hand the API `"model": ""`.
+        ("", "claude-sonnet-5"),
+        ("   ", "claude-sonnet-5"),
+        ("some-other-model", "some-other-model"),
+    ],
+)
+def test_an_unset_model_variable_falls_back_rather_than_sending_an_empty_string(
+    value: str | None, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if value is None:
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+    else:
+        monkeypatch.setenv("ANTHROPIC_MODEL", value)
+
+    module = importlib.reload(importlib.import_module("scripts.generate_prompts"))
+    try:
+        resolved = module.MODEL
+        assert resolved == expected
+    finally:
+        # Leave the module as the rest of the suite imported it.
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
+        importlib.reload(module)
+
+
+# --- Talking to the API --------------------------------------------------------------
+
+
+class _Response:
+    """The parts of httpx.Response that call_model touches."""
+
+    def __init__(self, status_code: int, payload=None, text: str = "") -> None:
+        self.status_code = status_code
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("not json")
+        return self._payload
+
+
+def _call(monkeypatch: pytest.MonkeyPatch, response: _Response):
+    monkeypatch.setattr(export_httpx, "post", lambda *a, **k: response)
+    request = build_request(theme="t", kind="question", count=1, ages=(24, 216))
+    with pytest.raises(SystemExit) as caught:
+        call_model(request, "sk-ant-fake")
+    return str(caught.value)
+
+
+def test_an_api_error_reports_what_the_api_actually_said(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The failure this exists to prevent: a workflow log that says only "400 Bad Request".
+
+    httpx's raise_for_status throws the body away, and the body is the only place the API
+    explains itself.
+    """
+    message = _call(
+        monkeypatch,
+        _Response(
+            400,
+            {"error": {"type": "invalid_request_error", "message": "model: nonesuch"}},
+        ),
+    )
+    assert "invalid_request_error" in message
+    assert "model: nonesuch" in message
+    # And enough request context to tell which call failed without a re-run.
+    assert "max_tokens" in message
+
+
+def test_a_non_json_error_body_still_reaches_the_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gateway 502 is HTML, not JSON. Losing it to a decode error helps nobody."""
+    message = _call(monkeypatch, _Response(502, None, text="<html>bad gateway</html>"))
+    assert "502" in message
+    assert "bad gateway" in message
+
+
+def test_a_refusal_says_so_instead_of_looking_like_an_empty_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = _call(
+        monkeypatch,
+        _Response(
+            200,
+            {"stop_reason": "refusal", "stop_details": {"category": "bio"}, "content": []},
+        ),
+    )
+    assert "declined" in message
+    assert "bio" in message
+    # Retrying an identical refused request is never the answer.
+    assert "retrying unchanged" in message
+
+
+def test_a_missing_tool_block_names_what_did_come_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    message = _call(
+        monkeypatch,
+        _Response(200, {"stop_reason": "max_tokens", "content": [{"type": "text"}]}),
+    )
+    assert "max_tokens" in message
+    assert "text" in message
+
+
+def test_a_good_response_yields_the_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        export_httpx,
+        "post",
+        lambda *a, **k: _Response(
+            200,
+            {
+                "stop_reason": "tool_use",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "emit_candidates",
+                        "input": {"candidates": [{"body": "What did he say?"}]},
+                    }
+                ],
+            },
+        ),
+    )
+    request = build_request(theme="t", kind="question", count=1, ages=(24, 216))
+    assert call_model(request, "sk-ant-fake") == [{"body": "What did he say?"}]

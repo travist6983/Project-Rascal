@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import collections
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -45,7 +46,10 @@ CANDIDATES = REPO / "docs" / "prompt-candidates"
 API_URL = "https://api.anthropic.com/v1/messages"
 API_VERSION = "2023-06-01"
 # Overridable, because the right model for this changes faster than this file does.
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+# `or` rather than a `get` default: the workflow passes `${{ vars.ANTHROPIC_MODEL }}`, and an
+# unset repository variable arrives as an empty string rather than as an absent one. A `get`
+# default would hand the API `"model": ""` and take a 400 for it.
+MODEL = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
 MAX_TOKENS = 8192
 
 # What each kind's prompts have to look like, mirrored from the library's own headings.
@@ -396,14 +400,49 @@ def call_model(request: dict, api_key: str, *, timeout: float = 180.0) -> list[d
         },
         timeout=timeout,
     )
-    response.raise_for_status()
+
+    if response.status_code >= 400:
+        # `raise_for_status()` throws away the body, and the body is the only place the API
+        # says *why*. A bare "400 Bad Request" in a workflow log is not a diagnosis, and this
+        # is the one code path with no test coverage — it has to explain itself.
+        raise SystemExit(
+            f"The Anthropic API returned {response.status_code} for model {request['model']!r}.\n"
+            f"{_api_error(response)}\n"
+            f"Request had {len(request['messages'][0]['content'])} characters of instruction, "
+            f"max_tokens={request['max_tokens']}, tool_choice forced to {TOOL['name']!r}."
+        )
+
     payload = response.json()
+
+    if payload.get("stop_reason") == "refusal":
+        # A safety classifier declined. Prompt-writing is benign, but the answer to a refusal
+        # is never a retry of the same request, so say so rather than looping.
+        raise SystemExit(
+            "The model declined this request "
+            f"(category: {(payload.get('stop_details') or {}).get('category')!r}). "
+            "Rewrite the theme or instruction rather than retrying unchanged."
+        )
+
     for block in payload.get("content", []):
         if block.get("type") == "tool_use" and block.get("name") == TOOL["name"]:
             return block["input"]["candidates"]
+
     raise SystemExit(
-        f"The model returned no tool_use block. Raw stop_reason: {payload.get('stop_reason')!r}"
+        f"The model returned no tool_use block. stop_reason: {payload.get('stop_reason')!r}, "
+        f"block types: {[block.get('type') for block in payload.get('content', [])]}"
     )
+
+
+def _api_error(response: httpx.Response) -> str:
+    """The API's own explanation, however it chose to encode it."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text[:2000]
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        return f"{error.get('type', 'error')}: {error.get('message', body)}"
+    return json.dumps(body)[:2000]
 
 
 # --- Output ---------------------------------------------------------------------------------
