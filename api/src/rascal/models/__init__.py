@@ -2,6 +2,26 @@
 
 from __future__ import annotations
 
-from rascal.models.base import Base
+from rascal.models.assignment import Assignment
+from rascal.models.base import TABLES_WITH_UPDATED_AT, Base
+from rascal.models.child import Child, Guardian
+from rascal.models.entry import Entry, EntryTag, Media, Tag
+from rascal.models.prompt import Prompt
+from rascal.models.user import Credential, IdempotencyKey, RefreshToken, User
 
-__all__ = ["Base"]
+__all__ = [
+    "TABLES_WITH_UPDATED_AT",
+    "Assignment",
+    "Base",
+    "Child",
+    "Credential",
+    "Entry",
+    "EntryTag",
+    "Guardian",
+    "IdempotencyKey",
+    "Media",
+    "Prompt",
+    "RefreshToken",
+    "Tag",
+    "User",
+]
