@@ -310,7 +310,16 @@ def staging_path(child_id: uuid.UUID) -> Path:
 
 
 def filename_for(child: Child, now: dt.datetime | None = None) -> str:
-    """`rascal-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder."""
+    """`rascal-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder.
+
+    ASCII only, and not because ASCII is enough for a name. A `Content-Disposition` header is
+    encoded latin-1 on the way out, so a name written in Arabic or Japanese would raise while
+    the response was being sent — after the zip had already been built. The name is decoration
+    here; the archive is not. A child whose name transliterates to nothing gets `child`, and
+    the real name is in `manifest.json` in full.
+    """
     stamp = (now or dt.datetime.now(tz=dt.UTC)).strftime("%Y%m%d")
-    slug = "".join(ch if ch.isalnum() else "-" for ch in child.name.lower()).strip("-")
+    slug = "".join(
+        ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower()
+    ).strip("-")
     return f"rascal-{slug or 'child'}-{stamp}.zip"

@@ -359,6 +359,25 @@ async def test_the_manifest_says_what_is_in_the_box(
     assert "rascal-miles-" in response.headers["content-disposition"]
 
 
+async def test_a_name_that_is_not_ascii_still_downloads(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Content-Disposition is encoded latin-1. A name in Japanese must not raise mid-response,
+    after the whole zip has already been built. The real name is in the manifest in full."""
+    user = await make_user(session)
+    child = await make_child(session, name="ミロ")
+    await grant(session, user, child, "parent")
+    await session.commit()
+
+    response = await client.get(f"/v1/children/{child.id}/export", headers=auth_headers(user))
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].isascii()
+    assert "rascal-child-" in response.headers["content-disposition"]
+
+    manifest = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
+    assert manifest["child"]["name"] == "ミロ"
+
+
 async def test_a_viewer_cannot_walk_off_with_the_whole_archive(
     client: AsyncClient, session: AsyncSession, bucket: str
 ) -> None:
