@@ -123,8 +123,9 @@ What the scheduler served on a given day.
 | `unlock_at_age` | int | nullable. Sealed until the child is this age. |
 | `deleted_at` | timestamptz | soft delete |
 | `updated_at` | timestamptz | sync cursor |
+| `search_vector` | tsvector | **stored generated** — `setweight(title, 'A') \|\| setweight(body, 'B')`, config `english` |
 
-Indexes: `(child_id, occurred_at desc)`, and a functional index on `(child_id, extract(month from occurred_at), extract(day from occurred_at))` for On This Day.
+Indexes: `(child_id, occurred_at desc)`, a functional index on `(child_id, extract(month from occurred_at), extract(day from occurred_at))` for On This Day, and a GIN index on `search_vector`.
 
 ### `media`
 | Column | Type | Notes |
@@ -141,6 +142,15 @@ Indexes: `(child_id, occurred_at desc)`, and a functional index on `(child_id, e
 | `caption` | text | nullable — written back from on-device captioning |
 | `upload_status` | text | `pending` \| `complete` \| `failed` |
 | `created_at` / `updated_at` | timestamptz | |
+| `search_vector` | tsvector | **stored generated** — `setweight(transcript, 'B') \|\| setweight(caption, 'C')` |
+
+Indexes: `(entry_id)`, and a GIN index on `search_vector`.
+
+Both `search_vector` columns are **generated, not trigger-maintained**. A generated column
+cannot drift: there is no window in which the row is written and the vector is not, and no
+backfill to remember after a bulk `UPDATE`. The text search configuration is spelled out as
+`english` rather than left to `default_text_search_config`, because a generated column's
+expression must be `IMMUTABLE` and the one-argument `to_tsvector` reads a GUC.
 
 ### `tags` / `entry_tags`
 `tags`: `id`, `child_id`, `name`, `created_at`.

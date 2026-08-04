@@ -1,29 +1,26 @@
-# RASCAL — blocked, and deliberately deferred
+# RASCAL — blocked
 
-Two lists. The first is things I could not finish because they need something only you can
-provide. The second is things I chose not to build, with the reasoning, so you can overrule
-any of them.
+Things I cannot finish because they need a credential or an account only you have. Nothing
+here blocks the backend from running: `cp .env.example .env && make up && make migrate &&
+make seed && make test` works today, and the acceptance test drives the whole daily loop end
+to end.
 
-Nothing in either list blocks the backend from running. `cp .env.example .env && make up &&
-make migrate && make seed && make test` works today, and the acceptance test drives the
-whole daily loop end to end.
+Last reviewed: **Aug 4, 2026**, after the hardening pass.
 
 ---
 
-## Blocked on you
-
-### 1. Apple Developer enrollment — blocks real Sign in with Apple
+## 1. Apple Developer enrollment — blocks real Sign in with Apple
 
 `POST /v1/auth/apple` is fully implemented and tested: it fetches and caches Apple's JWKS,
 verifies the signature, and checks `iss`, `aud` against `APPLE_BUNDLE_ID`, and `exp`. The
 tests generate a local RSA keypair and stub the JWKS fetch, so the verification logic is
-exercised without the network.
+exercised — including a token signed by the wrong key under the right `kid`, which is the
+case that catches decorative verification.
 
-What it cannot do is accept a token from a real device, because the `aud` claim has to match
-a bundle id from an enrolled team.
+What it cannot do is accept a token from a real device, because `aud` has to match a bundle
+id from an enrolled team.
 
-**What I need from you:** the bundle id, once enrollment clears. Set it and nothing else
-changes:
+**What I need:** the bundle id, once enrollment clears. Nothing else changes:
 
 ```bash
 fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.yourname.rascal"
@@ -31,106 +28,121 @@ fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.yourname.rascal"
 
 **Meanwhile:** `POST /v1/auth/dev-login` returns a real session with real tokens against a
 fixture account, and it works for curl and for the iOS client. It is registered only when
-`ENVIRONMENT == "local"`, and `tests/test_auth.py` builds a production app and asserts the
+`ENVIRONMENT == "local"`, and there is a test that builds a production app and asserts the
 route does not exist.
 
-### 2. AWS credentials — blocks a real upload round-trip
+## 2. AWS credentials — blocks a real upload round-trip
 
 Presigning, multipart planning, and completion are implemented and tested against `moto`, so
-the request and response shapes are correct and the multipart flow works. Nothing has been
+the request and response shapes are right and the multipart flow works. Nothing has been
 uploaded to a real bucket, because there is no bucket and no credential.
 
-**What I need from you:** run section 2 of `docs/DEPLOY.md` (bucket, public-access block,
-versioning, encryption, CORS, lifecycle rule, IAM user, access key), then set the four S3
-secrets. The IAM policy JSON is in that document, ready to paste.
+**What I need:** run section 2 of `docs/DEPLOY.md` — bucket, public-access block, versioning,
+encryption, CORS, lifecycle rule, IAM user, access key — then set the four S3 secrets. The
+IAM policy JSON is in that document, ready to paste.
 
-The one thing worth checking by hand afterwards, because `moto` cannot prove it: a real
-presigned PUT from a real device, and a real multipart upload of a video over cellular. The
-CORS rule must expose `ETag` or multipart completion fails in a way that reads like a
-signature error.
+Two things worth checking by hand afterwards, because `moto` cannot prove either:
 
-### 3. Fly and Neon accounts — blocks deployment
+- A real presigned PUT from a real device.
+- A real multipart upload of a video over cellular. **The CORS rule must expose `ETag`** or
+  completion fails in a way that reads like a signature error. The response now carries
+  `chunk_bytes`, so the uploader splits at exactly the size the part count was computed from
+  — do not hard-code 8MB on the Swift side, read the field.
+
+## 3. Fly and Neon accounts — blocks deployment, and blocks verifying the build
 
 Every artifact exists: multi-stage `Dockerfile`, `fly.toml` with `release_command =
-"alembic upgrade head"` and a `/health` check, and a full runbook. I did not deploy, because
-I do not have your credentials and you did not ask me to.
+"alembic upgrade head"` and a `/health` check, and a full runbook in `docs/DEPLOY.md`.
 
-**What I need from you:** work through `docs/DEPLOY.md`. It is written as a sequence of
-commands to paste, including the full `fly secrets set` line with every required key.
+**Two sessions in a row, no Docker daemon was available in my environment.** So:
+
+| Path | Status |
+|---|---|
+| `api/Dockerfile` builds | **never executed** |
+| `docker-compose.yml` starts Postgres | **never executed** |
+| `.github/workflows/ci.yml` passes | **never executed** |
+
+The uv pin in the `Dockerfile` was `0.5.11`, which cannot read the `revision = 3` format of
+the committed `uv.lock` — `uv sync --frozen` would have rejected it outright on the first
+build. That is now `0.8.17`, the version that wrote the lock. It is a reasoned fix, not a
+verified one, and it is the most likely thing still standing between you and a green
+`fly deploy`.
+
+**What I need:** run `docker compose up -d --wait postgres` and `docker build -f
+api/Dockerfile api/` once on your machine, or just push and let GitHub Actions be the first
+real execution of the CI workflow. Either tells us in a minute.
+
+## 4. `ANTHROPIC_API_KEY` — blocks generating an actual batch of prompt candidates
+
+`api/scripts/generate_prompts.py` is finished. It reads `docs/mission-library.md` as the
+style reference, asks for a batch against a target theme, age band, and kind, and filters
+what comes back against the library's four rejection rules — implemented in code, and tested
+in `api/tests/test_generate_prompts.py` against real prompts from the library, so a filter
+calibrated tightly enough to reject "get on the floor for ten minutes" fails the suite.
+
+Thirty-one tests cover the filters, the near-duplicate check, the request construction, and
+the rendering. **The one thing not covered is the model call itself, because there is no key
+in this environment.** No candidate file in this repo has been produced by a model; the
+folder holds a README and nothing else.
+
+**What I need:** an Anthropic API key as a repository secret.
+
+```bash
+# Actions -> Secrets and variables -> Actions -> New repository secret
+# Name: ANTHROPIC_API_KEY
+```
+
+Then run the **Prompt candidates** workflow from the Actions tab — `thinnest: 4` generates
+for `fears-comfort`, `making-building`, `outdoors`, and `sleep-routine`, which are the four
+thinnest themes in the library today (2, 4, 3, and 4 prompts respectively). It opens a pull
+request with the batch. Or locally:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+cd api && uv run python scripts/generate_prompts.py --thinnest 4
+```
+
+Optionally set the `ANTHROPIC_MODEL` repository *variable* to pin a model; the script
+defaults to a current one.
 
 ---
 
-## Deferred by decision, not blocked
+## Deferred by decision — not blocked, and not waiting on you
 
-### 4. `POST /prompts/batch-review` — not built
+These were left out on purpose. Each is a small piece of work if you decide otherwise.
 
-`docs/api-contract.md` lists it; the task's out-of-scope list names "the admin prompt review
-queue" explicitly. The endpoint accepts or rejects candidates *sitting in a review queue*,
-and there is no queue — building the endpoint means building the thing it operates on.
-
-`GET /prompts` and `POST /prompts` are both built. `POST /prompts` writes `source = "user"`,
-so hand-authored additions are already distinguishable from seeded ones, and `source =
-"llm"` plus `active = false` is a review queue whenever you want one.
-
-**Say the word and it is a small piece of work** — a filter and a bulk status update.
-
-### 5. `POST /children/{id}/guardians` — not built
-
-Marked P2 in the contract, and "the guardian invite flow" is on the out-of-scope list. The
-`guardians` table, the `parent`/`viewer` roles, and the whole authorization path are built
-and tested — a viewer can read and cannot write, and a revoked guardian is refused
-everywhere. Only the invite mechanism is missing.
-
-### 6. Thumbnails and poster frames — not built
-
-Out of scope per the task and per `docs/decisions.md`. `POST /media/{id}/complete` marks the
-row and leaves `thumb_key` null. The column exists, `MediaSummary` carries it, and clients
-already handle it being null — so the pipeline slots in later without a schema change or a
-contract change.
+- **`POST /prompts/batch-review`.** Not deferred any more — **cut**, and removed from
+  `docs/api-contract.md` rather than left in it as a promise. The review queue it approved
+  candidates from is a pull request now: `scripts/generate_prompts.py` writes batches into
+  `docs/prompt-candidates/` and the *Prompt candidates* workflow opens a PR with them. A
+  branch with a diff is already an accept/reject interface with a comment thread, an audit
+  trail, and an undo.
+- **`POST /children/{id}/guardians`.** P2 in the contract, and the guardian invite flow is
+  out of scope. The `guardians` table, both roles, and the whole authorization path are
+  built and tested — a viewer reads and cannot write, and a revoked guardian is refused
+  everywhere. Only the invite mechanism is missing.
+- **Thumbnails and poster frames.** `POST /media/{id}/complete` marks the row and leaves
+  `thumb_key` null. The column exists and clients already handle it being null, so the
+  pipeline slots in later with no schema or contract change.
+- **The `ORDER BY random()` scan in the moments fallback.** Fine at 100 entries, worth
+  revisiting at P1.
 
 ---
 
-## Two judgment calls worth your attention
+## Resolved since the last review
 
-Neither is blocking. Both are places where the specs were genuinely ambiguous and I picked
-the boring option, and both are cheap to change now and expensive to change at 500 entries.
+Everything below was on this list on Aug 3 and is now closed.
 
-### The `monthly` slot serves letters as well as measurements
-
-`docs/data-model.md` annotates the monthly slot "(measurement)". But the eight letters in
-`docs/mission-library.md` are `cadence: monthly` with no slot of their own, and restricting
-the slot to `kind = measurement` would make them permanently unreachable — including the
-money letter and the who-you-are-right-now letter, which are the emotional centre of the
-product.
-
-So the monthly slot draws from every `cadence: monthly` prompt. On the 1st of the month you
-get a measurement mission *or* a letter, weighted random, with the same 180-day cooldown as
-everything else. Twelve monthly prompts against twelve firings a year means the rotation is
-tight either way.
-
-**If you would rather they were separate:** add `letter` to the `slot` CHECK constraint (a
-one-line `ALTER`, which is exactly why these are CHECKs and not Postgres enums), add it to
-`SLOT_SPECS` in `services/scheduler.py`, and decide what day it fires on. Maybe the 15th, so
-the month has two beats rather than one.
-
-### The coverage table in `mission-library.md` under-counts four kinds
-
-Eligible at 48 months, the seed file actually holds:
-
-| Kind | The doc says | Actually |
-|---|---|---|
-| Question | 30 | 30 |
-| Photo | ~19 | 22 (18 once seasonal prompts are filtered out) |
-| Video | 9 | **11** |
-| Audio | 11 | 11 |
-| Activity | 15 | **16** |
-| Weekly | 9 | **10** |
-| Monthly | 4 | 4 |
-| Letter | 8 | 8 |
-
-The table was written before the last few prompts were added. Nothing is wrong with the
-library — there is *more* than the doc claims, and the 180-day cooldown holds comfortably.
-
-`tests/test_seeding.py` asserts the exact figures *and* treats the doc's table as a floor,
-so drift is caught in either direction without hard-coding a stale number. Worth fixing the
-table in the doc when you next touch it.
+- The `monthly` slot serving letters alongside measurements — letters have their own slot on
+  the 15th.
+- The coverage table in `mission-library.md` under-counting four kinds — corrected, and the
+  test now asserts the corrected figures exactly.
+- `POST /prompts` being open to any authenticated user — behind `require_admin`.
+- Deleting an entry stranding its assignment — released back to `pending`.
+- `entry_type` describing the prompt rather than the artifact — derived from what the entry
+  contains.
+- The multipart response not telling the client the chunk size — `chunk_bytes` is in it.
+- The sync cursor's lost-update race — a 30-second overlap window, documented in the contract.
+- Stale `updated_at` in media write responses — refreshed after the trigger fires.
+- A single daily scheduler cron that could only be 5am in one timezone — hourly, filtered on
+  each child's local hour.

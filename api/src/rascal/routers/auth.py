@@ -114,6 +114,11 @@ async def dev_login(
         email=payload.email,
         display_name=payload.display_name,
     )
+    # The fixture account owns the local library too, or seeding a prompt by hand while
+    # building the client would need a second, privileged login that does not exist.
+    if not user.is_admin:
+        user.is_admin = True
+        await session.flush()
     tokens = await issue_token_pair(session, user.id, settings)
     return SessionResponse(
         access_token=tokens.access_token,

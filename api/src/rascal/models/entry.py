@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import (
+    BigInteger,
+    Computed,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from rascal.constants import (
@@ -29,6 +39,21 @@ from rascal.models.base import (
     uuid_pk,
 )
 
+# The two search vectors. Stored generated columns, so there is no window in which a row is
+# written and its vector is not, and no backfill to remember. 'english' is spelled out
+# because a generated column's expression must be IMMUTABLE and `to_tsvector(text)` reads a
+# GUC. These strings are mirrored in alembic/versions/0004_full_text_search.py — the
+# migration owns the schema; this declaration is what stops SQLAlchemy trying to INSERT the
+# column. test_search.py asserts the database behaves as written here.
+ENTRY_SEARCH_VECTOR = (
+    "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+    "setweight(to_tsvector('english', coalesce(body, '')), 'B')"
+)
+MEDIA_SEARCH_VECTOR = (
+    "setweight(to_tsvector('english', coalesce(transcript, '')), 'B') || "
+    "setweight(to_tsvector('english', coalesce(caption, '')), 'C')"
+)
+
 
 class Entry(Base):
     """`occurred_at` is when it happened; `created_at` is when it was logged. Never conflate."""
@@ -39,6 +64,7 @@ class Entry(Base):
         # The timeline query. Sorted by occurred_at, because backdating puts a 2023 photo in
         # the middle of the order, not at the end.
         Index("ix_entries_child_id_occurred_at", "child_id", text("occurred_at DESC")),
+        Index("ix_entries_search_vector", "search_vector", postgresql_using="gin"),
         # ix_entries_child_month_day — the On This Day index — is functional and is created
         # as raw SQL in the migration. SQLAlchemy's Index() cannot express it the way
         # Postgres needs, so it deliberately does not appear here.
@@ -65,6 +91,12 @@ class Entry(Base):
     deleted_at: Mapped[optional_moment]
     updated_at: Mapped[updated]
 
+    # Deferred: the timeline selects entries constantly and never reads this. Nothing in
+    # Python touches it — it exists to be matched against in SQL.
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR, Computed(ENTRY_SEARCH_VECTOR, persisted=True), deferred=True
+    )
+
     media: Mapped[list[Media]] = relationship(
         back_populates="entry", cascade="all, delete-orphan", lazy="raise"
     )
@@ -81,6 +113,7 @@ class Media(Base):
         one_of("kind", MEDIA_KINDS, name="kind"),
         one_of("upload_status", UPLOAD_STATUSES, name="upload_status"),
         Index("ix_media_entry_id", "entry_id"),
+        Index("ix_media_search_vector", "search_vector", postgresql_using="gin"),
     )
 
     id: Mapped[client_uuid_pk]
@@ -103,6 +136,12 @@ class Media(Base):
     deleted_at: Mapped[optional_moment]
     created_at: Mapped[created]
     updated_at: Mapped[updated]
+
+    # Rule 7 made searchable: the phone transcribes on device, PATCH /media/{id}/derived
+    # persists the words, and this makes them findable from anything that speaks HTTP.
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR, Computed(MEDIA_SEARCH_VECTOR, persisted=True), deferred=True
+    )
 
     entry: Mapped[Entry] = relationship(back_populates="media")
 

@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     environment: Literal["local", "prod"] = "local"
 
     database_url: str
+    # Optional second connection string, used only by Alembic. Neon's pooled endpoint is
+    # PgBouncer in transaction mode, which does not support the session-level machinery a
+    # migration needs — advisory locks, prepared statements, some DDL. The app wants the
+    # pooler; migrations want the direct endpoint. Unset locally, where there is no pooler.
+    direct_database_url: str | None = None
+
     jwt_secret: str
 
     s3_bucket: str
@@ -57,8 +63,12 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
-        """The same URL for Alembic. psycopg3 drives both sync and async off one scheme."""
-        return self.database_url
+        """What Alembic connects with. psycopg3 drives both sync and async off one scheme.
+
+        Prefers `DIRECT_DATABASE_URL` when set, because a migration run through a
+        transaction-mode pooler fails in ways that read like anything but the real cause.
+        """
+        return self.direct_database_url or self.database_url
 
 
 @lru_cache(maxsize=1)

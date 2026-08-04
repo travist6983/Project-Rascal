@@ -12,22 +12,9 @@ from rascal.models import Prompt
 from rascal.services.seeding import SEEDS_PATH, content_hash, load_seed_file, seed_prompts
 
 # docs/mission-library.md, "Coverage check for the POC": prompts eligible at 48 months.
-# The doc's Photo row is written "~19", and its Video, Activity, and Weekly rows were
-# written before the last few prompts were added — so the table is treated as a floor and
-# the exact figures below are asserted separately. See docs/decisions-log.md.
-COVERAGE_TABLE_FLOOR = {
-    "question": 30,
-    "photo": 19,
-    "video": 9,
-    "audio": 11,
-    "activity": 15,
-    "weekly": 9,
-    "monthly": 4,
-    "letter": 8,
-}
-
-# What the seed file actually contains, eligible at 48 months. Catches drift in either
-# direction when the markdown is edited and the YAML regenerated.
+# The doc's table was corrected on Aug 4 2026 to match these exactly — it had been written
+# before the last handful of prompts were added. Asserted exactly, so drift in either
+# direction fails here and names the new numbers.
 ELIGIBLE_AT_48_MONTHS = {
     "question": 30,
     "photo": 22,
@@ -100,8 +87,8 @@ def test_coverage_at_48_months_meets_the_documented_floor() -> None:
     for bucket, rows in _buckets().items():
         eligible = [row for row in rows if row["min_age_months"] <= 48 <= row["max_age_months"]]
         assert len(eligible) == ELIGIBLE_AT_48_MONTHS[bucket], bucket
-        assert len(eligible) >= COVERAGE_TABLE_FLOOR[bucket], bucket
-        # The question and the mission slots each need 14 distinct prompts for a fortnight.
+        # Every bucket has to carry its own cadence: a slot that fires monthly needs at least
+        # a few, a slot that fires daily needs a fortnight's worth.
         assert len(eligible) >= 4, bucket
 
 

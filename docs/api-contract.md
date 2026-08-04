@@ -67,6 +67,27 @@ Body: `{ name, birthdate, family_timezone }` → creates the child and a `parent
 **`POST /children/{id}/guardians`**
 Body: `{ email, role }` → creates an invite. P2.
 
+**`GET /children/{id}/export`** — parent only → `application/zip`.
+
+The whole archive, in a format that outlives this API:
+
+```
+manifest.json            format version, child, counts, media that could not be fetched
+entries.json             every entry, oldest first, with its prompt, tags, and media rows
+media/YYYY/MM/<id>.<ext> the objects themselves, foldered by occurred_at
+```
+
+- **Soft-deleted rows are included** and carry `is_deleted: true` with a `deleted_at`. An
+  export that quietly drops them is not a copy of the archive.
+- **Sealed letters export in the clear.** `unlock_at_age` is retained as data; the seal is
+  an app behaviour, and an export you cannot read is not a backup.
+- A media row whose bytes are not in S3 keeps its metadata, gets a null `path`, and is
+  listed in `manifest.missing_media`. One dead upload does not fail the export.
+- Response headers `x-rascal-export-entries`, `-media`, `-missing-media` summarise the run;
+  `content-length` is exact, so a client can show real progress.
+
+The zip is assembled on disk and streamed back, so memory is bounded regardless of size.
+
 ---
 
 ## Today
@@ -123,7 +144,24 @@ body byte-for-byte, never a second row and never a `409`. The key is scoped to t
 
 Server computes and stores `child_age_months` from `occurred_at` minus birthdate. If
 `assignment_id` is set and the assignment is pending, it flips to `done` in the same
-transaction. If the assignment is already `done`, `dismissed`, or `expired`, the entry
+transaction.
+
+`entry_type` is **derived server-side and any value sent is ignored.** It describes what the
+entry is, resolved in this order:
+
+1. Media attached → the media kind (`photo` / `video` / `audio`), first attached wins.
+2. Else the entry completes an assignment whose prompt is `completion_mode: did_it` →
+   `did_it`. A note on "get on the floor for ten minutes" does not make it a text entry.
+3. Else any `title` or `body` → `text`. A title is written content.
+4. Else → `did_it`.
+
+Recomputed on `POST /media/{id}/complete`, since media lands after the entry exists. A
+freeform entry has no assignment and so falls through to (3)/(4). What was asked is still
+reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
+`text`, `did_it`.
+
+Deleting an entry releases its assignment back to `pending` unless another live entry still
+completes it, so "wrong photo, redo it" puts the mission back on the Today screen. If the assignment is already `done`, `dismissed`, or `expired`, the entry
 still saves — the archive matters more than the bookkeeping — and the assignment is left
 alone.
 
@@ -134,6 +172,46 @@ Returns entries newest-first by `occurred_at`, with media summaries inline (thum
 Cursor is opaque and encodes `(occurred_at, id)` — keyset pagination, not `OFFSET`.
 Backdating inserts rows into the middle of the order, and offset paging would skip them.
 `limit` defaults to 50, caps at 200. Soft-deleted entries are excluded here.
+
+### `q` — full-text search
+
+Passing a non-blank `q` switches this endpoint from the timeline to search. Everything else
+about it is unchanged: same response shape, same filters, same guardian check, same
+`deleted_at IS NULL`.
+
+**What it searches.** Postgres full-text over four fields, with these weights:
+
+| Weight | Field | Why |
+|---|---|---|
+| A | `entries.title` | A word in the title you chose is the strongest signal there is. |
+| B | `entries.body`, `media.transcript` | What was written, and what was said out loud. |
+| C | `media.caption` | Machine-written, so it never outranks a person. |
+
+`media.transcript` is what makes this matter: the phone transcribes on device, `PATCH
+/media/{id}/derived` persists the words, and from that moment they are findable from
+anything that speaks HTTP — including the browser in 2027 that will never have an on-device
+model. A media row with `deleted_at` set stops matching.
+
+**How queries are parsed.** `websearch_to_tsquery`, so:
+
+- Bare words are ANDed: `moon car` needs both.
+- `"exact phrase"` in double quotes matches in order.
+- `-word` excludes.
+- Punctuation is never a syntax error. `(((` is a search for nothing, not a 500.
+
+**Words are stemmed, not lemmatised.** `run` finds `running` and `runs`; it does not find
+`ran`. There is no prefix matching — `hangab` finds nothing, `hangaburgers` finds
+`hangaburger`. This is search-on-submit, not search-as-you-type. A query of nothing but
+stopwords (`the and of`) returns zero results, which is the honest answer.
+
+**Ordering and paging.** Best match first, then newest first among equal scores — rank ties
+are the common case, so `occurred_at` and `id` are what make a page boundary stable. The
+cursor encodes `(rank, occurred_at, id)`. **A cursor from the timeline is not valid in
+search and vice versa**; passing one across returns `422 validation_failed` rather than a
+quietly wrong page.
+
+No snippet is returned. `title` and `body` come back in full, so the client marks up its own
+highlight rather than being handed HTML in a JSON API.
 
 **`GET /entries/{id}`** — full detail including all media, transcripts, tags, and the originating prompt.
 
@@ -193,6 +271,26 @@ Returns entries from this month/day in prior years, grouped by years-ago. If emp
 
 Every entity carries `updated_at` and `deleted_at`. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record.
 
+**The cursor is deliberately behind, and clients must upsert by id.** It comes back as
+`max(updated_at) - 30 seconds`, so a pull will re-deliver rows the client has already seen.
+That is not a bug to work around — it is the fix for one.
+
+`set_updated_at()` uses Postgres `now()`, which is *transaction-start* time, not commit
+time. A transaction that opens, takes a while, and commits therefore writes a row whose
+`updated_at` is already behind a cursor another device advanced past in the meantime — and
+that row would never appear in a sync again. Lagging the cursor by a window wider than any
+write transaction closes the hole.
+
+Re-delivery is free, which is what makes this the right trade: entries are last-write-wins
+and keyed on a client-generated UUID, so applying the same row twice is a no-op. **A client
+that treats every returned row as new will duplicate data.** Upsert by id.
+
+The window bounds the longest write transaction. A `POST /sync/push` batch has to stay well
+under 30 seconds; if batch push ever grows past that, this window grows with it. A
+sequence-based cursor is *not* the alternative — `nextval()` is assigned at statement time,
+not commit time, so a `bigint` sequence has the identical race and costs a migration and a
+column on four tables.
+
 **`POST /sync/push`**
 Body: `{ entries: [...], media: [...], idempotency_keys: {...} }`
 Batched offline queue drain. Returns per-record accept/conflict so the client can reconcile without a full refetch.
@@ -201,9 +299,15 @@ Batched offline queue drain. Returns per-record accept/conflict so the client ca
 
 ## Prompts (admin, me only)
 
-**`GET /prompts`** — filterable by kind, theme, age band, source.
-**`POST /prompts`** — hand-authored additions.
-**`POST /prompts/batch-review`** — accept/reject LLM-generated candidates sitting in the review queue.
+**`GET /prompts`** — filterable by kind, theme, age band, source. Any authenticated caller.
+**`POST /prompts`** — hand-authored additions. **Requires `users.is_admin`**; anyone else
+gets `403 not_authorized`. The library is content every child draws from, so a `viewer`
+login must not be able to write to it. `dev-login`'s fixture user is an admin.
+There is no `POST /prompts/batch-review`, and there is not going to be. Candidates are
+batch-generated by `api/scripts/generate_prompts.py` into `docs/prompt-candidates/` and
+reviewed **in a pull request** — a branch with a diff is already an accept/reject interface
+with a comment thread, an audit trail, and an undo. Approving a batch is a commit to
+`docs/mission-library.md`, not an API call. See `docs/prompt-candidates/README.md`.
 
 The library is content. It's authored and reviewed server-side, never generated at request time and never authored on-device.
 

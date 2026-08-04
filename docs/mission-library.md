@@ -180,26 +180,60 @@ These set `unlock_at_age`. They're written *to* him, not about him.
 
 ## Coverage check for the POC
 
-Your son is 48 months. Prompts eligible at 48 months, by kind:
+Your son is 48 months. Prompts eligible at 48 months, by kind.
 
-| Kind | Eligible | Enough for 14 days? |
-|---|---|---|
-| Question | 30 | ✅ |
-| Photo | ~19 (before seasonal filtering) | ✅ |
-| Video | 9 | ✅ |
-| Audio | 11 | ✅ |
-| Activity | 15 | ✅ |
-| Weekly | 9 | ✅ |
-| Monthly | 4 | ✅ |
-| Letter | 8 | ✅ |
+**These figures are generated from `api/seeds/prompts.yaml`, and
+`api/tests/test_seeding.py` asserts them exactly** — if you add prompts and this table stops
+matching, the test fails and tells you the new numbers. Corrected Aug 4, 2026: the previous
+version predated the last handful of prompts and under-counted video, activity, and weekly.
+
+| Kind | Total | Eligible at 48mo | Of those, any-month | Enough for 14 days? |
+|---|---|---|---|---|
+| Question | 30 | 30 | 30 | ✅ |
+| Photo | 22 | 22 | 18 | ✅ |
+| Video | 11 | 11 | 10 | ✅ |
+| Audio | 12 | 11 | 11 | ✅ |
+| Activity | 16 | 16 | 16 | ✅ |
+| Weekly | 10 | 10 | 10 | ✅ |
+| Monthly | 4 | 4 | 4 | ✅ |
+| Letter | 8 | 8 | 8 | ✅ |
+
+113 prompts in total. "Any-month" excludes the seasonal ones — a prompt tagged to December
+is eligible by age but will not be served in August, so that column is what the scheduler
+actually has to draw from on an arbitrary day.
+
+The daily `mission` slot draws from photo, video, audio, and activity together (55 eligible
+at 48 months), not from any one of them alone. `monthly` draws from the four measurement and
+camera-roll prompts on the 1st; `letter` draws from the eight letters on the 15th.
 
 The 180-day cooldown holds comfortably at this size. When the library grows past ~300 you can tighten theme rotation instead of loosening cooldown.
 
 ## Expanding the library
 
-Batch-generate candidates **server-side with a real model**, into a review queue. Never at request time, never on-device. Feed the generator this file as the style reference, plus a target theme and age band, and ask for 20 candidates at a time. Reject anything that:
+Batch-generate candidates **server-side with a real model**. Never at request time, never
+on-device. Feed the generator this file as the style reference, plus a target theme and age
+band, and ask for 20 candidates at a time. Reject anything that:
 
 - uses the words *precious*, *cherish*, *treasure*, or *little moments*
 - describes a feeling instead of an action
 - couldn't be done in the middle of an ordinary Tuesday
 - assumes a two-parent household, a particular income, or a particular ability
+
+**This is built.** `api/scripts/generate_prompts.py` does exactly the above — including all
+four rejection rules, implemented in code and tested in `api/tests/test_generate_prompts.py`
+against real prompts from this file, so a filter that would reject "get on the floor for ten
+minutes" fails the suite.
+
+```
+uv run python scripts/generate_prompts.py --thinnest 4
+```
+
+Candidates land in `docs/prompt-candidates/<theme>-<date>.md`, and **the review queue is a
+pull request** — the *Prompt candidates* workflow opens one. Accepting a candidate means
+pasting its row into the right table above, regenerating the YAML, and deleting the
+worksheet. See `docs/prompt-candidates/README.md`.
+
+The filters are a spam trap, not an editor. They catch the failures that are textually
+detectable so that you are reading twelve plausible prompts instead of twenty with eight duds
+in them. The judgment is still yours, and this file is still the most valuable one in the
+project.

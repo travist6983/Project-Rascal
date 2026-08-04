@@ -68,6 +68,20 @@ async def current_user(
 CurrentUser = Annotated[User, Depends(current_user)]
 
 
+async def require_admin(user: CurrentUser) -> User:
+    """The mission library is content, authored and reviewed server-side.
+
+    Sits alongside `require_child_access` rather than inside it: this is not about a child,
+    it is about who may write to the library every child draws from.
+    """
+    if not user.is_admin:
+        raise not_authorized("The mission library is not writable by this account.")
+    return user
+
+
+AdminUser = Annotated[User, Depends(require_admin)]
+
+
 @dataclass(frozen=True)
 class ChildAccess:
     """The resolved child, the caller, and the role that let them through."""

@@ -46,7 +46,7 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
   memory = "512mb"
   processes = ["app"]
 
-# --- The daily scheduler --------------------------------------------------------------------
+# --- The scheduler ---------------------------------------------------------------------------
 #
 # fly.toml has no stanza for a scheduled machine — Fly creates them with `fly machine run`,
 # and a machine created that way is not managed by `fly deploy`. The exact command is in
@@ -54,13 +54,16 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 #
 #   fly machine run . \
 #     --app rascal-api \
-#     --schedule daily \
+#     --schedule hourly \
 #     --region ord \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 512 \
 #     --command "python -m rascal.jobs.scheduler"
 #
+# Hourly, not daily. A single daily cron fires at one UTC hour, which is 5am in exactly one
+# timezone and drifts an hour against DST twice a year. Firing hourly and letting the job
+# select the children for whom it is currently 5am on the wall costs 24 tiny wakeups a day
+# and removes that entire class of bug.
+#
 # The job is idempotent — the unique index on (child_id, assigned_on, slot) makes a rerun
-# free — so a duplicate firing or a manual re-run costs nothing. It derives each child's
-# date from the run instant in their own family_timezone, so a single daily UTC firing
-# serves every timezone correctly.
+# free — so a duplicate firing or a manual re-run costs nothing.

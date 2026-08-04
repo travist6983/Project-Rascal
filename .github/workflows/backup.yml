@@ -1,0 +1,115 @@
+name: Backup
+
+# In GitHub Actions rather than on a Fly machine, deliberately: the backup has to still run
+# on a day when Fly is the thing that is broken.
+on:
+  schedule:
+    # 08:10 UTC — a few minutes off the hour, because the top of the hour is when every
+    # cron on GitHub's fleet fires at once and jobs get queued.
+    - cron: "10 8 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+env:
+  AWS_DEFAULT_REGION: us-east-2
+  # Keep this many of each. A month of dailies is not the same insurance as a year of
+  # monthlies, and neither is expensive at this size.
+  KEEP_DAILY: 7
+  KEEP_WEEKLY: 4
+  KEEP_MONTHLY: 12
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the secrets are present
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          S3_BUCKET: ${{ vars.S3_BUCKET || 'rascal-media-prod' }}
+        run: |
+          missing=""
+          [ -z "$BACKUP_DATABASE_URL" ] && missing="$missing BACKUP_DATABASE_URL"
+          [ -z "$AWS_ACCESS_KEY_ID" ] && missing="$missing AWS_ACCESS_KEY_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing"
+            echo "::error::See docs/DEPLOY.md section 4."
+            exit 1
+          fi
+          echo "bucket: $S3_BUCKET"
+
+      # Neon runs Postgres 16; the client has to be at least that or pg_dump refuses.
+      - name: Install postgresql-client-16
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          pg_dump --version
+
+      - name: Dump and upload
+        env:
+          BACKUP_DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ vars.S3_BUCKET || 'rascal-media-prod' }}
+        run: |
+          set -euo pipefail
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          prefix="backups/$(date -u +%Y/%m)"
+          file="rascal-${stamp}.sql.gz"
+
+          # --no-owner/--no-privileges so the dump restores into any role, which is what a
+          # restore into a fresh database or a local machine actually needs.
+          pg_dump "$BACKUP_DATABASE_URL" \
+            --format=plain --no-owner --no-privileges --clean --if-exists \
+            | gzip -9 > "$file"
+
+          bytes=$(stat -c%s "$file")
+          echo "dumped $file (${bytes} bytes)"
+
+          # A dump that is basically empty means pg_dump succeeded against the wrong thing.
+          if [ "$bytes" -lt 1024 ]; then
+            echo "::error::Dump is only ${bytes} bytes. That is not a real backup."
+            exit 1
+          fi
+
+          # Prove it is intact before it counts as a backup.
+          gzip -t "$file"
+          if ! zcat "$file" | grep -q 'CREATE TABLE public.entries'; then
+            echo "::error::Dump does not contain the entries table. Wrong database?"
+            exit 1
+          fi
+
+          aws s3 cp "$file" "s3://${S3_BUCKET}/${prefix}/${file}" \
+            --storage-class STANDARD_IA --only-show-errors
+          echo "uploaded s3://${S3_BUCKET}/${prefix}/${file}"
+          echo "BACKUP_KEY=${prefix}/${file}" >> "$GITHUB_ENV"
+          echo "BACKUP_BYTES=${bytes}" >> "$GITHUB_ENV"
+
+      - name: Prune old backups
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ vars.S3_BUCKET || 'rascal-media-prod' }}
+        run: python3 .github/scripts/prune_backups.py
+
+      - name: Summary
+        run: |
+          {
+            echo "### Backup complete :floppy_disk:"
+            echo ""
+            echo "- key: \`${BACKUP_KEY}\`"
+            echo "- size: ${BACKUP_BYTES} bytes"
+          } >> "$GITHUB_STEP_SUMMARY"

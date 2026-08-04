@@ -33,6 +33,9 @@ class UploadPlan:
     upload_url: str | None
     parts: list[UploadPart] | None
     multipart: bool
+    # The size every part except the last must be, so the client does not have to guess the
+    # split that the presigned part count was computed from. Null for a single PUT.
+    chunk_bytes: int | None
 
 
 def _now() -> dt.datetime:
@@ -95,6 +98,7 @@ async def plan_upload(
             upload_url=s3.presign_put(key, content_type, settings),
             parts=None,
             multipart=False,
+            chunk_bytes=None,
         )
 
     chunk = settings.multipart_chunk_bytes
@@ -114,7 +118,7 @@ async def plan_upload(
         UploadPart(part_number=number, upload_url=s3.presign_part(key, upload_id, number, settings))
         for number in range(1, part_count + 1)
     ]
-    return UploadPlan(media=media, upload_url=None, parts=parts, multipart=True)
+    return UploadPlan(media=media, upload_url=None, parts=parts, multipart=True, chunk_bytes=chunk)
 
 
 async def complete_upload(
@@ -147,6 +151,18 @@ async def complete_upload(
     if duration_seconds is not None:
         media.duration_seconds = duration_seconds
     await session.flush()
+
+    # The entry's type was provisional until now: media arrives after the entry exists, so a
+    # `did_it` row becomes a photo row the moment the photo lands. The trigger moves the
+    # entry's updated_at, so the change syncs.
+    from rascal.services.entries import refresh_entry_type
+
+    entry = await session.get(Entry, media.entry_id)
+    if entry is not None:
+        await refresh_entry_type(session, entry)
+
+    # The set_updated_at() trigger wrote a new updated_at that this object has not seen.
+    await session.refresh(media)
     return media
 
 
@@ -181,6 +197,8 @@ async def write_derived(
         await apply_tags(session, entry, tags, "device_ai")
 
     await session.flush()
+    # Same as complete_upload: the trigger owns updated_at, so re-read it before serializing.
+    await session.refresh(media)
 
     links = (
         (

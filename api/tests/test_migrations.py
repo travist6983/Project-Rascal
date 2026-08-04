@@ -48,6 +48,9 @@ EXPECTED_INDEXES = {
     # The scheduler's candidate pool, and the seed loader's idempotency key.
     "ix_prompts_kind_cadence_active_age",
     "ix_prompts_content_hash",
+    # Full-text search. GIN, over the generated tsvector columns.
+    "ix_entries_search_vector",
+    "ix_media_search_vector",
 }
 
 EXPECTED_CHECKS = {

@@ -11,6 +11,7 @@ import binascii
 import datetime as dt
 import json
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import Select, and_, func, or_, select
@@ -18,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from rascal.constants import EntryType, TagSource
+from rascal.constants import CompletionMode, EntryType, TagSource
 from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
 from rascal.models import Assignment, Child, Entry, EntryTag, Media, Prompt, Tag, User
 from rascal.schemas.entry import (
@@ -29,6 +30,7 @@ from rascal.schemas.entry import (
     PromptRef,
     TagOut,
 )
+from rascal.services import search
 from rascal.services.dates import age_at_instant
 
 MAX_PAGE_SIZE = 200
@@ -62,6 +64,44 @@ class Cursor:
         try:
             payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
             return cls(
+                occurred_at=dt.datetime.fromisoformat(payload["o"]),
+                entry_id=uuid.UUID(payload["i"]),
+            )
+        except (ValueError, KeyError, binascii.Error, TypeError) as exc:
+            raise validation_failed("cursor is not a valid pagination cursor.", "cursor") from exc
+
+
+@dataclass(frozen=True)
+class SearchCursor:
+    """Keyset position for a *ranked* page: `(rank, occurred_at, id)`.
+
+    Search is ordered by relevance, so the timeline's `(occurred_at, id)` position means
+    nothing here — a cursor from one mode decodes as invalid in the other, which is the
+    correct answer rather than a quietly wrong page.
+    """
+
+    rank: float
+    occurred_at: dt.datetime
+    entry_id: uuid.UUID
+
+    def encode(self) -> str:
+        payload = json.dumps(
+            {
+                # json round-trips a float through repr, so this is exact — and it has to be,
+                # because the next page's WHERE compares against it for equality.
+                "r": self.rank,
+                "o": self.occurred_at.isoformat(),
+                "i": str(self.entry_id),
+            }
+        )
+        return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def decode(cls, raw: str) -> SearchCursor:
+        try:
+            payload = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")))
+            return cls(
+                rank=float(payload["r"]),
                 occurred_at=dt.datetime.fromisoformat(payload["o"]),
                 entry_id=uuid.UUID(payload["i"]),
             )
@@ -222,12 +262,87 @@ async def _resolve_assignment(
     return assignment, prompt
 
 
-def _entry_type_for(explicit: EntryType | None, prompt: Prompt | None) -> EntryType:
-    if explicit is not None:
-        return explicit
-    # Denormalized from the prompt so the timeline can filter without a join. A freeform
-    # entry has no prompt to copy, and `text` is what carries it.
-    return prompt.kind if prompt is not None else "text"
+def derive_entry_type(
+    body: str | None,
+    title: str | None,
+    media: Sequence[Media],
+    *,
+    completion_mode: CompletionMode | None,
+) -> EntryType:
+    """What the entry actually is — never what was asked, but not blind to it either.
+
+    In order:
+
+    1. Media attached -> the media kind. A `did_it` completion of an audio mission is not
+       an audio entry, and a Voice filter that surfaces it is lying.
+    2. Otherwise, if it completes a `did_it` mission -> `did_it`. "Get on the floor for ten
+       minutes" is a did-it whether or not you wrote a note about it, and the optional note
+       must not tip it out of the Did it filter. This is the same bug as (1), pointing the
+       other way.
+    3. Otherwise, any written content -> `text`. A title is written content.
+    4. Otherwise -> `did_it`.
+
+    `completion_mode` comes from the prompt behind the entry's assignment; a freeform entry
+    has none and falls through to (3)/(4).
+    """
+    attached = sorted(
+        (item for item in media if item.deleted_at is None),
+        # Deterministic: the relationship's order is not, and "the first attached kind" has
+        # to mean the same thing on every recompute.
+        key=lambda item: (item.created_at, str(item.id)),
+    )
+    if attached:
+        return attached[0].kind  # mixed media takes the first attached kind
+    if completion_mode == "did_it":
+        return "did_it"
+    if body or title:
+        return "text"
+    return "did_it"
+
+
+async def completion_mode_for(
+    session: AsyncSession, assignment_id: uuid.UUID | None
+) -> CompletionMode | None:
+    """The `completion_mode` of the prompt behind an assignment, if there is one.
+
+    None for a freeform entry, and None for a parent-authored `custom_body` assignment —
+    neither has a prompt saying what shape the answer takes.
+    """
+    if assignment_id is None:
+        return None
+    return await session.scalar(
+        select(Prompt.completion_mode)
+        .join(Assignment, Assignment.prompt_id == Prompt.id)
+        .where(Assignment.id == assignment_id)
+    )
+
+
+async def refresh_entry_type(session: AsyncSession, entry: Entry) -> bool:
+    """Recompute after media lands or the text changes. True if the value moved.
+
+    Media arrives after the entry exists, so the type assigned at creation is provisional.
+    When this writes, the `set_updated_at()` trigger moves the sync cursor for free.
+    """
+    attached = (
+        (
+            await session.execute(
+                select(Media).where(Media.entry_id == entry.id, Media.deleted_at.is_(None))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    derived = derive_entry_type(
+        entry.body,
+        entry.title,
+        list(attached),
+        completion_mode=await completion_mode_for(session, entry.assignment_id),
+    )
+    if derived == entry.entry_type:
+        return False
+    entry.entry_type = derived
+    await session.flush()
+    return True
 
 
 async def create_entry(
@@ -240,7 +355,6 @@ async def create_entry(
     assignment_id: uuid.UUID | None = None,
     title: str | None = None,
     body: str | None = None,
-    entry_type: EntryType | None = None,
     unlock_at_age: int | None = None,
     tags: list[str] | None = None,
 ) -> Entry:
@@ -274,7 +388,14 @@ async def create_entry(
         child_age_months=age_at_instant(child.birthdate, occurred_at, child.family_timezone),
         title=title,
         body=body,
-        entry_type=_entry_type_for(entry_type, prompt),
+        # No media exists yet — it is uploaded against the entry afterwards — so this is
+        # `text` or `did_it`, and POST /media/{id}/complete recomputes it.
+        entry_type=derive_entry_type(
+            body,
+            title,
+            [],
+            completion_mode=prompt.completion_mode if prompt is not None else None,
+        ),
         unlock_at_age=unlock_at_age,
     )
     session.add(entry)
@@ -304,7 +425,6 @@ def _filters(
     after: dt.datetime | None,
     entry_type: str | None,
     tag: str | None,
-    query: str | None,
 ) -> list:
     clauses = [Entry.child_id == child_id, Entry.deleted_at.is_(None)]
     if before is not None:
@@ -325,11 +445,6 @@ def _filters(
                 )
             )
         )
-    if query:
-        # A substring filter, not full-text search — Postgres tsvector search is P1 and
-        # explicitly out of scope here.
-        pattern = f"%{query.strip()}%"
-        clauses.append(or_(Entry.title.ilike(pattern), Entry.body.ilike(pattern)))
     return clauses
 
 
@@ -345,9 +460,27 @@ async def list_entries(
     limit: int = DEFAULT_PAGE_SIZE,
     cursor: str | None = None,
 ) -> tuple[list[Entry], str | None]:
-    """Newest first by `occurred_at`, keyset-paginated on `(occurred_at, id)`."""
+    """The timeline, or — when `query` is given — the search results.
+
+    Without `query`: newest first by `occurred_at`, keyset-paginated on `(occurred_at, id)`.
+    With it: best match first, keyset-paginated on `(rank, occurred_at, id)`. Both filter
+    `deleted_at IS NULL`; `/sync` is the only read path that returns deleted rows.
+    """
     limit = max(1, min(limit, MAX_PAGE_SIZE))
-    clauses = _filters(child_id, before, after, entry_type, tag, query)
+    if query and query.strip():
+        return await _search_entries(
+            session,
+            child_id,
+            query=query,
+            before=before,
+            after=after,
+            entry_type=entry_type,
+            tag=tag,
+            limit=limit,
+            cursor=cursor,
+        )
+
+    clauses = _filters(child_id, before, after, entry_type, tag)
 
     if cursor:
         position = Cursor.decode(cursor)
@@ -378,6 +511,97 @@ async def list_entries(
     return rows, next_cursor
 
 
+def search_statement(
+    child_id: uuid.UUID,
+    *,
+    query: str,
+    before: dt.datetime | None = None,
+    after: dt.datetime | None = None,
+    entry_type: str | None = None,
+    tag: str | None = None,
+    limit: int = DEFAULT_PAGE_SIZE,
+    cursor: str | None = None,
+) -> Select:
+    """The ranked search query. Separate from its execution so its plan can be asserted on.
+
+    `tests/test_search.py` runs EXPLAIN over exactly this statement and fails if either GIN
+    index stops being reachable — the failure mode is a search that still returns the right
+    rows, just slower every year.
+    """
+    tsq = search.tsquery(query)
+    rank = search.rank_expression(tsq)
+
+    clauses = [*_filters(child_id, before, after, entry_type, tag), search.matches(tsq)]
+
+    if cursor:
+        position = SearchCursor.decode(cursor)
+        # The three-column keyset comparison, spelled out. Rank ties are the common case, not
+        # the edge case — ts_rank_cd hands out the same score constantly — so occurred_at and
+        # id are what actually make a page boundary stable.
+        clauses.append(
+            or_(
+                rank < position.rank,
+                and_(
+                    rank == position.rank,
+                    or_(
+                        Entry.occurred_at < position.occurred_at,
+                        and_(
+                            Entry.occurred_at == position.occurred_at,
+                            Entry.id < position.entry_id,
+                        ),
+                    ),
+                ),
+            )
+        )
+
+    return (
+        _loaded(select(Entry, rank.label("rank")))
+        .where(*clauses)
+        # Relevance first, then the timeline's own order, so equally-good matches still read
+        # newest to oldest.
+        .order_by(rank.desc(), Entry.occurred_at.desc(), Entry.id.desc())
+        # One extra row tells us whether there is a next page without a second count query.
+        .limit(limit + 1)
+    )
+
+
+async def _search_entries(
+    session: AsyncSession,
+    child_id: uuid.UUID,
+    *,
+    query: str,
+    before: dt.datetime | None,
+    after: dt.datetime | None,
+    entry_type: str | None,
+    tag: str | None,
+    limit: int,
+    cursor: str | None,
+) -> tuple[list[Entry], str | None]:
+    """Full-text search, best match first. See `rascal.services.search`."""
+    statement = search_statement(
+        child_id,
+        query=query,
+        before=before,
+        after=after,
+        entry_type=entry_type,
+        tag=tag,
+        limit=limit,
+        cursor=cursor,
+    )
+    rows = list((await session.execute(statement)).all())
+
+    next_cursor = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_entry, last_rank = rows[-1]
+        next_cursor = SearchCursor(
+            rank=float(last_rank),
+            occurred_at=last_entry.occurred_at,
+            entry_id=last_entry.id,
+        ).encode()
+    return [entry for entry, _ in rows], next_cursor
+
+
 # --- Update and delete -------------------------------------------------------------------
 
 
@@ -401,8 +625,37 @@ async def update_entry(
     if tags is not None:
         await apply_tags(session, entry, tags, "user")
 
+    if "body" in fields or "title" in fields:
+        # Written content can tip a freeform entry from did_it to text, so the type has to
+        # follow an edit of the row. A did-it mission stays did_it either way.
+        await refresh_entry_type(session, entry)
+
     await session.flush()
     return await load_entry(session, entry.id)
+
+
+async def release_assignment(session: AsyncSession, assignment_id: uuid.UUID) -> bool:
+    """Put a completed assignment back on the Today screen. True if it moved.
+
+    Only when nothing else still completes it: two entries can answer one mission, and
+    deleting the first must not unmark the second.
+    """
+    assignment = await session.get(Assignment, assignment_id)
+    if assignment is None or assignment.status != "done":
+        return False
+
+    still_completed = await session.scalar(
+        select(Entry.id)
+        .where(Entry.assignment_id == assignment_id, Entry.deleted_at.is_(None))
+        .limit(1)
+    )
+    if still_completed is not None:
+        return False
+
+    assignment.status = "pending"
+    assignment.completed_by = None
+    await session.flush()
+    return True
 
 
 async def soft_delete_entry(session: AsyncSession, entry: Entry) -> None:
@@ -416,6 +669,11 @@ async def soft_delete_entry(session: AsyncSession, entry: Entry) -> None:
         if item.deleted_at is None:
             item.deleted_at = now
     await session.flush()
+
+    if entry.assignment_id is not None:
+        # The wrong-photo-redo-it path. Without this the mission is stranded `done` with
+        # nothing to show for it, and the slot is gone for the day.
+        await release_assignment(session, entry.assignment_id)
 
 
 # --- On This Day -------------------------------------------------------------------------

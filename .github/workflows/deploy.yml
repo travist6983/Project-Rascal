@@ -1,0 +1,106 @@
+name: Deploy
+
+# Deploying must never require a laptop. This runs on a push to main, and on demand from
+# the GitHub mobile app via the "Run workflow" button.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never two deploys at once, and never cancel one halfway — a cancelled deploy can leave
+# the release command half-applied.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  FLY_APP: rascal-api
+  HEALTH_TIMEOUT_SECONDS: 90
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Check the token is present
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN is not set. Add it under"
+            echo "::error::Settings -> Secrets and variables -> Actions -> New repository secret."
+            echo "::error::Generate one with: fly tokens create deploy --app $FLY_APP"
+            exit 1
+          fi
+
+      # Migrations run here and nowhere else. fly.toml sets
+      #   release_command = "alembic upgrade head"
+      # so Fly applies them once, before the new machines take traffic. A second Alembic
+      # path in CI is how a half-migrated database happens.
+      - name: Deploy
+        working-directory: api
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --wait-timeout 600
+
+      # Fly can report a successful deploy while the release command errored, which would
+      # put a running app in front of an unmigrated database. Ask explicitly.
+      - name: Verify the release command succeeded
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          releases=$(flyctl releases --app "$FLY_APP" --json)
+          status=$(echo "$releases" | jq -r '.[0].Status // "unknown"')
+          version=$(echo "$releases" | jq -r '.[0].Version // "unknown"')
+          echo "latest release: v$version, status=$status"
+
+          if [ "$status" != "succeeded" ]; then
+            echo "::error::Release v$version finished with status '$status', not 'succeeded'."
+            echo "::error::That usually means 'alembic upgrade head' failed. Logs follow."
+            flyctl logs --app "$FLY_APP" --no-tail | tail -80 || true
+            exit 1
+          fi
+
+      # A green workflow has to mean the app is actually serving. /health touches the
+      # database, so ok/ok proves the migration landed and the pool is alive.
+      - name: Wait for the app to serve
+        run: |
+          set -uo pipefail
+          url="https://${FLY_APP}.fly.dev/health"
+          deadline=$(( SECONDS + HEALTH_TIMEOUT_SECONDS ))
+          attempt=0
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            attempt=$(( attempt + 1 ))
+            body=$(curl -fsS --max-time 10 "$url" 2>/dev/null || true)
+            if [ "$body" = '{"status":"ok","db":"ok"}' ]; then
+              echo "healthy after ${attempt} attempt(s): $body"
+              exit 0
+            fi
+            echo "attempt ${attempt}: ${body:-<no response>}"
+            sleep 5
+          done
+
+          echo "::error::$url did not return {\"status\":\"ok\",\"db\":\"ok\"} within ${HEALTH_TIMEOUT_SECONDS}s."
+          echo "::error::The deploy and the release command both succeeded, so this is the app"
+          echo "::error::failing to serve — most likely DATABASE_URL. Logs follow."
+          flyctl logs --app "$FLY_APP" --no-tail | tail -80 || true
+          exit 1
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed :rocket:"
+            echo ""
+            echo "- app: \`$FLY_APP\`"
+            echo "- commit: \`${GITHUB_SHA:0:8}\`"
+            echo "- health: https://${FLY_APP}.fly.dev/health"
+            echo "- docs: https://${FLY_APP}.fly.dev/docs"
+          } >> "$GITHUB_STEP_SUMMARY"

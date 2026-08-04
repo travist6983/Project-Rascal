@@ -18,6 +18,8 @@ class UserOut(ApiModel):
     id: uuid.UUID
     email: str | None
     display_name: str | None
+    # So a client can hide the library editor rather than offer it and take a 403.
+    is_admin: bool = False
     created_at: dt.datetime
 
 

@@ -20,9 +20,11 @@ class EntryCreate(ApiModel):
     occurred_at: dt.datetime = Field(description="When it happened. Not when it was logged.")
     title: str | None = None
     body: str | None = None
-    # Optional: when the entry completes an assignment the server denormalizes the prompt's
-    # kind, so a client never has to guess.
-    entry_type: EntryType | None = None
+    # Accepted for wire compatibility and ignored. entry_type describes what the entry
+    # actually contains, and the server derives it — see docs/decisions.md.
+    entry_type: EntryType | None = Field(
+        default=None, deprecated=True, description="Ignored. Derived server-side."
+    )
     unlock_at_age: int | None = Field(default=None, ge=0, le=120)
     tags: list[str] = Field(default_factory=list)
 

@@ -26,7 +26,8 @@ from rascal.services.scheduler import (
     slots_for,
 )
 
-SATURDAY = dt.date(2026, 8, 15)
+# A Saturday that is neither the 1st nor the 15th, so the weekly slot is tested alone.
+SATURDAY = dt.date(2026, 8, 22)
 SUNDAY = dt.date(2026, 8, 16)
 FIRST = dt.date(2026, 9, 1)
 RNG = random.Random(1234)
@@ -462,3 +463,290 @@ async def test_the_debug_routes_are_not_registered_outside_local(engine) -> None
     prod = create_app(get_settings().model_copy(update={"environment": "prod"}))
     paths = prod.openapi()["paths"]
     assert not [path for path in paths if path.startswith("/v1/debug")]
+
+
+# --- B1: letters get their own slot, on the 15th ------------------------------------------
+
+
+FIFTEENTH = dt.date(2026, 9, 15)
+
+
+def test_the_letter_slot_only_fires_on_the_fifteenth() -> None:
+    assert "letter" in slots_for(FIFTEENTH)
+    assert "letter" not in slots_for(FIRST)
+    assert "letter" not in slots_for(SUNDAY)
+
+
+def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
+    """Four items on one day breaks "two items is the most that survives a bad Tuesday"."""
+    for day in (FIRST, FIFTEENTH):
+        slots = slots_for(day)
+        assert not {"monthly", "letter"} <= set(slots)
+        assert len(slots) <= 3
+
+
+async def test_the_monthly_slot_never_serves_a_letter(session: AsyncSession) -> None:
+    """A letter competing with the measurement is how the money letter never gets written."""
+    child = await make_child(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    await make_prompt(
+        session,
+        kind="measurement",
+        cadence="monthly",
+        completion_mode="media",
+        theme="growth-measurement",
+    )
+    await session.commit()
+
+    for _ in range(15):
+        chosen = await select_prompt(child, "monthly", FIRST, session, rng=random.Random(0))
+        assert chosen.kind == "measurement"
+
+
+async def test_the_letter_slot_only_serves_letters(session: AsyncSession) -> None:
+    child = await make_child(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    await make_prompt(
+        session,
+        kind="measurement",
+        cadence="monthly",
+        completion_mode="media",
+        theme="growth-measurement",
+    )
+    await session.commit()
+
+    for _ in range(15):
+        chosen = await select_prompt(child, "letter", FIFTEENTH, session, rng=random.Random(0))
+        assert chosen.kind == "letter"
+
+
+async def test_the_scheduler_fills_the_letter_slot_on_the_fifteenth(
+    session: AsyncSession,
+) -> None:
+    child = await make_child(session)
+    await _library(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=16,
+        theme="letters-forward",
+    )
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=FIFTEENTH, seed=21)
+    await session.commit()
+
+    rows = dict(
+        (
+            await session.execute(
+                sa.select(Assignment.slot, Prompt.kind)
+                .join(Prompt, Prompt.id == Assignment.prompt_id)
+                .where(Assignment.child_id == child.id)
+            )
+        ).all()
+    )
+    assert rows["letter"] == "letter"
+    assert "monthly" not in rows
+
+
+async def test_an_entry_completing_a_letter_inherits_its_unlock_age(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Letters are sealed by default. The server owns that, not the client."""
+    user = await make_user(session)
+    child = await make_child(session)
+    await grant(session, user, child, "parent")
+    await _library(session)
+    letter = await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+        body="Write him something about money.",
+    )
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=FIFTEENTH, seed=22)
+    await session.commit()
+
+    assignment_id = await session.scalar(
+        sa.select(Assignment.id).where(Assignment.child_id == child.id, Assignment.slot == "letter")
+    )
+    created = await client.post(
+        "/v1/entries",
+        json={
+            "id": str(uuid.uuid4()),
+            "child_id": str(child.id),
+            "assignment_id": str(assignment_id),
+            "occurred_at": "2026-09-15T21:00:00Z",
+            "body": "The thing nobody told me at nineteen was that...",
+        },
+        headers=auth_headers(user),
+    )
+
+    assert created.status_code == 201
+    assert created.json()["unlock_at_age"] == letter.default_unlock_age == 18
+    assert created.json()["entry_type"] == "text"
+
+
+async def test_a_client_may_override_the_inherited_unlock_age(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user = await make_user(session)
+    child = await make_child(session)
+    await grant(session, user, child, "parent")
+    letter = await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    assignment = await make_assignment(session, child, letter, slot="letter", assigned_on=FIFTEENTH)
+    await session.commit()
+
+    created = await client.post(
+        "/v1/entries",
+        json={
+            "id": str(uuid.uuid4()),
+            "child_id": str(child.id),
+            "assignment_id": str(assignment.id),
+            "occurred_at": "2026-09-15T21:00:00Z",
+            "body": "He can have this one at thirteen.",
+            "unlock_at_age": 13,
+        },
+        headers=auth_headers(user),
+    )
+    assert created.json()["unlock_at_age"] == 13
+
+
+# --- C2: hourly firing, filtered on each child's local hour -------------------------------
+
+
+async def test_the_hourly_job_only_serves_children_for_whom_it_is_five_am(
+    session: AsyncSession,
+) -> None:
+    """One daily UTC cron is 5am in exactly one timezone. Hourly plus a filter is 5am in all."""
+    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
+    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    # 09:00 UTC on 2026-08-22 is 05:00 in Detroit (EDT, UTC-4) and 21:00 in Auckland.
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=30)
+    await session.commit()
+
+    assert run.skipped_off_hour == 1
+    served = set((await session.execute(sa.select(Assignment.child_id).distinct())).scalars().all())
+    assert served == {detroit.id}
+
+
+async def test_every_timezone_gets_its_own_five_am_across_a_day_of_firings(
+    session: AsyncSession,
+) -> None:
+    """The point of the change: nobody's mission arrives at 9pm."""
+    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
+    auckland = await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    # Twenty-four hourly firings, exactly as the Fly machine would produce them.
+    for hour in range(24):
+        instant = dt.datetime(2026, 8, 22, hour, 0, tzinfo=dt.UTC)
+        await run_scheduler(session, as_of=instant, only_local_hour=5, seed=31)
+        await session.commit()
+
+    served = dict(
+        (
+            await session.execute(sa.select(Assignment.child_id, Assignment.assigned_on).distinct())
+        ).all()
+    )
+    assert set(served) == {detroit.id, auckland.id}
+    # Each was served on their *own* local date, not on a shared UTC one. Within a single UTC
+    # day of firings, 5am in Detroit (UTC-4) is the 22nd and 5am in Auckland (UTC+12) is
+    # already the 23rd — which is exactly the point.
+    assert served[detroit.id] == dt.date(2026, 8, 22)
+    assert served[auckland.id] == dt.date(2026, 8, 23)
+
+
+async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
+    session: AsyncSession,
+) -> None:
+    """A fixed UTC hour drifts when the clocks change. A local-hour filter cannot."""
+    child = await make_child(session, name="Miles", timezone="America/Detroit")
+    await _library(session)
+    await session.commit()
+
+    # Detroit is UTC-4 in August and UTC-5 in December, so 5am local is a different UTC hour
+    # on either side of the change. Both firings must find the child.
+    summer = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    winter = dt.datetime(2026, 12, 12, 10, 0, tzinfo=dt.UTC)
+
+    for instant in (summer, winter):
+        run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=32)
+        await session.commit()
+        assert run.skipped_off_hour == 0, instant
+
+    days = set(
+        (
+            await session.execute(
+                sa.select(Assignment.assigned_on).where(Assignment.child_id == child.id).distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert days == {dt.date(2026, 8, 22), dt.date(2026, 12, 12)}
+
+
+async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
+    session: AsyncSession,
+) -> None:
+    """A double-fire has to be free, because Fly's scheduler makes no exactly-once promise."""
+    await make_child(session, timezone="America/Detroit")
+    await _library(session)
+    await session.commit()
+
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    first = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=33)
+    await session.commit()
+    second = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=34)
+    await session.commit()
+
+    assert first.created == 3  # question, mission, weekly (2026-08-22 is a Saturday)
+    assert second.created == 0
+
+
+async def test_without_the_filter_every_child_is_served(session: AsyncSession) -> None:
+    """`--any-hour` and `--date` are deliberate manual runs; the wall clock stops mattering."""
+    await make_child(session, name="Miles", timezone="America/Detroit")
+    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await _library(session)
+    await session.commit()
+
+    run = await run_scheduler(session, as_of=dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC), seed=35)
+    await session.commit()
+
+    assert run.skipped_off_hour == 0
+    served = set((await session.execute(sa.select(Assignment.child_id).distinct())).scalars().all())
+    assert len(served) == 2
