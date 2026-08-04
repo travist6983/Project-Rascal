@@ -232,3 +232,25 @@ that file left open.
   than archive — regenerating them is the whole point of the route.
 - **Log extras are prefixed (`assignments_created`, not `created`).** `created` is a reserved
   `LogRecord` attribute and the stdlib raises rather than shadowing it.
+
+## M6 — Deployment artifacts
+
+- **The scheduled machine is created with `fly machine run --schedule daily`, not in
+  `fly.toml`.** Fly has no schedule stanza; `fly.toml` carries a comment with the exact
+  command and `docs/DEPLOY.md` has the runbook, including the fact that a scheduled machine
+  is not managed by `fly deploy` and has to be recreated after a behaviour change.
+- **One uvicorn worker per machine.** Postgres connection count on Neon is the scarce
+  resource — scaling means more machines, not more workers behind one connection pool.
+- **`min_machines_running = 1` with `auto_stop_machines = "suspend"`.** A cold start on the
+  morning the widget fires is the one moment this has to be instant.
+- **The IAM policy has no `s3:DeleteObject`.** Nothing in this service deletes an object —
+  deletion is soft and lives in Postgres — so the credential should not be able to either.
+- **S3 gets versioning, an incomplete-multipart abort rule at 7 days, and `ExposeHeaders:
+  ["ETag"]` in CORS.** The ETag header is not optional: a multipart upload cannot complete
+  without the client reading it off each part response.
+- **Neon's pooled endpoint, and the `postgresql+psycopg://` scheme.** Neon hands you a
+  `postgresql://` URL; the scheme has to be rewritten for psycopg 3, and the pooler endpoint
+  is what survives Fly machines suspending and resuming.
+- **`ENVIRONMENT=prod` is a plain `[env]` value, not a secret.** It is not sensitive, and
+  having it visible in `fly.toml` is what makes "dev-login cannot exist in production"
+  auditable at a glance.

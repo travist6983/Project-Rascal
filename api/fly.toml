@@ -1,0 +1,66 @@
+# Fly.io configuration for the RASCAL API.
+#
+# Deploy from api/:  fly deploy
+# Full runbook:      docs/DEPLOY.md
+
+app = "rascal-api"
+primary_region = "ord"          # Chicago — closest Fly region to Detroit.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Runs once, before the new machines take traffic. A failed migration fails the deploy
+  # instead of leaving a running app in front of the wrong schema.
+  release_command = "alembic upgrade head"
+  strategy = "rolling"
+
+[env]
+  ENVIRONMENT = "prod"
+  S3_REGION = "us-east-2"
+  # Everything secret is a Fly secret, never an env entry. See docs/DEPLOY.md.
+
+[processes]
+  app = "uvicorn rascal.main:app --host 0.0.0.0 --port 8080 --workers 1"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # One machine always up: a cold start on the morning the widget fires is the one time
+  # this has to be instant.
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    # /health touches the database, so a green check means the app can actually serve.
+    path = "/health"
+    method = "GET"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["app"]
+
+# --- The daily scheduler --------------------------------------------------------------------
+#
+# fly.toml has no stanza for a scheduled machine — Fly creates them with `fly machine run`,
+# and a machine created that way is not managed by `fly deploy`. The exact command is in
+# docs/DEPLOY.md, and it is this:
+#
+#   fly machine run . \
+#     --app rascal-api \
+#     --schedule daily \
+#     --region ord \
+#     --vm-size shared-cpu-1x \
+#     --vm-memory 512 \
+#     --command "python -m rascal.jobs.scheduler"
+#
+# The job is idempotent — the unique index on (child_id, assigned_on, slot) makes a rerun
+# free — so a duplicate firing or a manual re-run costs nothing. It derives each child's
+# date from the run instant in their own family_timezone, so a single daily UTC firing
+# serves every timezone correctly.
