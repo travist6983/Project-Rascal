@@ -390,3 +390,48 @@ that file left open.
   answer takes, so the content decides.
 - **`PATCH /entries/{id}` now recomputes on a `title` change too**, not only `body` — both are
   content under the new rule.
+
+---
+
+# Task 03b — deploy automation, durability, search, prompts
+
+## M1 — Deploy from GitHub Actions
+
+- **`DIRECT_DATABASE_URL` added to `Settings`, used only by Alembic.** Neon's pooled endpoint
+  is PgBouncer in transaction mode, which does not support the advisory locks and prepared
+  statements a migration needs. `sync_database_url` prefers it and falls back to
+  `DATABASE_URL`, so local development — which has no pooler — is unchanged.
+- **The deploy checks Fly's release status explicitly.** `flyctl deploy` can exit 0 while the
+  release command errored, which would put a running app in front of an unmigrated database.
+  The workflow reads `flyctl releases --json`, requires `succeeded`, and dumps 80 log lines
+  when it is not.
+- **`/health` is polled for 90s and compared byte-for-byte** to `{"status":"ok","db":"ok"}`.
+  A 200 with a degraded body would otherwise pass.
+- **`concurrency: cancel-in-progress: false` on deploy.** Cancelling a deploy halfway can
+  leave the release command half-applied; queueing is the safe behaviour.
+- **`smoke.yml` asserts the *absence* of `dev-login` and the debug routes**, not just that
+  health is green. Those 404s are the only runtime proof that `ENVIRONMENT=prod` took effect.
+- **The app's own secrets live in Fly, not GitHub.** GitHub only needs what the *workflows*
+  use — the Fly token, AWS keys for backups, and the backup database URL. Fewer copies of a
+  credential is fewer places to rotate.
+
+## M2a/M2b — Durability
+
+- **The backup runs in GitHub Actions, not on a Fly machine**, per the task: it has to still
+  run on a day when Fly is the broken thing.
+- **The backup verifies its own dump before counting it as a backup** — non-trivial size,
+  `gzip -t`, and a grep for `CREATE TABLE public.entries`. A `pg_dump` that succeeds against
+  the wrong database produces a perfectly valid, perfectly useless file.
+- **`BACKUP_DATABASE_URL` is a plain `postgresql://` URL**, not `postgresql+psycopg://`.
+  `pg_dump` is not SQLAlchemy and does not understand the driver suffix.
+- **Retention keeps the newest object in each calendar bucket** — day, ISO week, month —
+  taking the most recent 7, 4, and 12 buckets respectively. An object survives if any rule
+  wants it.
+- **Prune never deletes a key it cannot parse**, and refuses to delete anything at all if the
+  keep-set came out empty. Both are guards against a bug in the selection emptying the prefix.
+- **`restore.py` refuses a non-empty target without `--force`.** A mistyped URL should not be
+  able to quietly overwrite production.
+- **`psql --set=ON_ERROR_STOP=1`.** Without it psql exits 0 after a failed statement and a
+  half-restored schema looks like a success.
+- **CI installs a Postgres 16 client when the runner's is older.** `pg_dump` refuses to dump a
+  server newer than itself, and the restore test is worthless if it silently skips.

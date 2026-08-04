@@ -51,6 +51,21 @@ jobs:
       APPLE_BUNDLE_ID: com.example.rascal
     steps:
       - uses: actions/checkout@v4
+      # tests/test_restore.py performs a real pg_dump/psql round trip, and pg_dump refuses
+      # to dump a server newer than itself — so the client has to match Postgres 16.
+      - name: Ensure a Postgres 16 client
+        run: |
+          set -euo pipefail
+          if ! pg_dump --version | grep -qE ' 1[6-9]\.'; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+              | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client-16
+          fi
+          pg_dump --version
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

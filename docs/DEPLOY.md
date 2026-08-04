@@ -1,140 +1,118 @@
 # RASCAL — deploying the API
 
-The exact sequence to get this running on Fly.io with Neon and S3. Nothing here has been
-run for you — these are commands for you, with your credentials.
+**You never need a laptop to deploy.** GitHub Actions builds and ships; you tap a button.
 
-Everything below runs from `api/` unless it says otherwise.
+There is a one-time setup — four accounts to click through and four secrets to paste — and
+every step of it is doable in a mobile browser. After that, deploying is: push to `main`, or
+open the Actions tab and tap **Run workflow**.
 
----
-
-## 0. What you need first
-
-| Thing | Where | Why |
-|---|---|---|
-| Fly.io account + `flyctl` | `brew install flyctl && fly auth login` | Hosting |
-| Neon account | neon.tech | Postgres |
-| AWS account | console.aws.amazon.com | S3 for media |
-| Apple bundle id | Your Xcode project | Verifying identity tokens |
-
-Apple Developer enrollment is **not** required to deploy. It is required before
-`POST /v1/auth/apple` can accept a real token — until then, run locally and use
-`dev-login`. See `docs/blocked.md`.
+- **`.github/workflows/deploy.yml`** — deploys on push to `main` and on demand. Runs
+  migrations through Fly's `release_command`, checks the release actually succeeded, then
+  polls `/health` until the app is genuinely serving.
+- **`.github/workflows/smoke.yml`** — on demand, read-only. Tap it any time to find out
+  whether the deployed API is alive and correctly locked down.
 
 ---
 
-## 1. Neon
+## One-time setup
 
-Create a project (region `us-east-2` / Ohio, to sit next to the S3 bucket), then copy the
-**pooled** connection string from the Neon dashboard.
+Roughly twenty minutes on a phone. Do the four sections in order; the last one needs values
+from the first three.
 
-Neon hands you a `postgresql://` URL. This service uses psycopg 3, so change the scheme:
+### 1. Fly — create the app
+
+In a mobile browser at [fly.io](https://fly.io): sign up, add a card (the free allowance
+covers this), then **Launch** → **Create app from scratch**. Name it `rascal-api` in region
+`ord` (Chicago — closest to Detroit).
+
+Do **not** deploy anything from the Fly UI. The app just needs to exist so the workflow has
+somewhere to push.
+
+If `rascal-api` is taken, pick another name and change two lines to match:
+`app = "…"` in `api/fly.toml`, and `FLY_APP:` in `.github/workflows/deploy.yml`. Both are
+editable in the GitHub mobile app — tap the file, then the pencil.
+
+**Get a deploy token:** Fly dashboard → your app → **Tokens** → **Create deploy token**.
+Copy it. It starts with `FlyV1`. This is `FLY_API_TOKEN` in section 4.
+
+### 2. Neon — create the database
+
+At [neon.tech](https://neon.tech): sign up, create a project in **AWS us-east-2 (Ohio)** so
+it sits next to the S3 bucket. Name the database `rascal`.
+
+You need **two** connection strings from the dashboard, and they are different on purpose.
+
+**The pooled one** (the hostname contains `-pooler`) — this is what the app serves through:
 
 ```
-# Neon gives you:
-postgresql://rascal_owner:AbC123@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/rascal?sslmode=require
-
-# Use:
-postgresql+psycopg://rascal_owner:AbC123@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/rascal?sslmode=require
+postgresql://rascal_owner:PASSWORD@ep-cool-name-123456-pooler.us-east-2.aws.neon.tech/rascal?sslmode=require
 ```
 
-Two things that matter:
+**The direct one** (same host, no `-pooler`) — this is what Alembic migrates through:
 
-- **Use the pooler endpoint** (`-pooler` in the hostname). Fly machines reconnect on every
-  suspend/resume cycle and Neon's direct endpoint runs out of connections faster than you
-  would expect.
-- **Keep `?sslmode=require`.** Neon refuses plaintext, and dropping it produces a connection
-  error that reads like a DNS problem.
-
-`api/src/rascal/db.py` sets `pool_recycle=1800`, well inside Neon's idle timeout, so a
-suspended machine does not wake up holding a dead connection.
-
----
-
-## 2. S3
-
-### Create the bucket
-
-```bash
-aws s3api create-bucket \
-  --bucket rascal-media-prod \
-  --region us-east-2 \
-  --create-bucket-configuration LocationConstraint=us-east-2
-
-# Nothing in this bucket is ever public. Presigned URLs are the only way in or out.
-aws s3api put-public-access-block \
-  --bucket rascal-media-prod \
-  --public-access-block-configuration \
-    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
-
-# Versioning, so a bad client delete is recoverable. This archive is the product.
-aws s3api put-bucket-versioning \
-  --bucket rascal-media-prod \
-  --versioning-configuration Status=Enabled
-
-# Server-side encryption at rest.
-aws s3api put-bucket-encryption \
-  --bucket rascal-media-prod \
-  --server-side-encryption-configuration \
-    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+```
+postgresql://rascal_owner:PASSWORD@ep-cool-name-123456.us-east-2.aws.neon.tech/rascal?sslmode=require
 ```
 
-### CORS
+Then change `postgresql://` to `postgresql+psycopg://` on **both**. This service uses
+psycopg 3 and the driver is part of the URL.
 
-The phone uploads directly to S3, and a browser client will too. Without this, the presigned
-PUT fails in a way that looks like a signature problem.
+Three things that will bite you if you skip them:
 
-```bash
-cat > /tmp/rascal-cors.json <<'JSON'
-{
-  "CORSRules": [
-    {
-      "AllowedHeaders": ["*"],
-      "AllowedMethods": ["PUT", "GET", "HEAD"],
-      "AllowedOrigins": ["*"],
-      "ExposeHeaders": ["ETag"],
-      "MaxAgeSeconds": 3000
-    }
-  ]
-}
-JSON
-aws s3api put-bucket-cors --bucket rascal-media-prod --cors-configuration file:///tmp/rascal-cors.json
+- **Keep `?sslmode=require`.** Neon refuses plaintext, and dropping it produces an error
+  that reads like a DNS problem.
+- **The app needs the pooler.** Fly machines suspend and resume, reconnecting each time, and
+  Neon's direct endpoint runs out of connections faster than you would expect.
+- **Migrations must *not* go through the pooler.** Neon's pooled endpoint is PgBouncer in
+  transaction mode, which does not support the session-level machinery Alembic uses —
+  advisory locks, prepared statements, some DDL. A migration run through it fails in a way
+  that reads like anything except "wrong endpoint". That is the entire reason there are two
+  URLs: `DATABASE_URL` (pooled, the app) and `DIRECT_DATABASE_URL` (direct, Alembic).
+  `api/src/rascal/config.py` picks the direct one for Alembic and falls back to
+  `DATABASE_URL` when it is unset, which is what happens locally where there is no pooler.
+
+### 3. AWS — create the media bucket
+
+This is the fiddliest part on a phone. The AWS console is usable but cramped; if you have
+ten minutes at a real browser, spend them here.
+
+In the S3 console, **Create bucket**:
+
+- Name: `rascal-media-prod`, region **us-east-2**
+- **Block all public access: ON.** Nothing here is ever public; presigned URLs are the only
+  way in or out.
+- **Bucket Versioning: Enable.** A bad client delete stays recoverable. This archive is the
+  product.
+- **Default encryption: SSE-S3 (AES-256).**
+
+Then, on the bucket's **Permissions** tab → **Cross-origin resource sharing (CORS)** → Edit,
+paste:
+
+```json
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedOrigins": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
 ```
 
-`ExposeHeaders: ["ETag"]` is not optional — a multipart upload cannot complete without the
-client reading the ETag off each part response.
+`ExposeHeaders: ["ETag"]` is not optional — a multipart video upload cannot complete without
+the client reading the ETag off each part response, and the failure looks like a signature
+error. Narrow `AllowedOrigins` once there is a web client; a native `URLSession` upload is
+not subject to CORS at all.
 
-Narrow `AllowedOrigins` to your web origin when there is one. A native `URLSession` upload
-is not subject to CORS at all, so this rule exists entirely for the browser client in 2027.
+On the **Management** tab → **Create lifecycle rule**, name it `abort-incomplete-multipart`,
+apply to all objects, and tick **Delete expired object delete markers or incomplete
+multipart uploads** → **Delete incomplete multipart uploads** after **7** days. A
+backgrounded video upload that never finishes otherwise leaves parts you pay for.
 
-### Abort incomplete multipart uploads
-
-A backgrounded video upload that never finishes leaves parts you pay for.
-
-```bash
-cat > /tmp/rascal-lifecycle.json <<'JSON'
-{
-  "Rules": [
-    {
-      "ID": "abort-incomplete-multipart",
-      "Status": "Enabled",
-      "Filter": {"Prefix": ""},
-      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 7}
-    }
-  ]
-}
-JSON
-aws s3api put-bucket-lifecycle-configuration \
-  --bucket rascal-media-prod \
-  --lifecycle-configuration file:///tmp/rascal-lifecycle.json
-```
-
-### IAM user and policy
-
-```bash
-aws iam create-user --user-name rascal-api
-```
-
-Save this as `rascal-s3-policy.json`:
+**Create the user:** IAM console → **Users** → **Create user** → `rascal-api`, no console
+access. On the permissions step choose **Attach policies directly** → **Create inline
+policy** → **JSON**, and paste:
 
 ```json
 {
@@ -154,92 +132,116 @@ Save this as `rascal-s3-policy.json`:
     {
       "Sid": "BucketAccess",
       "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket",
-        "s3:ListBucketMultipartUploads"
-      ],
+      "Action": ["s3:ListBucket", "s3:ListBucketMultipartUploads"],
       "Resource": "arn:aws:s3:::rascal-media-prod"
+    },
+    {
+      "Sid": "Backups",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::rascal-media-prod/backups/*"
     }
   ]
 }
 ```
 
-No `s3:DeleteObject`. Nothing in this service deletes an object — deletes are soft, in
-Postgres — so the credential should not be able to either.
+No `s3:DeleteObject` on media. Nothing in this service deletes an object — deletion is soft,
+in Postgres — so the credential should not be able to either. The one delete permission is
+scoped to `backups/`, which the retention job needs in order to prune.
 
-```bash
-aws iam put-user-policy \
-  --user-name rascal-api \
-  --policy-name rascal-s3 \
-  --policy-document file://rascal-s3-policy.json
+Finally: the user's **Security credentials** tab → **Create access key** → *Application
+running outside AWS*. Copy both halves. The secret is shown once.
 
-aws iam create-access-key --user-name rascal-api
-```
+### 4. GitHub — paste the secrets
 
-Copy `AccessKeyId` and `SecretAccessKey` from that last output. The secret is shown once.
+In the GitHub mobile app or a browser: **Settings** → **Secrets and variables** → **Actions**
+→ **New repository secret**. Add these, one at a time.
 
----
+| Secret | Value |
+|---|---|
+| `FLY_API_TOKEN` | The `FlyV1…` deploy token from section 1 |
+| `AWS_ACCESS_KEY_ID` | From section 3 |
+| `AWS_SECRET_ACCESS_KEY` | From section 3 |
+| `BACKUP_DATABASE_URL` | Neon's **direct** URL, plain `postgresql://` — see the note below |
 
-## 3. Fly
+`BACKUP_DATABASE_URL` is only used by the nightly backup workflow, which runs `pg_dump`
+rather than SQLAlchemy — so it takes a plain `postgresql://…` URL with **no** `+psycopg`.
+Use the direct endpoint: `pg_dump` holds one long session and has nothing to gain from a
+pooler.
 
-### Launch
+### 5. Fly — paste the app's own secrets
 
-```bash
-cd api
+The app's runtime configuration lives in Fly, not GitHub. Fly's dashboard has a **Secrets**
+section per app where you can add these from a phone:
 
-# Creates the app and writes nothing over the committed fly.toml.
-fly launch --no-deploy --copy-config --name rascal-api --region ord
-```
+| Secret | Value |
+|---|---|
+| `DATABASE_URL` | Neon **pooled**, `postgresql+psycopg://…?sslmode=require` |
+| `DIRECT_DATABASE_URL` | Neon **direct**, `postgresql+psycopg://…?sslmode=require` |
+| `JWT_SECRET` | 32+ random bytes — see below |
+| `S3_BUCKET` | `rascal-media-prod` |
+| `S3_REGION` | `us-east-2` |
+| `AWS_ACCESS_KEY_ID` | From section 3 |
+| `AWS_SECRET_ACCESS_KEY` | From section 3 |
+| `APPLE_BUNDLE_ID` | Your bundle id, e.g. `com.yourname.rascal` |
 
-If `rascal-api` is taken, pick another name and change `app = ` in `api/fly.toml` to match.
+`ENVIRONMENT=prod` is already in `api/fly.toml` under `[env]`. It is not sensitive, and
+having it visible there is what makes "dev-login cannot exist in production" auditable at a
+glance.
 
-### Secrets
+For `JWT_SECRET` on a phone, any 64-character hex string works. If you have a terminal:
+`openssl rand -hex 32`. Rotating it later invalidates every access token in flight; refresh
+tokens survive, so clients recover on their next refresh — but do it deliberately.
 
-One command, every required key. Substitute your real values — everything below is a
-placeholder.
+If you do have a terminal, all of section 5 is one command:
 
 ```bash
 fly secrets set --app rascal-api \
-  DATABASE_URL="postgresql+psycopg://rascal_owner:PASSWORD@ep-YOUR-ENDPOINT-pooler.us-east-2.aws.neon.tech/rascal?sslmode=require" \
+  DATABASE_URL="postgresql+psycopg://…-pooler….neon.tech/rascal?sslmode=require" \
+  DIRECT_DATABASE_URL="postgresql+psycopg://….neon.tech/rascal?sslmode=require" \
   JWT_SECRET="$(openssl rand -hex 32)" \
   S3_BUCKET="rascal-media-prod" \
   S3_REGION="us-east-2" \
-  AWS_ACCESS_KEY_ID="AKIAXXXXXXXXXXXXXXXX" \
-  AWS_SECRET_ACCESS_KEY="YOUR_SECRET_ACCESS_KEY" \
+  AWS_ACCESS_KEY_ID="AKIA…" \
+  AWS_SECRET_ACCESS_KEY="…" \
   APPLE_BUNDLE_ID="com.yourname.rascal"
 ```
 
-`ENVIRONMENT=prod` is already in `fly.toml` under `[env]` — it does not need to be a secret,
-and it is what keeps `dev-login` and every `/v1/debug/*` route out of the build.
+---
 
-Rotating `JWT_SECRET` invalidates every access token in flight. Refresh tokens survive it,
-so clients recover on their next refresh — but do it deliberately, not casually.
+## Deploying
 
-### Deploy
+**From a phone:** GitHub app → **Actions** → **Deploy** → **Run workflow** → pick the branch
+→ **Run**. Or merge anything to `main` and it fires by itself.
 
-```bash
-fly deploy
-```
+The workflow:
 
-`release_command = "alembic upgrade head"` runs before the new machines take traffic. A
-failed migration fails the deploy rather than putting a running app in front of the wrong
-schema.
+1. Builds the image on Fly's remote builder — your phone uploads nothing.
+2. `flyctl deploy` runs `alembic upgrade head` as the release command **before** new machines
+   take traffic. A failed migration fails the deploy rather than putting a running app in
+   front of the wrong schema.
+3. Asks Fly whether the latest release's status is actually `succeeded`. Fly can report a
+   successful deploy while the release command errored; this step catches that and dumps the
+   last 80 log lines.
+4. Polls `/health` for up to 90 seconds, requiring exactly `{"status":"ok","db":"ok"}`.
+   `/health` touches the database, so green means the app is genuinely serving.
 
-### Seed the mission library
+If any step fails the workflow goes red with a message naming the likely cause.
 
-The prompts table is empty on a fresh database.
+### First deploy: two things afterwards
+
+**Seed the mission library.** The prompts table is empty on a fresh database, and the
+scheduler with an empty library assigns nothing:
 
 ```bash
 fly ssh console --app rascal-api --command "python -m rascal.jobs.seed"
 ```
 
-Safe to run as often as you like: the loader is keyed on a hash of `(kind, cadence, body)`,
-so it updates and inserts but never duplicates and never deletes.
+This one does need a terminal. It is safe to run repeatedly — the loader is keyed on a hash
+of `(kind, cadence, body)`, so it updates and inserts but never duplicates and never deletes.
 
-### The scheduler
-
-`fly.toml` has no stanza for a scheduled machine, so it is created once with the CLI and is
-then not managed by `fly deploy`:
+**Create the scheduler machine.** `fly.toml` has no stanza for a scheduled machine, so it is
+created once with the CLI and is then not managed by `fly deploy`:
 
 ```bash
 fly machine run . \
@@ -251,103 +253,100 @@ fly machine run . \
   --command "python -m rascal.jobs.scheduler"
 ```
 
-**Hourly, not daily.** A single daily cron fires at one fixed UTC hour. That hour is 5am in
-exactly one timezone, it is the middle of the evening in half the world, and it drifts by an
-hour against your own DST twice a year. Instead the job fires every hour and does work only
-for the children for whom it is currently 5am on the wall — so every timezone gets its own
-5am, correctly, forever, with no configuration.
+**Hourly, not daily.** A single daily cron fires at one fixed UTC hour — 5am in exactly one
+timezone, evening in half the world, and an hour adrift after every DST change. Instead the
+job fires every hour and does work only for the children for whom it is currently 5am on the
+wall. Twenty-three of the twenty-four firings find nobody, log that, and exit.
 
-That costs 24 tiny wakeups a day, which is nothing. Twenty-three of them find no child at
-5am, log that, and exit. The run is idempotent on `(child_id, assigned_on, slot)`, so a
-double-fire or a retry costs nothing either.
-
-**After a `fly deploy` that changes scheduler behaviour**, the scheduled machine is still on
-the old image. Destroy and recreate it:
+After a deploy that changes scheduler behaviour, the scheduled machine is still on the old
+image. Destroy and recreate it:
 
 ```bash
-fly machine list --app rascal-api          # find the scheduled machine's id
+fly machine list --app rascal-api
 fly machine destroy --app rascal-api --force <machine-id>
 # then re-run the `fly machine run` command above
 ```
 
-Run it by hand any time:
+Run the scheduler by hand any time:
 
 ```bash
-# Only children for whom it is currently 5am — exactly what the hourly machine does.
+# Only children for whom it is currently 5am — what the hourly machine does.
 fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler"
-
 # Every child, right now, whatever their local time.
 fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler --any-hour"
-
-# A specific calendar day for every child — a backfill, or a morning you slept through.
+# A specific day — a backfill, or a morning you slept through.
 fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler --date 2026-08-14"
 ```
 
 ---
 
-## 4. Verify
+## Checking it from your phone
 
-```bash
-# 1. The app is up and can reach the database.
-curl -s https://rascal-api.fly.dev/health
-# {"status":"ok","db":"ok"}
+GitHub app → **Actions** → **Smoke** → **Run workflow**. It takes about fifteen seconds and
+asserts:
 
-# 2. The migration ran.
-fly ssh console --app rascal-api --command "alembic current"
-# 0001_initial (head)
+- `/health` returns `{"status":"ok","db":"ok"}` — serving, and reaching Neon.
+- `POST /v1/auth/dev-login` returns **404** — the fixture login does not exist in production.
+- `POST /v1/debug/scheduler/run` returns **404** — nor do the debug routes.
+- `GET /v1/children` returns **401** — auth is enforced.
+- `/openapi.json` publishes the contract.
 
-# 3. The library is seeded. Re-running the loader is free and prints the count.
-fly ssh console --app rascal-api --command "python -m rascal.jobs.seed"
-# prompts: 0 inserted, 0 updated, 113 unchanged (113 in the library)
-
-# 4. The production build has no dev routes. Both must be 404.
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://rascal-api.fly.dev/v1/auth/dev-login
-curl -s -o /dev/null -w '%{http_code}\n' -X POST https://rascal-api.fly.dev/v1/debug/scheduler/run
-
-# 5. The OpenAPI document covers every endpoint.
-curl -s https://rascal-api.fly.dev/openapi.json | python3 -c \
-  "import json,sys; print('\n'.join(sorted(json.load(sys.stdin)['paths'])))"
-
-# 6. Auth is enforced.
-curl -s -o /dev/null -w '%{http_code}\n' https://rascal-api.fly.dev/v1/children
-# 401
-```
-
-Once you have a real Apple token and a session, `GET /v1/prompts` reports the same figure as
-`total`.
-
-Logs, if any of that goes sideways:
-
-```bash
-fly logs --app rascal-api
-fly status --app rascal-api
-```
-
-The logs are JSON, one object per line — pipe them through `jq` and filter on `logger`.
+It creates nothing and needs no credentials, so it is safe to run as often as you like.
 
 ---
 
-## 5. Backups
+## Backups
 
-Neon keeps point-in-time restore on its own schedule; check the retention window on your
-plan and raise it if the default is shorter than you would want after a bad migration.
+`.github/workflows/backup.yml` runs nightly at 08:10 UTC and on demand. It `pg_dump`s Neon,
+gzips, and uploads to `s3://rascal-media-prod/backups/` with a timestamped key, then prunes
+to **7 daily, 4 weekly, 12 monthly**. It fails loudly — a silent backup failure is worse than
+no backup — and it lives in GitHub Actions rather than on a Fly machine deliberately, so it
+still runs on a day when Fly is the thing that is broken.
 
-S3 versioning is already on from step 2, so an overwritten object is recoverable.
+Restoring is `api/scripts/restore.py`, and CI performs a real dump-drop-restore round trip on
+every push (`tests/test_restore.py`), so "a restore you have actually performed" is true
+continuously rather than once.
 
-`docs/memory-app-roadmap.md` puts "backups you actually trust" in P1, including a restore
-you have actually performed. Do that before there are sixty days of entries in here, not
-after.
+To restore for real:
+
+```bash
+aws s3 cp s3://rascal-media-prod/backups/2026/08/rascal-20260804T081000Z.sql.gz .
+cd api && uv run python scripts/restore.py --from rascal-20260804T081000Z.sql.gz --url "$DIRECT_DATABASE_URL"
+```
+
+It refuses to run against a non-empty database without `--force`, so a mistyped URL cannot
+quietly overwrite production.
+
+Neon also keeps its own point-in-time restore; check the retention window on your plan and
+raise it if the default is shorter than you would want after a bad migration.
 
 ---
 
-## 6. Rollback
+## Rollback
 
 ```bash
 fly releases --app rascal-api
 fly deploy --image registry.fly.io/rascal-api:deployment-<previous-id>
 ```
 
-**Migrations do not roll back with the image.** `0001_initial` is reversible
-(`alembic downgrade base` drops everything cleanly), but a downgrade on a database with real
-entries in it destroys them. Roll the image back, then decide about the schema separately
-and deliberately.
+**Migrations do not roll back with the image.** Every migration here is reversible, but a
+downgrade on a database with real entries in it destroys them. Roll the image back, then
+decide about the schema separately and deliberately.
+
+---
+
+## When something is wrong
+
+```bash
+fly logs --app rascal-api        # JSON, one object per line — pipe through jq
+fly status --app rascal-api
+```
+
+| Symptom | Almost always |
+|---|---|
+| Deploy red at "Verify the release command succeeded" | `alembic upgrade head` failed — read the dumped logs |
+| Deploy red at "Wait for the app to serve" | `DATABASE_URL` wrong, or missing `?sslmode=require` |
+| Migration errors mentioning prepared statements or locks | `DIRECT_DATABASE_URL` is pointing at the **pooled** endpoint |
+| Smoke says dev-login answered 200 | `ENVIRONMENT` is not `prod` |
+| Multipart upload never completes | The bucket's CORS rule is not exposing `ETag` |
+| `/today` is empty for every child | The library was never seeded, or the scheduler machine was never created |

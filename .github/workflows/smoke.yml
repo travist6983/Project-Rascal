@@ -1,0 +1,85 @@
+name: Smoke
+
+# Tap "Run workflow" in the GitHub mobile app to find out whether the deployed API is
+# alive and correctly configured. Read-only: it creates nothing and needs no credentials.
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "API base URL to probe"
+        required: false
+        default: "https://rascal-api.fly.dev"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE: ${{ inputs.base_url }}
+    steps:
+      - name: The app is serving and can reach its database
+        run: |
+          set -uo pipefail
+          body=$(curl -fsS --max-time 15 "$BASE/health" || true)
+          echo "GET /health -> ${body:-<no response>}"
+          if [ "$body" != '{"status":"ok","db":"ok"}' ]; then
+            echo "::error::/health did not return ok/ok. The app is down, or it cannot reach Neon."
+            exit 1
+          fi
+
+      # ENVIRONMENT=prod must keep the fixture login out of the build entirely. If this
+      # ever returns 200, anyone can mint a session against the real archive.
+      - name: dev-login does not exist in production
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            -X POST "$BASE/v1/auth/dev-login" \
+            -H 'content-type: application/json' -d '{}')
+          echo "POST /v1/auth/dev-login -> $code"
+          if [ "$code" != "404" ]; then
+            echo "::error::dev-login answered $code, expected 404. ENVIRONMENT is not 'prod'."
+            exit 1
+          fi
+
+      - name: the debug routes do not exist in production
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            -X POST "$BASE/v1/debug/scheduler/run" \
+            -H 'content-type: application/json' -d '{}')
+          echo "POST /v1/debug/scheduler/run -> $code"
+          if [ "$code" != "404" ]; then
+            echo "::error::A debug route answered $code, expected 404. ENVIRONMENT is not 'prod'."
+            exit 1
+          fi
+
+      - name: a child route refuses an unauthenticated caller
+        run: |
+          set -uo pipefail
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$BASE/v1/children")
+          echo "GET /v1/children -> $code"
+          if [ "$code" != "401" ]; then
+            echo "::error::/v1/children answered $code, expected 401. Auth is not being enforced."
+            exit 1
+          fi
+
+      - name: the contract is published
+        run: |
+          set -uo pipefail
+          paths=$(curl -fsS --max-time 15 "$BASE/openapi.json" | jq -r '.paths | keys[]' | sort)
+          echo "$paths"
+          for required in /health /v1/auth/apple /v1/children /v1/entries /v1/sync; do
+            if ! echo "$paths" | grep -qx "$required"; then
+              echo "::error::$required is missing from the published OpenAPI document."
+              exit 1
+            fi
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "### Smoke passed :white_check_mark:"
+            echo ""
+            echo "\`$BASE\` is serving, reaching its database, hiding its dev routes, and"
+            echo "refusing anonymous callers."
+          } >> "$GITHUB_STEP_SUMMARY"
