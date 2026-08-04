@@ -152,3 +152,83 @@ def test_an_access_token_is_short_lived() -> None:
     """15 minutes, per docs/api-contract.md."""
     _, expires_in = create_access_token(uuid.uuid4(), get_settings())
     assert expires_in == 15 * 60
+
+
+# --- B2: the mission library is admin-only -----------------------------------------------
+
+
+async def test_a_non_admin_cannot_write_to_the_mission_library(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The library is content every child draws from, not per-child data."""
+    parent = await make_user(session)
+    child = await make_child(session)
+    await grant(session, parent, child, "parent")
+    await session.commit()
+    assert parent.is_admin is False
+
+    response = await client.post(
+        "/v1/prompts",
+        json={
+            "kind": "activity",
+            "cadence": "daily",
+            "completion_mode": "did_it",
+            "body": "Let him pick the music the whole way there.",
+            "theme": "humor",
+        },
+        headers=auth_headers(parent),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "not_authorized"
+
+
+async def test_a_non_admin_can_still_read_the_library(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Reading is how the client renders a prompt; only authoring is restricted."""
+    parent = await make_user(session)
+    await session.commit()
+    assert (await client.get("/v1/prompts", headers=auth_headers(parent))).status_code == 200
+
+
+async def test_an_admin_can_write_to_the_library(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    admin = await make_user(session, display_name="Travis")
+    admin.is_admin = True
+    await session.commit()
+
+    response = await client.post(
+        "/v1/prompts",
+        json={
+            "kind": "activity",
+            "cadence": "daily",
+            "completion_mode": "did_it",
+            "body": "Let him pick the music the whole way there.",
+            "theme": "humor",
+        },
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 201
+    assert response.json()["source"] == "user"
+
+
+async def test_dev_login_is_an_admin_so_the_local_library_is_editable(
+    client: AsyncClient,
+) -> None:
+    signed_in = (await client.post("/v1/auth/dev-login", json={})).json()
+    assert signed_in["user"]["is_admin"] is True
+
+    created = await client.post(
+        "/v1/prompts",
+        json={
+            "kind": "question",
+            "cadence": "daily",
+            "completion_mode": "text",
+            "body": "What did he build today?",
+            "theme": "making-building",
+        },
+        headers={"Authorization": f"Bearer {signed_in['access_token']}"},
+    )
+    assert created.status_code == 201

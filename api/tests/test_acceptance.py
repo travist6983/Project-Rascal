@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.services.seeding import seed_prompts
 
-# A Saturday, so the weekly slot fires too and the run is not a special case of the simplest
-# possible day.
+# A Saturday *and* the 15th, so the weekly and letter slots both fire and the run is the
+# fullest day the scheduler can produce rather than the simplest.
 RUN_DATE = "2026-08-15"
 
 
@@ -59,8 +59,8 @@ async def test_the_whole_daily_loop_through_the_api(
         headers=headers,
     )
     assert scheduled.status_code == 200
-    # question + mission + weekly, because RUN_DATE is a Saturday.
-    assert scheduled.json()["created"] == 3
+    # question + mission + weekly (Saturday) + letter (the 15th).
+    assert scheduled.json()["created"] == 4
     assert scheduled.json()["exhausted"] == []
 
     # Rerunning is free — that is what the unique index is for.
@@ -80,7 +80,12 @@ async def test_the_whole_daily_loop_through_the_api(
     assert screen["date"] == RUN_DATE
     assert screen["child"]["name"] == "Miles"
     assert screen["child"]["age_months"] == 50
-    assert {item["slot"] for item in screen["today"]} == {"question", "mission", "weekly"}
+    assert {item["slot"] for item in screen["today"]} == {
+        "question",
+        "mission",
+        "weekly",
+        "letter",
+    }
     assert screen["waiting"] == []
     assert screen["done_today"] == []
 
@@ -126,6 +131,8 @@ async def test_the_whole_daily_loop_through_the_api(
     assert did_it_entry.json()["body"] is None
     assert did_it_entry.json()["media"] == []
     assert did_it_entry.json()["media_count"] == 0
+    # No artifact and no words, so the type says exactly that — whatever was asked.
+    assert did_it_entry.json()["entry_type"] == "did_it"
 
     # 7. Both show up in the timeline, newest first by occurred_at.
     timeline = await client.get("/v1/entries", params={"child_id": child_id}, headers=headers)
@@ -139,7 +146,7 @@ async def test_the_whole_daily_loop_through_the_api(
             f"/v1/children/{child_id}/today", params={"date": RUN_DATE}, headers=headers
         )
     ).json()
-    assert {item["slot"] for item in after["today"]} == {"weekly"}
+    assert {item["slot"] for item in after["today"]} == {"weekly", "letter"}
     assert {item["slot"] for item in after["done_today"]} == {"question", "mission"}
 
 

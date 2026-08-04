@@ -52,9 +52,10 @@ SLOT_SPECS: dict[Slot, SlotSpec] = {
     "question": SlotSpec(cadence="daily", kinds=("question",)),
     "mission": SlotSpec(cadence="daily", kinds=MISSION_KINDS),
     "weekly": SlotSpec(cadence="weekly", kinds=None),
-    # Measurement *and* letters. Both are cadence monthly, and letters have no slot of their
-    # own — see docs/decisions-log.md.
-    "monthly": SlotSpec(cadence="monthly", kinds=None),
+    # Measurement and the camera-roll backfill, never a letter — letters have their own slot
+    # so the money letter cannot lose a coin flip to a height measurement forever.
+    "monthly": SlotSpec(cadence="monthly", kinds=MISSION_KINDS),
+    "letter": SlotSpec(cadence="monthly", kinds=("letter",)),
 }
 
 
@@ -198,12 +199,19 @@ async def select_prompt(
 
 
 def slots_for(day: dt.date) -> list[Slot]:
-    """The daily pair, plus the weekly on Saturday and the monthly on the 1st."""
+    """The daily pair, the weekly on Saturday, the monthly on the 1st, a letter on the 15th.
+
+    The letter deliberately does not share the 1st with the measurement mission: four items
+    on one day breaks "two items is the most that survives a bad Tuesday". Split across the
+    month, the ceiling is three, twice.
+    """
     slots: list[Slot] = ["question", "mission"]
     if day.weekday() == 5:  # Saturday
         slots.append("weekly")
     if day.day == 1:
         slots.append("monthly")
+    if day.day == 15:
+        slots.append("letter")
     return slots
 
 

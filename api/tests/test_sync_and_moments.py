@@ -371,6 +371,9 @@ async def test_a_hand_authored_prompt_is_marked_as_user_sourced(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     user, _ = await _world(session)
+    # The library is admin-only to write; see tests/test_authorization.py.
+    user.is_admin = True
+    await session.commit()
 
     response = await client.post(
         "/v1/prompts",

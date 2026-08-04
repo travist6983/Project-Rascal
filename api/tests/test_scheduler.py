@@ -26,7 +26,8 @@ from rascal.services.scheduler import (
     slots_for,
 )
 
-SATURDAY = dt.date(2026, 8, 15)
+# A Saturday that is neither the 1st nor the 15th, so the weekly slot is tested alone.
+SATURDAY = dt.date(2026, 8, 22)
 SUNDAY = dt.date(2026, 8, 16)
 FIRST = dt.date(2026, 9, 1)
 RNG = random.Random(1234)
@@ -462,3 +463,177 @@ async def test_the_debug_routes_are_not_registered_outside_local(engine) -> None
     prod = create_app(get_settings().model_copy(update={"environment": "prod"}))
     paths = prod.openapi()["paths"]
     assert not [path for path in paths if path.startswith("/v1/debug")]
+
+
+# --- B1: letters get their own slot, on the 15th ------------------------------------------
+
+
+FIFTEENTH = dt.date(2026, 9, 15)
+
+
+def test_the_letter_slot_only_fires_on_the_fifteenth() -> None:
+    assert "letter" in slots_for(FIFTEENTH)
+    assert "letter" not in slots_for(FIRST)
+    assert "letter" not in slots_for(SUNDAY)
+
+
+def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
+    """Four items on one day breaks "two items is the most that survives a bad Tuesday"."""
+    for day in (FIRST, FIFTEENTH):
+        slots = slots_for(day)
+        assert not {"monthly", "letter"} <= set(slots)
+        assert len(slots) <= 3
+
+
+async def test_the_monthly_slot_never_serves_a_letter(session: AsyncSession) -> None:
+    """A letter competing with the measurement is how the money letter never gets written."""
+    child = await make_child(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    await make_prompt(
+        session,
+        kind="measurement",
+        cadence="monthly",
+        completion_mode="media",
+        theme="growth-measurement",
+    )
+    await session.commit()
+
+    for _ in range(15):
+        chosen = await select_prompt(child, "monthly", FIRST, session, rng=random.Random(0))
+        assert chosen.kind == "measurement"
+
+
+async def test_the_letter_slot_only_serves_letters(session: AsyncSession) -> None:
+    child = await make_child(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    await make_prompt(
+        session,
+        kind="measurement",
+        cadence="monthly",
+        completion_mode="media",
+        theme="growth-measurement",
+    )
+    await session.commit()
+
+    for _ in range(15):
+        chosen = await select_prompt(child, "letter", FIFTEENTH, session, rng=random.Random(0))
+        assert chosen.kind == "letter"
+
+
+async def test_the_scheduler_fills_the_letter_slot_on_the_fifteenth(
+    session: AsyncSession,
+) -> None:
+    child = await make_child(session)
+    await _library(session)
+    await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=16,
+        theme="letters-forward",
+    )
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=FIFTEENTH, seed=21)
+    await session.commit()
+
+    rows = dict(
+        (
+            await session.execute(
+                sa.select(Assignment.slot, Prompt.kind)
+                .join(Prompt, Prompt.id == Assignment.prompt_id)
+                .where(Assignment.child_id == child.id)
+            )
+        ).all()
+    )
+    assert rows["letter"] == "letter"
+    assert "monthly" not in rows
+
+
+async def test_an_entry_completing_a_letter_inherits_its_unlock_age(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Letters are sealed by default. The server owns that, not the client."""
+    user = await make_user(session)
+    child = await make_child(session)
+    await grant(session, user, child, "parent")
+    await _library(session)
+    letter = await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+        body="Write him something about money.",
+    )
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=FIFTEENTH, seed=22)
+    await session.commit()
+
+    assignment_id = await session.scalar(
+        sa.select(Assignment.id).where(Assignment.child_id == child.id, Assignment.slot == "letter")
+    )
+    created = await client.post(
+        "/v1/entries",
+        json={
+            "id": str(uuid.uuid4()),
+            "child_id": str(child.id),
+            "assignment_id": str(assignment_id),
+            "occurred_at": "2026-09-15T21:00:00Z",
+            "body": "The thing nobody told me at nineteen was that...",
+        },
+        headers=auth_headers(user),
+    )
+
+    assert created.status_code == 201
+    assert created.json()["unlock_at_age"] == letter.default_unlock_age == 18
+    assert created.json()["entry_type"] == "text"
+
+
+async def test_a_client_may_override_the_inherited_unlock_age(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user = await make_user(session)
+    child = await make_child(session)
+    await grant(session, user, child, "parent")
+    letter = await make_prompt(
+        session,
+        kind="letter",
+        cadence="monthly",
+        completion_mode="text",
+        default_unlock_age=18,
+        theme="letters-forward",
+    )
+    assignment = await make_assignment(session, child, letter, slot="letter", assigned_on=FIFTEENTH)
+    await session.commit()
+
+    created = await client.post(
+        "/v1/entries",
+        json={
+            "id": str(uuid.uuid4()),
+            "child_id": str(child.id),
+            "assignment_id": str(assignment.id),
+            "occurred_at": "2026-09-15T21:00:00Z",
+            "body": "He can have this one at thirteen.",
+            "unlock_at_age": 13,
+        },
+        headers=auth_headers(user),
+    )
+    assert created.json()["unlock_at_age"] == 13

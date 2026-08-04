@@ -306,3 +306,34 @@ that file left open.
   stale. Entry paths already re-read through `_loaded(...populate_existing)`, child create
   and update already called `session.refresh`, `create_prompt` already refreshed, and
   `AssignmentOut` carries no `updated_at` on the wire.
+
+## B — Schema changes made while the database was empty
+
+- **B1: the `monthly` pool is `MISSION_KINDS`, not "everything except letter".** `SlotSpec`
+  already expresses an inclusion list; adding an exclusion mechanism for one case would be a
+  second way to say the same thing.
+- **B1: the letter slot fires on the 15th, per the task.** Verified the two never collide —
+  a day is at most three items, which holds the "two items is the most that survives a bad
+  Tuesday" line rather than stacking four on the 1st.
+- **B1: `downgrade()` deletes letter assignments before narrowing the CHECK.** Postgres
+  cannot create a constraint the existing rows violate, so a reversal that leaves them makes
+  the migration irreversible in practice — which is the thing every migration here promises
+  not to be.
+- **B1: the test-suite `SATURDAY` moved from 2026-08-15 to 2026-08-22.** The old date was
+  also the 15th, so it fired the weekly *and* letter slots and no longer tested the weekly
+  rule alone.
+- **B1: unlock-age inheritance already worked** (`create_entry` falls back to
+  `prompt.default_unlock_age`); it now has a test on the letter path, plus one proving a
+  client can still override it.
+- **B2: only `POST /prompts` is gated, not `GET /prompts`.** Reading the library is how a
+  client renders a prompt; the task named library-*mutating* routes.
+- **B2: `require_admin` is a standalone dependency, not folded into `require_child_access`.**
+  It is not a question about a child — it is about who may write the library every child
+  draws from.
+- **B2: `is_admin` is exposed on `UserOut`** so a client can hide the library editor rather
+  than offer it and take a 403.
+- **B2: `dev-login` promotes its fixture user on every call**, not just at creation. An
+  account created before this migration would otherwise be permanently unable to author a
+  prompt locally.
+- **The acceptance test now runs the fullest day the scheduler can produce** — Saturday the
+  15th, four slots — rather than the three it asserted before.

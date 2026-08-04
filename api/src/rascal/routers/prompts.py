@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 
 from rascal.constants import Cadence, PromptKind, PromptSource
-from rascal.deps import CurrentUser, SessionDep
+from rascal.deps import AdminUser, CurrentUser, SessionDep
 from rascal.models import Prompt
 from rascal.schemas.prompt import PromptCreate, PromptOut, PromptPage
 from rascal.services.seeding import content_hash
@@ -83,7 +83,7 @@ async def list_prompts(
         "and never authored on-device."
     ),
 )
-async def create_prompt(payload: PromptCreate, session: SessionDep, user: CurrentUser) -> PromptOut:
+async def create_prompt(payload: PromptCreate, session: SessionDep, user: AdminUser) -> PromptOut:
     prompt = Prompt(
         **payload.model_dump(),
         source="user",

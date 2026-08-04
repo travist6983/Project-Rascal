@@ -35,8 +35,8 @@ COMPLETION_MODES: Final = ("did_it", "media", "text")
 PromptSource = Literal["seeded", "user", "llm"]
 PROMPT_SOURCES: Final = ("seeded", "user", "llm")
 
-Slot = Literal["question", "mission", "weekly", "monthly"]
-SLOTS: Final = ("question", "mission", "weekly", "monthly")
+Slot = Literal["question", "mission", "weekly", "monthly", "letter"]
+SLOTS: Final = ("question", "mission", "weekly", "monthly", "letter")
 
 AssignmentStatus = Literal["pending", "done", "dismissed", "expired"]
 ASSIGNMENT_STATUSES: Final = ("pending", "done", "dismissed", "expired")
