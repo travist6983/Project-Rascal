@@ -357,3 +357,19 @@ that file left open.
   would not have silenced it. The forged key is now long enough — the point of that test is
   the *wrong* key, not a short one — and `.env.example` is a 32-byte value regardless,
   because it is better hygiene and the generation command belongs next to it.
+
+## D — Documentation
+
+- **The coverage table gained a Total column and an "any-month" column.** Eligible-by-age was
+  the only figure before, and it overstates what the scheduler can draw on a given day —
+  four photo prompts are seasonal, so August sees 18 of the 22, not 22.
+- **The `COVERAGE_TABLE_FLOOR` dict is gone from `test_seeding.py`.** It existed only because
+  the doc disagreed with reality; the doc now matches, so one set of exact figures is the
+  whole assertion.
+- **The `/sync` contract now states the client obligation, not just the server behaviour.**
+  A lagged cursor is only safe if clients upsert by id — a client that treats every returned
+  row as new will duplicate data, so that sentence is in the contract in bold.
+- **`docs/blocked.md` was rewritten rather than edited.** It had grown a "deferred by
+  decision" section as long as the blocked one; blocked now means blocked, deferred is
+  clearly separated, and a "resolved since last review" list closes out the nine items this
+  pass fixed.

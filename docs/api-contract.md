@@ -123,7 +123,16 @@ body byte-for-byte, never a second row and never a `409`. The key is scoped to t
 
 Server computes and stores `child_age_months` from `occurred_at` minus birthdate. If
 `assignment_id` is set and the assignment is pending, it flips to `done` in the same
-transaction. If the assignment is already `done`, `dismissed`, or `expired`, the entry
+transaction.
+
+`entry_type` is **derived server-side and any value sent is ignored.** It describes what the
+entry contains, not what was asked: `did_it` with no media and no body, `text` with a body,
+and the media kind once media is attached — recomputed on `POST /media/{id}/complete`. What
+was asked is still reachable through `assignment_id` → `prompt.kind`. The values are
+`photo`, `video`, `audio`, `text`, `did_it`.
+
+Deleting an entry releases its assignment back to `pending` unless another live entry still
+completes it, so "wrong photo, redo it" puts the mission back on the Today screen. If the assignment is already `done`, `dismissed`, or `expired`, the entry
 still saves — the archive matters more than the bookkeeping — and the assignment is left
 alone.
 
@@ -193,6 +202,26 @@ Returns entries from this month/day in prior years, grouped by years-ago. If emp
 
 Every entity carries `updated_at` and `deleted_at`. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record.
 
+**The cursor is deliberately behind, and clients must upsert by id.** It comes back as
+`max(updated_at) - 30 seconds`, so a pull will re-deliver rows the client has already seen.
+That is not a bug to work around — it is the fix for one.
+
+`set_updated_at()` uses Postgres `now()`, which is *transaction-start* time, not commit
+time. A transaction that opens, takes a while, and commits therefore writes a row whose
+`updated_at` is already behind a cursor another device advanced past in the meantime — and
+that row would never appear in a sync again. Lagging the cursor by a window wider than any
+write transaction closes the hole.
+
+Re-delivery is free, which is what makes this the right trade: entries are last-write-wins
+and keyed on a client-generated UUID, so applying the same row twice is a no-op. **A client
+that treats every returned row as new will duplicate data.** Upsert by id.
+
+The window bounds the longest write transaction. A `POST /sync/push` batch has to stay well
+under 30 seconds; if batch push ever grows past that, this window grows with it. A
+sequence-based cursor is *not* the alternative — `nextval()` is assigned at statement time,
+not commit time, so a `bigint` sequence has the identical race and costs a migration and a
+column on four tables.
+
 **`POST /sync/push`**
 Body: `{ entries: [...], media: [...], idempotency_keys: {...} }`
 Batched offline queue drain. Returns per-record accept/conflict so the client can reconcile without a full refetch.
@@ -201,8 +230,10 @@ Batched offline queue drain. Returns per-record accept/conflict so the client ca
 
 ## Prompts (admin, me only)
 
-**`GET /prompts`** — filterable by kind, theme, age band, source.
-**`POST /prompts`** — hand-authored additions.
+**`GET /prompts`** — filterable by kind, theme, age band, source. Any authenticated caller.
+**`POST /prompts`** — hand-authored additions. **Requires `users.is_admin`**; anyone else
+gets `403 not_authorized`. The library is content every child draws from, so a `viewer`
+login must not be able to write to it. `dev-login`'s fixture user is an admin.
 **`POST /prompts/batch-review`** — accept/reject LLM-generated candidates sitting in the review queue.
 
 The library is content. It's authored and reviewed server-side, never generated at request time and never authored on-device.

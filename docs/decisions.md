@@ -50,6 +50,12 @@ Last updated: **Aug 3, 2026**
 | Debug routes and dev-login exist, gated to `local` | Building the daily loop means running it thirty times in an evening. Waiting for 5am is not a development strategy. |
 | Prompts seed from a generated `prompts.yaml`, not from the markdown | The markdown stays the authoring surface. Runtime never parses a table. |
 | Thumbnails and transcodes deferred out of P0 | `thumb_key` stays null. The capture path has to work before the polish path matters. |
+| `entry_type` describes the artifact, not the prompt | A `did_it` completion of an audio mission has no audio in it. Denormalizing the prompt's kind made the Voice filter lie. What was asked is still reachable through `assignment_id` → `prompt.kind`. |
+| Deleting an entry releases its assignment | "Wrong photo, redo it" happens in week one. A mission stranded `done` with nothing to show for it loses the slot for the day. |
+| Letters get their own slot, on the 15th | Sharing `monthly` with the measurement mission meant the money letter could lose that coin flip every month for years. The 15th rather than the 1st because four items in one day breaks the two-item rule. |
+| Sync returns a 30-second overlap window; clients upsert by id | `now()` is transaction-start time, so a slow transaction can commit a row already behind another device's cursor and lose it forever. Re-delivery is free — entries are last-write-wins on a client UUID. A sequence has the identical race for a migration's cost. |
+| Scheduler runs hourly and filters on local time | One daily cron is 5am in exactly one timezone and drifts an hour against DST twice a year. 24 wakeups a day is nothing, and the job is already idempotent. |
+| `users.is_admin` gates writes to the mission library | `POST /prompts` was authenticated but not authorized. The library is content every child draws from; a grandparent's `viewer` login must not be able to write to it. |
 
 ### Design
 
@@ -93,6 +99,14 @@ Last updated: **Aug 3, 2026**
 ---
 
 ## Changelog
+
+**Aug 4, 2026** — Hardening pass before iOS. Six decisions settled above, of which three
+change the schema: `entry_type` narrows to the five things the derivation can produce,
+`letter` joins the `slot` CHECK, and `users.is_admin` arrives. Migrations `0002` and `0003`,
+both reversible, both taken while the database is empty. Two correctness fixes with no
+schema cost: deleting an entry releases its assignment, and the sync cursor carries a
+30-second overlap window. The coverage table in `mission-library.md` was corrected — it had
+under-counted video, activity, and weekly since before the last prompts were added.
 
 **Aug 3, 2026** — Build started. Sprint One planning added an "Epic Z" of ground-zero
 infrastructure the original backlog assumed but never defined: repo skeleton, migrations,
