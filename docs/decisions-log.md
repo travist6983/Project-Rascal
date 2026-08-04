@@ -435,3 +435,24 @@ that file left open.
   half-restored schema looks like a success.
 - **CI installs a Postgres 16 client when the runner's is older.** `pg_dump` refuses to dump a
   server newer than itself, and the restore test is worthless if it silently skips.
+
+## M2c — Full export
+
+- **The zip is staged in a temp file and streamed back in 1MB chunks**, rather than assembled
+  in memory or streamed as it is built. A true streaming zip needs a third-party library, and
+  eighteen years of video does not fit in a 512MB Fly machine. Disk is the boring option.
+- **The database read and the zip build are separate halves.** Every row is flattened to
+  plain dicts while still on the event loop; the blocking half (S3 reads, deflate) runs in a
+  worker thread and never touches the ORM. A lazy load from inside a thread is how an export
+  hangs instead of failing.
+- **Media is foldered by `occurred_at`, not `created_at`.** A photo backdated to 2019 files
+  under `media/2019/…`. Rule 3, applied to the filesystem.
+- **A media row whose object is missing is named, not fatal.** It keeps its metadata, loses
+  its `path`, and lands in `manifest.missing_media`. One dead upload must not cost you the
+  other seventeen years.
+- **Sealed letters export in the clear.** The seal is an app behaviour; `unlock_at_age`
+  travels as data. An export you cannot read is not a backup.
+- **Parent only.** A viewer reads the timeline; walking off with a copy of the whole
+  childhood is the account owner's to do.
+- **`format_version` in the manifest.** Whoever opens this in 2044 needs to know which shape
+  they are looking at without this repo.

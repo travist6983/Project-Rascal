@@ -67,6 +67,27 @@ Body: `{ name, birthdate, family_timezone }` → creates the child and a `parent
 **`POST /children/{id}/guardians`**
 Body: `{ email, role }` → creates an invite. P2.
 
+**`GET /children/{id}/export`** — parent only → `application/zip`.
+
+The whole archive, in a format that outlives this API:
+
+```
+manifest.json            format version, child, counts, media that could not be fetched
+entries.json             every entry, oldest first, with its prompt, tags, and media rows
+media/YYYY/MM/<id>.<ext> the objects themselves, foldered by occurred_at
+```
+
+- **Soft-deleted rows are included** and carry `is_deleted: true` with a `deleted_at`. An
+  export that quietly drops them is not a copy of the archive.
+- **Sealed letters export in the clear.** `unlock_at_age` is retained as data; the seal is
+  an app behaviour, and an export you cannot read is not a backup.
+- A media row whose bytes are not in S3 keeps its metadata, gets a null `path`, and is
+  listed in `manifest.missing_media`. One dead upload does not fail the export.
+- Response headers `x-rascal-export-entries`, `-media`, `-missing-media` summarise the run;
+  `content-length` is exact, so a client can show real progress.
+
+The zip is assembled on disk and streamed back, so memory is bounded regardless of size.
+
 ---
 
 ## Today

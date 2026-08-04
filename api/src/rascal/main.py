@@ -15,6 +15,7 @@ from rascal.routers import (
     children,
     debug,
     entries,
+    export,
     media,
     moments,
     prompts,
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(children.router, prefix=API_PREFIX)
+    app.include_router(export.router, prefix=API_PREFIX)
     app.include_router(today.router, prefix=API_PREFIX)
     app.include_router(entries.router, prefix=API_PREFIX)
     app.include_router(media.router, prefix=API_PREFIX)
