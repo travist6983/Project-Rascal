@@ -16,11 +16,12 @@ from httpx import AsyncClient
 from moto import mock_aws
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from factories import grant, make_child, make_user
+from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.config import get_settings
 from rascal.models import Entry, EntryTag, Media
 from rascal.services import s3
+from rascal.services.entries import refresh_entry_type
 
 
 @pytest.fixture
@@ -206,16 +207,18 @@ async def test_upload_url_for_an_entry_of_another_child_is_refused(
 # --- The on-device AI write-back ---------------------------------------------------------
 
 
-async def _media_for(client: AsyncClient, user, entry) -> str:
+async def _media_for(
+    client: AsyncClient, user, entry, *, kind: str = "audio", filename: str = "story.m4a"
+) -> str:
     created = (
         await client.post(
             "/v1/media/upload-url",
             json={
                 "entry_id": str(entry.id),
-                "kind": "audio",
-                "filename": "story.m4a",
+                "kind": kind,
+                "filename": filename,
                 "bytes": 900_000,
-                "content_type": "audio/mp4",
+                "content_type": "audio/mp4" if kind == "audio" else "image/jpeg",
             },
             headers=auth_headers(user),
         )
@@ -461,3 +464,63 @@ async def test_derived_returns_the_updated_at_the_trigger_wrote(
         sa.select(Media.updated_at).where(Media.id == uuid.UUID(media_id))
     )
     assert dt.datetime.fromisoformat(response.json()["media"]["updated_at"]) == stored
+
+
+async def test_media_beats_the_prompts_completion_mode(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Rule (a) outranks rule (b): what is attached wins over what was asked.
+
+    A did-it mission someone photographed anyway is a photo entry — the artifact exists, so
+    the Photos filter has to find it.
+    """
+    user, child, entry = await _entry(session)
+    prompt = await make_prompt(
+        session,
+        kind="activity",
+        completion_mode="did_it",
+        body="Get on the floor for ten minutes.",
+    )
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    entry.assignment_id = assignment.id
+    entry.body = None
+    await session.commit()
+
+    await refresh_entry_type(session, entry)
+    await session.commit()
+    assert entry.entry_type == "did_it"  # nothing attached yet
+
+    media_id = await _media_for(client, user, entry, kind="photo", filename="floor.jpg")
+    await client.post(f"/v1/media/{media_id}/complete", json={}, headers=auth_headers(user))
+
+    await session.refresh(entry)
+    assert entry.entry_type == "photo"
+
+
+async def test_a_media_mission_completed_without_an_artifact_derives_from_the_media_later(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """The audio mission answered as a did-it, then actually recorded."""
+    user, child, entry = await _entry(session)
+    prompt = await make_prompt(
+        session,
+        kind="audio",
+        completion_mode="media",
+        body="Record him telling you a story.",
+    )
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    entry.assignment_id = assignment.id
+    entry.body = None
+    await session.commit()
+
+    # completion_mode is `media`, not `did_it`, so rule (b) does not fire and the empty
+    # entry falls to rule (d).
+    await refresh_entry_type(session, entry)
+    await session.commit()
+    assert entry.entry_type == "did_it"
+
+    media_id = await _media_for(client, user, entry)
+    await client.post(f"/v1/media/{media_id}/complete", json={}, headers=auth_headers(user))
+
+    await session.refresh(entry)
+    assert entry.entry_type == "audio"

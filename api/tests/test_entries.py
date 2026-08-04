@@ -693,3 +693,121 @@ async def test_adding_a_body_to_a_did_it_entry_makes_it_text(
         headers=auth_headers(user),
     )
     assert patched.json()["entry_type"] == "text"
+
+
+# --- entry_type: a did-it mission stays a did-it -------------------------------------------
+
+
+async def test_a_did_it_mission_with_a_note_is_still_a_did_it(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The optional note must not tip the entry out of the Did it filter.
+
+    "Get on the floor for ten minutes" is a did-it whether or not you wrote something about
+    it afterwards. Deriving `text` from the note is the audio bug pointing the other way.
+    """
+    user, child = await _world(session)
+    prompt = await make_prompt(
+        session,
+        kind="activity",
+        completion_mode="did_it",
+        body="Get on the floor for ten minutes. That's the whole mission.",
+    )
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    await session.commit()
+    headers = auth_headers(user)
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(
+            child,
+            assignment_id=str(assignment.id),
+            body="He fell asleep on my chest halfway through.",
+            tags=[],
+        ),
+        headers=headers,
+    )
+
+    assert created.status_code == 201
+    assert created.json()["entry_type"] == "did_it"
+
+    under_did_it = await client.get(
+        "/v1/entries", params={"child_id": str(child.id), "type": "did_it"}, headers=headers
+    )
+    assert [e["id"] for e in under_did_it.json()["entries"]] == [created.json()["id"]]
+
+    under_text = await client.get(
+        "/v1/entries", params={"child_id": str(child.id), "type": "text"}, headers=headers
+    )
+    assert under_text.json()["entries"] == []
+
+
+async def test_adding_a_note_later_does_not_move_a_did_it_mission(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Same rule on the edit path, not just on create."""
+    user, child = await _world(session)
+    prompt = await make_prompt(session, kind="activity", completion_mode="did_it")
+    assignment = await make_assignment(session, child, prompt, slot="mission")
+    await session.commit()
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, assignment_id=str(assignment.id), body=None, tags=[]),
+        headers=auth_headers(user),
+    )
+    assert created.json()["entry_type"] == "did_it"
+
+    patched = await client.patch(
+        f"/v1/entries/{created.json()['id']}",
+        json={"body": "Worth it."},
+        headers=auth_headers(user),
+    )
+    assert patched.json()["entry_type"] == "did_it"
+
+
+async def test_a_title_with_no_body_is_a_text_entry(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A title is written content, so an entry carrying only one is a text entry."""
+    user, child = await _world(session)
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, title="The hangaburger incident", body=None, tags=[]),
+        headers=auth_headers(user),
+    )
+
+    assert created.status_code == 201
+    assert created.json()["entry_type"] == "text"
+
+
+async def test_a_freeform_entry_with_a_body_is_a_text_entry(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """No assignment means no completion_mode to consult, so the content decides."""
+    user, child = await _world(session)
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, body="Nobody asked. Writing it down anyway.", tags=[]),
+        headers=auth_headers(user),
+    )
+
+    assert created.status_code == 201
+    assert created.json()["assignment_id"] is None
+    assert created.json()["entry_type"] == "text"
+
+
+async def test_a_freeform_entry_with_nothing_in_it_is_a_did_it(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The last rung: no media, no mission, no words."""
+    user, child = await _world(session)
+
+    created = await client.post(
+        "/v1/entries",
+        json=_entry_body(child, title=None, body=None, tags=[]),
+        headers=auth_headers(user),
+    )
+    assert created.json()["entry_type"] == "did_it"

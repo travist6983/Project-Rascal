@@ -373,3 +373,20 @@ that file left open.
   decision" section as long as the blocked one; blocked now means blocked, deferred is
   clearly separated, and a "resolved since last review" list closes out the nine items this
   pass fixed.
+
+## Follow-up — entry_type consults the prompt's completion_mode
+
+- **Deriving purely from content was wrong in the other direction.** A note on a did-it
+  mission made it a `text` entry and dropped it out of the Did it filter — the same lie as
+  the audio bug, pointing the other way. The rule now consults
+  `prompt.completion_mode` between the media check and the content check.
+- **Media still outranks the prompt.** A did-it mission someone photographed anyway is a
+  photo entry: the artifact exists and the Photos filter has to find it. Tested explicitly,
+  because it is the one place the two rules could disagree.
+- **A title with no body is `text`.** Settles the edge flagged in the last report: a title is
+  written content, so it is enough on its own.
+- **`completion_mode_for()` returns None for a parent-authored `custom_body` assignment**, not
+  just for a freeform entry. There is no prompt behind a custom item saying what shape the
+  answer takes, so the content decides.
+- **`PATCH /entries/{id}` now recomputes on a `title` change too**, not only `body` — both are
+  content under the new rule.

@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from rascal.constants import EntryType, TagSource
+from rascal.constants import CompletionMode, EntryType, TagSource
 from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
 from rascal.models import Assignment, Child, Entry, EntryTag, Media, Prompt, Tag, User
 from rascal.schemas.entry import (
@@ -223,13 +223,28 @@ async def _resolve_assignment(
     return assignment, prompt
 
 
-def derive_entry_type(body: str | None, media: Sequence[Media]) -> EntryType:
-    """What the entry actually contains — never what was asked.
+def derive_entry_type(
+    body: str | None,
+    title: str | None,
+    media: Sequence[Media],
+    *,
+    completion_mode: CompletionMode | None,
+) -> EntryType:
+    """What the entry actually is — never what was asked, but not blind to it either.
 
-    A `did_it` completion of an audio mission is not an audio entry: there is no audio in
-    it, and a Voice filter that surfaces it is lying. What was asked is still recoverable
-    through `assignment_id` -> `prompt.kind`, so nothing is lost by describing the artifact
-    instead of the prompt.
+    In order:
+
+    1. Media attached -> the media kind. A `did_it` completion of an audio mission is not
+       an audio entry, and a Voice filter that surfaces it is lying.
+    2. Otherwise, if it completes a `did_it` mission -> `did_it`. "Get on the floor for ten
+       minutes" is a did-it whether or not you wrote a note about it, and the optional note
+       must not tip it out of the Did it filter. This is the same bug as (1), pointing the
+       other way.
+    3. Otherwise, any written content -> `text`. A title is written content.
+    4. Otherwise -> `did_it`.
+
+    `completion_mode` comes from the prompt behind the entry's assignment; a freeform entry
+    has none and falls through to (3)/(4).
     """
     attached = sorted(
         (item for item in media if item.deleted_at is None),
@@ -239,13 +254,32 @@ def derive_entry_type(body: str | None, media: Sequence[Media]) -> EntryType:
     )
     if attached:
         return attached[0].kind  # mixed media takes the first attached kind
-    if body:
+    if completion_mode == "did_it":
+        return "did_it"
+    if body or title:
         return "text"
     return "did_it"
 
 
+async def completion_mode_for(
+    session: AsyncSession, assignment_id: uuid.UUID | None
+) -> CompletionMode | None:
+    """The `completion_mode` of the prompt behind an assignment, if there is one.
+
+    None for a freeform entry, and None for a parent-authored `custom_body` assignment —
+    neither has a prompt saying what shape the answer takes.
+    """
+    if assignment_id is None:
+        return None
+    return await session.scalar(
+        select(Prompt.completion_mode)
+        .join(Assignment, Assignment.prompt_id == Prompt.id)
+        .where(Assignment.id == assignment_id)
+    )
+
+
 async def refresh_entry_type(session: AsyncSession, entry: Entry) -> bool:
-    """Recompute after media lands or the body changes. True if the value moved.
+    """Recompute after media lands or the text changes. True if the value moved.
 
     Media arrives after the entry exists, so the type assigned at creation is provisional.
     When this writes, the `set_updated_at()` trigger moves the sync cursor for free.
@@ -259,7 +293,12 @@ async def refresh_entry_type(session: AsyncSession, entry: Entry) -> bool:
         .scalars()
         .all()
     )
-    derived = derive_entry_type(entry.body, list(attached))
+    derived = derive_entry_type(
+        entry.body,
+        entry.title,
+        list(attached),
+        completion_mode=await completion_mode_for(session, entry.assignment_id),
+    )
     if derived == entry.entry_type:
         return False
     entry.entry_type = derived
@@ -312,7 +351,12 @@ async def create_entry(
         body=body,
         # No media exists yet — it is uploaded against the entry afterwards — so this is
         # `text` or `did_it`, and POST /media/{id}/complete recomputes it.
-        entry_type=derive_entry_type(body, []),
+        entry_type=derive_entry_type(
+            body,
+            title,
+            [],
+            completion_mode=prompt.completion_mode if prompt is not None else None,
+        ),
         unlock_at_age=unlock_at_age,
     )
     session.add(entry)
@@ -439,9 +483,9 @@ async def update_entry(
     if tags is not None:
         await apply_tags(session, entry, tags, "user")
 
-    if "body" in fields:
-        # Adding a body to a did_it entry makes it a text entry. The type describes what is
-        # in the row, so it has to follow an edit of the row.
+    if "body" in fields or "title" in fields:
+        # Written content can tip a freeform entry from did_it to text, so the type has to
+        # follow an edit of the row. A did-it mission stays did_it either way.
         await refresh_entry_type(session, entry)
 
     await session.flush()

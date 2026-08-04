@@ -126,10 +126,18 @@ Server computes and stores `child_age_months` from `occurred_at` minus birthdate
 transaction.
 
 `entry_type` is **derived server-side and any value sent is ignored.** It describes what the
-entry contains, not what was asked: `did_it` with no media and no body, `text` with a body,
-and the media kind once media is attached — recomputed on `POST /media/{id}/complete`. What
-was asked is still reachable through `assignment_id` → `prompt.kind`. The values are
-`photo`, `video`, `audio`, `text`, `did_it`.
+entry is, resolved in this order:
+
+1. Media attached → the media kind (`photo` / `video` / `audio`), first attached wins.
+2. Else the entry completes an assignment whose prompt is `completion_mode: did_it` →
+   `did_it`. A note on "get on the floor for ten minutes" does not make it a text entry.
+3. Else any `title` or `body` → `text`. A title is written content.
+4. Else → `did_it`.
+
+Recomputed on `POST /media/{id}/complete`, since media lands after the entry exists. A
+freeform entry has no assignment and so falls through to (3)/(4). What was asked is still
+reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
+`text`, `did_it`.
 
 Deleting an entry releases its assignment back to `pending` unless another live entry still
 completes it, so "wrong photo, redo it" puts the mission back on the Today screen. If the assignment is already `done`, `dismissed`, or `expired`, the entry
