@@ -10,7 +10,17 @@ from rascal.config import Settings, get_settings
 from rascal.db import get_session
 from rascal.errors import register_error_handlers
 from rascal.logging_config import configure_logging
-from rascal.routers import auth, children, entries, media, moments, prompts, sync, today
+from rascal.routers import (
+    auth,
+    children,
+    debug,
+    entries,
+    media,
+    moments,
+    prompts,
+    sync,
+    today,
+)
 
 # docs/api-contract.md: everything lives under /v1 except GET /health.
 API_PREFIX = "/v1"
@@ -56,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # dev-login and the debug routes must not exist in a production build. There is a
         # test that asserts it.
         app.include_router(auth.dev_router, prefix=API_PREFIX)
+        app.include_router(debug.router, prefix=API_PREFIX)
 
     return app
 

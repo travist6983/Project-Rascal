@@ -190,3 +190,45 @@ that file left open.
   Accepting one covers both; omitting it keeps the documented behaviour.
 - **`bytes` and `duration_seconds` come from the client.** The server never sees the object,
   so it has nothing else to go on.
+
+## M5 — Scheduler
+
+- **Selection is split in two.** `choose_prompt(...)` is the pure function — candidates in,
+  one prompt out, no database, no clock, seedable RNG. `select_prompt(child, slot,
+  as_of_date, session)` is the thin wrapper the task's signature describes: it loads the
+  pool and the child's history, then calls the pure half. The rules live in the half that
+  can be unit-tested without Postgres.
+- **The relaxation ladder, strictest first:** (1) age + season, 180-day cooldown, theme
+  rotation on; (2) age + season, **90-day cooldown**, theme rotation on; (3) age + season,
+  90-day cooldown, theme rotation dropped; (4) age + season, no cooldown; (5) **season only
+  — the age window gives here**; (6) anything in the pool. Cooldown relaxes before the age
+  window, exactly as `docs/data-model.md` requires: an age-inappropriate prompt is worse
+  than a repeat.
+- **Weighted random means a prompt this child has never seen weighs 3, a repeat weighs 1.**
+  The spec says "weighted random pick" without naming weights; favouring unseen content is
+  the weighting that serves the product, and it is what the cooldown is already reaching for.
+- **The theme window includes `as_of_date` itself.** The question and the mission are picked
+  seconds apart in the same run, and "avoids serving two prompts from the same theme back to
+  back" has to cover that pair.
+- **The `monthly` slot draws from every `cadence: monthly` prompt — measurement *and*
+  letters.** `docs/data-model.md` annotates the slot "(measurement)", but the eight letters
+  are `cadence: monthly` with no slot of their own, and restricting the slot to measurement
+  would make them unreachable forever. Flagged in `docs/blocked.md`: a dedicated `letter`
+  slot is a one-line CHECK change if you would rather they were separate.
+- **The `mission` slot draws from photo, video, audio, activity, and measurement** — every
+  daily kind except `question`, which has its own slot, and `letter`, which is monthly.
+- **`run_scheduler` takes either an instant or a date.** `as_of` (an instant) is the real
+  job: each child's `assigned_on` is that instant read in their own `family_timezone`, so
+  two zones legitimately differ. `as_of_date` (a plain date) runs one calendar day for
+  everyone, which is what a backfill and the debug route want. Passing both is an error.
+- **Every child is active.** `docs/data-model.md` gives `children` no `active` column, so
+  "for each active child" means every child.
+- **An exhausted slot is left empty and logged, never filled with a fallback.** No fake data;
+  the log line names the child and the slot so you know what to go and author.
+- **`POST /debug/scheduler/run` is scoped to the caller's own children**, even in a local
+  build, so a shared development database is not a way to schedule for someone else's kid.
+- **`POST /debug/reset-today` hard-deletes.** It is the only hard delete in the service, it
+  only exists when `ENVIRONMENT == "local"`, and assignments are scheduler output rather
+  than archive — regenerating them is the whole point of the route.
+- **Log extras are prefixed (`assignments_created`, not `created`).** `created` is a reserved
+  `LogRecord` attribute and the stdlib raises rather than shadowing it.
