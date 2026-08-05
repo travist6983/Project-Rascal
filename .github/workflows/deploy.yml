@@ -19,6 +19,16 @@ env:
 
 jobs:
   deploy:
+    # Until the Fly app exists there is nothing to deploy to, and a push to main should not
+    # paint the commit red for that. Skipped is the honest state — it is neither a success
+    # nor a failure, and it renders grey rather than as a green check that would claim a
+    # deploy happened. Flip this on when the app is created, alongside FLY_API_TOKEN:
+    #   Settings -> Secrets and variables -> Actions -> Variables -> FLY_DEPLOY_ENABLED=true
+    # Deliberately a variable and not the secret itself: GitHub does not expose `secrets` to
+    # a job-level `if`, and reading it in a prior job would make a missing token look like a
+    # clean skip forever after — including the day someone revokes it. A manual dispatch
+    # always runs, so "is deployment wired up yet" stays answerable on demand.
+    if: github.event_name == 'workflow_dispatch' || vars.FLY_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

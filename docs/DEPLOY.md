@@ -169,6 +169,18 @@ rather than SQLAlchemy — so it takes a plain `postgresql://…` URL with **no*
 Use the direct endpoint: `pg_dump` holds one long session and has nothing to gain from a
 pooler.
 
+Then, on the **Variables** tab of the same screen — *not* Secrets — add one more:
+
+| Variable | Value |
+|---|---|
+| `FLY_DEPLOY_ENABLED` | `true` |
+
+This is the switch that turns on automatic deploys from `main`. Until it is set, the deploy
+workflow skips instead of running, so a push to `main` does not fail for the entirely
+correct reason that there is no Fly app yet — a red X that means "not set up" trains you to
+ignore red Xs. Setting it says the app exists. If it is on and `FLY_API_TOKEN` is missing,
+the workflow fails loudly, which by then is the truth.
+
 ### 5. Fly — paste the app's own secrets
 
 The app's runtime configuration lives in Fly, not GitHub. Fly's dashboard has a **Secrets**

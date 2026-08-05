@@ -541,3 +541,16 @@ that file left open.
   and derives the app-only field list from the models so it cannot go vacuous.
 - **`make lint` now lints `.github` as well.** CI already did; the Makefile did not, and the
   gap is how a formatting failure reached CI once already.
+
+## Deploy is skipped, not failed, until Fly exists
+
+- **A red X that means "not set up yet" is training to ignore red Xs.** Every merge to `main`
+  was failing the Deploy workflow on a missing `FLY_API_TOKEN`, which marked four correct
+  commits as broken.
+- **Gated on the repository variable `FLY_DEPLOY_ENABLED`, so the job skips.** Skipped renders
+  grey: not a failure, and — this is the point — not a green check claiming a deploy that
+  never happened. Of the two dishonest signals, a false green is the worse one.
+- **A variable, not the secret.** GitHub does not expose `secrets` to a job-level `if`, and
+  probing the token in a prior job would make a *missing* token look like a clean skip
+  forever after, including the day someone revokes it. `workflow_dispatch` ignores the gate,
+  so the question stays answerable on demand.
