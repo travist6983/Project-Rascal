@@ -26,6 +26,17 @@ jobs:
       - run: uv run ruff format --check . ../.github
         working-directory: api
 
+  # The one path in this repo that nothing else executes. `api/fly.toml` deploys this exact
+  # Dockerfile, so a build failure here is a deploy failure — discovered on a push instead of
+  # on deploy day. Needs no credentials, which is the whole reason it can exist.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Context is api/, not the repo root: every COPY in the Dockerfile is relative to it.
+      - name: Build the image Fly deploys
+        run: docker build --progress=plain -f api/Dockerfile api/
+
   test:
     runs-on: ubuntu-latest
     services:
