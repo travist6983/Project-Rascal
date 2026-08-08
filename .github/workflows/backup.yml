@@ -109,9 +109,14 @@ jobs:
           found=$(zcat "$file" | grep -cF 'CREATE TABLE public.entries' || true)
           if [ "$found" -eq 0 ]; then
             echo "::error::Dump does not contain the entries table. Wrong database?"
-            echo "::error::Tables actually present in this dump:"
-            zcat "$file" | grep -oE '^CREATE TABLE public\.[a-z_]+' | sort -u \
-              | sed 's/^/::error::  /' || true
+            # Deliberately unqualified: anchoring on `public.` hides the case where the
+            # tables exist under a different schema, which looks identical from outside.
+            echo "Any CREATE TABLE lines, whatever the schema:"
+            zcat "$file" | grep -oE 'CREATE TABLE [A-Za-z0-9_."]+' | sort -u | head -20 || true
+            echo "Schemas mentioned:"
+            zcat "$file" | grep -oE 'CREATE SCHEMA [A-Za-z0-9_"]+' | sort -u | head -10 || true
+            echo "First 25 substantive lines of the dump:"
+            zcat "$file" | grep -vE '^\s*(--|$)' | head -25 || true
             exit 1
           fi
 
