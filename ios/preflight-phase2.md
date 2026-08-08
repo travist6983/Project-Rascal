@@ -2,7 +2,33 @@
 
 **Aug 8, 2026.** Branch `ios/phase2-capture`, off `ios/phase1-spine`.
 
-## Verdict: FAILED. The build did not start.
+## Verdict: PASSED on re-run (Aug 8, 2026, later the same day).
+
+**First run FAILED at check 3** and the build did not start — the bucket did not exist and the
+credential was still the `.env.example` placeholder. That is recorded below unchanged, because
+what a failed gate found is worth keeping.
+
+**Storage now exists and the round trip works**, so the capture build is cleared to proceed:
+
+```
+POST /v1/entries              -> 201
+POST /v1/media/upload-url     -> 200, host rascal-media-dev.t3.storage.dev
+PUT  <presigned>              -> 200, ETag "4edd3122…"
+POST /v1/media/{id}/complete  -> 200
+```
+
+Storage is **Tigris**, not AWS — see `docs/tigris-setup.md`. Nothing in this project ever
+needed an Amazon account; the gap was a missing `endpoint_url` on the boto3 client, now
+configurable and defaulted to AWS so existing behaviour is unchanged.
+
+Two findings from provisioning that the capture build has to respect:
+
+- `chunk_bytes` is **`null`** on the single-PUT path, with `multipart: false`. C-3 must read
+  and store the field and tolerate null, never hardcode 8MB.
+- The ETag arrived **with no CORS rule configured**, confirming CORS is browser-enforced and
+  irrelevant to `URLSession`. `blocked.md` §2 described it as a client blocker; it is not.
+
+### Original verdict, first run: FAILED. The build did not start.
 
 **No Swift was written for Part Two.** Check 3 — object storage — failed, and it is the one
 check that cannot be worked around: the S3 bucket does not exist and no real credential is
