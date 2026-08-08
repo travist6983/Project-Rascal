@@ -89,7 +89,25 @@ GitHub Actions, neither of which can read Fly's secrets.
 Note the Fly app doesn't exist yet — `docs/blocked.md` §3 still lists that as outstanding. If
 you'd rather not create the app first, use Route B.
 
-### Route B — Tigris console (works with no Fly app)
+### Route B — Tigris CLI (what was actually used)
+
+```bash
+npm install -g @tigrisdata/cli
+tigris login                      # browser OAuth
+tigris buckets create rascal-media-dev --access private
+tigris access-keys create rascal-api-dev          # prints tid_… / tsec_… ONCE
+tigris access-keys assign <key-id> --bucket rascal-media-dev --role Editor
+```
+
+**The assign step is not optional.** `access-keys create` returns a key with **no permissions
+at all** — every call, including presigned PUTs, comes back `AccessDenied` until a role is
+assigned. Nothing in the create output hints at this, and a key that exists but cannot do
+anything reads exactly like a bad secret.
+
+`Editor` scoped to one bucket is the right level: it covers object read/write, presigning, and
+bucket CORS, without granting org-wide admin.
+
+### Route C — Tigris console (works with no Fly app)
 
 Sign in at https://console.storage.dev/, create a bucket, then create an access key scoped to
 it. Same credential format.
@@ -182,10 +200,12 @@ aws s3api put-bucket-cors --bucket <bucket> \
   }'
 ```
 
-**One caveat I could not verify:** Tigris's CORS documentation covers origins, methods, and
-headers but does not mention `ExposeHeaders`. It's standard S3, so it should be accepted — but
-read it back with `get-bucket-cors` and confirm the field survived rather than assuming it did.
-Tighten `AllowedOrigins` from `*` when a real web origin exists.
+**Verified, not assumed.** Tigris's CORS docs don't mention `ExposeHeaders`, so this was
+applied with `put_bucket_cors` and read back with `get_bucket_cors`: the field survived intact
+(`ExposeHeaders: ['ETag']`). It is already set on `rascal-media-dev`. Tighten `AllowedOrigins`
+from `*` when a real web origin exists.
+
+Note `PutBucketCors` requires the `Editor` role — an object-scoped key gets `AccessDenied`.
 
 ---
 
