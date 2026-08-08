@@ -20,11 +20,19 @@ case that catches decorative verification.
 What it cannot do is accept a token from a real device, because `aud` has to match a bundle
 id from an enrolled team.
 
-**What I need:** the bundle id, once enrollment clears. Nothing else changes:
+**The bundle id is settled: `com.travisterry.childarchive`.** Deliberately name-neutral,
+because the app name is still open and a bundle id is permanent. It is already set in
+`.env.example` and in `ci.yml`'s test environment, and the Xcode target is signed with it.
+
+**What I still need:** enrollment itself, and then the same value as a Fly secret. Nothing
+in the code changes:
 
 ```bash
-fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.yourname.rascal"
+fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.travisterry.childarchive"
 ```
+
+Registering the App ID with Sign in with Apple enabled is the other half. Adding the
+capability in Xcode under automatic signing does that registration for you.
 
 **Meanwhile:** `POST /v1/auth/dev-login` returns a real session with real tokens against a
 fixture account, and it works for curl and for the iOS client. It is registered only when

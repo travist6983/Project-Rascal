@@ -106,7 +106,8 @@ Last updated: **Aug 3, 2026**
 project rather than after it. Name-neutral on purpose: open question #1 is still open, and a
 bundle id outlives whatever the app ends up being called. This closes the "what I need" line
 in `blocked.md` §1 — enrollment can now proceed against a real identifier, and
-`APPLE_BUNDLE_ID` flips from `com.example.rascal` to match it when it does.
+`APPLE_BUNDLE_ID` has already been flipped from `com.example.rascal` to match it, in
+`.env.example` and in `ci.yml`; the Fly secret follows when the app exists.
 
 **Aug 8, 2026** — The iOS client lives here, under `ios/`, rather than in its own repo. It
 was planned as a separate one; the deciding argument is that a client in the same tree reads

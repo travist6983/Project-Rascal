@@ -1,5 +1,5 @@
 # Lane B Prep — report
-**Aug 8, 2026.** Branch `lane-b-prep`, off `main`. Configuration and documentation only — no change to `api/src/`, `api/tests/`, `api/alembic/`, or any migration, verified by `git status`. Nothing was committed; the working tree is left for review.
+**Aug 8, 2026.** Branch `lane-b-prep`, off `main`. Configuration and documentation only — no change to `api/src/`, `api/tests/`, `api/alembic/`, or any migration, verified by `git status`. Committed across three commits on `lane-b-prep`: the prep itself, the iOS config wiring, and the `Rscal`→`Rascal` rename.
 
 * * *
 ## What changed, per task
@@ -126,11 +126,7 @@ believing it is being on-brand.
 so open question #1 (the app name) stays open. Recorded in the Settled → Technical table and
 in the changelog. This also closes the "what I need" line in `blocked.md` §1.
 
-**Still to do when you register it:** `APPLE_BUNDLE_ID` is the `aud` claim every Apple
-identity token is verified against, and it is still the placeholder `com.example.rascal` in
-`.env.example` and in `ci.yml`'s test env. It has to flip to match. I left both alone — real
-Sign in with Apple is blocked on enrollment anyway, so nothing is broken by the placeholder
-until that clears, and changing it is an API-lane edit.
+**Done.** `APPLE_BUNDLE_ID` is now `com.travisterry.childarchive` in `.env.example` and in `ci.yml`'s test environment. No test hardcoded the old value — they read it from settings — and the suite passes. The Fly secret follows when the app exists; `blocked.md` §1 records that.
 
 **2. Path filters and required status checks — moot.** I checked: branch protection is not
 available on this repo's plan (`GET /branches/main/protection` → 403, "Upgrade to GitHub Pro

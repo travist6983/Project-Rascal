@@ -73,7 +73,7 @@ jobs:
       S3_REGION: us-east-2
       AWS_ACCESS_KEY_ID: ci-access-key
       AWS_SECRET_ACCESS_KEY: ci-secret-key
-      APPLE_BUNDLE_ID: com.example.rascal
+      APPLE_BUNDLE_ID: com.travisterry.childarchive
     steps:
       - uses: actions/checkout@v4
       # tests/test_restore.py performs a real pg_dump/psql round trip, so the client major

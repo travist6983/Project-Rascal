@@ -577,3 +577,33 @@ that file left open.
   dispatches to the newest installed version — so installing `postgresql-client-16` beside a
   17 changes nothing until `/usr/lib/postgresql/16/bin` comes first. The Makefile does the
   same locally when a Homebrew `postgresql@16` is present.
+
+## The iOS lane's config chain is two text files, not a pbxproj edit
+
+- **`Config.xcconfig` → `Info.plist` → `Bundle.main`.** The base URL and the dev child id
+  reach Swift as Info.plist keys, so pointing the app at localhost, TestFlight, or Fly is a
+  config change and never a code change. Both files sit beside `Rascal.xcodeproj`.
+- **`INFOPLIST_KEY_*` was tried first and does not work.** It only carries keys Apple already
+  knows; a custom key is dropped silently, with a *successful* build. The authored
+  `Info.plist` reproduces what Xcode was generating — verified by diffing the built plist
+  before and after, the only delta being the three new keys.
+- **`Info.plist` lives beside the `.xcodeproj`, not in `Rascal/Rascal/`.** That folder is a
+  synchronized group, so a file dropped there is also copied as a resource and the build
+  fails with "Multiple commands produce Info.plist".
+- **`GENERATE_INFOPLIST_FILE = NO` had to go in `project.pbxproj`.** A target setting beats
+  an xcconfig, so this one cannot live with the others. It is the only pbxproj edit, and a
+  clean build from an empty derived-data path is what proves it.
+
+## Xcode's own git repository was removed
+
+- **`ios/Rascal/.git` existed** — the New Project sheet's "Create Git repository" default. A
+  repo inside a repo is the exact thing the monorepo decision rules out, and its single
+  commit had `Config.xcconfig` and `xcuserdata` in it, both deliberately untracked upstream.
+- **Removed rather than converted to a submodule.** Nothing in it was unique; the parent
+  already tracked every file worth keeping.
+
+## `ci.yml`'s path filter covers `.github/scripts/**`, not just `api/**`
+
+- **The lint job runs `ruff check . ../.github`.** Filtering on `api/**` alone would have
+  quietly stopped linting `prune_backups.py` and `verify_schema.py` — two scripts that run
+  against production data and that nothing else checks.
