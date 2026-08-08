@@ -1,5 +1,10 @@
 # Verifying on a real phone
 
+> **Phase 2 supersedes parts of this.** `ios/device-session.md` is the current, ordered
+> checklist covering camera, background upload while suspended, force-quit resume, the
+> cold-launch-into-callback case, and cellular. This file remains the Phase 1 baseline.
+
+
 Simulator-only is not done. The simulator shares the Mac's network stack and its keychain is a
 file on disk, so three whole classes of bug — reachability, ATS, and keychain accessibility —
 cannot fail there and routinely do on a device.
