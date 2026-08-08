@@ -554,3 +554,26 @@ that file left open.
   probing the token in a prior job would make a *missing* token look like a clean skip
   forever after, including the day someone revokes it. `workflow_dispatch` ignores the gate,
   so the question stays answerable on demand.
+
+## The compose host port is overridable
+
+- **5433 was hardcoded to dodge a local Postgres on 5432, and something else took 5433.**
+  Another project's compose stack held it, so `rascal-postgres` never left `Created` and
+  `make up` looked like a hang rather than a port conflict.
+- **`${POSTGRES_PORT:-5433}`, defaulting to the old value.** Anyone whose 5433 is free sees
+  no change. `POSTGRES_PORT` and the port inside `DATABASE_URL` have to be the same number;
+  `.env.example` says so where both are set.
+
+## `pg_dump` must be exactly 16, not "16 or newer"
+
+- **A newer client is the dangerous direction, and the guard allowed it.** `ci.yml` accepted
+  ` 1[6-9]\.`. pg_dump 17 writes `SET transaction_timeout` into the dump header, Postgres 16
+  does not recognise that parameter, and the restore dies under `ON_ERROR_STOP` with an
+  error that says nothing about versions. CI passed only because today's runner ships 16.
+- **Both `ci.yml` and `backup.yml` now require ` 16\.` and fail loudly otherwise.** The
+  backup path matters more than the test: a dump written by a 17 client does not restore
+  into Neon, and that is discovered on the day the backup is needed.
+- **PATH, not just the package.** Debian's `/usr/bin/pg_dump` is `pg_wrapper`, which
+  dispatches to the newest installed version — so installing `postgresql-client-16` beside a
+  17 changes nothing until `/usr/lib/postgresql/16/bin` comes first. The Makefile does the
+  same locally when a Homebrew `postgresql@16` is present.

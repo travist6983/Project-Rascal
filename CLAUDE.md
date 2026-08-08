@@ -1,11 +1,21 @@
 # RASCAL — standing rules
 
-A native iOS app that archives a child's childhood one daily prompt at a time. This repo is
-the backend. `docs/` holds the specs and they are authoritative: `docs/data-model.md`
-(schema), `docs/api-contract.md` (endpoints), `docs/decisions.md` (settled — do not
-relitigate), `docs/mission-library.md` (seed prompts), `docs/memory-app-roadmap.md` (scope).
+A native iOS app that archives a child's childhood one daily prompt at a time. This repo
+holds both halves: the backend in `api/` and the iOS client in `ios/`. `docs/` holds the
+specs and they are authoritative: `docs/data-model.md` (schema), `docs/api-contract.md`
+(endpoints), `docs/decisions.md` (settled — do not relitigate), `docs/mission-library.md`
+(seed prompts), `docs/memory-app-roadmap.md` (scope).
 
 If the code and `docs/data-model.md` disagree, the code is wrong.
+
+## Two lanes
+
+`api/` and `ios/` are separate lanes that share a repo, not a codebase. An agent working in
+`ios/` never edits `api/`; an agent working in `api/` never edits `ios/`. `docs/` is shared
+and either lane may read it — but a change to `docs/api-contract.md` is an API-lane change.
+
+The rest of this file is the API lane. The iOS lane's rules are in `ios/CLAUDE.md`. CI is
+scoped by path so a commit in one lane never runs or deploys the other.
 
 ## The rules. Violating any of these is a defect.
 
@@ -52,9 +62,10 @@ Python 3.12 · FastAPI · SQLAlchemy 2.0 (`Mapped`/`mapped_column`) · Alembic �
 pydantic-settings · Postgres (Neon in prod, Docker locally) · boto3 · uv · pytest +
 pytest-asyncio + httpx · ruff · Fly.io.
 
-## Out of scope — stop if you find yourself designing one
+## Out of scope for the API lane — stop if you find yourself designing one
 
-Swift or iOS code, push notifications, full-text search, thumbnail or transcode pipelines,
+Swift or iOS code (that is the other lane, not this one), push notifications, full-text
+search, thumbnail or transcode pipelines,
 LLM prompt generation, the guardian invite flow, the admin prompt review queue, a web
 frontend, multi-kid UI concerns, rate limiting, observability beyond structured logging.
 

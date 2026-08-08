@@ -56,6 +56,8 @@ Last updated: **Aug 3, 2026**
 | Sync returns a 30-second overlap window; clients upsert by id | `now()` is transaction-start time, so a slow transaction can commit a row already behind another device's cursor and lose it forever. Re-delivery is free — entries are last-write-wins on a client UUID. A sequence has the identical race for a migration's cost. |
 | Scheduler runs hourly and filters on local time | One daily cron is 5am in exactly one timezone and drifts an hour against DST twice a year. 24 wakeups a day is nothing, and the job is already idempotent. |
 | `users.is_admin` gates writes to the mission library | `POST /prompts` was authenticated but not authorized. The library is content every child draws from; a grandparent's `viewer` login must not be able to write to it. |
+| iOS client lives in this repo under `ios/`, not a separate repo | The client reads `docs/api-contract.md` directly instead of a copy that drifts. CI is scoped by path so the lanes stay independent. |
+| Bundle id is `com.travisterry.childarchive` | A bundle id is permanent and the app name is still open, so it is deliberately name-neutral — RASCAL, SMALL FRY, or anything else can ship on top of it. Settled before the Xcode project exists, because changing it afterward means redoing signing and the Sign in with Apple registration for nothing. `APPLE_BUNDLE_ID` must match it: it is the `aud` claim every Apple identity token is verified against. |
 
 ### Design
 
@@ -99,6 +101,21 @@ Last updated: **Aug 3, 2026**
 ---
 
 ## Changelog
+
+**Aug 8, 2026** — Bundle id settled as `com.travisterry.childarchive`, ahead of the Xcode
+project rather than after it. Name-neutral on purpose: open question #1 is still open, and a
+bundle id outlives whatever the app ends up being called. This closes the "what I need" line
+in `blocked.md` §1 — enrollment can now proceed against a real identifier, and
+`APPLE_BUNDLE_ID` flips from `com.example.rascal` to match it when it does.
+
+**Aug 8, 2026** — The iOS client lives here, under `ios/`, rather than in its own repo. It
+was planned as a separate one; the deciding argument is that a client in the same tree reads
+`docs/api-contract.md` directly instead of a copy that drifts, and `make fixtures` can
+capture real API responses into `ios/Fixtures/` as ground truth for JSON decoding. The cost
+is that CI had to learn the difference: `ci.yml` and `deploy.yml` now carry path filters so
+an iOS-only commit neither runs the Python suite nor deploys an unchanged API. The two lanes
+are kept apart by convention rather than by tooling — `CLAUDE.md` and the new `ios/CLAUDE.md`
+each state that an agent in one lane never edits the other. No API behavior changed.
 
 **Aug 4, 2026** — Hardening pass before iOS. Six decisions settled above, of which three
 change the schema: `entry_type` narrows to the five things the derivation can produce,

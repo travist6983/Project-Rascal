@@ -1,0 +1,40 @@
+// RASCAL — iOS build configuration
+//
+//   cp ios/Config.xcconfig.example ios/Config.xcconfig
+//
+// The real Config.xcconfig is gitignored. Every value the app needs at runtime comes from
+// here, surfaced through Info.plist and read via Bundle. No base URL and no UUID is ever
+// hardcoded in Swift source — that rule is in ios/CLAUDE.md and it is what makes pointing
+// the app at localhost, a TestFlight build, and production a config change instead of a
+// code change.
+//
+// Xcode note: `//` is the only comment form, values run to end of line (no quotes, no
+// trailing semicolon), and `//` inside a URL would start a comment — so the scheme is split
+// with the standard RASCAL_SCHEME/$()/ dance below rather than written inline.
+
+// -- API ----------------------------------------------------------------------------------
+
+// Split so the `//` in "https://" is not read as a comment. $() is an empty variable that
+// glues the halves back together at build time.
+RASCAL_API_SCHEME = https:$()/$()/
+
+// Simulator against a local API. `make dev` serves on :8000.
+//   local simulator : RASCAL_API_HOST = localhost:8000  with scheme http:$()/$()/
+//   device on LAN   : RASCAL_API_HOST = 192.168.1.10:8000
+//   deployed        : RASCAL_API_HOST = rascal-api.fly.dev
+RASCAL_API_HOST = rascal-api.fly.dev
+
+RASCAL_API_BASE_URL = $(RASCAL_API_SCHEME)$(RASCAL_API_HOST)/v1
+
+// -- Development fixture account ----------------------------------------------------------
+
+// Phase one authenticates with POST /v1/auth/dev-login, which exists only when the API runs
+// with ENVIRONMENT=local. It is absent in production and returns 404 there — see the Auth
+// section of docs/api-contract.md.
+RASCAL_DEV_LOGIN_EMAIL = dev@rascal.local
+RASCAL_DEV_LOGIN_DISPLAY_NAME = Dev Parent
+
+// dev-login does NOT return a child. Get one from GET /v1/children after logging in, or
+// create one with POST /v1/children, then paste its id here so the Today screen has a
+// target before the child picker exists. Leave empty to resolve at runtime instead.
+RASCAL_DEV_CHILD_ID =

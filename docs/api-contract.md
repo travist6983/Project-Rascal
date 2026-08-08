@@ -34,12 +34,55 @@ again is a 401 with code `refresh_token_reused`.
 
 **`POST /auth/logout`** — revokes the presented refresh token.
 
-**`POST /auth/dev-login`** — **registered only when `ENVIRONMENT == "local"`.** Creates or
-returns a fixture user plus a token pair, so the iOS client and curl can hit the API
-before Apple Developer enrollment clears. This route must not exist in a production build,
-and there's a test that asserts it.
+**`POST /auth/dev-login`** — **development only.** Registered only when
+`ENVIRONMENT == "local"`. Creates or returns a fixture user plus a token pair, so the iOS
+client and curl can hit the API before Apple Developer enrollment clears.
 
-Access tokens live 15 minutes. Refresh tokens live 30 days.
+Body — both fields optional, so `{}` is a valid request:
+
+```json
+{ "email": "dev@rascal.local", "display_name": "Dev Parent" }
+```
+
+Returns `200` with the same `SessionResponse` shape as `/auth/apple`:
+
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "…",
+  "token_type": "bearer",
+  "expires_in": 900,
+  "user": {
+    "id": "uuid",
+    "email": "dev@rascal.local",
+    "display_name": "Dev Parent",
+    "is_admin": true,
+    "created_at": "2026-08-08T00:00:00Z"
+  }
+}
+```
+
+Three things a client must not get wrong:
+
+- **The credential row is `provider = "password"`, `subject_id = <email>`** — not `apple`.
+  The fixture account is a password credential that no password can currently satisfy, so
+  swapping to Sign in with Apple later produces a *different* user, not the same one.
+- **It is idempotent by email.** The same `email` returns the same `users` row; a different
+  one creates a second account. It also force-sets `is_admin = true` on every call, so the
+  fixture account can seed the prompt library without a second privileged login.
+- **It returns no child, and no child id.** There is no child in the response body and
+  nothing in `POST /auth/dev-login` creates one. Get the child with `GET /children` and read
+  `[0].id`. On a freshly migrated database that array is **empty** — `make seed` loads
+  prompts only, never a child — so create one first with `POST /children`
+  (`{ name, birthdate, family_timezone }`).
+
+**Production behaviour.** The route is not merely refused in production, it does not exist:
+`main.py` mounts `auth.dev_router` inside `if settings.is_local`, so with `ENVIRONMENT=prod`
+the path is absent from the app and from `/openapi.json`, and any call returns `404`.
+`api/tests/test_auth.py::test_dev_login_is_not_registered_outside_local` asserts that, and
+`.github/workflows/smoke.yml` re-asserts it against the deployed API on every run.
+
+Access tokens live 15 minutes (`expires_in: 900`). Refresh tokens live 30 days.
 
 Later: `POST /auth/password` and `POST /auth/google` slot in with no schema change. That's the point.
 
