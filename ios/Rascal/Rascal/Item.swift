@@ -1,6 +1,6 @@
 //
 //  Item.swift
-//  Rscal
+//  Rascal
 //
 //  Created by Travis Terry on 8/8/26.
 //

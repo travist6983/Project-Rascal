@@ -7,7 +7,7 @@
 	     else is dropped silently. Everything above the RASCAL_ block reproduces exactly what
 	     Xcode was generating, via the same build settings it was reading. Keep it that way —
 	     these are $() references, not literals, so version and identifier still come from the
-	     target. This file lives beside the .xcodeproj rather than inside Rscal/, because that
+	     target. This file lives beside the .xcodeproj rather than inside Rascal/, because that
 	     folder is a synchronized group and anything in it is also copied as a resource, which
 	     makes the build fail with "Multiple commands produce Info.plist". -->
 	<key>CFBundleDevelopmentRegion</key>

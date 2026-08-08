@@ -1,8 +1,8 @@
 // RASCAL — iOS build configuration
 //
-//   cp ios/Rscal/Config.xcconfig.example ios/Rscal/Config.xcconfig
+//   cp ios/Rascal/Config.xcconfig.example ios/Rascal/Config.xcconfig
 //
-// The real Config.xcconfig is gitignored. It must live beside Rscal.xcodeproj — the
+// The real Config.xcconfig is gitignored. It must live beside Rascal.xcodeproj — the
 // project references it by a path relative to that directory. Every value the app needs at runtime comes from
 // here, surfaced through Info.plist and read via Bundle. No base URL and no UUID is ever
 // hardcoded in Swift source — that rule is in ios/CLAUDE.md and it is what makes pointing

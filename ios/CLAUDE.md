@@ -29,9 +29,9 @@ guessing, and prefer `ios/Fixtures/*.json` — real captured responses, refreshe
    hardcoded UUID, no `#if DEBUG let host = "..."` anywhere in Swift source. Read values
    with `Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String`.
 
-   The chain is two text files beside `Rscal.xcodeproj` and no `project.pbxproj` edit:
+   The chain is two text files beside `Rascal.xcodeproj` and no `project.pbxproj` edit:
    `Config.xcconfig` sets the values, `Info.plist` exposes them as `$(...)` references.
-   Both must stay next to the `.xcodeproj` — `Rscal/Rscal/` is a synchronized folder group,
+   Both must stay next to the `.xcodeproj` — `Rascal/Rascal/` is a synchronized folder group,
    so a file placed there is also copied as a resource and the build fails with
    "Multiple commands produce Info.plist". Adding a new key means editing both files.
    `INFOPLIST_KEY_*` does **not** work for custom keys; Xcode drops anything it doesn't

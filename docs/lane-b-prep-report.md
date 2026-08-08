@@ -149,7 +149,7 @@ its id resolved to nothing. The fixtures were re-captured against the compose da
 its persistent volume, and now carry child `ca5dda95-6712-4a1b-a818-f1c1f2e9b40b` — "Rascal",
 born 2021-06-01, `America/Detroit`, guardian `dev@rascal.local`, three live assignments.
 
-That same id is set as `RASCAL_DEV_CHILD_ID` in `ios/Rscal/Config.xcconfig` and verified
+That same id is set as `RASCAL_DEV_CHILD_ID` in `ios/Rascal/Config.xcconfig` and verified
 present in the built app bundle's Info.plist. Fixture, config, and database agree.
 
 Re-run `make fixtures` whenever an API response shape changes. It needs the API running

@@ -1,6 +1,6 @@
 //
-//  RscalApp.swift
-//  Rscal
+//  RascalApp.swift
+//  Rascal
 //
 //  Created by Travis Terry on 8/8/26.
 //
@@ -9,7 +9,7 @@ import SwiftUI
 import SwiftData
 
 @main
-struct RscalApp: App {
+struct RascalApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Item.self,

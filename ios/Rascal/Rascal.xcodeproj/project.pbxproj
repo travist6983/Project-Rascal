@@ -11,14 +11,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		1F1B64263027A5C000BFFE84 /* Rscal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rscal.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1F1B64263027A5C000BFFE84 /* Rascal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rascal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64363027A6B400BFFE84 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1F1B64283027A5C000BFFE84 /* Rscal */ = {
+		1F1B64283027A5C000BFFE84 /* Rascal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Rscal;
+			path = Rascal;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -38,7 +38,7 @@
 			isa = PBXGroup;
 			children = (
 				1F1B64363027A6B400BFFE84 /* Config.xcconfig */,
-				1F1B64283027A5C000BFFE84 /* Rscal */,
+				1F1B64283027A5C000BFFE84 /* Rascal */,
 				1F1B64273027A5C000BFFE84 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,7 +46,7 @@
 		1F1B64273027A5C000BFFE84 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				1F1B64263027A5C000BFFE84 /* Rscal.app */,
+				1F1B64263027A5C000BFFE84 /* Rascal.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -54,9 +54,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		1F1B64253027A5C000BFFE84 /* Rscal */ = {
+		1F1B64253027A5C000BFFE84 /* Rascal */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 1F1B64333027A5C100BFFE84 /* Build configuration list for PBXNativeTarget "Rscal" */;
+			buildConfigurationList = 1F1B64333027A5C100BFFE84 /* Build configuration list for PBXNativeTarget "Rascal" */;
 			buildPhases = (
 				1F1B64223027A5C000BFFE84 /* Sources */,
 				1F1B64233027A5C000BFFE84 /* Frameworks */,
@@ -67,13 +67,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				1F1B64283027A5C000BFFE84 /* Rscal */,
+				1F1B64283027A5C000BFFE84 /* Rascal */,
 			);
-			name = Rscal;
+			name = Rascal;
 			packageProductDependencies = (
 			);
-			productName = Rscal;
-			productReference = 1F1B64263027A5C000BFFE84 /* Rscal.app */;
+			productName = Rascal;
+			productReference = 1F1B64263027A5C000BFFE84 /* Rascal.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -91,7 +91,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 1F1B64213027A5C000BFFE84 /* Build configuration list for PBXProject "Rscal" */;
+			buildConfigurationList = 1F1B64213027A5C000BFFE84 /* Build configuration list for PBXProject "Rascal" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -105,7 +105,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				1F1B64253027A5C000BFFE84 /* Rscal */,
+				1F1B64253027A5C000BFFE84 /* Rascal */,
 			);
 		};
 /* End PBXProject section */
@@ -264,7 +264,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8976QYWNC2;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -297,7 +297,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8976QYWNC2;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -324,7 +324,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		1F1B64213027A5C000BFFE84 /* Build configuration list for PBXProject "Rscal" */ = {
+		1F1B64213027A5C000BFFE84 /* Build configuration list for PBXProject "Rascal" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1F1B64313027A5C100BFFE84 /* Debug */,
@@ -333,7 +333,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		1F1B64333027A5C100BFFE84 /* Build configuration list for PBXNativeTarget "Rscal" */ = {
+		1F1B64333027A5C100BFFE84 /* Build configuration list for PBXNativeTarget "Rascal" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				1F1B64343027A5C100BFFE84 /* Debug */,
