@@ -139,10 +139,23 @@ backfill behave.
 offering photos and text. The alternative — hiding them — would make Today lie about what the
 scheduler served. But it does mean a `video` mission cannot be completed as asked this phase.
 
-**6. `MediaCoordinator.shared` is a static var**, set at launch, because the upload delegate has
-no other way to make an authenticated call. It's the weakest seam in the phase. It works because
-there is exactly one coordinator per process, but it is global mutable state and I'd rather it
-were passed. Worth revisiting when the delegate needs anything else.
+**6. `MediaCoordinator.shared` is a static var — deliberately, and it stays.** I flagged this as
+the weakest seam and it is, but the constraint is real rather than a shortcut, so the reason is
+now recorded at the declaration too.
+
+A background `URLSession` delegate is invoked by the system on a callback path the app does not
+construct, so there is no injection point. Worse, the system may create the **process itself**
+purely to deliver those callbacks after a force quit — `RascalApp`, `RootView`, and everything
+they would have passed down do not exist yet when the delegate runs. There is nothing to inject
+*from*. Something has to be reachable without an owner.
+
+Two things follow, and both are written at the declaration so nobody has to re-derive them:
+**there must be exactly one** (two coordinators means two sweeps racing the same rows and two
+`complete` calls for one upload — the same constraint as the uploader's single-session rule,
+seen from the other end), and **the obvious alternative is worse**: the delegate could write a
+"needs completing" marker and let the next foreground sweep make the call, which trades the
+global for a delay before the server learns the object landed. That is worse for the parent, so
+it was not taken.
 
 **7. Untested: two devices uploading for the same child concurrently.** Idempotency keys make
 entry creation safe, and media ids are client-generated, so I believe it's fine — but "I believe"

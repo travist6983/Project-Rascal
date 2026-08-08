@@ -13,8 +13,30 @@ import SwiftData
 @MainActor
 final class MediaCoordinator {
 
-    /// Set once at launch. The upload delegate reaches back through this to finish the
-    /// handshake, since it has no other way to make an authenticated call.
+    /// **Global on purpose, and it has to be. Do not "fix" this, and do not make a second one.**
+    ///
+    /// The upload delegate reaches back through this to run `POST /media/{id}/complete` once
+    /// storage has the bytes. That call needs an authenticated `APIClient`, and the delegate
+    /// has no way to be handed one:
+    ///
+    /// - A background `URLSession` delegate is invoked by the system, on a callback path the
+    ///   app does not construct. There is no injection point in it.
+    /// - Worse, the system may create the *process itself* purely to deliver those callbacks
+    ///   after a force quit or a suspension. `RascalApp`, `RootView`, and every value they
+    ///   would have passed down do not exist yet when the delegate runs. There is nothing to
+    ///   inject *from*.
+    ///
+    /// So something must be reachable without an owner, and this is it. Dependency injection
+    /// is not an option that was available and rejected; it is not on the table.
+    ///
+    /// **Exactly one, for the process lifetime.** Two coordinators means two sweeps racing over
+    /// the same rows and two `complete` calls for one upload. The uploader's single-session
+    /// rule and this are the same constraint seen from two ends.
+    ///
+    /// What would remove it: the delegate enqueueing work rather than performing it — writing
+    /// an "needs completing" marker to SwiftData and letting the next foreground sweep make the
+    /// call. That trades this global for a delay before the server learns the object landed,
+    /// which is worse for the parent, so it was not taken.
     static var shared: MediaCoordinator?
 
     private let api: APIClient
