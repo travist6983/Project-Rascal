@@ -280,6 +280,20 @@ Single presigned PUT under ~15MB; presigned multipart above that. Video always a
 Body: `{ etags?, captured_at, duration_seconds? }`
 Server marks `upload_status = complete`, kicks off thumbnail and poster-frame generation.
 
+**`GET /media/{id}/url`**
+→ `{ media_id, url, expires_in }`
+
+The read path. The bucket is private, so this is the only way to fetch the bytes — without it
+the capture path produces write-only data: the objects survive and nothing can render them.
+
+Short-lived and minted per request. **Do not store the URL**; it outlives its signature and
+then fails in a way that looks like the archive lost the file. Cache the *bytes*, refetch the
+URL on a 403. `viewer` is sufficient — reading is not a write.
+
+`409 upload_incomplete` if the upload has not finished: a pending row has no bytes at the key,
+and a signed URL for it would 404 from storage, which reads like data loss rather than an
+unfinished upload.
+
 **`PATCH /media/{id}/derived`**
 Body: `{ transcript?, caption?, tags? }`
 **This is the on-device AI write-back endpoint.** The phone transcribes locally, then persists the text here so search works everywhere — including from a browser that will never have an on-device model.

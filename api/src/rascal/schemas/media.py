@@ -53,6 +53,15 @@ class MediaCompleteRequest(ApiModel):
     duration_seconds: int | None = Field(default=None, ge=0)
 
 
+class MediaDownloadResponse(ApiModel):
+    """A short-lived read URL. Minted per request rather than stored: a persisted URL
+    outlives its signature and then fails in a way that looks like the bytes are gone."""
+
+    media_id: uuid.UUID
+    url: str
+    expires_in: int
+
+
 class MediaDerivedRequest(ApiModel):
     """The on-device AI write-back. Idempotent: the same transcript twice changes nothing."""
 

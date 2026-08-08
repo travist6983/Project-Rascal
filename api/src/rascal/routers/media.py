@@ -18,6 +18,7 @@ from rascal.schemas.media import (
     MediaCompleteRequest,
     MediaDerivedRequest,
     MediaDerivedResponse,
+    MediaDownloadResponse,
     MediaOut,
     UploadUrlRequest,
     UploadUrlResponse,
@@ -92,6 +93,31 @@ async def complete(
         settings=settings,
     )
     return MediaOut.model_validate(updated)
+
+
+@router.get(
+    "/{media_id}/url",
+    response_model=MediaDownloadResponse,
+    summary="Presign a read for finished media",
+    description=(
+        "The bucket is private, so this is the only way to fetch the bytes. Short-lived and "
+        "minted per request: a stored URL outlives its signature and then fails in a way that "
+        "looks like the archive lost the file. Refetch on a 403 rather than caching the URL — "
+        "cache the bytes instead. `viewer` is enough; reading is not a write."
+    ),
+)
+async def download(
+    media_id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    access: ChildAccess = Depends(media_access("viewer")),
+) -> MediaDownloadResponse:
+    media = await service.load_media(session, media_id)
+    return MediaDownloadResponse(
+        media_id=media.id,
+        url=service.download_url(media, settings),
+        expires_in=settings.presign_ttl_seconds,
+    )
 
 
 @router.patch(
