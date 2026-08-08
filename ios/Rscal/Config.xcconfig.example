@@ -1,8 +1,9 @@
 // RASCAL — iOS build configuration
 //
-//   cp ios/Config.xcconfig.example ios/Config.xcconfig
+//   cp ios/Rscal/Config.xcconfig.example ios/Rscal/Config.xcconfig
 //
-// The real Config.xcconfig is gitignored. Every value the app needs at runtime comes from
+// The real Config.xcconfig is gitignored. It must live beside Rscal.xcodeproj — the
+// project references it by a path relative to that directory. Every value the app needs at runtime comes from
 // here, surfaced through Info.plist and read via Bundle. No base URL and no UUID is ever
 // hardcoded in Swift source — that rule is in ios/CLAUDE.md and it is what makes pointing
 // the app at localhost, a TestFlight build, and production a config change instead of a
@@ -19,7 +20,7 @@
 RASCAL_API_SCHEME = https:$()/$()/
 
 // Simulator against a local API. `make dev` serves on :8000.
-//   local simulator : RASCAL_API_HOST = localhost:8000  with scheme http:$()/$()/
+//   local simulator : RASCAL_API_HOST = rascal-api.fly.dev  with scheme http:$()/$()/
 //   device on LAN   : RASCAL_API_HOST = 192.168.1.10:8000
 //   deployed        : RASCAL_API_HOST = rascal-api.fly.dev
 RASCAL_API_HOST = rascal-api.fly.dev
@@ -38,3 +39,16 @@ RASCAL_DEV_LOGIN_DISPLAY_NAME = Dev Parent
 // create one with POST /v1/children, then paste its id here so the Today screen has a
 // target before the child picker exists. Leave empty to resolve at runtime instead.
 RASCAL_DEV_CHILD_ID =
+
+// -- Surfaced into Info.plist ---------------------------------------------------------------
+
+// INFOPLIST_KEY_* only works for keys Apple already knows; custom keys are silently dropped.
+// So the target uses a base Info.plist holding just our three, with $(...) references that
+// resolve at build time. GENERATE_INFOPLIST_FILE must be NO for that file to be used at all;
+// it is set below, but the target also sets it in project.pbxproj and a target setting beats
+// an xcconfig — so it has to be turned off once in Xcode's Build Settings too.
+// Read in Swift with: Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String
+INFOPLIST_FILE = Info.plist
+
+// Custom keys require an authored plist; see Info.plist for why.
+GENERATE_INFOPLIST_FILE = NO

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Authored rather than synthesised, because GENERATE_INFOPLIST_FILE = YES cannot carry
+	     custom keys: INFOPLIST_KEY_* only works for keys Apple already knows, and anything
+	     else is dropped silently. Everything above the RASCAL_ block reproduces exactly what
+	     Xcode was generating, via the same build settings it was reading. Keep it that way —
+	     these are $() references, not literals, so version and identifier still come from the
+	     target. This file lives beside the .xcodeproj rather than inside Rscal/, because that
+	     folder is a synchronized group and anything in it is also copied as a resource, which
+	     makes the build fail with "Multiple commands produce Info.plist". -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations~iphone</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+
+	<!-- The reason this file exists. Values come from ios/Config.xcconfig, so pointing the
+	     app at a different API is a config change and never a code change. Read them with
+	     Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String -->
+	<key>RASCAL_API_BASE_URL</key>
+	<string>$(RASCAL_API_BASE_URL)</string>
+	<key>RASCAL_DEV_LOGIN_EMAIL</key>
+	<string>$(RASCAL_DEV_LOGIN_EMAIL)</string>
+	<key>RASCAL_DEV_CHILD_ID</key>
+	<string>$(RASCAL_DEV_CHILD_ID)</string>
+</dict>
+</plist>

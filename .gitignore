@@ -226,7 +226,7 @@ ios/**/*.xcuserstate
 
 # The real build config: API base URL and the dev child UUID. Shape is documented in
 # ios/Config.xcconfig.example — copy that, don't commit this.
-ios/Config.xcconfig
+ios/**/Config.xcconfig
 
 # Captured from the live API by `make fixtures`. Ground truth for JSON shape, so it is
 # committed deliberately — listed here only to say the omission is on purpose.

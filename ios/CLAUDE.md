@@ -26,8 +26,16 @@ guessing, and prefer `ios/Fixtures/*.json` — real captured responses, refreshe
    URLSession, SwiftUI, SwiftData, and the standard library. If that seems impossible for
    something, it is a signal the something is out of scope.
 5. **Config comes from `Config.xcconfig` via Info.plist.** No hardcoded base URL, no
-   hardcoded UUID, no `#if DEBUG let host = "..."` anywhere in Swift source. Copy
-   `Config.xcconfig.example` to start; the real file is gitignored.
+   hardcoded UUID, no `#if DEBUG let host = "..."` anywhere in Swift source. Read values
+   with `Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String`.
+
+   The chain is two text files beside `Rscal.xcodeproj` and no `project.pbxproj` edit:
+   `Config.xcconfig` sets the values, `Info.plist` exposes them as `$(...)` references.
+   Both must stay next to the `.xcodeproj` — `Rscal/Rscal/` is a synchronized folder group,
+   so a file placed there is also copied as a resource and the build fails with
+   "Multiple commands produce Info.plist". Adding a new key means editing both files.
+   `INFOPLIST_KEY_*` does **not** work for custom keys; Xcode drops anything it doesn't
+   already know. Copy `Config.xcconfig.example` to start; the real file is gitignored.
 
 ## Tone — these are product rules, not preferences
 
