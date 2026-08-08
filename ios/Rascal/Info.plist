@@ -50,6 +50,15 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 
+	<!-- Shown verbatim in the system prompt the first time each is touched. Written as a
+	     sentence a parent would actually understand — what is taken, and where it goes. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Add photos you have already taken to your child's archive. Nothing is read or uploaded unless you pick it.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo or video for today's prompt without leaving the app.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record your child's voice for the archive — the entries you will be most glad to have in twenty years.</string>
+
 	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
 	     so no base URL and no UUID appears in Swift source. -->
 	<key>API_BASE_URL</key>
