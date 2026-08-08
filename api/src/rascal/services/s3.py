@@ -49,6 +49,23 @@ def presign_put(key: str, content_type: str, settings: Settings) -> str:
     )
 
 
+def presign_get(key: str, settings: Settings) -> str:
+    """A short-lived URL a client can read the bytes from directly.
+
+    The counterpart to `presign_put`, and the reason the archive is viewable at all: the
+    bucket is private, so without this the objects are write-only — the bytes survive but
+    nothing can render them.
+
+    Deliberately short-lived and minted on demand rather than stored. A URL in the database
+    would outlive its signature and start failing in a way that looks like data loss.
+    """
+    return get_s3_client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.s3_bucket, "Key": key},
+        ExpiresIn=settings.presign_ttl_seconds,
+    )
+
+
 def presign_part(key: str, upload_id: str, part_number: int, settings: Settings) -> str:
     return get_s3_client().generate_presigned_url(
         "upload_part",

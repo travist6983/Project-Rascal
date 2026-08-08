@@ -50,7 +50,7 @@ around.
 | 3 | Relaunch after a **reboot, before unlocking** | The one case `AfterFirstUnlock` exists for. Cannot be simulated |
 | 4 | Complete a wrote-it entry; check the Timeline of the API (`GET /v1/entries`) | Confirms the round trip over a real network |
 | 5 | Airplane mode → save an entry → it appears immediately, no error | Local-first save. The simulator's "offline" is not the same code path as a radio that is actually down |
-| 6 | Airplane mode off, background the app, foreground it → entry syncs | Retry on foreground |
+| 6 | Airplane mode off, background the app, foreground it → entry syncs | `EntrySync.sweep()` on `scenePhase == .active`. Today shows "N entries still saving" until it lands, with a **Try now** button |
 | 7 | Backdate an entry via the DatePill, then confirm `occurred_at` ≠ `created_at` on the server | The rule this whole archive rests on |
 | 8 | The completion haptic fires | Simulators have no taptic engine — this is silent there and cannot be checked |
 | 9 | Dynamic Type at accessibility sizes (Settings → Accessibility → Display & Text Size) | Worth doing on the device you actually hold |

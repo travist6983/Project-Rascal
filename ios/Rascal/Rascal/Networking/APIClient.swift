@@ -207,9 +207,25 @@ actor APIClient {
     /// purely by concurrency.
     func refreshSession() async throws -> TokenPair {
         // Deliberately two steps. Claiming the slot happens in a *synchronous* actor method,
-        // which cannot interleave; awaiting happens out here. Doing both in one `async`
-        // function looks atomic and is not — the compiler is free to suspend on entry, and two
-        // callers then both observe `refreshTask == nil` and both rotate.
+        // which has no suspension points and therefore cannot interleave; only the awaiting
+        // is `async`.
+        //
+        // Doing both in one `async` function looks atomic and is not. Actors are reentrant:
+        // they guarantee exclusivity only *between* suspension points, and an `async` function
+        // may suspend anywhere the compiler chooses — including between statements that
+        // contain no visible `await`. Instrumenting the previous version showed exactly that:
+        //
+        //     A:sawNil -> A:afterLoad -> B:sawNil -> B:afterLoad -> A:assigned
+        //
+        // Both callers cleared the `refreshTask == nil` check before either stored a task, so
+        // both rotated — and the second rotation presents a refresh token the first already
+        // revoked, taking `refresh_token_reused` and revoking the whole chain. A forced logout
+        // caused purely by concurrency.
+        //
+        // Worth knowing: an isolated model of this same shape does *not* reproduce it. The
+        // interleaving depends on the surrounding call path, which is why "it reads as atomic"
+        // is not evidence of anything. A synchronous claim is safe by construction rather than
+        // by inspection.
         let (task, isOwner) = try claimRefreshTask()
         defer {
             // Only the caller that created the task clears it. Callers that adopted an

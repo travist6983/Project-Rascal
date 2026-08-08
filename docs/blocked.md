@@ -73,6 +73,41 @@ supports the multipart API but parity has not been proven, and `chunk_bytes` com
 on the single-PUT path — the client must read the field and tolerate null rather than
 hardcoding 8MB.
 
+## 2b. The production media bucket does not exist yet — and must not be created carelessly
+
+Not blocking anything today; local development runs against `rascal-media-dev`. Recorded here
+because both items below are six-weeks-from-now problems that nothing currently reminds anyone
+about, and one of them is unrecoverable.
+
+**Soft delete must be on for the production media bucket.** `rascal-media-dev` deliberately has
+it off — a dev bucket you cannot clear is a nuisance. Production is the opposite case: it holds
+the one category of data in this system that cannot be regenerated. `rascal-backups` is already
+configured the right way (soft delete, 30-day retention) and is the model to copy:
+
+```bash
+tigris buckets create rascal-media-prod --access private
+tigris buckets set rascal-media-prod --soft-delete enable --retention-days 30
+tigris access-keys create rascal-api-prod
+tigris access-keys assign <key-id> --bucket rascal-media-prod --role Editor
+```
+
+The assign step is not optional — a new key has no permissions and every call, including
+presigned PUT, returns `AccessDenied`.
+
+**`DEPLOY.md` §3 used to specify versioning for the AWS bucket, and that requirement did not
+survive the move to Tigris.** Tigris soft delete covers the same ground — recovering an object
+deleted or overwritten by mistake — but it is a different mechanism with a retention window
+rather than unlimited history, and it is off by default. That drift is the actual risk: the
+old document said "turn on versioning", the new one does not say "turn on soft delete", and
+nobody notices until they need it.
+
+**CORS should be tightened when a web client exists.** `rascal-media-dev` is currently
+`AllowedOrigins: ["*"]`. That is harmless while the only client is native — CORS is
+browser-enforced and `URLSession` ignores it entirely — but it should become the real origin
+the day a browser first loads a photo, and nothing else will prompt that.
+
+---
+
 ## 3. Fly and Docker — blocks deployment, and blocks verifying the image
 
 Every artifact exists: multi-stage `Dockerfile`, `fly.toml` with `release_command =

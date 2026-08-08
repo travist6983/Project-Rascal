@@ -193,7 +193,8 @@ test.** Two concurrent 401s produced *two* refreshes:
 today | today | refresh | refresh | today | today     refreshCount: 2
 ```
 
-The guard and the assignment looked atomic:
+**Mechanism, since the first version of this report asserted one it had not proven.** The
+guard and the assignment looked atomic:
 
 ```swift
 if let existing = refreshTask { return try await existing.value }
@@ -202,10 +203,26 @@ refreshTask = task
 ```
 
 There is no `await` between them, so I had assumed the actor made that sequence indivisible.
-It does not: an `async` actor method can suspend on entry, and both callers observed
-`refreshTask == nil` before either stored one. The fix splits it — claiming the slot happens in
-a **synchronous** actor method, which genuinely cannot interleave, and only the awaiting is
-`async`:
+It does not. Instrumenting the real client recorded this:
+
+```
+A:sawNil -> A:afterLoad -> B:sawNil -> B:afterLoad -> A:assigned
+```
+
+Both callers cleared the nil check before either stored a task. Actors are reentrant and
+guarantee exclusivity only *between* suspension points; an `async` function may suspend where
+no `await` is visible.
+
+Two things stated precisely, because the first version of this paragraph asserted a mechanism
+it had not measured. Restoring the old implementation reproduces the fault exactly
+(`refreshCount == 2`), so the fix is necessary and sufficient — that part is measured. But an
+isolated model of the same *shape* does **not** reproduce it, so the interleaving depends on
+the surrounding call path rather than on the check/assign pair in the abstract. "It reads as
+atomic" is not evidence of anything, which is the real lesson: the synchronous claim is safe
+by construction rather than by inspection.
+
+The fix splits it — claiming the slot happens in a **synchronous** actor method, which has no
+suspension points at all, and only the awaiting is `async`:
 
 ```
 today | today | refresh | today | today               refreshCount: 1

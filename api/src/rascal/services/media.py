@@ -214,6 +214,23 @@ async def write_derived(
     return media, list(links)
 
 
+def download_url(media: Media, settings: Settings) -> str:
+    """Presign a read for a finished upload.
+
+    Refuses anything not `complete`. A pending row has either no bytes at the key yet or a
+    partial multipart that was never assembled, and a presigned URL for it would 404 from
+    storage — which reads to a client like the archive lost the photo rather than like the
+    upload never finished.
+    """
+    if media.upload_status != "complete":
+        raise RascalError(
+            ErrorCode.UPLOAD_INCOMPLETE,
+            "This upload has not finished, so there is nothing to read yet.",
+            field="media_id",
+        )
+    return s3.presign_get(media.s3_key, settings)
+
+
 async def load_media(session: AsyncSession, media_id: uuid.UUID) -> Media:
     media = await session.get(Media, media_id)
     if media is None or media.deleted_at is not None:

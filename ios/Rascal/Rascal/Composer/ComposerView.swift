@@ -201,10 +201,18 @@ struct ComposerView: View {
                 notice = error.userMessage
                 return
             }
+            // Everything else is a network fact, not a failure the parent needs to act on.
+            // The entry is already in SwiftData; `EntrySync.sweep()` re-sends it on the next
+            // foreground with the same idempotency key, so a replay is the original write
+            // rather than a second row.
+            //
+            // Deliberately no message: the design system says an entry saved locally but not
+            // yet synced is never presented as an error or a loss, and it is neither. Today
+            // shows a quiet count of anything still in flight. (The previous version set a
+            // notice here and dismissed in the same breath, so the text was never rendered —
+            // code that looked like it communicated and did not.)
             entry.sync = .failed
             try? context.save()
-            // Not an error dialog. It is saved here and will retry on next foreground.
-            notice = error.userMessage
             dismiss()
         } catch {
             entry.sync = .failed
