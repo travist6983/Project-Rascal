@@ -1,32 +1,16 @@
-//
-//  RascalApp.swift
-//  Rascal
-//
-//  Created by Travis Terry on 8/8/26.
-//
-
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 @main
 struct RascalApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    /// The local cache. Entries live here first so a save survives a force quit and an offline
+    /// launch; the server stays the source of truth for everything it owns.
+    private let container = LocalStore.container()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(container)
     }
 }
