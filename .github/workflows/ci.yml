@@ -1,9 +1,21 @@
 name: CI
 
+# Scoped to the API lane. This is a two-lane monorepo: a commit that only touches `ios/`
+# has nothing for the Python suite to say, and running it anyway trains everyone to ignore
+# a green check that proved nothing. `.github/scripts/**` is in the filter because the lint
+# job lints `../.github` — leave it out and the backup pruner silently stops being checked.
 on:
   push:
     branches: ["**"]
+    paths:
+      - 'api/**'
+      - '.github/scripts/**'
+      - '.github/workflows/ci.yml'
   pull_request:
+    paths:
+      - 'api/**'
+      - '.github/scripts/**'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -61,15 +73,19 @@ jobs:
       S3_REGION: us-east-2
       AWS_ACCESS_KEY_ID: ci-access-key
       AWS_SECRET_ACCESS_KEY: ci-secret-key
-      APPLE_BUNDLE_ID: com.example.rascal
+      APPLE_BUNDLE_ID: com.travisterry.childarchive
     steps:
       - uses: actions/checkout@v4
-      # tests/test_restore.py performs a real pg_dump/psql round trip, and pg_dump refuses
-      # to dump a server newer than itself — so the client has to match Postgres 16.
+      # tests/test_restore.py performs a real pg_dump/psql round trip, so the client major
+      # has to *match* Postgres 16 — not merely be recent. A newer client is the dangerous
+      # direction: pg_dump 17 writes `SET transaction_timeout` into the dump header, Postgres
+      # 16 does not recognise that parameter, and the restore dies under ON_ERROR_STOP with
+      # an error that never mentions versions. The old ` 1[6-9]\.` test accepted exactly that
+      # client and only passed because today's runner image still ships 16.
       - name: Ensure a Postgres 16 client
         run: |
           set -euo pipefail
-          if ! pg_dump --version | grep -qE ' 1[6-9]\.'; then
+          if ! pg_dump --version | grep -qE ' 16\.'; then
             sudo install -d /usr/share/postgresql-common/pgdg
             sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
               https://www.postgresql.org/media/keys/ACCC4CF8.asc
@@ -77,8 +93,14 @@ jobs:
               | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
             sudo apt-get update -qq
             sudo apt-get install -y -qq postgresql-client-16
+            # Debian's /usr/bin/pg_dump is pg_wrapper, which dispatches to the *newest*
+            # installed version. Installing 16 alongside a 17 is therefore not enough on its
+            # own — 16 has to come first on PATH for the rest of the job.
+            echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+            export PATH="/usr/lib/postgresql/16/bin:$PATH"
           fi
-          pg_dump --version
+          pg_dump --version | grep -qE ' 16\.' \
+            || { echo "::error::pg_dump is not 16 after setup: $(pg_dump --version)"; exit 1; }
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true

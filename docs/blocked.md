@@ -5,7 +5,7 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 5, 2026**, after the first real migration against Neon.
+Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker daemon.
 
 ---
 
@@ -20,11 +20,19 @@ case that catches decorative verification.
 What it cannot do is accept a token from a real device, because `aud` has to match a bundle
 id from an enrolled team.
 
-**What I need:** the bundle id, once enrollment clears. Nothing else changes:
+**The bundle id is settled: `com.travisterry.childarchive`.** Deliberately name-neutral,
+because the app name is still open and a bundle id is permanent. It is already set in
+`.env.example` and in `ci.yml`'s test environment, and the Xcode target is signed with it.
+
+**What I still need:** enrollment itself, and then the same value as a Fly secret. Nothing
+in the code changes:
 
 ```bash
-fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.yourname.rascal"
+fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.travisterry.childarchive"
 ```
+
+Registering the App ID with Sign in with Apple enabled is the other half. Adding the
+capability in Xcode under automatic signing does that registration for you.
 
 **Meanwhile:** `POST /v1/auth/dev-login` returns a real session with real tokens against a
 fixture account, and it works for curl and for the iOS client. It is registered only when
@@ -60,29 +68,39 @@ Every artifact exists: multi-stage `Dockerfile`, `fly.toml` with `release_comman
 trigger, and stored generated column present by name. Neon accepts this schema — that is a
 fact now, not an assumption.
 
-**Fly is still blocked, and so is Docker.** No Docker daemon has been available in my
-environment in any session, and the sandbox network blocks the Postgres apt repository, so:
+**Docker is no longer blocked. Fly still is.** Everything below the Fly line was executed on
+a real machine on **Aug 8, 2026**, with a Docker daemon available for the first time:
 
 | Path | Status |
 |---|---|
 | `.github/workflows/ci.yml` passes | **executed, green** — dozens of runs, lint plus the full suite against a real Postgres 16 |
-| `api/Dockerfile` builds | **never executed on a machine** — `ci.yml` now has an `image` job that builds it on every push |
-| `docker-compose.yml` starts Postgres | **never executed** — nothing in CI exercises it; CI uses a service container, not compose |
+| `api/Dockerfile` builds | **executed, green** — builds clean; the `0.8.17` uv pin reads `revision = 3` as intended |
+| `api/Dockerfile` *runs* | **executed, green** — non-root `rascal` (uid 1001), venv on PATH, binds `0.0.0.0:8080`, `/health` → `{"status":"ok","db":"ok"}` |
+| `docker-compose.yml` starts Postgres | **executed, green** — healthy, after the host port was made overridable |
+| `make migrate && make seed && make test` | **executed, green** — `0004_full_text_search`, 113 prompts, 265 passed |
+| `dev-login` absent outside `local` | **executed, green** — with `ENVIRONMENT=prod` the real image returns 404 for `/v1/auth/dev-login` and `/v1/debug/*` |
 
-The uv pin in the `Dockerfile` was `0.5.11`, which cannot read the `revision = 3` format of
-the committed `uv.lock` — `uv sync --frozen` would have rejected it outright on the first
-build. That is now `0.8.17`, the version that wrote the lock. It is a reasoned fix, not a
-verified one, and it is the most likely thing still standing between you and a green
-`fly deploy`.
+The uv pin question is closed: `0.5.11` could not read the `revision = 3` lockfile, `0.8.17`
+can, and the image now builds on a machine rather than in theory.
+
+Two things that only surfaced once a real machine ran this, both fixed:
+
+- **The compose host port was hardcoded to 5433**, which another project's Postgres already
+  held. The container stayed in `Created` forever and `make up` looked like it hung. The port
+  is now `${POSTGRES_PORT:-5433}`; set `POSTGRES_PORT` and the port in `DATABASE_URL` to the
+  same free number.
+- **`pg_dump` must be major-version 16, not merely ≥ 16.** A 17 client writes `SET
+  transaction_timeout` into the dump, Postgres 16 rejects that parameter on the way back in,
+  and `tests/test_restore.py` fails with an error that never mentions versions. `ci.yml` was
+  testing for ` 1[6-9]\.` and passed only because today's runner still ships 16; both it and
+  `backup.yml` now require 16 exactly and put `/usr/lib/postgresql/16/bin` first on PATH,
+  because Debian's `pg_dump` is a wrapper that otherwise dispatches to the newest installed
+  version. A backup taken by a 17 client would not restore into Neon.
 
 **What I need:** for Fly, sections 1 and 4 of `docs/DEPLOY.md` — create the app, generate a
 deploy token, add `FLY_API_TOKEN`, and set the `FLY_DEPLOY_ENABLED` repository variable to
 `true`. Until that variable is set the Deploy workflow skips rather than failing, so a push
 to `main` is grey instead of red.
-
-For `docker-compose.yml`, `docker compose up -d --wait postgres` once on your machine. The
-new CI job covers the Dockerfile but not compose — compose is a local-development
-convenience and nothing in CI has a reason to run it.
 
 ## 4. `ANTHROPIC_API_KEY` — resolved. Four batches generated, awaiting your review
 

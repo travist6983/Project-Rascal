@@ -2,9 +2,17 @@ name: Deploy
 
 # Deploying must never require a laptop. This runs on a push to main, and on demand from
 # the GitHub mobile app via the "Run workflow" button.
+#
+# The path filter keeps an iOS-only commit from deploying an API that did not change. A
+# no-op deploy is not harmless: it restarts machines and re-runs the Alembic release
+# command against production for no reason. `workflow_dispatch` takes no path filter, so
+# "deploy whatever is on main right now" stays available on demand.
 on:
   push:
     branches: [main]
+    paths:
+      - 'api/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 # Never two deploys at once, and never cancel one halfway — a cancelled deploy can leave

@@ -81,6 +81,20 @@ that assert it.
 | `make scheduler d=2026-08-15` | run the daily job; omit `d` for now |
 | `make reset-db` | downgrade to base, re-migrate, reseed |
 | `make psql` | psql shell against the dev database |
+| `make fixtures` | capture real API responses into `ios/Fixtures/` |
+
+### `make fixtures`
+
+Logs in with `dev-login`, resolves the child from `GET /v1/children`, and writes the real
+responses to `ios/Fixtures/dev-login.json` and `ios/Fixtures/today.json`. **Re-run it
+whenever an API response shape changes** — those two files are the iOS client's ground
+truth for JSON decoding, and a stale fixture is a client that compiles against a contract
+the server no longer serves.
+
+It needs a running API and a child that exists; it fails loudly and writes nothing rather
+than capturing an error body. Point it elsewhere with
+`make fixtures API_BASE=https://rascal-api.fly.dev` — though note `dev-login` is `404` on a
+production build, by design.
 
 ---
 

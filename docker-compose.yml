@@ -7,8 +7,11 @@ services:
       POSTGRES_PASSWORD: rascal
       POSTGRES_DB: rascal
     ports:
-      # 5433 on the host so a locally installed Postgres on 5432 keeps working.
-      - "5433:5432"
+      # 5433 on the host so a locally installed Postgres on 5432 keeps working. It is
+      # overridable because 5433 is only *probably* free — another project's compose stack
+      # can already hold it, and a hardcoded port turns that into a container that never
+      # starts. Set POSTGRES_PORT in .env and point DATABASE_URL at the same number.
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - rascal-pgdata:/var/lib/postgresql/data
     healthcheck:

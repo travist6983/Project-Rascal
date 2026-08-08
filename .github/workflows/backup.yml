@@ -44,7 +44,11 @@ jobs:
           fi
           echo "bucket: $S3_BUCKET"
 
-      # Neon runs Postgres 16; the client has to be at least that or pg_dump refuses.
+      # Neon runs Postgres 16 and the client major has to match it exactly. Too old and
+      # pg_dump refuses to dump a newer server; too new and it writes settings the server
+      # will reject on the way back in — pg_dump 17 emits `SET transaction_timeout`, which
+      # Postgres 16 does not recognise, so the dump restores nowhere. That failure only
+      # surfaces on the day you need the backup, which is the worst possible day to find it.
       - name: Install postgresql-client-16
         run: |
           set -euo pipefail
@@ -56,7 +60,13 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-16
-          pg_dump --version
+          # /usr/bin/pg_dump is pg_wrapper, which dispatches to the newest installed version.
+          # On a runner that already ships 17, installing 16 alongside it changes nothing
+          # unless 16 comes first on PATH.
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/16/bin:$PATH"
+          pg_dump --version | grep -qE ' 16\.' \
+            || { echo "::error::pg_dump is not 16: $(pg_dump --version)"; exit 1; }
 
       - name: Dump and upload
         env:
