@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -27,6 +28,18 @@ struct ComposerView: View {
     @State private var notice: String?
     @FocusState private var writing: Bool
 
+    // Capture
+    @State private var drafts: [MediaDraft] = []
+    @State private var picking: [PhotosPickerItem] = []
+    @State private var showCamera = false
+    /// Set once the parent has moved the date themselves, so importing another photo cannot
+    /// silently overwrite a deliberate choice.
+    @State private var dateWasChosen = false
+    /// True while the composer itself is moving the date, so the change is not mistaken for
+    /// the parent choosing one.
+    @State private var importing = false
+    private let staging = StagingStore()
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -40,7 +53,7 @@ struct ComposerView: View {
                     switch request.mode {
                     case .text: writeIt
                     case .didIt: didItControl
-                    case .media, .unknown: captureComingSoon
+                    case .media, .unknown: captureIt
                     }
 
                     if let notice {
@@ -65,6 +78,75 @@ struct ComposerView: View {
             }
         }
         .presentationDragIndicator(.visible)
+        #if canImport(UIKit)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { data in importCaptured(data) }
+                .ignoresSafeArea()
+        }
+        #endif
+        .onChange(of: picking) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await importPicked(items) }
+        }
+        .onChange(of: occurredAt) { _, _ in
+            // Only a tap counts as choosing. EXIF import sets this too, and that must not
+            // look like a decision the parent made.
+            if !importing { dateWasChosen = true }
+        }
+    }
+
+    // MARK: Importing
+
+    /// Picked photos are staged and processed one at a time rather than in parallel.
+    /// A five-photo import is a handful of seconds either way, and serial keeps peak memory
+    /// to one decoded image — an eight-photo parallel import of 48MP HEICs is how a composer
+    /// gets killed mid-selection.
+    private func importPicked(_ items: [PhotosPickerItem]) async {
+        importing = true
+        defer { importing = false; picking = [] }
+
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            append(fromData: data)
+        }
+        adoptExifDateIfUnchosen()
+    }
+
+    private func importCaptured(_ data: Data) {
+        importing = true
+        append(fromData: data)
+        importing = false
+        adoptExifDateIfUnchosen()
+    }
+
+    private func append(fromData data: Data) {
+        guard let draft = try? MediaDraftBuilder.make(from: data, store: staging) else {
+            // A file the pipeline cannot read is not silently dropped — but it is also not an
+            // alarm, because nothing was lost: the photo is still in the library.
+            notice = "One of those couldn't be read, so it wasn't added."
+            return
+        }
+        drafts.append(draft)
+    }
+
+    /// A library photo files the entry on the day it was taken. That is the camera-roll
+    /// backfill story, and it is the whole reason `occurred_at` and `created_at` are separate.
+    /// A date the parent picked themselves always wins.
+    private func adoptExifDateIfUnchosen() {
+        guard !dateWasChosen else { return }
+        let suggested = MediaDraftBuilder.suggestedOccurredAt(for: drafts)
+        if abs(suggested.timeIntervalSince(occurredAt)) > 1 {
+            importing = true
+            occurredAt = suggested
+            importing = false
+        }
+    }
+
+    private func remove(_ draft: MediaDraft) {
+        drafts.removeAll { $0.id == draft.id }
+        // The staged bytes go with it. Nothing references them and the sweep would collect
+        // them as orphans anyway; removing now keeps the directory honest.
+        staging.removeAll(for: draft.id)
     }
 
     // MARK: Modes
@@ -125,24 +207,79 @@ struct ComposerView: View {
         .padding(.top, 8)
     }
 
-    /// Media capture is out of scope this phase. The card still rendered on Today, so this
-    /// says plainly why it can't be finished rather than failing silently.
-    private var captureComingSoon: some View {
-        VStack(spacing: 10) {
-            Image(systemName: request.assignment?.promptKind.symbol ?? "camera")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Color.inkMuted)
-            Text("Capture is coming next")
-                .typeRole(.cardTitle)
-                .foregroundStyle(Color.ink)
-            Text("Photo, video, and voice arrive in the next phase. You can still write about this one.")
-                .typeRole(.body)
-                .foregroundStyle(Color.inkMuted)
-                .multilineTextAlignment(.center)
-            writeIt.padding(.top, 8)
+    /// Photo capture. Video and audio are not this phase, and the card says so rather than
+    /// offering a button that cannot deliver.
+    @ViewBuilder
+    private var captureIt: some View {
+        if drafts.isEmpty {
+            captureChoices
+        } else {
+            MediaPreviewRow(
+                drafts: drafts,
+                onRemove: remove,
+                onAddMore: { showCamera = false }
+            )
+            addAnother
         }
+
+        if request.assignment?.promptKind == .video {
+            // The scheduler served a video mission and this phase cannot complete one. Said
+            // plainly: the Today screen must not lie about what was served, and neither
+            // should this.
+            Text("Video arrives next phase. You can add photos or write about it now.")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+        }
+
+        writeIt
+    }
+
+    private var captureChoices: some View {
+        HStack(spacing: 10) {
+            PhotosPicker(
+                selection: $picking,
+                maxSelectionCount: 10,
+                matching: .images,
+                photoLibrary: .shared()
+            ) {
+                choiceTile(symbol: "photo.on.rectangle", label: "Choose")
+            }
+            .buttonStyle(TapScaleButtonStyle())
+
+            #if canImport(UIKit)
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button { showCamera = true } label: {
+                    choiceTile(symbol: "camera", label: "Take one")
+                }
+                .buttonStyle(TapScaleButtonStyle())
+            }
+            #endif
+        }
+    }
+
+    private var addAnother: some View {
+        PhotosPicker(
+            selection: $picking,
+            maxSelectionCount: 10,
+            matching: .images,
+            photoLibrary: .shared()
+        ) {
+            Text("Choose from library")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.terracotta)
+        }
+    }
+
+    private func choiceTile(symbol: String, label: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .light))
+            Text(label).typeRole(.cardTitle)
+        }
+        .foregroundStyle(Color.terracotta)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .padding(.vertical, 22)
+        .background(Color.terracottaSoft, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
     }
 
     private func quotedPrompt(_ assignment: AssignmentResponse) -> some View {
@@ -167,6 +304,9 @@ struct ComposerView: View {
     private var canSave: Bool {
         switch request.mode {
         case .didIt: didIt
+        // A photo alone is a complete entry — the archive is full of them, and requiring a
+        // caption would be requiring homework.
+        case .media, .unknown: !drafts.isEmpty || !trimmed.isEmpty
         default: !trimmed.isEmpty
         }
     }
@@ -184,6 +324,22 @@ struct ComposerView: View {
             body: trimmed.isEmpty ? nil : trimmed
         )
         context.insert(entry)
+
+        // Media rows are created alongside the entry, before any request. The files are
+        // already staged, so a force quit right here loses nothing: the sweep finds both.
+        for draft in drafts {
+            let media = Media(
+                id: draft.id,
+                entryId: entry.id,
+                kind: "photo",
+                contentType: draft.contentType,
+                byteCount: draft.byteCount,
+                stagedExtension: draft.fileExtension,
+                capturedAt: draft.capturedAt
+            )
+            media.hasThumbnail = true
+            context.insert(media)
+        }
         try? context.save()
 
         do {

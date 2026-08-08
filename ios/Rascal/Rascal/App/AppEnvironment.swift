@@ -120,8 +120,17 @@ final class AppSession {
 /// The local cache. SwiftData holds entries so a save survives a force quit and an offline
 /// launch; the server remains the source of truth for everything it owns.
 enum LocalStore {
+    /// **One container per process, reachable without the app having run.**
+    ///
+    /// A background upload delegate can fire after a cold launch into a process where SwiftUI
+    /// has restored nothing. If it had to wait for the app to hand it a container, the callback
+    /// would land nowhere and an upload would finish without ever being marked complete. Two
+    /// containers over the same store file is the other way to get that wrong, so there is
+    /// exactly one and both the app and the delegate take it from here.
+    static let shared: ModelContainer = container()
+
     static func container() -> ModelContainer {
-        let schema = Schema([Entry.self])
+        let schema = Schema([Entry.self, Media.self])
         do {
             return try ModelContainer(for: schema)
         } catch {

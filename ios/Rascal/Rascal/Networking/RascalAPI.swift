@@ -50,3 +50,85 @@ struct ChildResponse: Decodable, Identifiable {
     let ageMonths: Int
     let role: String
 }
+
+// MARK: - Media
+
+struct UploadTicket: Decodable {
+    let mediaId: UUID
+    let s3Key: String
+    /// Exactly one of these is set. Single PUT under the multipart threshold.
+    let uploadUrl: String?
+    let multipart: Bool
+    /// **Null on the single-PUT path, which is normal.** Stored rather than read: the
+    /// multipart phase must split at the server's number instead of assuming 8MB.
+    let chunkBytes: Int?
+    let expiresIn: Int
+
+    var uploadURL: String? { uploadUrl }
+}
+
+private struct UploadURLRequest: Encodable {
+    let mediaId: UUID
+    let entryId: UUID
+    let kind: String
+    let filename: String
+    let bytes: Int
+    let contentType: String
+}
+
+private struct CompleteRequest: Encodable {
+    let capturedAt: Date?
+    let durationSeconds: Int?
+}
+
+extension APIClient {
+    /// Presign a destination. `media_id` is sent rather than assigned, so the staged file has
+    /// a name before any request — an offline client mints the id alongside its entry.
+    func mediaUploadURL(
+        mediaId: UUID,
+        entryId: UUID,
+        kind: String,
+        filename: String,
+        bytes: Int,
+        contentType: String
+    ) async throws -> UploadTicket {
+        try await send(
+            .post, "v1/media/upload-url",
+            body: UploadURLRequest(
+                mediaId: mediaId,
+                entryId: entryId,
+                kind: kind,
+                filename: filename,
+                bytes: bytes,
+                contentType: contentType
+            )
+        )
+    }
+
+    /// Acknowledge the object.
+    ///
+    /// The ETag is deliberately not sent: the server ignores `etags` unless the upload was
+    /// multipart, and multipart is out of scope this phase. It is captured and stored on the
+    /// row anyway — an integrity value now, and the mechanism multipart will need.
+    @discardableResult
+    func completeMedia(
+        mediaId: UUID,
+        capturedAt: Date?,
+        durationSeconds: Int?
+    ) async throws -> EmptyResponse {
+        try await send(
+            .post, "v1/media/\(mediaId.uuidString.lowercased())/complete",
+            body: CompleteRequest(capturedAt: capturedAt, durationSeconds: durationSeconds),
+            as: EmptyResponse.self
+        )
+    }
+
+    /// A short-lived read URL. The bucket is private, so this is the only way to fetch bytes.
+    func mediaDownloadURL(mediaId: UUID) async throws -> String {
+        struct Response: Decodable { let url: String }
+        let response: Response = try await send(
+            .get, "v1/media/\(mediaId.uuidString.lowercased())/url"
+        )
+        return response.url
+    }
+}
