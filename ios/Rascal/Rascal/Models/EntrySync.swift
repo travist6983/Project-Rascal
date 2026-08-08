@@ -19,9 +19,14 @@ final class EntrySync {
     /// `syncState`.
     private var running = false
 
-    init(api: APIClient, context: ModelContext) {
+    /// Media rides the same sweep rather than getting a queue, a retry policy, and a surface
+    /// of its own. Optional so the entry-only tests need no uploader.
+    private let media: MediaCoordinator?
+
+    init(api: APIClient, context: ModelContext, media: MediaCoordinator? = nil) {
         self.api = api
         self.context = context
+        self.media = media
     }
 
     /// Everything written locally that the server has not acknowledged.
@@ -43,18 +48,34 @@ final class EntrySync {
         return descriptor
     }
 
+    /// One count for one surface. An entry still saving and a photo still uploading are the
+    /// same thing to a parent: work that has not landed yet.
     func unsyncedCount() -> Int {
-        (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0
+        let entries = (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0
+        return entries + MediaCoordinator.outstandingCount(in: context)
     }
 
     /// Push what has not landed. Safe to call on every foreground; a no-op when there is
     /// nothing outstanding.
+    /// **Entries drain before media, always.**
+    ///
+    /// Media cannot upload against an entry the server does not have — `upload-url` needs an
+    /// `entry_id` it recognises. Running them in the other order, or concurrently, spends
+    /// attempts on rows that cannot succeed and pushes their backoff out for no reason.
     @discardableResult
     func sweep() async -> Int {
         guard !running else { return 0 }
         running = true
         defer { running = false }
 
+        let synced = await sweepEntries()
+        // Runs regardless of whether any entry was outstanding: a photo can still be in flight
+        // long after its entry landed.
+        await media?.sweep()
+        return synced
+    }
+
+    private func sweepEntries() async -> Int {
         guard let outstanding = try? context.fetch(EntrySync.unsyncedDescriptor()),
               !outstanding.isEmpty
         else { return 0 }

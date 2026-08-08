@@ -164,7 +164,20 @@ final class MediaCoordinator {
         excluding inFlight: Set<UUID> = []
     ) -> [Media] {
         let all = (try? context.fetch(FetchDescriptor<Media>())) ?? []
+
+        // `POST /media/upload-url` needs an `entry_id` the server recognises. A media row whose
+        // entry has not synced yet cannot be uploaded at all — the request 404s — so it is not
+        // "due", it is waiting. Ordering the sweep entries-first is not enough on its own: an
+        // entry that is failing keeps its media out of the queue rather than burning attempts
+        // against a row that cannot succeed.
+        let syncedEntryIds = Set(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? [])
+                .filter { $0.deletedAt == nil && $0.sync == .synced }
+                .map(\.id)
+        )
+
         return all
+            .filter { syncedEntryIds.contains($0.entryId) }
             .filter { media in
                 media.deletedAt == nil
                     && !media.isComplete

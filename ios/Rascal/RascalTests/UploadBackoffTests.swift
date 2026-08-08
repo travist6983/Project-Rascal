@@ -20,14 +20,24 @@ struct UploadBackoffTests {
         return ModelContext(container)
     }
 
+    /// A media row and the synced entry it hangs off.
+    ///
+    /// The entry is not incidental: `upload-url` needs an `entry_id` the server recognises, so
+    /// a media row whose entry has not synced is not due — it is waiting. Building rows without
+    /// one would test a state that cannot occur.
     @discardableResult
     private func media(
         in context: ModelContext,
         state: MediaUploadState = .staged,
         nextAttemptAt: Date? = nil,
-        attempts: Int = 0
+        attempts: Int = 0,
+        entrySync: SyncState = .synced
     ) -> Media {
-        let row = Media(entryId: UUID(), kind: "photo", contentType: "image/jpeg", byteCount: 1)
+        let entry = Entry(childId: UUID(), occurredAt: Date(), body: "with a photo")
+        entry.sync = entrySync
+        context.insert(entry)
+
+        let row = Media(entryId: entry.id, kind: "photo", contentType: "image/jpeg", byteCount: 1)
         row.state = state
         row.nextAttemptAt = nextAttemptAt
         row.attemptCount = attempts
@@ -181,6 +191,44 @@ struct UploadBackoffTests {
         let context = try makeContext()
         let row = media(in: context)
         #expect(MediaCoordinator.dueMedia(in: context, excluding: [row.id]).isEmpty)
+    }
+
+    // MARK: Media waits for its entry
+
+    @Test("media whose entry has not synced is not due")
+    func waitsForItsEntry() throws {
+        let context = try makeContext()
+        media(in: context, entrySync: .pending)
+
+        // upload-url would 404 on an entry_id the server has never seen. Attempting it would
+        // burn a retry and push the backoff out for a row that could not have succeeded.
+        #expect(MediaCoordinator.dueMedia(in: context).isEmpty)
+    }
+
+    @Test("media becomes due once its entry lands")
+    func becomesDueAfterEntrySyncs() throws {
+        let context = try makeContext()
+        let row = media(in: context, entrySync: .pending)
+        #expect(MediaCoordinator.dueMedia(in: context).isEmpty)
+
+        let entry = try #require(
+            ((try? context.fetch(FetchDescriptor<Entry>())) ?? []).first { $0.id == row.entryId }
+        )
+        entry.sync = .synced
+
+        #expect(MediaCoordinator.dueMedia(in: context).count == 1)
+    }
+
+    @Test("media of a failing entry stays out of the queue rather than failing alongside it")
+    func failingEntryDoesNotBurnMediaAttempts() throws {
+        let context = try makeContext()
+        let row = media(in: context, entrySync: .failed)
+
+        #expect(MediaCoordinator.dueMedia(in: context).isEmpty)
+        // Untouched: no attempt spent, no backoff pushed out. When the entry finally lands
+        // its photo uploads on the first try.
+        #expect(row.attemptCount == 0)
+        #expect(row.state == .staged)
     }
 
     @Test("a completed or deleted row is never swept")

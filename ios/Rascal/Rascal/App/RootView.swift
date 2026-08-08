@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?
+    @State private var mediaCoordinator: MediaCoordinator?
     @State private var unsynced = 0
 
     @Environment(\.modelContext) private var context
@@ -28,7 +29,19 @@ struct RootView: View {
         }
         .task {
             await session.start()
-            if sync == nil { sync = EntrySync(api: session.api, context: context) }
+            if mediaCoordinator == nil {
+                let coordinator = MediaCoordinator(api: session.api)
+                mediaCoordinator = coordinator
+                // The upload delegate reaches back through this after a background callback;
+                // it has no other way to make an authenticated call.
+                MediaCoordinator.shared = coordinator
+                // Claim the background session now so tasks outstanding from a previous launch
+                // reattach to this delegate rather than reporting to nobody.
+                MediaUploader.shared.activate()
+            }
+            if sync == nil {
+                sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
+            }
             await runSweep()
         }
         // Entries saved while offline live in SwiftData until something re-sends them. This is
