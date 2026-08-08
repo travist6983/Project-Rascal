@@ -92,6 +92,18 @@ AWS_SECRET_ACCESS_KEY=tsec_…
 `S3_ENDPOINT_URL` unset means real AWS, so an older deployment that never sets it is
 unaffected. The `AWS_*` names are the S3 protocol's convention; nothing points at Amazon.
 
+**One requirement did not survive the move, and it matters.** This section used to specify
+bucket **versioning** on AWS. Tigris has no versioning toggle; the equivalent is **soft
+delete**, which is *off by default* and takes a retention window:
+
+```bash
+tigris buckets set <bucket> --soft-delete enable --retention-days 30
+```
+
+Media is the one category of data here that cannot be regenerated, so the production media
+bucket must have this on before it holds anything real. `rascal-media-dev` deliberately does
+not — a dev bucket you cannot clear is a nuisance. Tracked in `docs/blocked.md` §2b.
+
 ### 4. GitHub — paste the secrets
 
 In the GitHub mobile app or a browser: **Settings** → **Secrets and variables** → **Actions**

@@ -5,6 +5,11 @@ struct RootView: View {
     @State private var session = AppSession.live()
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
+    @State private var sync: EntrySync?
+    @State private var unsynced = 0
+
+    @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -21,8 +26,17 @@ struct RootView: View {
                 }
             }
         }
-        .task { await session.start() }
-        .sheet(item: $composer) { request in
+        .task {
+            await session.start()
+            if sync == nil { sync = EntrySync(api: session.api, context: context) }
+            await runSweep()
+        }
+        // Entries saved while offline live in SwiftData until something re-sends them. This is
+        // that something: without it, local-first saving keeps the work and never delivers it.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await runSweep() } }
+        }
+        .sheet(item: $composer, onDismiss: { Task { await runSweep() } }) { request in
             ComposerView(request: request, api: session.api)
         }
     }
@@ -32,7 +46,12 @@ struct RootView: View {
             Group {
                 switch tab {
                 case .today:
-                    TodayScreen(childId: childId, api: session.api) { composer = $0 }
+                    TodayScreen(
+                        childId: childId,
+                        api: session.api,
+                        unsyncedCount: unsynced,
+                        onRetrySync: { Task { await runSweep() } }
+                    ) { composer = $0 }
                 case .timeline, .moments, .settings:
                     PlaceholderScreen(tab: tab)
                 case .create:
@@ -47,6 +66,15 @@ struct RootView: View {
             }
             .padding(.bottom, 4)
         }
+    }
+}
+
+extension RootView {
+    /// Push anything still local, then refresh the count the Today screen shows.
+    private func runSweep() async {
+        guard let sync else { return }
+        await sync.sweep()
+        unsynced = sync.unsyncedCount()
     }
 }
 

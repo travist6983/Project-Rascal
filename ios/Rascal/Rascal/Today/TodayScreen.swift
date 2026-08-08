@@ -58,6 +58,9 @@ final class TodayModel {
 struct TodayScreen: View {
     let childId: UUID
     let api: APIClient
+    /// Entries written locally that the server has not acknowledged yet.
+    var unsyncedCount: Int = 0
+    var onRetrySync: () -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
     @State private var model: TodayModel?
@@ -104,6 +107,7 @@ struct TodayScreen: View {
             VStack(alignment: .leading, spacing: 22) {
                 greeting(today)
                 if let notice = model?.notice { noticeBanner(notice) }
+                if unsyncedCount > 0 { unsyncedRow }
                 section("Today", today.today)
                 section("Waiting", today.waiting, count: today.waiting.count)
                 section("Done today", today.doneToday)
@@ -169,6 +173,31 @@ struct TodayScreen: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .background(Gradients.wash, in: RoundedRectangle(cornerRadius: Layout.cardRadius))
+    }
+
+    /// Stated plainly and quietly. Not a badge, not a red dot, not a count on the tab bar —
+    /// the work is safe on the phone and saying otherwise would be both alarming and untrue.
+    /// It offers a retry because waiting for the next foreground is not an answer when someone
+    /// is standing there wondering.
+    private var unsyncedRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.inkMuted)
+            Text(unsyncedCount == 1 ? "1 entry still saving" : "\(unsyncedCount) entries still saving")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+            Spacer(minLength: 0)
+            Button("Try now", action: onRetrySync)
+                .typeRole(.metadata)
+                .foregroundStyle(Color.terracotta)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Color.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.border, lineWidth: Layout.borderWidth))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(unsyncedCount) entries saved on this phone, still uploading.")
     }
 
     private func noticeBanner(_ text: String) -> some View {
