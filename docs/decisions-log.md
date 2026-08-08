@@ -607,3 +607,29 @@ that file left open.
 - **The lint job runs `ruff check . ../.github`.** Filtering on `api/**` alone would have
   quietly stopped linting `prune_backups.py` and `verify_schema.py` — two scripts that run
   against production data and that nothing else checks.
+
+## Media lives on Tigris, not S3
+
+- **Nothing here needed Amazon.** Every storage call is plain S3 through boto3, so the only
+  thing standing between the code and any S3-compatible store was a missing `endpoint_url`.
+  The `AWS_*` credential names stay because they are the protocol's convention; the values are
+  Tigris keys.
+- **`s3_endpoint_url` defaults to `None`, which means AWS.** Additive, so a deployment that
+  never sets it behaves exactly as before. A blank value coerces to `None` rather than to an
+  endpoint named empty string, because a half-filled `.env` or an unset CI secret produces
+  `""` and boto3's failure names neither.
+- **Virtual addressing is stated rather than inherited.** boto3 flips to path-style for a
+  custom endpoint; the two sign differently and the mismatch surfaces as a 404 on a bucket
+  that demonstrably exists.
+- **`export.py` needed no change** because it calls `get_s3_client()` rather than building its
+  own — the shared-client design paying for itself.
+
+## The test suite can no longer reach real object storage
+
+- **It tried.** `moto` works by intercepting AWS's endpoints, so a configured
+  `S3_ENDPOINT_URL` routes straight past it. The media fixture called `create_bucket` against
+  live Tigris and was stopped only by `BucketAlreadyExists` — with a different name the suite
+  would have been creating and deleting buckets in production.
+- **`conftest` now blanks the endpoint for the whole session**, next to the line that keeps
+  the suite off a dev database. A property of the suite, not of the two fixtures that happen
+  to use moto today.

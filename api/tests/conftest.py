@@ -48,7 +48,22 @@ def _install_test_database_url() -> None:
     get_database_settings.cache_clear()
 
 
+def _isolate_object_storage() -> None:
+    """Keep the suite off real object storage, the same way it is kept off a dev database.
+
+    S3 is `moto`, which works by intercepting calls to AWS's endpoints. A configured
+    ``S3_ENDPOINT_URL`` — which any developer with Tigris credentials now has in ``.env`` —
+    routes straight past it to the real store. That is not a failing test so much as a test
+    suite creating and deleting buckets in production; it surfaced only because the bucket
+    name already existed. Blanking it here makes that a property of the whole suite rather
+    than of the two fixtures that happen to use moto today.
+    """
+    os.environ["S3_ENDPOINT_URL"] = ""  # Settings reads blank as unset, so this means AWS.
+    get_settings.cache_clear()
+
+
 _install_test_database_url()
+_isolate_object_storage()
 
 from rascal.main import create_app  # noqa: E402
 from rascal.models import Base  # noqa: E402

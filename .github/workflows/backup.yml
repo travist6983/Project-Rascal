@@ -14,7 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_DEFAULT_REGION: us-east-2
+  # Tigris is globally distributed and has no AWS-style regions; `auto` is what it expects.
+  # A real region name here signs a scope the endpoint rejects, and it reads as a credentials
+  # failure rather than a configuration one. Unset the endpoint below to go back to AWS.
+  AWS_DEFAULT_REGION: ${{ vars.S3_REGION || 'auto' }}
+  AWS_ENDPOINT_URL_S3: ${{ vars.S3_ENDPOINT_URL || 'https://t3.storage.dev' }}
   # Keep this many of each. A month of dailies is not the same insurance as a year of
   # monthlies, and neither is expensive at this size.
   KEEP_DAILY: 7
@@ -97,13 +101,31 @@ jobs:
 
           # Prove it is intact before it counts as a backup.
           gzip -t "$file"
-          if ! zcat "$file" | grep -q 'CREATE TABLE public.entries'; then
+          # `grep -q` exits on the first match, which SIGPIPEs zcat mid-stream; under
+          # `pipefail` that non-zero status becomes the pipeline's, and a *healthy* dump gets
+          # rejected as the wrong database. `grep -c` reads to EOF, so nothing is signalled.
+          # This check had never actually run before — every earlier backup died on the
+          # missing credential first — so the bug shipped invisibly.
+          found=$(zcat "$file" | grep -cF 'CREATE TABLE public.entries' || true)
+          if [ "$found" -eq 0 ]; then
             echo "::error::Dump does not contain the entries table. Wrong database?"
+            # Deliberately unqualified: anchoring on `public.` hides the case where the
+            # tables exist under a different schema, which looks identical from outside.
+            echo "Any CREATE TABLE lines, whatever the schema:"
+            zcat "$file" | grep -oE 'CREATE TABLE [A-Za-z0-9_."]+' | sort -u | head -20 || true
+            echo "Schemas mentioned:"
+            zcat "$file" | grep -oE 'CREATE SCHEMA [A-Za-z0-9_"]+' | sort -u | head -10 || true
+            echo "First 25 substantive lines of the dump:"
+            zcat "$file" | grep -vE '^\s*(--|$)' | head -25 || true
             exit 1
           fi
 
+          # STANDARD_IA is an AWS storage class and Tigris tiers objects itself, so it is
+          # deliberately not passed. --endpoint-url is explicit rather than relying on the
+          # CLI picking up AWS_ENDPOINT_URL_S3, so a CLI version change cannot quietly send
+          # a backup to Amazon instead.
           aws s3 cp "$file" "s3://${S3_BUCKET}/${prefix}/${file}" \
-            --storage-class STANDARD_IA --only-show-errors
+            --endpoint-url "$AWS_ENDPOINT_URL_S3" --only-show-errors
           echo "uploaded s3://${S3_BUCKET}/${prefix}/${file}"
           echo "BACKUP_KEY=${prefix}/${file}" >> "$GITHUB_ENV"
           echo "BACKUP_BYTES=${bytes}" >> "$GITHUB_ENV"
@@ -113,6 +135,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           S3_BUCKET: ${{ vars.S3_BUCKET || 'rascal-media-prod' }}
+          S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL || 'https://t3.storage.dev' }}
         run: python3 .github/scripts/prune_backups.py
 
       - name: Summary

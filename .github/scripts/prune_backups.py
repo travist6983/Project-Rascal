@@ -19,6 +19,10 @@ from datetime import datetime
 import boto3
 
 BUCKET = os.environ.get("S3_BUCKET", "rascal-media-prod")
+# Any S3-compatible store. Empty means real AWS, which is how this ran before Tigris.
+# Pruning deletes; pointing it at the wrong endpoint would report success having deleted
+# nothing, so this is read from the same variable the upload step uses.
+ENDPOINT = os.environ.get("S3_ENDPOINT_URL") or os.environ.get("AWS_ENDPOINT_URL_S3") or None
 PREFIX = "backups/"
 KEEP_DAILY = int(os.environ.get("KEEP_DAILY", "7"))
 KEEP_WEEKLY = int(os.environ.get("KEEP_WEEKLY", "4"))
@@ -46,7 +50,7 @@ def _newest_per_bucket(backups: list[tuple[str, datetime]], fmt: str, keep: int)
 
 
 def main() -> int:
-    s3 = boto3.client("s3")
+    s3 = boto3.client("s3", endpoint_url=ENDPOINT)
 
     backups: list[tuple[str, datetime]] = []
     unparseable: list[str] = []
