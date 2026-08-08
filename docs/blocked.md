@@ -39,23 +39,39 @@ fixture account, and it works for curl and for the iOS client. It is registered 
 `ENVIRONMENT == "local"`, and there is a test that builds a production app and asserts the
 route does not exist.
 
-## 2. AWS credentials — blocks a real upload round-trip
+## 2. Object storage — resolved. Media uploads work end to end
 
-Presigning, multipart planning, and completion are implemented and tested against `moto`, so
-the request and response shapes are right and the multipart flow works. Nothing has been
-uploaded to a real bucket, because there is no bucket and no credential.
+**No longer blocked.** Storage is Tigris, not AWS. Nothing in this project needs an Amazon
+account: every call is plain S3 through boto3, and the `AWS_*` variable names are the S3
+protocol's convention rather than a sign of who is serving it.
 
-**What I need:** run section 2 of `docs/DEPLOY.md` — bucket, public-access block, versioning,
-encryption, CORS, lifecycle rule, IAM user, access key — then set the four S3 secrets. The
-IAM policy JSON is in that document, ready to paste.
+Verified against the real bucket on Aug 8, 2026, not against `moto`:
 
-Two things worth checking by hand afterwards, because `moto` cannot prove either:
+```
+POST /v1/entries              -> 201
+POST /v1/media/upload-url     -> 200, host rascal-media-dev.t3.storage.dev
+PUT  <presigned>              -> 200, ETag "4edd3122d08ca94fe65916ddf54008f0"
+POST /v1/media/{id}/complete  -> 200, upload_status "complete"
+```
 
-- A real presigned PUT from a real device.
-- A real multipart upload of a video over cellular. **The CORS rule must expose `ETag`** or
-  completion fails in a way that reads like a signature error. The response now carries
-  `chunk_bytes`, so the uploader splits at exactly the size the part count was computed from
-  — do not hard-code 8MB on the Swift side, read the field.
+Setup, credentials, and the two traps that cost a debugging cycle are in
+`docs/tigris-setup.md`. The short version:
+
+- `tigris access-keys create` returns a key with **no permissions**. Everything, including
+  presigned PUT, is `AccessDenied` until `access-keys assign <id> --bucket <b> --role Editor`.
+- `S3_REGION` must be `auto`. A real region signs a scope the endpoint rejects, and it reads
+  as a credentials failure.
+
+**One correction to what this section used to say.** It claimed the CORS rule must expose
+`ETag` or completion fails. That is true for a browser and false for the iOS client — CORS is
+browser-enforced, and `URLSession` reads the header regardless. The ETag above arrived before
+any CORS rule existed. CORS is set anyway (`ExposeHeaders: ["ETag"]`, verified by reading it
+back) for the web client the architecture reserves.
+
+**Still worth doing by hand:** a real multipart upload of a video over cellular. Tigris
+supports the multipart API but parity has not been proven, and `chunk_bytes` comes back `null`
+on the single-PUT path — the client must read the field and tolerate null rather than
+hardcoding 8MB.
 
 ## 3. Fly and Docker — blocks deployment, and blocks verifying the image
 

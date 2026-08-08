@@ -14,7 +14,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_DEFAULT_REGION: us-east-2
+  # Tigris is globally distributed and has no AWS-style regions; `auto` is what it expects.
+  # A real region name here signs a scope the endpoint rejects, and it reads as a credentials
+  # failure rather than a configuration one. Unset the endpoint below to go back to AWS.
+  AWS_DEFAULT_REGION: ${{ vars.S3_REGION || 'auto' }}
+  AWS_ENDPOINT_URL_S3: ${{ vars.S3_ENDPOINT_URL || 'https://t3.storage.dev' }}
   # Keep this many of each. A month of dailies is not the same insurance as a year of
   # monthlies, and neither is expensive at this size.
   KEEP_DAILY: 7
@@ -102,8 +106,12 @@ jobs:
             exit 1
           fi
 
+          # STANDARD_IA is an AWS storage class and Tigris tiers objects itself, so it is
+          # deliberately not passed. --endpoint-url is explicit rather than relying on the
+          # CLI picking up AWS_ENDPOINT_URL_S3, so a CLI version change cannot quietly send
+          # a backup to Amazon instead.
           aws s3 cp "$file" "s3://${S3_BUCKET}/${prefix}/${file}" \
-            --storage-class STANDARD_IA --only-show-errors
+            --endpoint-url "$AWS_ENDPOINT_URL_S3" --only-show-errors
           echo "uploaded s3://${S3_BUCKET}/${prefix}/${file}"
           echo "BACKUP_KEY=${prefix}/${file}" >> "$GITHUB_ENV"
           echo "BACKUP_BYTES=${bytes}" >> "$GITHUB_ENV"
@@ -113,6 +121,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           S3_BUCKET: ${{ vars.S3_BUCKET || 'rascal-media-prod' }}
+          S3_ENDPOINT_URL: ${{ vars.S3_ENDPOINT_URL || 'https://t3.storage.dev' }}
         run: python3 .github/scripts/prune_backups.py
 
       - name: Summary

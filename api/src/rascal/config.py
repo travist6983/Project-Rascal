@@ -6,6 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # api/src/rascal/config.py -> api/src/rascal -> api/src -> api -> repo root
@@ -59,6 +60,13 @@ class Settings(DatabaseSettings):
     aws_access_key_id: str
     aws_secret_access_key: str
 
+    # Any S3-compatible endpoint. RASCAL stores media on Tigris, which speaks S3 but is not
+    # AWS, so the client has to be pointed at it explicitly — the credential names stay
+    # AWS-shaped because that is the protocol's convention, not because Amazon is involved.
+    # `None` means real AWS, which is exactly how this behaved before Tigris, so an existing
+    # deployment that never sets it is unaffected. See docs/tigris-setup.md.
+    s3_endpoint_url: str | None = None
+
     apple_bundle_id: str
 
     # Token lifetimes. Fixed by docs/api-contract.md; here so tests can reason about them.
@@ -76,6 +84,17 @@ class Settings(DatabaseSettings):
     presign_ttl_seconds: int = 3600
 
     assignment_expiry_days: int = 14
+
+    @field_validator("s3_endpoint_url", mode="after")
+    @classmethod
+    def _blank_endpoint_is_unset(cls, value: str | None) -> str | None:
+        """`S3_ENDPOINT_URL=` means AWS, not an endpoint named empty string.
+
+        A blank value is what a half-filled `.env` or an unset CI secret produces, and boto3
+        given `""` fails in a way that names neither. Treating it as unset is the only reading
+        that is ever useful.
+        """
+        return value.strip() or None if value else None
 
     @property
     def is_local(self) -> bool:
