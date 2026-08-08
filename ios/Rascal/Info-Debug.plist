@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- DEBUG. Generated from Info.plist by keeping every key identical and adding the ATS
+	     exception below. If you change one of these files, change the other. Everything below
+	     is a $() reference rather than a literal, so version and identity come from the target.
+
+	     Authored rather than generated: GENERATE_INFOPLIST_FILE = YES cannot carry custom keys,
+	     and this file lives beside the .xcodeproj because Rascal/Rascal/ is a synchronized
+	     folder group where a stray plist is also copied as a resource. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict/>
+	</dict>
+	<key>UIApplicationSupportsIndirectInputEvents</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UISupportedInterfaceOrientations~iphone</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+
+	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
+	     so no base URL and no UUID appears in Swift source. -->
+	<!-- Debug only. The API is plain HTTP on localhost this phase and ATS blocks cleartext by
+	     default, failing with -1022 in a way that reads like a server fault. This is the narrow
+	     key: it permits cleartext to local/private addresses only, and is NOT
+	     NSAllowsArbitraryLoads. Release (Info.plist) deliberately has no exception. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+
+	<key>API_BASE_URL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>DEV_LOGIN_EMAIL</key>
+	<string>$(DEV_LOGIN_EMAIL)</string>
+	<key>DEV_CHILD_ID</key>
+	<string>$(DEV_CHILD_ID)</string>
+</dict>
+</plist>

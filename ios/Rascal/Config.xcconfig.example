@@ -2,53 +2,46 @@
 //
 //   cp ios/Rascal/Config.xcconfig.example ios/Rascal/Config.xcconfig
 //
-// The real Config.xcconfig is gitignored. It must live beside Rascal.xcodeproj — the
-// project references it by a path relative to that directory. Every value the app needs at runtime comes from
-// here, surfaced through Info.plist and read via Bundle. No base URL and no UUID is ever
-// hardcoded in Swift source — that rule is in ios/CLAUDE.md and it is what makes pointing
-// the app at localhost, a TestFlight build, and production a config change instead of a
-// code change.
-//
-// Xcode note: `//` is the only comment form, values run to end of line (no quotes, no
-// trailing semicolon), and `//` inside a URL would start a comment — so the scheme is split
-// with the standard RASCAL_SCHEME/$()/ dance below rather than written inline.
+// The real Config.xcconfig is gitignored. It must live beside Rascal.xcodeproj — the project
+// references it by a path relative to that directory. Every value the app needs at runtime
+// comes from here and reaches Swift through Info.plist, so pointing the app at localhost, a
+// LAN device, or a deployed API is a config change and never a code change.
 
 // -- API ----------------------------------------------------------------------------------
 
-// Split so the `//` in "https://" is not read as a comment. $() is an empty variable that
-// glues the halves back together at build time.
-RASCAL_API_SCHEME = https:$()/$()/
+// `//` starts a comment in xcconfig, so "https://host" written inline is silently truncated
+// to "https:" — a host-less URL that fails at runtime looking like a server fault. $() is an
+// empty variable that splits the slashes so they survive the parser. This is the one piece of
+// this file that must not be "simplified".
+API_SCHEME = http:$()/$()/
 
-// Simulator against a local API. `make dev` serves on :8000.
-//   local simulator : RASCAL_API_HOST = rascal-api.fly.dev  with scheme http:$()/$()/
-//   device on LAN   : RASCAL_API_HOST = 192.168.1.10:8000
-//   deployed        : RASCAL_API_HOST = rascal-api.fly.dev
-RASCAL_API_HOST = rascal-api.fly.dev
+// local simulator : localhost:8000
+// device on LAN   : 192.168.1.10:8000   (and run the API with --host 0.0.0.0)
+// deployed        : rascal-api.fly.dev  (with API_SCHEME = https:$()/$()/)
+API_HOST = localhost:8000
 
-RASCAL_API_BASE_URL = $(RASCAL_API_SCHEME)$(RASCAL_API_HOST)/v1
+API_BASE_URL = $(API_SCHEME)$(API_HOST)
 
 // -- Development fixture account ----------------------------------------------------------
 
-// Phase one authenticates with POST /v1/auth/dev-login, which exists only when the API runs
-// with ENVIRONMENT=local. It is absent in production and returns 404 there — see the Auth
-// section of docs/api-contract.md.
-RASCAL_DEV_LOGIN_EMAIL = dev@rascal.local
-RASCAL_DEV_LOGIN_DISPLAY_NAME = Dev Parent
+// Phase one authenticates with POST /v1/auth/dev-login, which is mounted only when the API
+// runs with ENVIRONMENT=local and returns 404 in production. See docs/api-contract.md.
+DEV_LOGIN_EMAIL = dev@rascal.local
 
-// dev-login does NOT return a child. Get one from GET /v1/children after logging in, or
-// create one with POST /v1/children, then paste its id here so the Today screen has a
-// target before the child picker exists. Leave empty to resolve at runtime instead.
-RASCAL_DEV_CHILD_ID =
+// dev-login returns a user but NOT a child. Get one from GET /v1/children after logging in,
+// or create one with POST /v1/children, then paste its id here.
+DEV_CHILD_ID = 00000000-0000-0000-0000-000000000000
 
-// -- Surfaced into Info.plist ---------------------------------------------------------------
+// -- App Transport Security ---------------------------------------------------------------
 
-// INFOPLIST_KEY_* only works for keys Apple already knows; custom keys are silently dropped.
-// So the target uses a base Info.plist holding just our three, with $(...) references that
-// resolve at build time. GENERATE_INFOPLIST_FILE must be NO for that file to be used at all;
-// it is set below, but the target also sets it in project.pbxproj and a target setting beats
-// an xcconfig — so it has to be turned off once in Xcode's Build Settings too.
-// Read in Swift with: Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String
+// The API is plain HTTP on localhost this phase, and ATS blocks that by default — the request
+// fails with -1022, which reads like a server fault. NSAllowsLocalNetworking relaxes cleartext
+// for local and private addresses only; it is not NSAllowsArbitraryLoads. Debug only, selected
+// by swapping the whole Info.plist per configuration.
 INFOPLIST_FILE = Info.plist
+INFOPLIST_FILE[config=Debug] = Info-Debug.plist
 
-// Custom keys require an authored plist; see Info.plist for why.
+// Custom Info.plist keys require an authored plist; INFOPLIST_KEY_* silently drops any key
+// Apple does not already know. A target setting beats an xcconfig, so GENERATE_INFOPLIST_FILE
+// is turned off in project.pbxproj rather than here.
 GENERATE_INFOPLIST_FILE = NO
