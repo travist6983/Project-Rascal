@@ -121,7 +121,7 @@ final class AppSession {
 /// launch; the server remains the source of truth for everything it owns.
 enum LocalStore {
     static func container() -> ModelContainer {
-        let schema = Schema([Entry.self])
+        let schema = Schema([Entry.self, Media.self])
         do {
             return try ModelContainer(for: schema)
         } catch {
