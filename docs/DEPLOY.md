@@ -250,7 +250,7 @@ It creates nothing and needs no credentials, so it is safe to run as often as yo
 ## Backups
 
 `.github/workflows/backup.yml` runs nightly at 08:10 UTC and on demand. It `pg_dump`s Neon,
-gzips, and uploads to `s3://rascal-media-prod/backups/` with a timestamped key, then prunes
+gzips, and uploads to `s3://rascal-backups/backups/` on Tigris with a timestamped key, then prunes
 to **7 daily, 4 weekly, 12 monthly**. It fails loudly — a silent backup failure is worse than
 no backup — and it lives in GitHub Actions rather than on a Fly machine deliberately, so it
 still runs on a day when Fly is the thing that is broken.
@@ -262,9 +262,19 @@ continuously rather than once.
 To restore for real:
 
 ```bash
-aws s3 cp s3://rascal-media-prod/backups/2026/08/rascal-20260804T081000Z.sql.gz .
+# Backups live in their own bucket, not alongside media: the pruner deletes objects, and a
+# mis-scoped prefix sharing a bucket with a child's photos is not a risk worth carrying.
+# Soft delete is on with 30-day retention, so a wrong `rm` is recoverable.
+tigris cp t3://rascal-backups/backups/2026/08/rascal-20260804T081000Z.sql.gz .
+# or: aws s3 cp s3://rascal-backups/... --endpoint-url https://t3.storage.dev
+
 cd api && uv run python scripts/restore.py --from rascal-20260804T081000Z.sql.gz --url "$DIRECT_DATABASE_URL"
 ```
+
+**First verified working Aug 8, 2026.** Every run before that failed — first on the missing
+credential, then on an integrity check that had never actually executed and rejected a healthy
+dump (`grep -q` exits on its first match, SIGPIPEs `zcat`, and `pipefail` turns that into a
+failure). Both are fixed; the run history is the evidence.
 
 It refuses to run against a non-empty database without `--force`, so a mistyped URL cannot
 quietly overwrite production.
