@@ -10,6 +10,8 @@ persists server-side → the next fetch shows it under Done Today.
 Preflight is a separate document: `ios/preflight-report.md`. Nine checks, six passed as found,
 three were in-lane and fixed before any Swift was written.
 
+**All 11 tests pass.** The suite caught a real concurrency bug in the refresh path — see below.
+
 ---
 
 ## What shipped, per story
@@ -169,24 +171,66 @@ took the most restrained option consistent with it:
 **Deliberately, per scope:** media capture, Timeline, Moments, Settings, search, widgets,
 notifications, real Sign in with Apple, multi-child UI, dark mode, `GET /sync`.
 
-**The one real gap: there is no unit test target, so the tests cannot run.**
+**Nothing else.** The test target now exists and the suite passes.
 
-The project has a single target, `Rascal`. Both test files are written and committed at
-`ios/Rascal/RascalTests/` — fixture decoding (7 tests, including the `age_months`,
-fractional-second, and unknown-error-code cases) and refresh (4 tests, including the required
-proof that two concurrent 401s produce exactly one refresh). They read fixtures via `#filePath`
-rather than bundle resources, so no resource wiring is needed.
+### The test target, and what it immediately caught
 
-Adding a test target means writing a new `PBXNativeTarget` with build phases, a product
-reference, a test host, and a scheme test action into `project.pbxproj`. That is structural
-surgery, not the single-token edits I have made there, and it is the category of change you
-reserved for yourself. **It is a 30-second action in Xcode:** File → New → Target → Unit Testing
-Bundle, name it `RascalTests`, point it at the existing folder. Say the word and I'll verify
-with `xcodebuild test` immediately.
+The project had a single target, so I authored a `PBXNativeTarget` for `RascalTests` into
+`project.pbxproj` — synchronized folder group (so new test files need no further pbxproj
+edit), `TEST_HOST`/`BUNDLE_LOADER` against the app, and `GENERATE_INFOPLIST_FILE` forced back
+on because the project-level xcconfig turns it off and points at the app's plist. Also added a
+**shared** scheme with a test action, so `xcodebuild test` does not depend on gitignored
+`xcuserdata`.
 
-Until then, "all tests pass" in the definition of done is **unmet**, and I am not claiming
-otherwise. Everything else in that list is met except the device pass, which is yours to run —
-`ios/device-test.md` lists the ten checks and why the simulator cannot substitute.
+```
+✔ Test run with 11 tests in 2 suites passed after 0.149 seconds.
+```
+
+**The single-flight refresh test failed on the first run, and it was a real bug, not a bad
+test.** Two concurrent 401s produced *two* refreshes:
+
+```
+today | today | refresh | refresh | today | today     refreshCount: 2
+```
+
+The guard and the assignment looked atomic:
+
+```swift
+if let existing = refreshTask { return try await existing.value }
+…
+refreshTask = task
+```
+
+There is no `await` between them, so I had assumed the actor made that sequence indivisible.
+It does not: an `async` actor method can suspend on entry, and both callers observed
+`refreshTask == nil` before either stored one. The fix splits it — claiming the slot happens in
+a **synchronous** actor method, which genuinely cannot interleave, and only the awaiting is
+`async`:
+
+```
+today | today | refresh | today | today               refreshCount: 1
+```
+
+This is exactly the failure the brief warned about, and in production it would have been a
+forced logout: the second rotation presents a refresh token the first already revoked, takes
+`refresh_token_reused`, and the server revokes the whole chain. It is also invisible in normal
+use and would have surfaced as "the app randomly signs me out". Worth stating plainly — I
+would not have found it by reading the code, because I had already read it and concluded it
+was correct.
+
+A second failure was my own bad assertion: `#expect(interval == 0.481)` on a value that parses
+to `0.4809999465942383`. Now a tolerance check.
+
+### Two other things fixed along the way
+
+- **`Config.xcconfig` was being copied into the app bundle** as a resource by the template's
+  Resources build phase. An xcconfig is a build input; shipping it put `DEV_CHILD_ID` inside
+  the product for no reason. Removed, and verified absent from the built `.app`.
+- The app rebuilds clean afterwards with **zero warnings** of mine, and still renders and
+  completes correctly in the simulator.
+
+The device pass remains yours to run — `ios/device-test.md` lists the ten checks and why the
+simulator cannot substitute for any of them.
 
 ---
 

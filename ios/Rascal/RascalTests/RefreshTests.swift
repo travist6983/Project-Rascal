@@ -88,6 +88,8 @@ struct RefreshTests {
 
         #expect(performer.count(for: "refresh") == 1,
                 "a second rotation would present a token the first already revoked")
+        // The client-side counter agrees: only one caller ever claimed the refresh slot.
+        #expect(await client.refreshCount == 1)
 
         // Both halves of the new pair were persisted.
         let stored = try #require(store.load())

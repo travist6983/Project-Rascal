@@ -206,8 +206,24 @@ actor APIClient {
     /// `refresh_token_reused`, and revoke the entire chain. That is a forced logout caused
     /// purely by concurrency.
     func refreshSession() async throws -> TokenPair {
+        // Deliberately two steps. Claiming the slot happens in a *synchronous* actor method,
+        // which cannot interleave; awaiting happens out here. Doing both in one `async`
+        // function looks atomic and is not — the compiler is free to suspend on entry, and two
+        // callers then both observe `refreshTask == nil` and both rotate.
+        let (task, isOwner) = try claimRefreshTask()
+        defer {
+            // Only the caller that created the task clears it. Callers that adopted an
+            // in-flight one must not, or they would wipe a slot they never owned. Task is a
+            // struct, so identity has to be tracked rather than compared.
+            if isOwner { refreshTask = nil }
+        }
+        return try await task.value
+    }
+
+    /// Synchronous on purpose. See `refreshSession`.
+    private func claimRefreshTask() throws -> (task: Task<TokenPair, Error>, isOwner: Bool) {
         if let existing = refreshTask {
-            return try await existing.value
+            return (existing, false)
         }
 
         guard let current = tokens.load() else {
@@ -251,9 +267,7 @@ actor APIClient {
 
         refreshTask = task
         refreshCount += 1
-        defer { refreshTask = nil }
-
-        return try await task.value
+        return (task, true)
     }
 
     // MARK: Session

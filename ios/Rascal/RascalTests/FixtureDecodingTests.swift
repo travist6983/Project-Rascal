@@ -83,7 +83,9 @@ struct FixtureDecodingTests {
     func fractionalSeconds() throws {
         let withFraction = try #require(ISO8601Formatters.parse("2026-08-14T18:22:00.481Z"))
         let without = try #require(ISO8601Formatters.parse("2026-08-14T18:22:00Z"))
-        #expect(withFraction.timeIntervalSince(without) == 0.481)
+        // Tolerance, not equality: 0.481 is not representable in binary floating point and
+        // the parse lands on 0.4809999465942383. What matters is that the fraction survived.
+        #expect(abs(withFraction.timeIntervalSince(without) - 0.481) < 0.001)
     }
 
     @Test("the error envelope decodes into typed codes")
