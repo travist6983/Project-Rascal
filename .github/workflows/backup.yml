@@ -101,8 +101,17 @@ jobs:
 
           # Prove it is intact before it counts as a backup.
           gzip -t "$file"
-          if ! zcat "$file" | grep -q 'CREATE TABLE public.entries'; then
+          # `grep -q` exits on the first match, which SIGPIPEs zcat mid-stream; under
+          # `pipefail` that non-zero status becomes the pipeline's, and a *healthy* dump gets
+          # rejected as the wrong database. `grep -c` reads to EOF, so nothing is signalled.
+          # This check had never actually run before — every earlier backup died on the
+          # missing credential first — so the bug shipped invisibly.
+          found=$(zcat "$file" | grep -cF 'CREATE TABLE public.entries' || true)
+          if [ "$found" -eq 0 ]; then
             echo "::error::Dump does not contain the entries table. Wrong database?"
+            echo "::error::Tables actually present in this dump:"
+            zcat "$file" | grep -oE '^CREATE TABLE public\.[a-z_]+' | sort -u \
+              | sed 's/^/::error::  /' || true
             exit 1
           fi
 
