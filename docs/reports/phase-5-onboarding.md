@@ -136,9 +136,9 @@ is the only copy in existence. Same conventions, reverse backup flag.
 
 ## Verified by running it
 
-### Tests — 391 passing in 44 suites, zero warnings
+### Tests — 392 passing in 44 suites, zero warnings
 
-354 before, **37 added**. Run cold from a deleted `DerivedData`; the log contains **zero**
+354 before, **38 added**. Run cold from a deleted `DerivedData`; the log contains **zero**
 occurrences of `: warning:` from any source.
 
 Three of the new tests failed on first run and all three were real:
@@ -155,6 +155,26 @@ Three of the new tests failed on first run and all three were real:
    the welcome screen a parent would really be on. The setup was corrected; the assertion stands.
 
 No assertion was weakened to make the suite green.
+
+**A fourth was found by CI, and my machine could not have found it.** The first CI run failed on
+`the default timezone is a resolvable IANA identifier`. The runner's simulator is in **GMT**, where
+`TimeZone.current.identifier` is the string `"GMT"` — and the test asserted that no identifier
+starts with `"GMT"`, that none contains a hyphen, and that all are longer than four characters.
+
+All three are false. `GMT` is a real IANA zone; `America/Port-au-Prince` is hyphenated, so that
+rule would have failed for anyone actually living there; and the length rule fails for every legacy
+singleton. Worse, the assertion those three were propping up was the weak one —
+`TimeZone(identifier:)` returns a zone for `GMT-4`, `PST` and `UTC+1`, so a non-nil check passes for
+exactly the offsets and abbreviations it was supposed to exclude.
+
+Verified empirically rather than guessed a second time: membership in `knownTimeZoneIdentifiers` is
+the only check that discriminates, and it draws the same line the server does — `zone()` accepts
+`GMT` and rejects `EDT`. The test is now that membership check plus a second test pinning both
+sides, including the fact that most of the wrong values *do* resolve. **The product code was never
+wrong and is unchanged**: §6 says default to `TimeZone.current.identifier`, and it does.
+
+Local runs cannot reproduce this — my machine is in `America/Detroit`, so the GMT path is
+unreachable here. That is worth knowing for the next timezone-adjacent test.
 
 ### On the simulator, against the live API
 
