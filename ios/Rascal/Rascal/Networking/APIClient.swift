@@ -304,6 +304,25 @@ actor APIClient {
     func hasSession() -> Bool { tokens.load() != nil }
 
     func signOut() { tokens.clear() }
+
+    /// Revoke the refresh token server-side, then forget both halves.
+    ///
+    /// Best effort on the network half, and deliberately so. A token this device has thrown
+    /// away is already useless to it, and refusing to sign out because the server was
+    /// unreachable would strand someone inside an account they asked to leave. The revocation
+    /// is what makes the *stolen-phone* case safe, and it is retried by nothing — there is
+    /// nothing left to retry with once the token is gone.
+    func logout() async {
+        if let pair = tokens.load() {
+            _ = try? await send(
+                .post, "v1/auth/logout",
+                body: LogoutRequest(refreshToken: pair.refreshToken),
+                authenticated: false,
+                as: EmptyResponse.self
+            )
+        }
+        tokens.clear()
+    }
 }
 
 // MARK: - Wire models
@@ -316,6 +335,10 @@ nonisolated struct DevLoginRequest: Encodable {
 }
 
 nonisolated struct RefreshRequest: Encodable {
+    let refreshToken: String
+}
+
+nonisolated struct LogoutRequest: Encodable {
     let refreshToken: String
 }
 

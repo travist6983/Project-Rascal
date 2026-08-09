@@ -62,7 +62,13 @@ enum MediaDraftBuilder {
         let id = UUID()
         let processed = try await VideoPipeline.process(fileAt: url, into: store, as: id)
         if let poster = processed.posterFrame {
-            try? store.stageThumbnail(poster, for: id)
+            // Propagated, not discarded. A video with no frame extractable has `posterFrame`
+            // nil and is still a fine entry — but a poster that *exists* and cannot be
+            // written is a disk failure, and swallowing it leaves the row claiming
+            // `hasThumbnail` when nothing is there. The sweep reads that claim as permission
+            // to delete the only local copy of the file. The photo path already fails the
+            // same way for the same reason.
+            try store.stageThumbnail(poster, for: id)
         }
         return MediaDraft(
             id: id,

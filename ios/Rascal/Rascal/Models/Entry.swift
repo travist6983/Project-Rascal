@@ -41,6 +41,30 @@ final class Entry {
 
     var unlockAtAge: Int?
 
+    /// Tag names as the server last reported them, lowercased, for the chips on a card.
+    ///
+    /// A denormalised copy rather than a `Tag` model: tags are read-only in this phase — there
+    /// is no tag editor — and a second `@Model` plus a relationship would be a migration and a
+    /// join to render six characters.
+    ///
+    /// **Optional deliberately**, per rule 6 of `ios/CLAUDE.md`. A non-optional collection with
+    /// a declaration default ought to migrate, but the failure mode when a mandatory attribute
+    /// cannot be inferred is the app refusing to launch on every device that had the previous
+    /// build — and nothing in this suite or in CI would catch it. Optional is always
+    /// inferrable, and nil is honest here: it means the server has not said.
+    var storedTagNames: [String]?
+
+    /// The prompt this entry answered, cached so Entry Detail renders the quoted block when
+    /// the phone is offline. Nil for a freeform entry, which is first-class and shows no block.
+    var promptBody: String?
+    /// `question` · `photo` · `video` · `audio` · `activity` · `letter`, from the same prompt.
+    var promptKind: String?
+
+    /// The server's count of live media on this entry, which may exceed the rows cached here —
+    /// media still uploading from another device has no bytes this phone can render. Drives the
+    /// `+N` overflow tile so the card never claims fewer photos than the archive holds.
+    var serverMediaCount: Int = 0
+
     /// `pending` · `synced` · `failed`. Stored as text for the same reason the server uses
     /// `text` + CHECK: a new state must not require a migration.
     var syncState: String
@@ -54,6 +78,13 @@ final class Entry {
     /// be re-POSTed, and the idempotency key would return the *original* body — silently
     /// discarding the edit and reporting success.
     var existsOnServer: Bool = false
+
+    /// Set when the parent deleted this entry and `DELETE /entries/{id}` has not landed yet.
+    ///
+    /// Deleting is local-first like every other write: the row is marked and gone from the
+    /// timeline before the request goes out. Without this flag a delete made on a train would
+    /// look done, and the entry would reappear on the next device that synced.
+    var deletionPending: Bool = false
 
     init(
         id: UUID = UUID(),
@@ -83,6 +114,12 @@ final class Entry {
         set { syncState = newValue.rawValue }
     }
 
+    /// The tags to render. Not persisted — `storedTagNames` is.
+    var tagNames: [String] {
+        get { storedTagNames ?? [] }
+        set { storedTagNames = newValue }
+    }
+
     var type: EntryType? {
         entryType.map(EntryType.init(rawValue:))
     }
@@ -95,8 +132,37 @@ final class Entry {
         entryType = response.entryType
         childAgeMonths = response.childAgeMonths
         updatedAt = response.updatedAt
-        deletedAt = response.deletedAt
+        // **A deletion only ever goes one way.** There is no undelete anywhere in this system,
+        // so a response that still shows the row live is a response that predates the delete —
+        // a page already in flight, or a list the server had not rewritten yet. Assigning
+        // `response.deletedAt` straight across would let one of those bring a deleted entry
+        // back onto the timeline, which is the single worst thing a reconcile can do.
+        if let serverDeleted = response.deletedAt, deletedAt == nil {
+            deletedAt = serverDeleted
+        }
+        tagNames = response.tags.map(\.name)
+        serverMediaCount = response.mediaCount
+        // Only `GET /entries/{id}` carries the prompt. A list response must not blank a value
+        // the detail fetch already cached.
+        if let prompt = response.prompt {
+            promptBody = prompt.body
+            promptKind = prompt.kind
+        }
         sync = .synced
+    }
+
+    /// Everything the server owns, written onto a row the timeline is reconciling.
+    ///
+    /// Separate from `applyServerResponse` because that one is the acknowledgement of a write
+    /// *this phone* just made — the local values are already the server's values. Here the row
+    /// may have been edited on another device, so the server's title, body, and date win too.
+    func applyServerTruth(_ response: EntryResponse) {
+        occurredAt = response.occurredAt
+        createdAt = response.createdAt
+        title = response.title
+        body = response.body
+        unlockAtAge = response.unlockAtAge
+        applyServerResponse(response)
     }
 }
 
@@ -166,7 +232,16 @@ nonisolated struct EntryCreateRequest: Encodable {
     let tags: [String]
 }
 
-nonisolated struct EntryResponse: Decodable, Identifiable {
+/// `EntryOut` from the contract, and `EntryDetail` too.
+///
+/// One type for both, mirroring the server, where `EntryDetail` is `EntryOut` plus transcripts
+/// and the originating prompt. Two Swift types for one server model is two things to keep in
+/// step, and the pair would drift the first time a field is added.
+///
+/// The collections decode leniently. Every response the server sends carries `tags`, `media`,
+/// and `media_count` — but an entry that fails to decode because a list was absent is a card
+/// that vanishes from the archive, and a card with no chips is not.
+nonisolated struct EntryResponse: Decodable, Identifiable, Sendable {
     let id: UUID
     let childId: UUID
     let assignmentId: UUID?
@@ -179,4 +254,37 @@ nonisolated struct EntryResponse: Decodable, Identifiable {
     let entryType: String?
     let childAgeMonths: Int?
     let unlockAtAge: Int?
+    let tags: [TagResponse]
+    let media: [MediaSummaryResponse]
+    /// The server's count of live media. Equal to `media.count` today; read rather than derived
+    /// so a future truncated list still renders an honest `+N`.
+    let mediaCount: Int
+    /// `GET /entries/{id}` only. Nil on a list row and nil for a freeform entry — the two are
+    /// indistinguishable here on purpose, because neither renders a prompt block.
+    let prompt: PromptRefResponse?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, childId, assignmentId, occurredAt, createdAt, updatedAt, deletedAt
+        case title, body, entryType, childAgeMonths, unlockAtAge, tags, media, mediaCount, prompt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        childId = try container.decode(UUID.self, forKey: .childId)
+        assignmentId = try container.decodeIfPresent(UUID.self, forKey: .assignmentId)
+        occurredAt = try container.decode(Date.self, forKey: .occurredAt)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        deletedAt = try container.decodeIfPresent(Date.self, forKey: .deletedAt)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        body = try container.decodeIfPresent(String.self, forKey: .body)
+        entryType = try container.decodeIfPresent(String.self, forKey: .entryType)
+        childAgeMonths = try container.decodeIfPresent(Int.self, forKey: .childAgeMonths)
+        unlockAtAge = try container.decodeIfPresent(Int.self, forKey: .unlockAtAge)
+        tags = try container.decodeIfPresent([TagResponse].self, forKey: .tags) ?? []
+        media = try container.decodeIfPresent([MediaSummaryResponse].self, forKey: .media) ?? []
+        mediaCount = try container.decodeIfPresent(Int.self, forKey: .mediaCount) ?? media.count
+        prompt = try container.decodeIfPresent(PromptRefResponse.self, forKey: .prompt)
+    }
 }

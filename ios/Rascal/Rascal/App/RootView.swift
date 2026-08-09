@@ -7,6 +7,9 @@ struct RootView: View {
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?
     @State private var mediaCoordinator: MediaCoordinator?
+    /// One picture cache for the whole app, so the timeline, Moments, and a detail screen all
+    /// draw from the same fetches rather than each pulling the same photo down again.
+    @State private var thumbnails: ThumbnailStore?
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -20,6 +23,8 @@ struct RootView: View {
                 LaunchView()
             case .signedIn(let childId):
                 signedIn(childId: childId)
+            case .signedOut:
+                SignedOutView { Task { await session.signIn() } }
             case .failed(let message):
                 SignInFailedView(message: message) {
                     Task { await session.signOutAndRetry() }
@@ -28,6 +33,9 @@ struct RootView: View {
         }
         .task {
             await session.start()
+            if thumbnails == nil {
+                thumbnails = ThumbnailStore(api: session.api)
+            }
             if mediaCoordinator == nil {
                 let coordinator = MediaCoordinator(api: session.api)
                 mediaCoordinator = coordinator
@@ -63,12 +71,20 @@ struct RootView: View {
                         api: session.api,
                         onRetrySync: { Task { await runSweep() } }
                     ) { composer = $0 }
-                case .timeline, .moments, .settings:
-                    PlaceholderScreen(tab: tab)
+                case .timeline:
+                    TimelineScreen(childId: childId, api: session.api) { composer = $0 }
+                case .moments:
+                    MomentsScreen(childId: childId, api: session.api) { composer = $0 }
+                case .settings:
+                    SettingsScreen(childId: childId, session: session)
                 case .create:
-                    PlaceholderScreen(tab: .today)
+                    // The centre button opens the composer as a sheet and never selects a tab,
+                    // so this is unreachable. Today is what the app falls back to rather than a
+                    // blank screen, on the principle that a fallback should be somewhere real.
+                    TodayScreen(childId: childId, api: session.api) { composer = $0 }
                 }
             }
+            .environment(\.thumbnails, thumbnails)
             // Clear the floating bar so the last card is never trapped underneath it.
             .safeAreaPadding(.bottom, 84)
 
@@ -97,6 +113,30 @@ private struct LaunchView: View {
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
         }
+    }
+}
+
+/// After a deliberate sign-out. Nothing went wrong, so nothing here says anything did — and
+/// nothing signs back in until someone asks it to.
+private struct SignedOutView: View {
+    let signIn: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "lock")
+                .font(.system(size: 28, weight: .light))
+                .foregroundStyle(Color.inkMuted)
+            Text("Signed out")
+                .typeRole(.title)
+                .foregroundStyle(Color.ink)
+            Text("The archive is safe. Sign in to open it again.")
+                .typeRole(.body)
+                .foregroundStyle(Color.inkMuted)
+                .multilineTextAlignment(.center)
+            Button("Sign in", action: signIn)
+                .buttonStyle(PrimaryButtonStyle())
+        }
+        .padding(Layout.screenMargin * 2)
     }
 }
 

@@ -48,11 +48,28 @@ final class EntrySync {
         return descriptor
     }
 
+    /// Deletions the parent made that the server has not been told about.
+    ///
+    /// A separate descriptor because `unsyncedDescriptor` deliberately excludes deleted rows —
+    /// re-POSTing an entry the parent has just thrown away would be the worst possible outcome
+    /// of a retry.
+    static func pendingDeletionDescriptor() -> FetchDescriptor<Entry> {
+        var descriptor = FetchDescriptor<Entry>(
+            predicate: #Predicate<Entry> { entry in
+                entry.deletedAt != nil && entry.deletionPending
+            },
+            sortBy: [SortDescriptor(\.updatedAt, order: .forward)]
+        )
+        descriptor.fetchLimit = 50
+        return descriptor
+    }
+
     /// One count for one surface. An entry still saving and a photo still uploading are the
     /// same thing to a parent: work that has not landed yet.
     func unsyncedCount() -> Int {
         let entries = (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0
-        return entries + MediaCoordinator.outstandingCount(in: context)
+        let deletions = (try? context.fetchCount(EntrySync.pendingDeletionDescriptor())) ?? 0
+        return entries + deletions + MediaCoordinator.outstandingCount(in: context)
     }
 
     /// Push what has not landed. Safe to call on every foreground; a no-op when there is
@@ -69,10 +86,51 @@ final class EntrySync {
         defer { running = false }
 
         let synced = await sweepEntries()
+        // Deletions go after creations and before media. An entry created and deleted while
+        // offline has to be created before it can be deleted — the DELETE would 404 otherwise
+        // and the row would sit marked forever — and any media it had is moot once it is gone.
+        await sweepDeletions()
         // Runs regardless of whether any entry was outstanding: a photo can still be in flight
         // long after its entry landed.
         await media?.sweep()
         return synced
+    }
+
+    /// Tell the server about deletions made on this phone.
+    ///
+    /// The row is never removed locally, only marked — deletions sync as rows with `deleted_at`
+    /// set, never as absences, and that rule is the same on both sides of the wire.
+    @discardableResult
+    private func sweepDeletions() async -> Int {
+        guard let outstanding = try? context.fetch(EntrySync.pendingDeletionDescriptor()),
+              !outstanding.isEmpty
+        else { return 0 }
+
+        var pushed = 0
+        for entry in outstanding {
+            guard entry.existsOnServer else {
+                // Never left the phone. There is nothing to delete and never was, so the flag
+                // is the only thing to clear.
+                entry.deletionPending = false
+                pushed += 1
+                continue
+            }
+            do {
+                try await api.deleteEntry(id: entry.id)
+                entry.deletionPending = false
+                pushed += 1
+            } catch let error as APIError where error.code == .notFound {
+                // Already gone server-side — someone else's phone got there first. That is the
+                // outcome this was asking for.
+                entry.deletionPending = false
+                pushed += 1
+            } catch {
+                // Offline, or a 5xx. Stays marked and is retried on the next foreground.
+                continue
+            }
+        }
+        try? context.save()
+        return pushed
     }
 
     private func sweepEntries() async -> Int {

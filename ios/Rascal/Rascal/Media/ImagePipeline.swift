@@ -42,9 +42,11 @@ enum ImagePipeline {
 
     /// Quality 0.85 — visually indistinguishable from the original at normal viewing sizes,
     /// roughly a third of the bytes. The tradeoff a photo archive wants.
-    static let jpegQuality: CGFloat = 0.85
+    /// `nonisolated` because the thumbnail path runs off the main actor: the timeline
+    /// downsamples fetched bytes on a background task so a scroll never waits on ImageIO.
+    nonisolated static let jpegQuality: CGFloat = 0.85
     /// Longest edge of the cached thumbnail. Comfortably covers a 3x timeline row.
-    static let thumbnailMaxPixels = 400
+    nonisolated static let thumbnailMaxPixels = 400
 
     static func process(fileAt url: URL) throws -> Processed {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
@@ -107,7 +109,7 @@ enum ImagePipeline {
 
     /// A standalone thumbnail, also orientation-corrected. Used by the composer preview and
     /// cached for Phase 3's timeline, where `thumb_key` is null server-side.
-    static func makeThumbnail(from source: CGImageSource) throws -> Data {
+    nonisolated static func makeThumbnail(from source: CGImageSource) throws -> Data {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -121,13 +123,27 @@ enum ImagePipeline {
 
     /// A poster frame is already a CGImage from AVFoundation, so it skips the source-based
     /// path and only needs the same alpha-stripped JPEG encoding everything else gets.
-    static func encodeJPEGForPoster(_ image: CGImage) throws -> Data {
+    nonisolated static func encodeJPEGForPoster(_ image: CGImage) throws -> Data {
         guard let data = encodeJPEG(image, quality: 0.8) else { throw Failure.encodingFailed }
         return data
     }
 
-    static func makeThumbnail(fileAt url: URL) throws -> Data {
+    nonisolated static func makeThumbnail(fileAt url: URL) throws -> Data {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
+            throw Failure.unreadable
+        }
+        return try makeThumbnail(from: source)
+    }
+
+    /// Downsample bytes fetched from storage.
+    ///
+    /// The timeline's only source of thumbnails: `thumb_key` is null on every row server-side,
+    /// so a photo whose local copy has been swept is refetched full-size and reduced here. The
+    /// full image is never decoded — `CGImageSourceCreateThumbnailAtIndex` reads what it needs
+    /// and stops, which is what keeps a scroll through a year of photos inside its memory
+    /// budget.
+    nonisolated static func makeThumbnail(data: Data) throws -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw Failure.unreadable
         }
         return try makeThumbnail(from: source)
@@ -146,7 +162,7 @@ enum ImagePipeline {
     ///
     /// Doubling decode memory on a 24-megapixel photo is not academic — a multi-photo import
     /// is the case most likely to be killed for memory, and it is the one this app is for.
-    private static func withoutAlpha(_ image: CGImage) -> CGImage {
+    private nonisolated static func withoutAlpha(_ image: CGImage) -> CGImage {
         guard let context = CGContext(
             data: nil,
             width: image.width,
@@ -161,7 +177,7 @@ enum ImagePipeline {
         return context.makeImage() ?? image
     }
 
-    private static func encodeJPEG(_ image: CGImage, quality: CGFloat) -> Data? {
+    private nonisolated static func encodeJPEG(_ image: CGImage, quality: CGFloat) -> Data? {
         let image = withoutAlpha(image)
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
