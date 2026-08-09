@@ -74,17 +74,16 @@ struct SyncDefectTests {
         try context.save()
         #expect(try timelineRows(childId: child, in: context).count == 2)
 
+        let body = syncJSON(
+            entries: [entryJSON(
+                id: cached.id, childId: child, occurredAt: occurred,
+                body: "deleted on the other phone",
+                updatedAt: deletedAt, deletedAt: deletedAt
+            )],
+            cursor: laggedCursor(newest: deletedAt)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [entryJSON(
-                    id: cached.id, childId: child, occurredAt: occurred,
-                    body: "deleted on the other phone",
-                    updatedAt: deletedAt, deletedAt: deletedAt
-                )],
-                cursor: laggedCursor(newest: deletedAt)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
 
         let first = engine(childId: child, performer: performer, context: context)
         await first.pull()
@@ -248,16 +247,15 @@ struct SyncDefectTests {
 
         // The entry comes back updated, and its media list — which is live-only — no longer
         // mentions the photo. Absence *is* information on this one path.
+        let body = syncJSON(
+            entries: [entryJSON(
+                id: cached.id, childId: child, occurredAt: occurred,
+                body: "still here", media: [], updatedAt: newest
+            )],
+            cursor: laggedCursor(newest: newest)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [entryJSON(
-                    id: cached.id, childId: child, occurredAt: occurred,
-                    body: "still here", media: [], updatedAt: newest
-                )],
-                cursor: laggedCursor(newest: newest)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
 
         let engine = engine(childId: child, performer: performer, context: context)
         await engine.pull()

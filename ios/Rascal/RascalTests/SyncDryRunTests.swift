@@ -93,23 +93,22 @@ struct SyncDryRunTests {
 
         let before = try snapshot(context)
 
+        let body = syncJSON(
+            entries: [
+                entryJSON(id: doomed.id, childId: child, occurredAt: occurred,
+                          body: "would be deleted", updatedAt: newest, deletedAt: newest),
+                entryJSON(id: stale.id, childId: child, occurredAt: occurred,
+                          body: "changed on the other phone", updatedAt: newest),
+                entryJSON(id: UUID(), childId: child, occurredAt: occurred,
+                          body: "brand new", updatedAt: newest),
+            ],
+            media: [syncMediaJSON(id: photo.id, entryId: stale.id, deletedAt: newest)],
+            assignments: [syncAssignmentJSON(childId: child, updatedAt: newest)],
+            tags: [syncTagJSON(entryId: doomed.id, name: "humor", deletedAt: newest)],
+            cursor: laggedCursor(newest: newest)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [
-                    entryJSON(id: doomed.id, childId: child, occurredAt: occurred,
-                              body: "would be deleted", updatedAt: newest, deletedAt: newest),
-                    entryJSON(id: stale.id, childId: child, occurredAt: occurred,
-                              body: "changed on the other phone", updatedAt: newest),
-                    entryJSON(id: UUID(), childId: child, occurredAt: occurred,
-                              body: "brand new", updatedAt: newest),
-                ],
-                media: [syncMediaJSON(id: photo.id, entryId: stale.id, deletedAt: newest)],
-                assignments: [syncAssignmentJSON(childId: child, updatedAt: newest)],
-                tags: [syncTagJSON(entryId: doomed.id, name: "humor", deletedAt: newest)],
-                cursor: laggedCursor(newest: newest)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
 
         let engine = engine(childId: child, performer: performer, context: context, state: state)
         let outcome = await engine.dryRun()
@@ -196,8 +195,9 @@ struct SyncDryRunTests {
         }
         try context.save()
 
+        let body = syncJSON(entries: rows, cursor: laggedCursor(newest: newest))
         let performer = StubPerformer()
-        performer.on("/sync") { _ in (syncJSON(entries: rows, cursor: laggedCursor(newest: newest)), 200) }
+        performer.on("/sync") { _ in (body, 200) }
         let plan = try #require(await engine(childId: child, performer: performer, context: context).dryRun().plan)
 
         #expect(plan.deletions.count == 12)
@@ -226,14 +226,13 @@ struct SyncDryRunTests {
         local.sync = .pending
         try context.save()
 
+        let body = syncJSON(
+            entries: [entryJSON(id: local.id, childId: child, occurredAt: occurred,
+                                body: "theirs", updatedAt: newest)],
+            cursor: laggedCursor(newest: newest)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [entryJSON(id: local.id, childId: child, occurredAt: occurred,
-                                    body: "theirs", updatedAt: newest)],
-                cursor: laggedCursor(newest: newest)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
         let plan = try #require(await engine(childId: child, performer: performer, context: context).dryRun().plan)
         let report = plan.report()
 
@@ -358,14 +357,13 @@ struct SyncDryRunTests {
         messy.sync = .synced
         try context.save()
 
+        let body = syncJSON(
+            entries: [entryJSON(id: messy.id, childId: child, occurredAt: occurred,
+                                body: "first line", updatedAt: newest, deletedAt: newest)],
+            cursor: laggedCursor(newest: newest)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [entryJSON(id: messy.id, childId: child, occurredAt: occurred,
-                                    body: "first line", updatedAt: newest, deletedAt: newest)],
-                cursor: laggedCursor(newest: newest)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
         let plan = try #require(await engine(childId: child, performer: performer, context: context).dryRun().plan)
 
         let preview = try #require(plan.deletions.first?.preview)
@@ -395,14 +393,13 @@ struct SyncDryRunTests {
         context.insert(didIt)
         try context.save()
 
+        let body = syncJSON(
+            entries: [entryJSON(id: didIt.id, childId: child, occurredAt: occurred, type: "did_it",
+                                body: nil, updatedAt: newest, deletedAt: newest)],
+            cursor: laggedCursor(newest: newest)
+        )
         let performer = StubPerformer()
-        performer.on("/sync") { _ in
-            (syncJSON(
-                entries: [entryJSON(id: didIt.id, childId: child, occurredAt: occurred, type: "did_it",
-                                    body: nil, updatedAt: newest, deletedAt: newest)],
-                cursor: laggedCursor(newest: newest)
-            ), 200)
-        }
+        performer.on("/sync") { _ in (body, 200) }
         let plan = try #require(await engine(childId: child, performer: performer, context: context).dryRun().plan)
 
         #expect(plan.deletions.first?.preview == "(no title or body)")
