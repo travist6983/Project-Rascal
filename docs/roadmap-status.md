@@ -15,7 +15,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **22** (+1 open: sync pull) |
 | API tests | **302 passing**, 26 files |
-| iOS tests | **273 passing**, 34 suites, zero warnings |
+| iOS tests | **275 passing**, 34 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API routes | 32 (incl. `/health` and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
@@ -117,8 +117,11 @@ Worth doing before P2 rather than as part of it, and worth doing with you awake:
 ## Facts, if you want to check any of this
 ```bash
 make test                                    # 302 API tests
+# Delete DerivedData first or the warning count is a lie: an incremental build does not
+# recompile an unchanged file, and a file that is not recompiled emits no warning.
+rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 273 iOS tests, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 275 iOS tests, zero warnings
 curl -s localhost:8000/openapi.json | jq '.paths | keys'
 docker exec rascal-postgres psql -U rascal -d rascal \
   -c "select kind, active, count(*) from prompts group by 1,2 order by 1;"
