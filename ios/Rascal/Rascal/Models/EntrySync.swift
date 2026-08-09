@@ -64,12 +64,35 @@ final class EntrySync {
         return descriptor
     }
 
+    /// What has not landed yet, broken out.
+    ///
+    /// The Settings screen shows the parts; everything else wants the total. Both read the same
+    /// descriptors, so there is one answer to "is anything outstanding" rather than a second
+    /// count that drifts from this one.
+    struct Outstanding: Equatable, Sendable {
+        /// Entries written here that the server has not acknowledged.
+        var entries: Int = 0
+        /// Deletions made here that the server has not been told about.
+        var deletions: Int = 0
+        /// Files whose bytes are not yet in storage.
+        var media: Int = 0
+
+        var total: Int { entries + deletions + media }
+        var isClear: Bool { total == 0 }
+    }
+
+    func outstanding() -> Outstanding {
+        Outstanding(
+            entries: (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0,
+            deletions: (try? context.fetchCount(EntrySync.pendingDeletionDescriptor())) ?? 0,
+            media: MediaCoordinator.outstandingCount(in: context)
+        )
+    }
+
     /// One count for one surface. An entry still saving and a photo still uploading are the
     /// same thing to a parent: work that has not landed yet.
     func unsyncedCount() -> Int {
-        let entries = (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0
-        let deletions = (try? context.fetchCount(EntrySync.pendingDeletionDescriptor())) ?? 0
-        return entries + deletions + MediaCoordinator.outstandingCount(in: context)
+        outstanding().total
     }
 
     /// Push what has not landed. Safe to call on every foreground; a no-op when there is

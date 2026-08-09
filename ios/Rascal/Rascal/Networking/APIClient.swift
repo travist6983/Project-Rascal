@@ -173,6 +173,18 @@ actor APIClient {
         return data
     }
 
+    /// A request carrying the current access token, for the one caller that must stream its own
+    /// response instead of buffering it.
+    ///
+    /// The archive export is tens or hundreds of megabytes and has to land on disk with real
+    /// progress; `send` would hold all of it in memory to hand back a `Data`. This is the seam
+    /// for that, and it is deliberately narrow — token handling stays here rather than being
+    /// reimplemented by the caller. Pair it with `refreshSession()` for the 401 retry, which is
+    /// the same single-flight refresh every other request uses.
+    func authorizedRequest(_ method: HTTPMethod, _ path: String) throws -> URLRequest {
+        try buildRequest(method, path, body: Optional<Never>.none, headers: [:], authenticated: true)
+    }
+
     private func buildRequest(
         _ method: HTTPMethod,
         _ path: String,

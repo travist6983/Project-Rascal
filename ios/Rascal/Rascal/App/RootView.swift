@@ -76,7 +76,7 @@ struct RootView: View {
                 case .moments:
                     MomentsScreen(childId: childId, api: session.api) { composer = $0 }
                 case .settings:
-                    SettingsScreen(childId: childId, session: session)
+                    SettingsScreen(childId: childId, session: session, sync: sync)
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,
                     // so this is unreachable. Today is what the app falls back to rather than a

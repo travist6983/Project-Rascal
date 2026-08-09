@@ -73,6 +73,7 @@ Last updated: **Aug 3, 2026**
 | Completion = circular terracotta checkmark + spring + haptic | Satisfying, quiet, repeatable. No stamp, no confetti. |
 | Light mode only for now | Dark mode is P2 at the earliest. |
 | Floating pill tab bar with center + FAB | Straight from the references. |
+| Destructive and irreversible actions are isolated in a separate bottom card, never adjacent to ordinary edit rows | A divider between two rows says "these belong together"; a gap says "these do not". Recomputing every stored age in an archive is not a neighbour of changing a name, and a mis-tap between the two is not recoverable by tapping again. |
 
 ### Rejected — do not revisit
 
