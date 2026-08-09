@@ -4,9 +4,14 @@ name: CI
 # has nothing for the Python suite to say, and running it anyway trains everyone to ignore
 # a green check that proved nothing. `.github/scripts/**` is in the filter because the lint
 # job lints `../.github` — leave it out and the backup pruner silently stops being checked.
+#
+# `main` only on the push leg, not `["**"]`. A push to a branch with an open pull request used
+# to fire this twice — once for the push, once for the pull request — on different concurrency
+# groups, so neither cancelled the other. `pull_request` tests the merge result, which is the
+# thing that matters; the push leg is here so a direct push to main is still gated.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - 'api/**'
       - '.github/scripts/**'
@@ -24,6 +29,9 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # Every job in this file was unbounded, and an unbounded job is six hours by default.
+    # Ruff over ninety files is seconds; five minutes is already absurd headroom.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -43,6 +51,7 @@ jobs:
   # on deploy day. Needs no credentials, which is the whole reason it can exist.
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       # Context is api/, not the repo root: every COPY in the Dockerfile is relative to it.
@@ -51,6 +60,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # The suite is ~30 seconds locally against a real Postgres. Ten covers a cold uv sync,
+    # the Postgres 16 client install, and the dump/restore round trip with room to spare.
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16

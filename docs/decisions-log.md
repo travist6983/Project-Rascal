@@ -705,3 +705,42 @@ that file left open.
   it does not move the work off the main thread, it stops the work monopolising it.
 - **`GET /me` returns the row `current_user` already loaded** and takes no `SessionDep`.
   Taking the session again only to re-read the same object would be a second query for it.
+
+## Aug 9, 2026 — cutting the Actions bill
+
+Actions is metered because the repo is private; it is free and unlimited on public ones.
+macOS bills at **ten times** Linux, so the Free plan's 2,000 minutes is 200 macOS minutes.
+Measured from run history: an `ios.yml` run is 3–7 minutes of wall clock, so **30–70 billed
+minutes each** — 1.5–3.5% of a month's allowance per run.
+
+- **The push trigger on `ci.yml` and `ios.yml` was `branches: ["**"]`, and that was the bug.**
+  A push to a branch with an open pull request fired both the push and the pull_request
+  workflow, on different concurrency groups, so neither cancelled the other and every push
+  cost double. Both are now `branches: [main]`. `pull_request` already tests the *merge
+  result*, which is the thing that matters; the push leg remains so a direct push to main is
+  still gated. This is where essentially all of the saving is.
+- **Draft pull requests no longer spend a macOS runner.** A draft here means paused or
+  blocked work — the stop-condition procedure says to open one — and 40 billed minutes to
+  report that an unfinished branch is unfinished is not worth it. `ready_for_review` is in the
+  trigger list so marking it ready runs what the guard deferred.
+- **Every job in `ci.yml` was unbounded**, which is six hours apiece by default: a single hung
+  run could have cost more than a normal month. All three now have timeouts. `ios.yml` came
+  down from 25 to 12, against an observed worst case of 7, capping a hang at 120 billed
+  minutes rather than 250.
+- **The simulator starts booting in the step that picks it**, so the boot overlaps the compile
+  in the next step instead of following it. `simctl boot` initiates and returns; waiting is
+  `bootstatus`.
+- **The build settings are marginal and are labelled as such.** Measured cold and locally,
+  `COMPILER_INDEX_STORE_ENABLE=NO`, `ONLY_ACTIVE_ARCH=YES` and
+  `-disableAutomaticPackageResolution` take a ~6s compile to ~5s. The job takes 3–7 minutes,
+  so compilation is not what it is spending. Kept because they are free, not because they are
+  a saving.
+- **Rejected: caching DerivedData.** Xcode's build cache is unreliable across runners, and the
+  failure mode here is specific — a stale cache means a file is not recompiled, and a file
+  that is not recompiled emits no warning. That would silently turn the zero-warning gate
+  green. The same mechanism had just hidden nine real warnings from an incremental local run.
+- **Rejected: touching `backup.yml`.** It looked like a candidate — a daily cron that had been
+  failing all week — but it started succeeding on Aug 8 once the secrets landed. It is the
+  archive's insurance, it runs on Linux, and it costs about 45 minutes a month. Left alone.
+- **Rejected: making the repo public**, which would make Actions free outright. `docs/` is
+  full of personal context about a specific child. Not a trade worth $5.
