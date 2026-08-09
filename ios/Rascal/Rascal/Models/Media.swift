@@ -51,7 +51,14 @@ final class Media {
     /// Bytes the background session reports as sent. Written from the delegate as they
     /// arrive, so the ring measures real progress rather than animating a guess. Persisted
     /// because a relaunch mid-upload should resume the ring where it was, not at zero.
-    var bytesSent: Int
+    ///
+    /// **The `= 0` is load-bearing.** A non-optional property added to an existing `@Model`
+    /// without a declaration default cannot be inferred by SwiftData's lightweight migration,
+    /// and the store fails to open with "missing attribute values on mandatory destination
+    /// attribute". Setting it in `init` is not enough — migration never runs `init`, it
+    /// rewrites rows that already exist. This shipped without one and bricked the app on a
+    /// device that had the previous build's store.
+    var bytesSent: Int = 0
 
     var attemptCount: Int
     /// When the next retry becomes eligible. Backoff lives on the row, not in memory, so it
