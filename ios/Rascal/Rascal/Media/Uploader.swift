@@ -38,6 +38,34 @@ final class MediaUploader: NSObject {
         return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }()
 
+    /// Last persisted byte count per task, so progress writes can be throttled without
+    /// re-reading the row to find out what was last written.
+    private let progressLock = NSLock()
+    private var lastPersisted: [Int: Int] = [:]
+
+    /// True when this callback is worth a database write.
+    ///
+    /// Terminal values always pass: the last callback of a part must land, or the ring stops
+    /// short of full and stays there.
+    private func shouldPersistProgress(task: URLSessionTask, bytes: Int, of expected: Int) -> Bool {
+        progressLock.lock()
+        defer { progressLock.unlock() }
+
+        let key = task.taskIdentifier
+        let previous = lastPersisted[key] ?? 0
+        let step = max(256 * 1024, expected / 100)
+
+        guard bytes >= previous + step || (expected > 0 && bytes >= expected) else { return false }
+        lastPersisted[key] = bytes
+        return true
+    }
+
+    private func forgetProgress(for task: URLSessionTask) {
+        progressLock.lock()
+        defer { progressLock.unlock() }
+        lastPersisted[task.taskIdentifier] = nil
+    }
+
     /// Rule 3. Never a stored context — a context outlives its usefulness across a relaunch,
     /// and the delegate may run before any exists.
     private func makeContext() -> ModelContext {
@@ -53,6 +81,57 @@ final class MediaUploader: NSObject {
     }
 
     // MARK: Starting an upload
+
+    /// Begin carrying one *part* of a staged file.
+    ///
+    /// A background session cannot upload a subrange of a file, and it cannot upload `Data` at
+    /// all — so each part is written to its own temporary file first. That costs one extra copy
+    /// of `chunk_bytes` on disk (8MB) rather than holding the whole video in memory, which is
+    /// the trade a 700MB interview makes worth taking.
+    func startPart(
+        mediaId: UUID,
+        partNumber: Int,
+        sourceFile: URL,
+        offset: Int,
+        length: Int,
+        to uploadURL: URL
+    ) {
+        guard let slice = Self.writeSlice(of: sourceFile, offset: offset, length: length,
+                                          named: "\(mediaId.uuidString)-\(partNumber)") else { return }
+
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+
+        let task = session.uploadTask(with: request, fromFile: slice)
+        // Both ids, because a part callback has to find its row and its parent.
+        task.taskDescription = "\(mediaId.uuidString)#\(partNumber)"
+        task.resume()
+    }
+
+    /// Extract a byte range to a temporary file, reading in blocks so a large video is never
+    /// resident in memory.
+    private static func writeSlice(of source: URL, offset: Int, length: Int, named: String) -> URL? {
+        guard let handle = try? FileHandle(forReadingFrom: source) else { return nil }
+        defer { try? handle.close() }
+
+        let destination = FileManager.default.temporaryDirectory.appending(path: "\(named).part")
+        try? FileManager.default.removeItem(at: destination)
+        guard FileManager.default.createFile(atPath: destination.path, contents: nil),
+              let out = try? FileHandle(forWritingTo: destination)
+        else { return nil }
+        defer { try? out.close() }
+
+        try? handle.seek(toOffset: UInt64(offset))
+        var remaining = length
+        let block = 1 << 20
+        while remaining > 0 {
+            let want = min(block, remaining)
+            guard let chunk = try? handle.read(upToCount: want), !chunk.isEmpty else { break }
+            try? out.write(contentsOf: chunk)
+            remaining -= chunk.count
+        }
+        return destination
+    }
 
     /// Begin carrying one staged file. The row must already have an `s3Key` and a presigned
     /// destination — see `MediaCoordinator`, which owns the ordering.
@@ -90,9 +169,33 @@ extension MediaUploader: URLSessionDataDelegate {
         totalBytesSent: Int64,
         totalBytesExpectedToSend: Int64
     ) {
-        guard let id = task.taskDescription.flatMap(UUID.init(uuidString:)) else { return }
+        guard let route = Self.route(task) else { return }
+
+        // Persist coarsely. This fires many times a second per part, parts run concurrently,
+        // and every save wakes the @Query behind Today — which re-runs the whole board merge.
+        // Photos finished too fast for that to show; a 70MB video turned it into hundreds of
+        // full re-renders a second, which is what made the app feel slow.
+        //
+        // A ring cannot render more finely than a pixel anyway, so ~1% is free.
+        guard shouldPersistProgress(task: task, bytes: Int(totalBytesSent), of: Int(totalBytesExpectedToSend))
+        else { return }
+
         let context = makeContext()
-        guard let media = Self.media(id: id, in: context) else { return }
+
+        if let partNumber = route.part {
+            guard let part = Self.part(mediaId: route.mediaId, number: partNumber, in: context) else { return }
+            part.bytesSent = Int(totalBytesSent)
+            // The parent's progress is the sum of its parts, so the ring measures the whole
+            // video rather than whichever part happens to be in flight.
+            if let media = Self.media(id: route.mediaId, in: context) {
+                if media.state != .uploading { media.state = .uploading }
+                media.bytesSent = Self.parts(of: route.mediaId, in: context).reduce(0) { $0 + $1.bytesSent }
+            }
+            try? context.save()
+            return
+        }
+
+        guard let media = Self.media(id: route.mediaId, in: context) else { return }
         if media.state != .uploading { media.state = .uploading }
         // The real number, not a spinner. The ring in F-2 is drawn from this.
         media.bytesSent = Int(totalBytesSent)
@@ -103,9 +206,15 @@ extension MediaUploader: URLSessionDataDelegate {
         // Context first, before touching anything. Rule 3.
         let context = makeContext()
 
-        guard let id = task.taskDescription.flatMap(UUID.init(uuidString:)),
-              let media = Self.media(id: id, in: context)
-        else { return }
+        guard let route = Self.route(task) else { return }
+        forgetProgress(for: task)
+
+        if let partNumber = route.part {
+            finishPart(route.mediaId, partNumber, task: task, error: error, context: context)
+            return
+        }
+
+        guard let media = Self.media(id: route.mediaId, in: context) else { return }
 
         if error != nil {
             // A retry re-sends from the start, so the ring must not keep a stale high-water
@@ -137,7 +246,63 @@ extension MediaUploader: URLSessionDataDelegate {
 
         // Storage has the bytes; the server does not know yet. `MediaCoordinator` finishes the
         // handshake, and the sweep retries this leg independently of re-uploading.
-        Task { await MediaCoordinator.shared?.finishUpload(mediaId: id) }
+        Task { [id = route.mediaId] in await MediaCoordinator.shared?.finishUpload(mediaId: id) }
+    }
+
+    /// One part landed. The media row is only `uploaded` once every part has an ETag —
+    /// storage has the bytes but has assembled nothing until `complete` is called with all of
+    /// them, which is the difference from the single-PUT path.
+    private func finishPart(
+        _ mediaId: UUID,
+        _ partNumber: Int,
+        task: URLSessionTask,
+        error: Error?,
+        context: ModelContext
+    ) {
+        // The slice file has served its purpose either way; leaving them accumulates a second
+        // copy of every video in tmp.
+        let slice = FileManager.default.temporaryDirectory
+            .appending(path: "\(mediaId.uuidString)-\(partNumber).part")
+        try? FileManager.default.removeItem(at: slice)
+
+        guard let part = Self.part(mediaId: mediaId, number: partNumber, in: context) else { return }
+        let response = task.response as? HTTPURLResponse
+        let status = response?.statusCode ?? 0
+
+        guard error == nil, (200..<300).contains(status),
+              let etag = response?.value(forHTTPHeaderField: "ETag")
+        else {
+            // No ETag means not finished, however successful the PUT looked — `complete`
+            // cannot be called without one for every part.
+            part.bytesSent = 0
+            part.attemptCount += 1
+            part.nextAttemptAt = UploadBackoff.nextAttempt(after: part.attemptCount)
+            if let media = Self.media(id: mediaId, in: context), part.nextAttemptAt == nil {
+                media.state = .failed
+            }
+            try? context.save()
+            return
+        }
+
+        part.etag = etag.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        part.bytesSent = part.length
+        part.attemptCount = 0
+        part.nextAttemptAt = nil
+
+        let all = Self.parts(of: mediaId, in: context)
+        if let media = Self.media(id: mediaId, in: context) {
+            media.bytesSent = all.reduce(0) { $0 + $1.bytesSent }
+            if all.allSatisfy(\.isUploaded) {
+                media.state = .uploaded
+                media.attemptCount = 0
+                media.nextAttemptAt = nil
+            }
+        }
+        try? context.save()
+
+        if all.allSatisfy(\.isUploaded) {
+            Task { await MediaCoordinator.shared?.finishUpload(mediaId: mediaId) }
+        }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
@@ -146,6 +311,34 @@ extension MediaUploader: URLSessionDataDelegate {
         let handler = backgroundCompletionHandler
         backgroundCompletionHandler = nil
         DispatchQueue.main.async { handler?() }
+    }
+
+    /// A task carries either a media id or `mediaId#partNumber`. Parsing it here keeps the
+    /// encoding in one place — it is the only channel that survives a relaunch.
+    static func route(_ task: URLSessionTask) -> (mediaId: UUID, part: Int?)? {
+        guard let raw = task.taskDescription else { return nil }
+        let pieces = raw.split(separator: "#", maxSplits: 1)
+        guard let id = UUID(uuidString: String(pieces[0])) else { return nil }
+        return (id, pieces.count > 1 ? Int(pieces[1]) : nil)
+    }
+
+    private static func part(mediaId: UUID, number: Int, in context: ModelContext) -> MediaPart? {
+        var descriptor = FetchDescriptor<MediaPart>(
+            predicate: #Predicate { $0.mediaId == mediaId && $0.partNumber == number }
+        )
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
+    }
+
+    static func parts(of mediaId: UUID, in context: ModelContext) -> [MediaPart] {
+        // Predicate-filtered, not fetch-everything-then-filter. This runs on the progress path
+        // for every part of every upload, and reading the whole table each time is how a
+        // 70MB video made the app crawl.
+        let descriptor = FetchDescriptor<MediaPart>(
+            predicate: #Predicate { $0.mediaId == mediaId },
+            sortBy: [SortDescriptor(\.partNumber)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
     }
 
     private static func media(id: UUID, in context: ModelContext) -> Media? {

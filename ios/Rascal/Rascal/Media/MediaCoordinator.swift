@@ -91,6 +91,13 @@ final class MediaCoordinator {
             media.state = .uploading
             try? context.save()
 
+            if let parts = ticket.parts, !parts.isEmpty, let chunk = ticket.chunkBytes {
+                planParts(for: media, parts: parts, chunk: chunk, in: context)
+                try? context.save()
+                dispatchParts(media: media, file: fileURL, in: context)
+                return
+            }
+
             guard let destination = ticket.uploadURL.flatMap(URL.init(string:)) else {
                 media.recordAttemptFailure()
                 try? context.save()
@@ -108,6 +115,46 @@ final class MediaCoordinator {
         }
     }
 
+    /// Record the server's plan. The byte ranges come from `chunk_bytes`, which the server used
+    /// to compute the part count — a client that picks its own size produces the wrong number of
+    /// parts and completion fails.
+    private func planParts(for media: Media, parts: [UploadPart], chunk: Int, in context: ModelContext) {
+        for existing in MediaUploader.parts(of: media.id, in: context) {
+            context.delete(existing)
+        }
+        let expiry = Date().addingTimeInterval(3000)
+        for part in parts.sorted(by: { $0.partNumber < $1.partNumber }) {
+            let offset = (part.partNumber - 1) * chunk
+            // The last part is short — the file rarely divides evenly, and sending a full chunk
+            // from the end would read past EOF and upload padding.
+            let length = min(chunk, max(0, media.byteCount - offset))
+            context.insert(MediaPart(
+                mediaId: media.id,
+                partNumber: part.partNumber,
+                offset: offset,
+                length: length,
+                uploadURL: part.uploadUrl,
+                expiresAt: expiry
+            ))
+        }
+    }
+
+    /// Hand every outstanding part to the background session. Parts already carrying an ETag
+    /// are skipped, which is what makes a resumed upload resume rather than restart.
+    private func dispatchParts(media: Media, file: URL, in context: ModelContext) {
+        for part in MediaUploader.parts(of: media.id, in: context) where !part.isUploaded {
+            guard let url = URL(string: part.uploadURL), part.length > 0 else { continue }
+            uploader.startPart(
+                mediaId: media.id,
+                partNumber: part.partNumber,
+                sourceFile: file,
+                offset: part.offset,
+                length: part.length,
+                to: url
+            )
+        }
+    }
+
     /// Tell the server the object landed. Called by the upload delegate, and retried by the
     /// sweep independently of the PUT.
     func finishUpload(mediaId: UUID) async {
@@ -117,9 +164,22 @@ final class MediaCoordinator {
               media.state == .uploaded
         else { return }
 
+        // Multipart completion needs an ETag for every part, sorted — the server assembles in
+        // the order it is given. Verified against Tigris with a real 40MB object before any of
+        // this was written.
+        let etags = MediaUploader.parts(of: media.id, in: context)
+            .compactMap { part in part.etag.map { (part: part.partNumber, etag: $0) } }
+
+        if media.isMultipart, etags.count != MediaUploader.parts(of: media.id, in: context).count {
+            // A part is still outstanding. Completing now would assemble a truncated object,
+            // which storage accepts and nobody notices until the video will not play.
+            return
+        }
+
         do {
             try await api.completeMedia(
                 mediaId: media.id,
+                etags: etags,
                 capturedAt: media.capturedAt,
                 durationSeconds: media.durationSeconds
             )

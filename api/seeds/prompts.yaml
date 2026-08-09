@@ -595,7 +595,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -606,7 +606,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -617,7 +617,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -628,7 +628,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -639,7 +639,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -650,7 +650,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -661,7 +661,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -672,7 +672,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -683,7 +683,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -694,7 +694,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: video
   cadence: daily
   completion_mode: media
@@ -707,7 +707,7 @@
   - 6
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -1059,7 +1059,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: activity
   cadence: weekly
   completion_mode: media

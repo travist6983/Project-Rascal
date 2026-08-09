@@ -141,14 +141,12 @@ struct TodayScreen: View {
 
             Spacer(minLength: 0)
 
-            // TESTING ONLY — remove before this ships. Pull-to-refresh already exists and is
-            // the real gesture; this is here so a device session can force a refetch without
-            // the scroll view fighting a short board.
+            // TESTING ONLY — remove before this ships, along with the debug route behind it.
+            // Rebuilds today as one assignment per kind, because the real scheduler fills
+            // slots and therefore cannot produce one of every kind on demand — which is what
+            // exercising the photo and video paths in one sitting actually needs.
             Button {
-                Task {
-                    await model?.load(showSpinner: false)
-                    onRetrySync()
-                }
+                Task { await resetBoard() }
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 15, weight: .semibold))
@@ -253,6 +251,23 @@ struct TodayScreen: View {
     private func failures(for item: TodayBoard.BoardItem) -> [Media] {
         guard let entryId = item.localEntryId else { return [] }
         return localMedia.filter { $0.entryId == entryId && $0.state == .failed }
+    }
+
+    /// Rebuild the board, then refetch. Failures surface in the same quiet notice the rest of
+    /// the screen uses rather than a dialog — it is a test affordance, not a user feature.
+    private func resetBoard() async {
+        do {
+            let result = try await api.resetBoard(childId: childId)
+            await model?.load(showSpinner: false)
+            if !result.unavailable.isEmpty {
+                model?.notice = "No active prompt for: \(result.unavailable.joined(separator: ", "))"
+            }
+        } catch let error as APIError {
+            model?.notice = error.userMessage
+        } catch {
+            model?.notice = error.localizedDescription
+        }
+        onRetrySync()
     }
 
     private func retry(_ media: [Media]) {

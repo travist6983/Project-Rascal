@@ -104,27 +104,47 @@ import UIKit
 /// Building a custom viewfinder would be slower to reach and worse to operate.
 struct CameraPicker: UIViewControllerRepresentable {
     let onCapture: (Data) -> Void
+    /// Where a captured movie lands. Video comes back as a file URL, never as `Data` — a
+    /// minute of 1080p is ~70MB and reading it into memory to hand it along would be the
+    /// easiest way to get the composer killed.
+    var onCaptureVideo: ((URL) -> Void)?
+    var wantsVideo = false
+
     @Environment(\.dismiss) private var dismiss
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let controller = UIImagePickerController()
         controller.sourceType = .camera
         controller.delegate = context.coordinator
+        if wantsVideo {
+            controller.mediaTypes = ["public.movie"]
+            controller.cameraCaptureMode = .video
+            // Capture at the device's best, then transcode to 1080p. Recording at a lower
+            // preset would throw away the original quality before it could be preserved to the
+            // camera roll, and the point of the transcode is that nothing is lost to it.
+            controller.videoQuality = .typeHigh
+        }
         return controller
     }
 
     func updateUIViewController(_ controller: UIImagePickerController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onCapture: onCapture, dismiss: { dismiss() })
+        Coordinator(onCapture: onCapture, onCaptureVideo: onCaptureVideo, dismiss: { dismiss() })
     }
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         private let onCapture: (Data) -> Void
+        private let onCaptureVideo: ((URL) -> Void)?
         private let dismiss: () -> Void
 
-        init(onCapture: @escaping (Data) -> Void, dismiss: @escaping () -> Void) {
+        init(
+            onCapture: @escaping (Data) -> Void,
+            onCaptureVideo: ((URL) -> Void)?,
+            dismiss: @escaping () -> Void
+        ) {
             self.onCapture = onCapture
+            self.onCaptureVideo = onCaptureVideo
             self.dismiss = dismiss
         }
 
@@ -132,10 +152,12 @@ struct CameraPicker: UIViewControllerRepresentable {
             _ picker: UIImagePickerController,
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
-            // Full quality out of the camera. The pipeline does the compressing, so that the
-            // camera and library paths produce identical bytes.
-            if let image = info[.originalImage] as? UIImage,
-               let data = image.jpegData(compressionQuality: 1.0) {
+            if let movie = info[.mediaURL] as? URL {
+                onCaptureVideo?(movie)
+            } else if let image = info[.originalImage] as? UIImage,
+                      let data = image.jpegData(compressionQuality: 1.0) {
+                // Full quality out of the camera. The pipeline does the compressing, so the
+                // camera and library paths produce identical bytes.
                 onCapture(data)
             }
             dismiss()

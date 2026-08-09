@@ -100,15 +100,19 @@ struct ComposerView: View {
         .presentationDragIndicator(.visible)
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { data in importCaptured(data) }
-                .ignoresSafeArea()
+            CameraPicker(
+                onCapture: { data in importCaptured(data) },
+                onCaptureVideo: { url in Task { await importCapturedVideo(url) } },
+                wantsVideo: isVideoPrompt
+            )
+            .ignoresSafeArea()
         }
         #endif
         .photosPicker(
             isPresented: $showLibrary,
             selection: $picking,
             maxSelectionCount: 10,
-            matching: .images,
+            matching: isVideoPrompt ? .videos : .any(of: [.images, .videos]),
             photoLibrary: .shared()
         )
         .onChange(of: picking) { _, items in
@@ -155,9 +159,38 @@ struct ComposerView: View {
         defer { importing = false; picking = [] }
 
         for item in items {
+            // A video is transferred as a file, never as Data — a picked 4K minute is hundreds
+            // of megabytes and loading it into memory to hand it along is how the composer gets
+            // killed mid-selection.
+            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                if let movie = try? await item.loadTransferable(type: PickedMovie.self) {
+                    do {
+                        drafts.append(try await MediaDraftBuilder.makeVideo(fileAt: movie.url, store: staging))
+                    } catch {
+                        notice = "One of those videos couldn't be read, so it wasn't added."
+                    }
+                    // The picker's copy has served its purpose; the transcode is in staging.
+                    try? FileManager.default.removeItem(at: movie.url)
+                }
+                continue
+            }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             append(fromData: data)
         }
+        adoptExifDateIfUnchosen()
+    }
+
+    /// A video captured in-app. The original goes back to the camera roll before anything
+    /// else — it exists nowhere else, and the transcode about to happen is one-way.
+    private func importCapturedVideo(_ url: URL) async {
+        importing = true
+        await VideoPipeline.preserveOriginal(at: url)
+        do {
+            drafts.append(try await MediaDraftBuilder.makeVideo(fileAt: url, store: staging))
+        } catch {
+            notice = "That video couldn't be read, so it wasn't added."
+        }
+        importing = false
         adoptExifDateIfUnchosen()
     }
 
@@ -300,9 +333,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Video capture does not exist yet, so a video prompt gets the library and text — never
-    /// the stills camera, which is the lie the device session caught: a mission saying "film
-    /// the whole thing" above a button that takes a photograph.
+    /// A video prompt gets a camera that actually records video, and a picker that offers
+    /// videos. Previously it offered a stills camera above copy explaining video was not
+    /// ready, which is the lie the device session caught twice.
     private var isVideoPrompt: Bool { request.assignment?.promptKind == .video }
 
     private var captureChoices: some View {
@@ -318,9 +351,12 @@ struct ComposerView: View {
             .buttonStyle(TapScaleButtonStyle())
 
             #if canImport(UIKit)
-            if !isVideoPrompt, UIImagePickerController.isSourceTypeAvailable(.camera) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button { showCamera = true } label: {
-                    choiceTile(symbol: "camera", label: "Take a photo")
+                    choiceTile(
+                        symbol: isVideoPrompt ? "video" : "camera",
+                        label: isVideoPrompt ? "Record" : "Take a photo"
+                    )
                 }
                 .buttonStyle(TapScaleButtonStyle())
             }
@@ -451,11 +487,14 @@ struct ComposerView: View {
             let media = Media(
                 id: draft.id,
                 entryId: entry.id,
-                kind: "photo",
+                // The server decides single-PUT versus multipart from the byte count it is
+                // given, and derives entry_type from the kind — so both have to be honest.
+                kind: draft.kind,
                 contentType: draft.contentType,
                 byteCount: draft.byteCount,
                 stagedExtension: draft.fileExtension,
-                capturedAt: draft.capturedAt
+                capturedAt: draft.capturedAt,
+                durationSeconds: draft.durationSeconds
             )
             media.hasThumbnail = true
             context.insert(media)

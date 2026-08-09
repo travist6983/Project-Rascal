@@ -129,7 +129,7 @@ enum LocalStore {
     /// the app and the delegate take it from here.
     static let shared: ModelContainer = container()
 
-    static let schema = Schema([Entry.self, Media.self])
+    static let schema = Schema([Entry.self, Media.self, MediaPart.self])
 
     /// Open the store, and if it cannot be opened, recover rather than die.
     ///

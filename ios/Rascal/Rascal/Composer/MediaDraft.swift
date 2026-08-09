@@ -1,5 +1,7 @@
+import CoreTransferable
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A photo the parent has chosen but not yet saved.
 ///
@@ -15,10 +17,18 @@ struct MediaDraft: Identifiable, Equatable {
     let fileExtension: String
     let byteCount: Int
     let contentType: String
-    /// EXIF `DateTimeOriginal` where the source had one.
+    /// EXIF `DateTimeOriginal`, or a video's creation date, where the source had one.
     let capturedAt: Date?
     /// Held in memory for the preview only; also written to staging for the timeline cache.
+    /// For a video this is the poster frame.
     let thumbnail: Data
+    /// `photo` or `video`. Drives the badge on the preview tile and the `kind` sent to the
+    /// server, which decides single-PUT versus multipart.
+    var kind: String = "photo"
+    /// Seconds, for a video. Sent to `complete`.
+    var durationSeconds: Int?
+
+    var isVideo: Bool { kind == "video" }
 
     var image: Image? {
         #if canImport(UIKit)
@@ -44,6 +54,27 @@ enum MediaDraftBuilder {
     static func make(fileAt url: URL, store: StagingStore) throws -> MediaDraft {
         let processed = try ImagePipeline.process(fileAt: url)
         return try stage(processed, store: store)
+    }
+
+    /// A video, transcoded to 1080p H.264 on the way in. The original is preserved to the
+    /// camera roll by the caller — this only decides what the archive holds.
+    static func makeVideo(fileAt url: URL, store: StagingStore) async throws -> MediaDraft {
+        let id = UUID()
+        let processed = try await VideoPipeline.process(fileAt: url, into: store, as: id)
+        if let poster = processed.posterFrame {
+            try? store.stageThumbnail(poster, for: id)
+        }
+        return MediaDraft(
+            id: id,
+            stagedURL: processed.url,
+            fileExtension: processed.fileExtension,
+            byteCount: processed.byteCount,
+            contentType: processed.contentType,
+            capturedAt: processed.capturedAt,
+            thumbnail: processed.posterFrame ?? Data(),
+            kind: "video",
+            durationSeconds: processed.durationSeconds
+        )
     }
 
     private static func stage(
@@ -75,5 +106,26 @@ enum MediaDraftBuilder {
     static func suggestedOccurredAt(for drafts: [MediaDraft], now: Date = Date()) -> Date {
         let dates = drafts.compactMap(\.capturedAt)
         return dates.min() ?? now
+    }
+}
+
+/// A video pulled out of `PhotosPicker` as a file rather than as bytes.
+///
+/// `loadTransferable(type: Data.self)` would work and would also read an entire video into
+/// memory — hundreds of megabytes for a 4K minute. This copies it to a temporary file instead,
+/// which is what every downstream step wants anyway.
+nonisolated struct PickedMovie: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { movie in
+            SentTransferredFile(movie.url)
+        } importing: { received in
+            let copy = FileManager.default.temporaryDirectory
+                .appending(path: "picked-\(UUID().uuidString).\(received.file.pathExtension)")
+            try? FileManager.default.removeItem(at: copy)
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return PickedMovie(url: copy)
+        }
     }
 }

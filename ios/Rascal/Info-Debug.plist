@@ -64,6 +64,8 @@
 	     sentence a parent would actually understand — what is taken, and where it goes. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Add photos you have already taken to your child's archive. Nothing is read or uploaded unless you pick it.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo or video for today's prompt without leaving the app.</string>
 	<key>NSMicrophoneUsageDescription</key>
