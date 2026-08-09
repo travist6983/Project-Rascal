@@ -65,10 +65,12 @@ struct TimelineScreen: View {
                 },
                 onQueryChange: { search?.search($0) }
             )
-            // Rebuilt when the filter changes — `@Query`'s predicate is fixed at init — and when
-            // search opens or closes, because a search reads the whole archive regardless of which
-            // filter chip is selected underneath it.
-            .id(SearchIdentity(filter: model?.filter ?? .all, searching: isSearchOpen))
+            // **Identity is the predicate, not the state.** `@Query` fixes its predicate at init,
+            // so the list has to be a new instance whenever that predicate must change — and only
+            // then. A search reads the whole archive, so it is the `.all` predicate however it got
+            // there; opening search from All therefore rebuilds nothing, which is the common path
+            // and the one where tearing the list down would be most obvious.
+            .id(isSearchOpen ? TimelineFilter.all : (model?.filter ?? .all))
             .background(Color.canvas)
             // The list is the root of its own stack and wears no navigation bar: v3 gives it a
             // sticky header of its own, carrying the screen's name, its count, and the filters.
@@ -110,16 +112,6 @@ struct TimelineScreen: View {
             notice: search.notice
         )
     }
-}
-
-/// What the list is currently showing, for `@Query`'s benefit.
-///
-/// `@Query` fixes its predicate at initialisation, so the list has to be a new instance whenever
-/// either half of this changes. A struct rather than two `.id` modifiers because SwiftUI takes one
-/// identity, and two calls would mean the second silently won.
-private struct SearchIdentity: Hashable {
-    let filter: TimelineFilter
-    let searching: Bool
 }
 
 /// A snapshot of the search, for the list to render.

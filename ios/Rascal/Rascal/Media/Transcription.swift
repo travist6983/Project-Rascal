@@ -102,12 +102,17 @@ nonisolated enum TranscriptionReadiness: Equatable, Sendable {
 nonisolated enum TranscriptionFailure: Error, Equatable {
     /// The file the row points at is not on this device and could not be fetched back.
     case bytesUnreachable
+    /// The recording is only on the server, and this phone is on a network it pays for. A
+    /// deferral rather than a failure — see `MediaAccess.backfillSession` for why bulk backfill
+    /// refuses cellular — so the sentence says what will happen rather than what went wrong.
+    case waitingForWiFi
     /// The analyzer refused or died mid-run.
     case engine(String)
 
     var message: String {
         switch self {
         case .bytesUnreachable: "The recording wasn't reachable from this phone."
+        case .waitingForWiFi: "Waiting for Wi-Fi — this one is only on the server."
         case .engine(let detail): "Transcribing stopped: \(detail)"
         }
     }

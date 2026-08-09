@@ -18,7 +18,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **25** (+1 open: transcription) |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
-| iOS tests | **343 passing**, 41 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **354 passing**, 42 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
@@ -138,7 +138,7 @@ ls api/tests/test_*.py | wc -l               # 23 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 343 iOS tests, 41 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 354 iOS tests, 42 suites, zero warnings
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "

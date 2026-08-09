@@ -74,7 +74,9 @@ struct TranscriptionBacklogSection: View {
 
     private func running(_ progress: TranscriptionQueue.Progress) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Transcribing \(progress.completed + 1) of \(progress.total)")
+            // Clamped, because the counter is incremented after each row finishes and the view can
+            // render in the gap before the run tears its progress down — which showed "4 of 3".
+            Text("Transcribing \(min(progress.completed + 1, progress.total)) of \(progress.total)")
                 .typeRole(.body)
                 .foregroundStyle(Color.ink)
             ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))

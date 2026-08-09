@@ -37,6 +37,14 @@ actor SpeechTranscription: SpeechTranscribing {
     /// `installing`, the row stays queued, and a later run finds it installed.
     private var installationRequested = false
 
+    /// Locales already reserved this process.
+    ///
+    /// Reserving is what keeps a model allocated to this app while it runs, and it is a per-locale
+    /// fact that does not change underneath us — so doing it once beats doing it three hundred
+    /// times during a backlog run, which is three hundred XPC round trips to be told the same
+    /// thing. `AssetInventory.maximumReservedLocales` is small, and this app only ever wants one.
+    private var reserved: Set<String> = []
+
     // MARK: - Availability
 
     func readiness(preferring preferred: Locale) async -> TranscriptionReadiness {
@@ -48,19 +56,60 @@ actor SpeechTranscription: SpeechTranscribing {
         // runner. Everything below it costs an XPC round trip.
         guard SpeechTranscriber.isAvailable else { return .unavailable }
 
+        // Both lists are gathered before anything is decided, so the decision itself is a pure
+        // function that a test can drive — see `decide`. `supportedLocales` is only actually
+        // needed on the miss, but reading it unconditionally is one round trip against a
+        // once-per-sweep call, and it is what keeps the ladder out of the I/O.
         let installed = await SpeechTranscriber.installedLocales
+        let supported = await SpeechTranscriber.supportedLocales
+
+        let verdict = Self.decide(preferred: preferred, installed: installed, supported: supported)
+        if case .installing(let locale) = verdict {
+            await requestInstallationOnce(for: locale)
+            return .installing
+        }
+        return verdict.readiness
+    }
+
+    /// The ladder, with the I/O taken out of it.
+    ///
+    /// Three outcomes and the order between them is the whole content: **installed beats
+    /// supported**, because a model that merely *could* be downloaded transcribes nothing today,
+    /// and supported-but-absent beats unsupported because the first resolves itself and the second
+    /// never will. Getting that order wrong would either transcribe with a model that is not there
+    /// or give up on a phone that was one download away.
+    ///
+    /// Extracted so it can be asserted rather than reasoned about. Everything it consumes is a
+    /// plain value, so the suite drives it directly even though nothing around it can run.
+    nonisolated static func decide(
+        preferred: Locale,
+        installed: [Locale],
+        supported: [Locale]
+    ) -> Verdict {
         if let resolved = TranscriptionLocale.resolve(preferred: preferred, installed: installed) {
             return .ready(resolved)
         }
-
-        // Nothing installed that can serve this device. Supported-but-absent is worth one
-        // download request; unsupported is worth nothing at all.
-        let supported = await SpeechTranscriber.supportedLocales
         guard let wanted = TranscriptionLocale.resolve(preferred: preferred, installed: supported) else {
             return .unavailable
         }
-        await requestInstallationOnce(for: wanted.locale)
-        return .installing
+        return .installing(wanted.locale)
+    }
+
+    /// `TranscriptionReadiness` plus the one thing it deliberately does not carry: *which* locale
+    /// to ask the system to download. That is an instruction to this type, not a fact the queue
+    /// has any use for.
+    nonisolated enum Verdict: Equatable, Sendable {
+        case ready(TranscriptionLocale)
+        case installing(Locale)
+        case unavailable
+
+        var readiness: TranscriptionReadiness {
+            switch self {
+            case .ready(let locale): .ready(locale)
+            case .installing: .installing
+            case .unavailable: .unavailable
+            }
+        }
     }
 
     /// Ask the system for the model, once, and do not wait on it.
@@ -111,10 +160,14 @@ actor SpeechTranscription: SpeechTranscribing {
             throw TranscriptionFailure.bytesUnreachable
         }
 
-        // Reserving is what keeps the model allocated to this app while it runs. A failure here is
-        // not fatal on its own — an already-reserved locale reports one — so the analyzer is given
-        // its chance to say whether it can actually work.
-        _ = try? await AssetInventory.reserve(locale: locale.locale)
+        // Reserving is what keeps the model allocated to this app while it runs. Once per locale
+        // per process — see `reserved`. A failure is not fatal on its own, so the analyzer is
+        // still given its chance to say whether it can actually work; the locale is only recorded
+        // as reserved when the call actually succeeded.
+        if !reserved.contains(locale.locale.identifier),
+           (try? await AssetInventory.reserve(locale: locale.locale)) != nil {
+            reserved.insert(locale.locale.identifier)
+        }
 
         let transcriber = SpeechTranscriber(locale: locale.locale, preset: Self.preset)
         let analyzer = SpeechAnalyzer(modules: [transcriber])
@@ -138,7 +191,19 @@ actor SpeechTranscription: SpeechTranscribing {
         // out from under a running analyzer is how one gets leaked. Either way nothing has been
         // written yet, which is the property that actually matters — a cancelled run leaves no
         // partial transcript because the write happens strictly after this returns.
-        let text = try await collected
+        let text: String
+        do {
+            text = try await collected
+        } catch is CancellationError {
+            // Rethrown bare, because the queue matches on this type to distinguish "stopped" from
+            // "failed" — a cancelled run records no attempt and no failure message.
+            throw CancellationError()
+        } catch {
+            // Anything else out of the results sequence is an engine failure like any other. It
+            // used to escape as a raw `Speech` error and land in the row's failure text as an
+            // opaque domain string, which is not a sentence anyone should read in Settings.
+            throw TranscriptionFailure.engine(error.localizedDescription)
+        }
         try Task.checkCancellation()
         return Self.tidy(text)
     }

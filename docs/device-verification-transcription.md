@@ -138,8 +138,15 @@ filters, history, or highlighting, that is a note for later and not a bug.
       suggestions.
 - [ ] Scroll a query with many results past the first page and confirm more load, without
       repeats.
-- [ ] Tap **Cancel**. The timeline returns with its filter chips and its previous scroll.
-- [ ] Open a search result and come back. Nothing has been lost.
+- [ ] Tap **Cancel**. The timeline returns with its filter chips.
+- [ ] Open a search result and come back to the results. Nothing has been lost.
+
+**Scroll position across search is not promised, and I do not know what it does.** Opening search
+swaps the list's contents for the results and Cancel swaps them back; where that leaves the offset
+is SwiftUI's decision, not one this code makes. Opening search from **All** at least does not
+rebuild the list — the `@Query` predicate is identical — so that is the case most likely to behave.
+Note what actually happens from All and from a filter chip; if it lands somewhere jarring, that is
+worth a small fix rather than a shrug.
 
 **Known limitation worth confirming rather than reporting:** a result that matched on a
 transcript written by *another* device will not show the matching line, because `GET /entries`
@@ -159,6 +166,15 @@ ordinary card, not an empty one.
 - [ ] Watch the battery percentage across a run of twenty or more. Write down the drop. This is
       the number that decides whether the backlog stays manual forever or could ever be
       automatic while charging.
+- [ ] **On cellular, off Wi-Fi**, run the backlog against entries recorded on *another* device
+      (or after a fresh install, where nothing is staged locally). Those rows must **not**
+      download: they should come back as didn't-finish, and the row's reason should read
+      *"Waiting for Wi-Fi — this one is only on the server."* Confirm no meaningful cellular
+      data was used, in Settings → Cellular.
+- [ ] Back on Wi-Fi, run it again. The same rows now complete.
+- [ ] **Also on cellular**, record something new and let it transcribe. This one *must* work —
+      its audio is already on the phone and nothing is fetched. If it is also deferred, the
+      staged-original path is not being taken and that is a bug.
 
 ## 7. Locale
 

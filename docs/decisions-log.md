@@ -890,3 +890,40 @@ execute failed, and it was right to.
 - **That rewrite found a real defect.** `fetch` checked `Task.isCancelled` on the success path
   and not on the failure path, so an abandoned request's error wrote a notice and marked the
   list finished — over results belonging to the query still on screen, and after them.
+
+### Hardening pass — turning "not confident" into either a test or a fix
+
+- **`AVAudioFile` opening the recorder's own m4a was assumed, and is now asserted.** The whole
+  transcription path treats a failed open as `bytesUnreachable`, so if AAC-in-MP4 were not
+  readable that way, every device would fail with a message about the file being missing while
+  the stub went on passing. `AudioPipelineTests`'s real-recording fixture was made shared and
+  the assertion added.
+- **Two `ModelContext`s over one store was reasoned about and is now measured.** The automatic
+  trigger crosses them — `MediaCoordinator` marks `complete` in a per-call context, the queue
+  reads through the environment's — and a stale read would mean no new recording is ever
+  transcribed automatically, with the backlog button as the only route to a transcript. Tested
+  against a file-backed store, with the reading context loading the row first so it is a
+  refresh question rather than a cold fetch.
+- **The readiness ladder was lifted out of its I/O.** `SpeechTranscription.decide` is now a pure
+  function over `(preferred, installed, supported)`. The ordering is the entire content —
+  installed beats supported, supported beats nothing — and getting it wrong is silent in both
+  directions. None of the surrounding API can run here; the decision now can.
+- **Bulk backfill refuses cellular.** This was the one thing found in review that would have
+  shipped as a genuine harm rather than a rough edge: a backlog run fetches hundreds of files,
+  and it was using `URLSession.shared`. Someone pressing a button about transcribing has not
+  consented to a few hundred megabytes of cellular data. Only rows from another device are
+  affected — a recording made here is read in place — and `URLError.networkUnavailableReason`
+  is what tells "deferred" apart from "lost" so the row can say which.
+- **The backlog said "4 of 3".** The counter increments after each row and the view can render
+  in the gap before the run tears its progress down. Clamped.
+- **A non-cancellation error out of the results sequence escaped raw.** It landed in the row's
+  failure text as an opaque `Speech` domain string, which is not a sentence anyone should read
+  in Settings. Wrapped as `TranscriptionFailure.engine` like every other engine failure.
+- **`AssetInventory.reserve` was called per transcription.** Three hundred XPC round trips
+  during a backlog run to be told the same thing. Cached per locale per process, and only
+  recorded as reserved when the call actually succeeded.
+- **The list is no longer rebuilt when search opens from All.** Identity is the `@Query`
+  predicate rather than the UI state, and a search is the `.all` predicate however it got
+  there — so the common path stops tearing the whole list down. What that does to scroll
+  position is still SwiftUI's decision, and the device checklist now says so instead of
+  promising the scroll is preserved.

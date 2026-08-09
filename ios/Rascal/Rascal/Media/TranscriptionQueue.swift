@@ -326,8 +326,12 @@ final class TranscriptionQueue {
         }
 
         let mediaId = media.id
-        guard let input = await resolveInput(for: media) else {
-            media.recordTranscriptFailure(TranscriptionFailure.bytesUnreachable.message, now: now)
+        let input: (url: URL, isTemporary: Bool)
+        switch await resolveInput(for: media) {
+        case .success(let resolved):
+            input = resolved
+        case .failure(let reason):
+            media.recordTranscriptFailure(reason.message, now: now)
             try? context.save()
             return .failed
         }
@@ -388,20 +392,30 @@ final class TranscriptionQueue {
     /// A row synced from another device has no local file, and the backlog is mostly those. Those
     /// bytes are fetched back through the presigned read — which is the only reason this returns
     /// a flag rather than just a URL.
-    private func resolveInput(for media: Media) async -> (url: URL, isTemporary: Bool)? {
+    private func resolveInput(
+        for media: Media
+    ) async -> Result<(url: URL, isTemporary: Bool), TranscriptionFailure> {
         if let ext = media.stagedExtension {
             let staged = store.originalURL(for: media.id, ext: ext)
             if FileManager.default.fileExists(atPath: staged.path) {
-                return (staged, false)
+                return .success((staged, false))
             }
         }
         let destination = scratch.appending(
             path: "transcribe-\(media.id.uuidString.lowercased()).\(AudioPipeline.fileExtension)"
         )
-        guard let fetched = await MediaAccess.downloadToFile(
+        switch await MediaAccess.downloadToFile(
             mediaId: media.id, destination: destination, api: api
-        ) else { return nil }
-        return (fetched, true)
+        ) {
+        case .success(let fetched):
+            return .success((fetched, true))
+        case .failure(.networkTooExpensive):
+            // Deferred, not failed. It still burns an attempt so a phone permanently on cellular
+            // stops asking, and the row says why — the words are coming, on a different network.
+            return .failure(.waitingForWiFi)
+        case .failure(.unreachable):
+            return .failure(.bytesUnreachable)
+        }
     }
 
     // MARK: - Selection

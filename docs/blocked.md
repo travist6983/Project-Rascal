@@ -399,6 +399,13 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   to be fetched to be read at roughly 70MB a minute. **What it needs:** the audio path
   confirmed on a device via `docs/device-verification-transcription.md`. After that it is one
   clause in `TranscriptionQueue.isTranscribable` plus a rule about not doing it on cellular.
+- **Backfilling transcripts on a phone that never sees Wi-Fi.** Fetching a recording this device
+  does not hold refuses expensive and constrained networks on purpose — a backlog run is hundreds
+  of files and nobody consented to that on cellular. The consequence is that those rows never
+  backfill on a cellular-only phone; they report *"Waiting for Wi-Fi"* and stop after the retry
+  cap. There is deliberately **no override toggle** — Settings has no preferences and adding one
+  for this would be the first. **What it would need:** evidence that anyone is actually in this
+  position. Recordings made on the phone itself are unaffected, which is the common case.
 - **Transcript editing.** A parent will eventually want to correct a word. That is a real
   feature with a real conflict story — two devices editing the same derived field against a
   server documented never to regenerate it — and shipping an editor without that story turns
