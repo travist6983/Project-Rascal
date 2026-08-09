@@ -37,6 +37,18 @@ guessing, and prefer `ios/Fixtures/*.json` — real captured responses, refreshe
    `INFOPLIST_KEY_*` does **not** work for custom keys; Xcode drops anything it doesn't
    already know. Copy `Config.xcconfig.example` to start; the real file is gitignored.
 
+6. **A new non-optional property on an `@Model` needs a default *at the declaration*.**
+   `var bytesSent: Int = 0`, not just `self.bytesSent = 0` in `init`. Migration rewrites rows
+   that already exist and never calls `init`, so without a declaration default SwiftData cannot
+   infer a value and the store refuses to open — the app then crashes on **every** launch with
+   no way back in. Prefer optional where a value genuinely may not exist.
+
+   Nothing in the test suite or CI will catch this: every test uses
+   `isStoredInMemoryOnly: true`, and a simulator run after a fresh install also starts from
+   nothing. **Upgrade a build in place before shipping one** — `xcrun simctl install` over the
+   existing app, without uninstalling. `RascalTests/StoreMigrationTests.swift` covers the
+   file-backed path; it cannot cover a schema that does not exist yet.
+
 ## Tone — these are product rules, not preferences
 
 - **No streaks, no confetti, no guilt copy, no red urgency states.** A missed day is not a

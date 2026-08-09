@@ -124,19 +124,75 @@ enum LocalStore {
     ///
     /// A background upload delegate can fire after a cold launch into a process where SwiftUI
     /// has restored nothing. If it had to wait for the app to hand it a container, the callback
-    /// would land nowhere and an upload would finish without ever being marked complete. Two
-    /// containers over the same store file is the other way to get that wrong, so there is
-    /// exactly one and both the app and the delegate take it from here.
+    /// would land nowhere and an upload would finish without ever being marked. Two containers
+    /// over one store file is the other way to get that wrong, so there is exactly one and both
+    /// the app and the delegate take it from here.
     static let shared: ModelContainer = container()
 
+    static let schema = Schema([Entry.self, Media.self])
+
+    /// Open the store, and if it cannot be opened, recover rather than die.
+    ///
+    /// This used to `fatalError`, on the reasoning that a container that cannot open means
+    /// unsynced work would be silently dropped and failing loudly is more honest. That was
+    /// wrong, and a device proved it: a property added without a declaration default broke
+    /// lightweight migration, and the app crashed on **every launch** with no way back in. The
+    /// local work was equally unreachable either way — the crash simply added the app being
+    /// permanently unusable on top of it.
+    ///
+    /// So: try the store, and on failure move it aside and start clean. Deliberately **moved,
+    /// not deleted** — whatever was in there is the only copy of anything unsynced, and a file
+    /// sitting in `Application Support` can still be recovered by hand or by a later migration.
+    /// Deleting it to make the app launch would be choosing convenience over someone's archive.
     static func container() -> ModelContainer {
-        let schema = Schema([Entry.self, Media.self])
         do {
             return try ModelContainer(for: schema)
         } catch {
-            // A container that cannot open means unsynced work would be silently dropped.
-            // Failing here is louder and more honest than pretending the cache exists.
-            fatalError("SwiftData container failed to open: \(error)")
+            let quarantined = quarantineStore(reason: error)
+            do {
+                let recovered = try ModelContainer(for: schema)
+                RecoveryLog.record(.init(error: error, movedTo: quarantined))
+                return recovered
+            } catch {
+                // A fresh store that also will not open is not a data problem, it is a broken
+                // schema — something no user action can fix and no recovery should paper over.
+                fatalError("SwiftData could not open even a new store: \(error)")
+            }
         }
     }
+
+    /// Move the existing store files aside. SQLite keeps `-wal` and `-shm` alongside the main
+    /// file; leaving either behind makes the "fresh" store inherit the same corruption.
+    private static func quarantineStore(reason: Error) -> URL? {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let store = support.appending(path: "default.store")
+        guard FileManager.default.fileExists(atPath: store.path) else { return nil }
+
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let folder = support.appending(path: "unreadable-store-\(stamp)", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        for suffix in ["", "-wal", "-shm"] {
+            let from = support.appending(path: "default.store\(suffix)")
+            guard FileManager.default.fileExists(atPath: from.path) else { continue }
+            try? FileManager.default.moveItem(at: from, to: folder.appending(path: "default.store\(suffix)"))
+        }
+        return folder
+    }
 }
+
+/// What happened during a store recovery, so the app can say so rather than pretending the
+/// device simply had no local data.
+enum RecoveryLog {
+    struct Event {
+        let error: Error
+        let movedTo: URL?
+    }
+
+    private(set) nonisolated(unsafe) static var last: Event?
+
+    static func record(_ event: Event) {
+        last = event
+    }
+}
+
