@@ -65,8 +65,11 @@ enum ImagePipeline {
 
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
         let capturedAt = exifDate(from: properties)
-        let orientation = (properties[kCGImagePropertyOrientation] as? UInt32) ?? 1
 
+        // The orientation tag is deliberately *not* read here. `kCGImageSourceCreateThumbnail-
+        // WithTransform` applies it to the pixels for us, and a second copy of that value lying
+        // around invites someone to "helpfully" apply it again — which double-rotates.
+        //
         // `kCGImageSourceCreateThumbnailWithTransform` is what applies the orientation to the
         // pixels rather than leaving it as a tag. Asking for a "thumbnail" the size of the
         // largest edge is the documented way to get a full-size, transformed image without
