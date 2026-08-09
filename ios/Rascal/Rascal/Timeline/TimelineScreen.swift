@@ -18,29 +18,46 @@ struct TimelineScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.thumbnails) private var thumbnails
     @State private var model: TimelineModel?
+    @State private var path: [UUID] = []
 
     var body: some View {
-        VStack(spacing: 0) {
-            TimelineFilterRow(selection: model?.filter ?? .all) { filter in
-                Task { await model?.apply(filter) }
-            }
-            Divider().overlay(Color.border)
+        NavigationStack(path: $path) {
+            VStack(spacing: 0) {
+                TimelineFilterRow(selection: model?.filter ?? .all) { filter in
+                    Task { await model?.apply(filter) }
+                }
+                Divider().overlay(Color.border)
 
-            TimelineList(
-                childId: childId,
-                filter: model?.filter ?? .all,
-                isLoading: model?.isLoadingFirstPage ?? true,
-                hasLoaded: model?.hasLoaded ?? false,
-                isLoadingMore: model?.isLoadingMore ?? false,
-                notice: model?.notice,
-                onReachEnd: { await model?.loadMoreIfNeeded() },
-                onRefresh: { await model?.refresh(thumbnails: thumbnails) },
-                onClearFilter: { Task { await model?.apply(.all) } },
-                onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
-            )
-            .id(model?.filter ?? .all)
+                TimelineList(
+                    childId: childId,
+                    filter: model?.filter ?? .all,
+                    isLoading: model?.isLoadingFirstPage ?? true,
+                    hasLoaded: model?.hasLoaded ?? false,
+                    isLoadingMore: model?.isLoadingMore ?? false,
+                    notice: model?.notice,
+                    onOpen: { path.append($0) },
+                    onReachEnd: { await model?.loadMoreIfNeeded() },
+                    onRefresh: { await model?.refresh(thumbnails: thumbnails) },
+                    onClearFilter: { Task { await model?.apply(.all) } },
+                    onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
+                )
+                .id(model?.filter ?? .all)
+            }
+            .background(Color.canvas)
+            // The list is the root of its own stack and wears no bar; the detail pushed on top
+            // of it gets the standard one, with a back chevron. Today has no bar either, and a
+            // title strip over the filter row would be a second header saying nothing.
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(for: UUID.self) { id in
+                EntryDetailScreen(
+                    entryId: id,
+                    childId: childId,
+                    api: api,
+                    openComposer: openComposer,
+                    onDeleted: { path.removeAll { $0 == id } }
+                )
+            }
         }
-        .background(Color.canvas)
         .task {
             if model == nil {
                 model = TimelineModel(childId: childId, api: api, context: context)
@@ -62,6 +79,7 @@ private struct TimelineList: View {
     let hasLoaded: Bool
     let isLoadingMore: Bool
     let notice: String?
+    let onOpen: (UUID) -> Void
     let onReachEnd: () async -> Void
     let onRefresh: () async -> Void
     let onClearFilter: () -> Void
@@ -77,6 +95,7 @@ private struct TimelineList: View {
         hasLoaded: Bool,
         isLoadingMore: Bool,
         notice: String?,
+        onOpen: @escaping (UUID) -> Void,
         onReachEnd: @escaping () async -> Void,
         onRefresh: @escaping () async -> Void,
         onClearFilter: @escaping () -> Void,
@@ -87,6 +106,7 @@ private struct TimelineList: View {
         self.hasLoaded = hasLoaded
         self.isLoadingMore = isLoadingMore
         self.notice = notice
+        self.onOpen = onOpen
         self.onReachEnd = onReachEnd
         self.onRefresh = onRefresh
         self.onClearFilter = onClearFilter
@@ -148,13 +168,19 @@ private struct TimelineList: View {
             ForEach(groups) { group in
                 Section {
                     ForEach(group.items) { card in
-                        EntryCard(model: card)
-                            .listRowInsets(EdgeInsets(
-                                top: Layout.cardSpacing / 2, leading: Layout.screenMargin,
-                                bottom: Layout.cardSpacing / 2, trailing: Layout.screenMargin
-                            ))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.canvas)
+                        // A button rather than a `NavigationLink`: inside a `List`, a link
+                        // draws a disclosure chevron on every row, and a chevron on a card is
+                        // furniture the design does not have.
+                        Button { onOpen(card.id) } label: {
+                            EntryCard(model: card)
+                        }
+                        .buttonStyle(TapScaleButtonStyle())
+                        .listRowInsets(EdgeInsets(
+                            top: Layout.cardSpacing / 2, leading: Layout.screenMargin,
+                            bottom: Layout.cardSpacing / 2, trailing: Layout.screenMargin
+                        ))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.canvas)
                     }
                 } header: {
                     DayHeader(date: group.start, yearDivider: group.yearDivider)

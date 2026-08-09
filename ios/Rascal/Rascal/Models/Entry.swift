@@ -132,7 +132,14 @@ final class Entry {
         entryType = response.entryType
         childAgeMonths = response.childAgeMonths
         updatedAt = response.updatedAt
-        deletedAt = response.deletedAt
+        // **A deletion only ever goes one way.** There is no undelete anywhere in this system,
+        // so a response that still shows the row live is a response that predates the delete —
+        // a page already in flight, or a list the server had not rewritten yet. Assigning
+        // `response.deletedAt` straight across would let one of those bring a deleted entry
+        // back onto the timeline, which is the single worst thing a reconcile can do.
+        if let serverDeleted = response.deletedAt, deletedAt == nil {
+            deletedAt = serverDeleted
+        }
         tagNames = response.tags.map(\.name)
         serverMediaCount = response.mediaCount
         // Only `GET /entries/{id}` carries the prompt. A list response must not blank a value

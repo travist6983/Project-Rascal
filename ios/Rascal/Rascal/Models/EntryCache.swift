@@ -48,7 +48,11 @@ enum EntryCache {
         // A local write the server has not acknowledged yet — a save made offline, an edit
         // queued for the next sweep, a deletion on its way. All of them are the parent's most
         // recent intent, and none of them may be overwritten by an older server row.
-        if existing.sync == .synced, !existing.deletionPending {
+        //
+        // A row already deleted here is skipped outright, acknowledged or not. `GET /entries`
+        // excludes soft-deleted rows, so any response still carrying one predates the delete,
+        // and folding its title and date onto a gravestone is at best pointless.
+        if existing.sync == .synced, !existing.deletionPending, existing.deletedAt == nil {
             existing.applyServerTruth(response)
         }
         upsertMedia(response.media, entryId: response.id, into: context)
@@ -92,6 +96,34 @@ enum EntryCache {
         // their staged files to the next staging sweep.
         for row in media(ofEntry: entry.id, in: context) where row.deletedAt == nil {
             row.deletedAt = now
+        }
+        try? context.save()
+    }
+
+    /// Delete, then tell the server.
+    ///
+    /// One implementation for both callers — the timeline's swipe and the detail screen's
+    /// confirmation are the same act, and forking them is how two paths end up disagreeing
+    /// about whether the row was marked before or after the request.
+    static func delete(_ entry: Entry, api: APIClient, in context: ModelContext) async {
+        markDeleted(entry, in: context)
+
+        guard entry.existsOnServer else {
+            // Never left the phone. There is nothing to tell the server about, and never was.
+            entry.deletionPending = false
+            try? context.save()
+            return
+        }
+
+        do {
+            try await api.deleteEntry(id: entry.id)
+            entry.deletionPending = false
+        } catch let error as APIError where error.code == .notFound {
+            // Already gone. That is the outcome that was asked for.
+            entry.deletionPending = false
+        } catch {
+            // Offline, or a 5xx. Stays marked, `EntrySync` carries it on the next foreground,
+            // and the parent sees it gone either way.
         }
         try? context.save()
     }

@@ -126,24 +126,6 @@ final class TimelineModel {
     /// is ever removed from SwiftData — a deletion the client cannot describe is a deletion that
     /// cannot sync.
     func delete(_ entry: Entry) async {
-        EntryCache.markDeleted(entry, in: context)
-
-        guard entry.existsOnServer else {
-            // Never left the phone. There is nothing to tell the server about.
-            entry.deletionPending = false
-            try? context.save()
-            return
-        }
-
-        do {
-            try await api.deleteEntry(id: entry.id)
-            entry.deletionPending = false
-        } catch let error as APIError where error.code == .notFound {
-            // Already gone. That is the outcome that was asked for.
-            entry.deletionPending = false
-        } catch {
-            // Stays marked. The sweep will carry it, and the parent sees it gone either way.
-        }
-        try? context.save()
+        await EntryCache.delete(entry, api: api, in: context)
     }
 }
