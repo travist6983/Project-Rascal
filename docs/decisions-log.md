@@ -663,3 +663,45 @@ that file left open.
 - **Single-transaction is asserted through `xmin`.** Every row version written by one
   transaction carries that transaction's id, so a chunked or partial recompute shows up as
   more than one distinct `xmin` across the child's entries.
+
+## Aug 9, 2026 — the client's half of sync
+
+- **The engine ships behind a flag that defaults off.** It touches the cache every screen
+  reads from, and it has never met a real archive. A dry run that performs a genuine
+  `GET /sync` and applies nothing is the thing that gets read before the flag is flipped.
+- **`GET /sync` does not page.** Read from `routers/sync.py`, which declares one query
+  parameter besides `child_id`, not inferred from the contract doc. The client still loops,
+  for a different reason: the cursor comes back lagged, so a second call closes the gap
+  between the lagged position and the present. Two rounds is the normal finish.
+- **An empty batch returns an *advancing* cursor.** `service.pull` falls back to `now()` when
+  there are no rows to take a maximum from, so the cursor comes back as `now() - 30s`, which
+  is ahead of whatever was sent. The loop therefore terminates on an empty batch **before**
+  it checks for cursor movement; the other order spins forever against an idle archive.
+- **The cursor advances per round, never mid-round.** A round applies whole and is saved
+  whole; a failure rolls it back and leaves the cursor where the last clean round put it.
+  A partial advance loses records permanently and silently, which is the one failure here
+  with no recovery short of a manual reset.
+- **Media has no usable `updated_at` to compare against.** `MediaOut` carries one, but a local
+  `Media.updatedAt` is stamped by this device's own clock on every state transition, so the
+  two are not comparable. "Has anything changed" is answered by comparing the fields
+  `applyServerSummary` actually writes, and the predicate mirrors that method including its
+  two one-way rules.
+- **Assignments carry no `deleted_at`.** They are never soft-deleted server-side; they change
+  `status`. There is no soft-delete branch for them, and that is a fact about the contract
+  rather than a gap.
+- **Tag links fold onto `Entry.storedTagNames`** rather than gaining a `Tag` model, matching
+  the existing denormalised design. The link is still what the server sends, because a bare
+  tag list would not say which entry lost which tag.
+- **A planned change is keyed by entity + id + a discriminator.** Only tags need the
+  discriminator, and they need it badly: a link is keyed on the entry id, so six tags on one
+  entry would collapse into one planned change and the report would undercount.
+- **When one record is decided twice in a run, the more *significant* verdict survives, not
+  the later one.** By round two, a record round one inserted is genuinely unchanged — round
+  two is looking at round one's own work. Letting the later verdict win made the report say
+  "0 soft-deletes" immediately after soft-deleting something. Caught by the tests, and the
+  assertions were right.
+- **The apply yields to the main run loop every 100 records.** It runs on the main actor
+  because that is where the `ModelContext` the views read from lives. This is cooperative —
+  it does not move the work off the main thread, it stops the work monopolising it.
+- **`GET /me` returns the row `current_user` already loaded** and takes no `SessionDep`.
+  Taking the session again only to re-read the same object would be a second query for it.
