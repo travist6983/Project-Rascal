@@ -275,7 +275,13 @@ and layout/copy/sequencing/motion came from the export. Every substitution:
    (`models/child.py`), so there is nowhere to put the answer. Adding one is a Lane A change.
    Recorded in `docs/blocked.md`. Onboarding copy is neutral in the meantime, so nothing regressed
    — but the unlock that item 10 is waiting for did not happen.
-5. **Phase 5 is a name collision.** PR #22 already shipped as "iOS Phase 5 — Audio capture". This
+5. **Nothing displays the avatar.** It is captured, cropped, converted and stored — and no screen
+   reads it back. §3 scopes Phase D to "capture, crop, and local persistence" and does not include
+   rendering it, so this run did not widen to Today or Settings to show it. The effect is that a
+   parent can add a photo during setup and never see it again. Deliberate scope discipline rather
+   than an oversight, but it is a real product gap and it is one small change to close — the store
+   is `LocalAvatarStore(...).load(for: childId)` and it returns JPEG bytes.
+6. **Phase 5 is a name collision.** PR #22 already shipped as "iOS Phase 5 — Audio capture". This
    branch is `ios/phase-5-onboarding` as specified, but the phase numbering in this repo now has
    two fives.
 
