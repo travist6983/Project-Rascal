@@ -56,6 +56,33 @@ final class Media {
     /// a voice entry reads as text offline. The server never regenerates it.
     var transcript: String?
     var caption: String?
+
+    /// Where the derived write is in its own lifecycle: `none` · `queued` · `pending` ·
+    /// `synced` · `failed`. Stored as text for the same reason every other constrained value
+    /// is — a new state must not require a migration.
+    ///
+    /// **Deliberately separate from `uploadState`.** The bytes and the words are two different
+    /// journeys to the server that fail independently: a row can be `complete` on the upload
+    /// leg and still be carrying words the server has never seen. Collapsing them would lose
+    /// exactly the case the pull-conflict rule exists to protect.
+    ///
+    /// The `= "none"` is load bearing for the same reason `bytesSent`'s `= 0` is — see the note
+    /// there. Migration rewrites existing rows and never calls `init`.
+    var transcriptState: String = TranscriptSync.none.rawValue
+
+    /// Attempts spent on whichever leg is outstanding — the inference, or the push. One counter
+    /// because only one of the two can be outstanding at a time.
+    var transcriptAttemptCount: Int = 0
+    /// When the next attempt becomes eligible; nil once the cap is spent. On the row rather than
+    /// in memory, so backoff survives a relaunch.
+    var transcriptNextAttemptAt: Date?
+    /// Why the last attempt did not land, for the backlog row. Never surfaced as an error
+    /// anywhere a parent has not asked to look.
+    var transcriptFailure: String?
+    /// The locale the transcript was actually produced in, which is **not** always the device's
+    /// — see `TranscriptionLocale`. Recorded so a fallback is a fact on the row rather than a
+    /// guess later.
+    var transcriptLocaleIdentifier: String?
     /// Returned by storage on a successful PUT and required by `complete`.
     var etag: String?
 
@@ -171,13 +198,131 @@ final class Media {
         thumbKey = summary.thumbKey
         durationSeconds = summary.durationSeconds ?? durationSeconds
         capturedAt = summary.capturedAt ?? capturedAt
-        // Detail carries these; a list row does not, and must not blank what detail cached.
-        transcript = summary.transcript ?? transcript
+        // **The pending-local rule, applied to a transcript.** Every path that folds server
+        // truth onto a media row funnels through here — `/sync`, `GET /entries`, and
+        // `GET /entries/{id}` — so the protection lives here rather than in one of the three.
+        // That matters more than it looks: `syncPullEnabled` ships false, so the pull is the
+        // path that usually is *not* running, and the timeline's refetch is the one that is.
+        if !hasUnpushedTranscript {
+            // Detail carries these; a list row does not, and must not blank what detail cached.
+            transcript = summary.transcript ?? transcript
+        }
         caption = summary.caption ?? caption
         if summary.isComplete, !isComplete {
             state = .complete
             attemptCount = 0
             nextAttemptAt = nil
+        }
+    }
+
+    // MARK: Transcription
+
+    var transcriptSync: TranscriptSync {
+        get { TranscriptSync(rawValue: transcriptState) }
+        set { transcriptState = newValue.rawValue }
+    }
+
+    /// Words this phone produced that the server has not acknowledged.
+    ///
+    /// **`failed` counts here, and that is the opposite of the upload path's rule** — the
+    /// asymmetry is the whole point. A media row past its upload cap has its bytes safe in
+    /// storage and the server's copy is the better of the two, so `hasUnpushedChanges(_ media:)`
+    /// in `SyncEngine` excludes it. A transcript past its push cap exists **only here**: the
+    /// server has never seen it, nothing else holds it, and it cost a battery to produce.
+    /// Dropping the protection at the cap would let the next pull erase the one copy.
+    var hasUnpushedTranscript: Bool {
+        guard transcript != nil else { return false }
+        return transcriptSync == .pending || transcriptSync == .failed
+    }
+
+    /// Words the archive is missing, on a row that could supply them.
+    ///
+    /// `queued` is included and `none` is not: the backlog is opt-in and manual, so a row nobody
+    /// has asked about stays untouched. See `TranscriptionQueue.backlog`.
+    var awaitsTranscription: Bool {
+        deletedAt == nil && isComplete && transcript == nil && transcriptSync == .queued
+    }
+
+    /// The one place a finished transcript is written onto a row.
+    ///
+    /// Local first, then the push — so a crash between the two loses nothing and the retry is
+    /// idempotent. The state it lands in is what protects it from the next pull.
+    func recordTranscript(_ text: String, locale: TranscriptionLocale) {
+        transcript = text
+        transcriptLocaleIdentifier = locale.locale.identifier
+        transcriptSync = .pending
+        transcriptAttemptCount = 0
+        transcriptNextAttemptAt = nil
+        transcriptFailure = nil
+        updatedAt = Date()
+    }
+
+    /// One failed attempt on whichever leg is outstanding, with the same backoff the upload uses.
+    ///
+    /// Past the cap the row goes to `failed` and stops being retried automatically — but a
+    /// transcript already written stays protected, because `hasUnpushedTranscript` includes
+    /// `failed`. A backlog run is what clears it, because someone asked.
+    func recordTranscriptFailure(_ reason: String, now: Date = Date(), jitter: Double = .random(in: 0.5...1.5)) {
+        transcriptAttemptCount += 1
+        transcriptFailure = reason
+        if let next = UploadBackoff.nextAttempt(after: transcriptAttemptCount, now: now, jitter: jitter) {
+            transcriptNextAttemptAt = next
+        } else {
+            transcriptNextAttemptAt = nil
+            transcriptSync = .failed
+        }
+    }
+
+    /// Someone pressed a button. Clear the backoff and put the row back in the queue it belongs
+    /// in — the push queue if there are words to push, the inference queue if there are not.
+    func resetTranscriptForManualRun() {
+        transcriptAttemptCount = 0
+        transcriptNextAttemptAt = nil
+        transcriptFailure = nil
+        if transcriptSync == .failed {
+            transcriptSync = transcript == nil ? .queued : .pending
+        }
+    }
+}
+
+/// Where a media row's derived write has got to.
+///
+/// Deliberately its own ladder rather than a second reading of `uploadState`. The bytes and the
+/// words reach the server by different routes and fail independently.
+nonisolated enum TranscriptSync: RawRepresentable, Equatable, Sendable {
+    /// Nobody has asked. Every row in the pre-feature backlog sits here, and the automatic path
+    /// never walks them — that is what keeps a first launch from becoming a battery event.
+    case none
+    /// Should be transcribed. Written **before** inference starts, so a kill mid-run resumes
+    /// rather than losing the job.
+    case queued
+    /// Transcribed here, not yet pushed. The state the pull-conflict rule protects.
+    case pending
+    /// `PATCH /media/{id}/derived` succeeded. The server owns it now.
+    case synced
+    /// Past the retry cap. Surfaced in the backlog row, never as an error over the archive.
+    case failed
+    case unknown(String)
+
+    init(rawValue: String) {
+        switch rawValue {
+        case "none": self = .none
+        case "queued": self = .queued
+        case "pending": self = .pending
+        case "synced": self = .synced
+        case "failed": self = .failed
+        default: self = .unknown(rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .none: "none"
+        case .queued: "queued"
+        case .pending: "pending"
+        case .synced: "synced"
+        case .failed: "failed"
+        case .unknown(let raw): raw
         }
     }
 }

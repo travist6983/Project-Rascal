@@ -61,6 +61,13 @@ Last updated: **Aug 9, 2026**
 | Stored `child_age_months` is corrected by explicit user action, never automatically on birthdate edit — a correction is deliberate, not a side effect | `POST /children/{id}/recompute-ages`. Storing the age at write is what stops a birthdate typo silently reshaping 500 entries; the cost is that the typo is otherwise permanent, so the escape hatch has to exist and has to be the user's to pull. It writes only the rows that actually change, because bumping `updated_at` on the whole archive would push eighteen years of entries back through every client's sync cursor to fix three of them. |
 | Audio is recorded as AAC in `.m4a`, 44.1 kHz, **mono**, 96 kbps | Same reasoning as JPEG over HEIC and H.264 over HEVC: the archive has to open in 2040 in something that isn't Apple, and AAC in MP4 is the most universally decodable audio there is. Mono because a child talking is a point source and stereo doubles eighteen years of storage for nothing. 96 kbps is transparent for speech and puts a ten-minute recording at roughly 7MB — under the server's multipart threshold, though nothing in the client special-cases audio to stay there: a larger file takes the existing multipart path unchanged. |
 | Recording is foreground-only in P0; screen lock stops and preserves | Background audio is a one-line entitlement and a real App Store review surface, and "record two minutes of dinner" is not worth taking that on to close P0. Every interruption path already finalises to a playable file, so adding the entitlement later changes when recording stops, not whether anything is lost. |
+| Transcription uses the device's locale, falling back to `en-US` **only** when no model for the device's locale is installed — and the row records which was used | A Spanish model fed English audio does not produce a worse transcript, it produces confident nonsense, and an archive that cannot say which model wrote a line cannot audit one that reads wrong. Falling back to exactly one known locale rather than "whatever happens to be installed" keeps the failure mode to one case instead of an arbitrary one. `Media.transcript_locale` is client-side only; the server schema is untouched. |
+| One transcription at a time, process-wide. No parallel inference, ever | It is a battery and thermal cost on a device someone is holding while parenting, and the archive is not waiting on it. Two analyzers running is twice both for no gain a parent would notice. The sweep also does at most one inference per foreground for the same reason — a foreground is not a licence to hold the phone warm. |
+| The backlog is transcribed only when asked, never automatically | The archive holds hundreds of pre-feature voice notes. Walking them on first launch is a surprise battery event with no consent behind it. New recordings transcribe automatically because one recording is not a backlog; the two paths are distinguished by a state on the row, not by a heuristic. |
+| A locally written transcript is a **pending local change** and the pull leaves it alone, `failed` included | The one exception to server-is-truth already covers an unpushed entry edit. A transcript is the same shape of thing and a worse loss: until it is pushed it exists in exactly one place, so a pull that overwrote it would destroy words that cost a battery to produce, silently. Note the asymmetry with the upload path, where `failed` deliberately stops counting as pending — there the bytes are safe in storage and the server's copy is better; here there is no second copy. |
+| Backfilling a recording this phone does not hold **refuses cellular, hotspots, and Low Data Mode** | A backlog run is hundreds of files fetched at once, started by someone who pressed a button about *transcribing*. That is not consent to a few hundred megabytes of cellular data, and the app must not read one button as permission for the other — the same reasoning that keeps the backlog manual for the battery. It affects only rows that came from another device: a recording made here is read from its staged original and never downloaded at all. The cost is that a phone which never sees Wi-Fi cannot backfill those rows; the row says "Waiting for Wi-Fi" rather than implying the recording is lost, and there is deliberately no override toggle. |
+| Transcripts are not editable in this phase | Correcting a transcript is a real feature with a real conflict story — two devices editing the same derived field, and a server that is documented never to regenerate it. Shipping an editor without that story is how the "on-device output is durable data" rule quietly becomes "whichever phone typed last". |
+| Video audio tracks are **not** transcribed yet | The roadmap asks for them and the asset API can carry them, but nothing in this environment can run a single real transcription to check, and video's only difference is the container `AVAudioFile` has to open. Shipping a second unverifiable input path on top of an unverified first one is the shaky outcome. It is also the expensive one: a backlog video has to be fetched to be read, at ~70MB a minute. Gated on the audio path being verified on a device. |
 | Bundle id is `com.travisterry.childarchive` | A bundle id is permanent and the app name is still open, so it is deliberately name-neutral — RASCAL, SMALL FRY, or anything else can ship on top of it. Settled before the Xcode project exists, because changing it afterward means redoing signing and the Sign in with Apple registration for nothing. `APPLE_BUNDLE_ID` must match it: it is the `aud` claim every Apple identity token is verified against. |
 
 ### Design
@@ -106,6 +113,39 @@ Last updated: **Aug 9, 2026**
 ---
 
 ## Changelog
+
+**Aug 9, 2026** — On-device transcription shipped, and the sync rule it needed turned out not to
+cover it.
+
+`SyncEngine.hasUnpushedChanges(_ media:)` protected a media row by reading its **upload** state —
+`staged`, `uploading`, `uploaded` are in flight, everything else is not. A transcribed row is
+`complete` by definition: transcription only runs after the upload lands, because
+`PATCH /media/{id}/derived` needs a media row the server already knows about. So the newly written
+transcript sat on a row the conflict rule considered settled, and a pull carrying the server's
+older copy took the `.update` branch and overwrote it. The fix is a first clause on that function
+and a `transcript_state` ladder on the row, separate from `upload_state` because the bytes and the
+words reach the server by different routes and fail independently.
+
+Two things about that rule are worth stating because they are asymmetric on purpose:
+
+- **`failed` counts as pending for a transcript, and does not for an upload.** A media row past
+  its upload cap has its bytes safe in storage and the server's copy is the better of the two. A
+  transcript past its push cap exists nowhere but this phone. Dropping the protection at the cap
+  would let the next pull erase it.
+- **The guard lives in `Media.applyServerSummary`, not only in the sync engine.** All three pull
+  paths funnel through that method — `/sync`, `GET /entries`, and `GET /entries/{id}` — and
+  `syncPullEnabled` still ships false, so the pull is the path that mostly is *not* running while
+  the timeline's refetch is the one that is. Protecting only the engine would have protected the
+  quiet path and left the loud one open.
+
+Also settled this session, in the table above: the locale fallback rule and its recording,
+no parallel inference, a manual-only backlog, transcripts not editable yet, and video audio tracks
+deferred. And one thing worth naming plainly: **no real transcription has been run.**
+`SpeechAnalyzer` is iOS 26 and the app deploys to 18.6, `isAvailable` is false on every simulator,
+and the model assets are a download no CI runner has. Everything below the protocol seam is
+asserted against a stub and everything above it is real. `docs/device-verification-transcription.md`
+is where the other half gets checked, and until someone runs it the quality of this on a
+four-year-old's speech is unknown rather than good.
 
 **Aug 9, 2026** — Video transcode settled, and Tigris multipart verified before any client code
 was written. A 40MB object was uploaded in five presigned parts and fetched back byte-identical,

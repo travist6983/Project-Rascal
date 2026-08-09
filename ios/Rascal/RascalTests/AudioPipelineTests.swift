@@ -19,7 +19,11 @@ import Testing
 ///
 /// Deliberately not a stub: several of the assertions below are about what a *file* turns out to
 /// be, and a fake would make them assert nothing.
-private func writeRecording(seconds: Double, to url: URL) throws {
+///
+/// Shared rather than private, because `TranscriptionInputTests` needs the same thing for the
+/// opposite reason: that file is what transcription has to be able to *read*, and a stub there
+/// would assert nothing too.
+func writeRecording(seconds: Double, to url: URL) throws {
     let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
     let file = try AVAudioFile(forWriting: url, settings: AudioPipeline.settings)
 

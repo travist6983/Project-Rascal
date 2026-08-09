@@ -112,7 +112,7 @@ struct EntryDetailScreen: View {
                         .padding(.top, heroIsPresent ? 18 : 0)
                 }
                 writtenContent(entry)
-                if let transcript = voiceMedia?.transcript, !transcript.isEmpty {
+                if let transcript = Self.transcript(in: media) {
                     transcriptSection(transcript)
                 }
                 metadata(entry)
@@ -168,6 +168,25 @@ struct EntryDetailScreen: View {
 
     private var voiceMedia: Media? {
         media.first { $0.mediaKind == .audio }
+    }
+
+    /// The words to set under the player, or nothing at all.
+    ///
+    /// A static rule rather than a branch inside `content`, for the same reason `EntryCardModel`
+    /// is a value type: it is the difference between a layout decision that can be asserted and
+    /// one that can only be looked at. **The absence case is the one worth guarding** — an audio
+    /// entry with no transcript is a complete entry, not a deficient one, and this screen must
+    /// render it exactly as it did before transcription existed: no heading, no empty block, no
+    /// "transcription pending" anything.
+    ///
+    /// Empty and nil collapse to the same nothing on purpose. A recording of a child who said
+    /// nothing settles with no words, and a heading over a blank line would be the archive
+    /// implying something is missing when nothing is.
+    static func transcript(in media: [Media]) -> String? {
+        guard let text = media.first(where: { $0.mediaKind == .audio })?.transcript,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return text
     }
 
     @ViewBuilder

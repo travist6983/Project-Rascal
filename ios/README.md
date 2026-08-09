@@ -29,7 +29,7 @@ only runs tests, which never touch the keychain.
 | Screen | Where | What it does |
 |---|---|---|
 | **Today** | `Today/` | The board: today's assignments, what's waiting, what's done. Server-computed in the child's `family_timezone`. |
-| **Timeline** | `Timeline/` | The archive, grouped by the day it happened, filtered by entry type, paged on scroll. |
+| **Timeline** | `Timeline/` | The archive, grouped by the day it happened, filtered by entry type, paged on scroll. The magnifier in the header swaps the filter row for a search field over `GET /entries?q=` — same cards, same day headers, its own cursor. |
 | **Entry detail** | `Timeline/EntryDetailScreen.swift` | One entry in full: media, the prompt that caused it, transcripts, metadata. Edit routes into the composer; delete is a soft delete. |
 | **Moments** | `Moments/` | This day in prior years, or a warm redirect when there is nothing. |
 | **Composer** | `Composer/` | Writing and capture, including backdating and edit mode. |
@@ -71,6 +71,21 @@ inside the overlap window returns nothing new and the floor never moves, which i
 import of photos with no EXIF date looks like. So the first request of a run asks for everything
 older than the oldest row on screen, and every request after it follows `next_cursor`. The second
 of overlap on the seed is deliberate: overlap rather than skip, upsert by id.
+
+**A transcript is a pending local change until it is pushed.** Transcription writes the words to
+the `Media` row first and pushes them to `PATCH /media/{id}/derived` second, so a crash between the
+two loses nothing and the retry is idempotent. Until that push lands the row is the *only* copy in
+existence, so `Media.applyServerSummary` refuses to overwrite it — that is where the guard lives,
+because all three pull paths funnel through it and `syncPullEnabled` still ships false. `failed`
+counts as pending here and deliberately does not on the upload path: bytes past the cap are safe in
+storage, words past the cap are not anywhere else.
+
+**The model may simply not be there, and that is not an error.** `SpeechAnalyzer` is iOS 26 and
+this app deploys to 18.6. Every entry point checks availability first and a device that cannot
+transcribe produces an app identical to the one before the feature existed — no banner, no
+placeholder, no empty Transcript heading. Nothing in the suite exercises the real analyzer; the
+protocol in `Media/Transcription.swift` is the only abstraction this feature adds, and it exists
+because CI has neither iOS 26 nor the model assets.
 
 **Thumbnails are the client's problem.** `thumb_key` is null on every media row — that pipeline
 was cut from P0 — so `ThumbnailStore` fetches the original once through the presigned read URL,

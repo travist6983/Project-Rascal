@@ -825,3 +825,105 @@ execute failed, and it was right to.
 - **A tile carrying the `+5` drops its placeholder glyph.** The design scrims that number over a
   photograph. With `thumb_key` null it landed over a camera icon instead, and two marks fought
   over one square.
+
+## On-device transcription and the search surface (Aug 9, 2026)
+
+- **The sync engine's pending-local rule did not cover a transcript, and that was the phase's
+  real finding.** `hasUnpushedChanges(_ media:)` read only `uploadState` — `staged`, `uploading`,
+  `uploaded`. A transcribed row is `complete` by construction, because transcription only runs
+  after the upload lands, so the rule considered it settled and a pull carrying the server's
+  older row overwrote words that existed nowhere else. Fixed with a first clause on that
+  function and a `transcriptState` ladder on the row.
+- **The guard also went into `Media.applyServerSummary`, not only into the sync engine.** All
+  three pull paths funnel through that method, and `syncPullEnabled` ships false — so the engine
+  is the path that mostly is *not* running while the timeline's refetch is the one that is.
+  Protecting only the engine would have protected the quiet path and left the loud one open.
+- **`failed` counts as pending for a transcript and does not for an upload.** Deliberately
+  asymmetric: bytes past the upload cap are safe in storage and the server's copy is better,
+  whereas a transcript past its push cap exists only on this phone.
+- **`transcriptState` is a second ladder rather than more values on `uploadState`.** The bytes
+  and the words are two journeys to the server that fail independently; one row can be complete
+  on the first and carrying undelivered work on the second.
+- **The derived push lives in `TranscriptionQueue`, not in `MediaCoordinator`.** It reuses the
+  existing machinery where reuse is the point — `UploadBackoff`, row-persisted schedule, and
+  `MediaCoordinator.sweep()` as the single entry point — while keeping inference, which is
+  compute rather than network, out of a type whose job is uploads. Nothing new sweeps and no
+  second retry policy exists.
+- **`MediaCoordinator` gained an optional `transcription` link, in one direction only.** Same
+  shape as `EntrySync.media`. The queue takes the `APIClient` directly rather than holding the
+  coordinator back, so two process-lifetime singletons do not point at each other.
+- **A backlog row is promoted out of `.none` one at a time, immediately before its own
+  inference.** Marking the whole set up front would make a killed manual run resume as
+  permanent automatic background work, which is exactly the surprise battery event the manual
+  gate exists to prevent. Finished rows stay finished, so pressing the button again resumes.
+- **Backlog media with no local file is downloaded to transcribe.** Recordings made on this
+  phone are read in place — a voice note has no thumbnail, so its staged original is never
+  swept — but the backlog is mostly rows synced from elsewhere, and without the fetch the
+  feature would do nothing for them. Audio is small enough that this is defensible; video is
+  not, which is one more reason it was cut.
+- **The queue trims what the transcriber hands back rather than trusting it.** A test caught
+  this: a conformer returning a single space wrote one into a permanent archive. Tidying inside
+  `SpeechTranscription` was an implementation detail of one conformer, and the queue is what
+  decides what the archive holds.
+- **A silent recording settles as `synced` with no transcript, and leaves the backlog.**
+  Counting "no words" as outstanding would offer the same silence up for re-inference forever.
+- **Search got a magnifier in the Timeline header, because the "existing search affordance" the
+  brief refers to does not exist.** The v3 header is title, count, and filter chips. Adding one
+  button there was the smallest thing consistent with "revealed by the top bar, not a new tab".
+- **Search is its own model with its own cursor.** The two modes page on different keys and the
+  server answers `422` for a cursor crossed between them, so a shared `continuation` is
+  precisely the thing that must not be shared.
+- **The matching transcript line is computed on device from the cache.** `GET /entries` inlines
+  `MediaSummary`, which carries no transcript, and fetching detail per result would be the N+1
+  the timeline exists to avoid. It works for what this phone wrote, which is the case the
+  feature was built for, and shows nothing rather than guessing otherwise. Postgres stems and
+  the client cannot, so a stemmed match explains nothing — a smaller wrong than a wrong one.
+- **The search match outranks the parent's own body on a card, and only under search.** A result
+  whose only connection to the query is a sentence forty seconds into a recording otherwise
+  looks like the search is broken.
+- **`EntryDetailScreen.transcript(in:)` was extracted so the absence case is assertable.** Same
+  reasoning as `EntryCardModel` being a value type: the rule that matters is "renders identically
+  to before this feature existed", and that cannot be asserted on a branch buried in a view body.
+- **The search tests drive the debounce to zero and await the model.** Written with real sleeps
+  first, they passed alone and failed every time in the full run — parallel suites starved the
+  tasks past the sleep. A wall clock is not a synchronisation primitive.
+- **That rewrite found a real defect.** `fetch` checked `Task.isCancelled` on the success path
+  and not on the failure path, so an abandoned request's error wrote a notice and marked the
+  list finished — over results belonging to the query still on screen, and after them.
+
+### Hardening pass — turning "not confident" into either a test or a fix
+
+- **`AVAudioFile` opening the recorder's own m4a was assumed, and is now asserted.** The whole
+  transcription path treats a failed open as `bytesUnreachable`, so if AAC-in-MP4 were not
+  readable that way, every device would fail with a message about the file being missing while
+  the stub went on passing. `AudioPipelineTests`'s real-recording fixture was made shared and
+  the assertion added.
+- **Two `ModelContext`s over one store was reasoned about and is now measured.** The automatic
+  trigger crosses them — `MediaCoordinator` marks `complete` in a per-call context, the queue
+  reads through the environment's — and a stale read would mean no new recording is ever
+  transcribed automatically, with the backlog button as the only route to a transcript. Tested
+  against a file-backed store, with the reading context loading the row first so it is a
+  refresh question rather than a cold fetch.
+- **The readiness ladder was lifted out of its I/O.** `SpeechTranscription.decide` is now a pure
+  function over `(preferred, installed, supported)`. The ordering is the entire content —
+  installed beats supported, supported beats nothing — and getting it wrong is silent in both
+  directions. None of the surrounding API can run here; the decision now can.
+- **Bulk backfill refuses cellular.** This was the one thing found in review that would have
+  shipped as a genuine harm rather than a rough edge: a backlog run fetches hundreds of files,
+  and it was using `URLSession.shared`. Someone pressing a button about transcribing has not
+  consented to a few hundred megabytes of cellular data. Only rows from another device are
+  affected — a recording made here is read in place — and `URLError.networkUnavailableReason`
+  is what tells "deferred" apart from "lost" so the row can say which.
+- **The backlog said "4 of 3".** The counter increments after each row and the view can render
+  in the gap before the run tears its progress down. Clamped.
+- **A non-cancellation error out of the results sequence escaped raw.** It landed in the row's
+  failure text as an opaque `Speech` domain string, which is not a sentence anyone should read
+  in Settings. Wrapped as `TranscriptionFailure.engine` like every other engine failure.
+- **`AssetInventory.reserve` was called per transcription.** Three hundred XPC round trips
+  during a backlog run to be told the same thing. Cached per locale per process, and only
+  recorded as reserved when the call actually succeeded.
+- **The list is no longer rebuilt when search opens from All.** Identity is the `@Query`
+  predicate rather than the UI state, and a search is the `.all` predicate however it got
+  there — so the common path stops tearing the whole list down. What that does to scroll
+  position is still SwiftUI's decision, and the device checklist now says so instead of
+  promising the scroll is preserved.

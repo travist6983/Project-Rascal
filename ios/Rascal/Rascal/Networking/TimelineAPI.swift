@@ -12,10 +12,18 @@ extension APIClient {
     /// `cursor` is the opaque `next_cursor` from the previous page and nothing else. It encodes
     /// `(occurred_at, id)`, so paging survives a 2019 photo being added tonight; an offset would
     /// silently skip whatever shifted past the boundary.
+    /// `q` switches the same endpoint into full-text search over titles, bodies, captions, and
+    /// **the transcripts the phone wrote back** — ordered by relevance, then newest first, and
+    /// keyset-paginated on `(rank, occurred_at, id)` instead of `(occurred_at, id)`.
+    ///
+    /// **A cursor from one mode is not valid in the other**, and the server answers `422` rather
+    /// than a quietly wrong page. That is why search keeps its own model and its own cursor
+    /// rather than borrowing the timeline's — see `TimelineSearchModel`.
     func entries(
         childId: UUID,
         type: String? = nil,
         tag: String? = nil,
+        query: String? = nil,
         before: Date? = nil,
         after: Date? = nil,
         limit: Int = 50,
@@ -24,6 +32,7 @@ extension APIClient {
         var items = [URLQueryItem(name: "child_id", value: childId.uuidString.lowercased())]
         items.append(URLQueryItem(name: "limit", value: String(limit)))
         if let type { items.append(URLQueryItem(name: "type", value: type)) }
+        if let query { items.append(URLQueryItem(name: "q", value: query)) }
         if let tag { items.append(URLQueryItem(name: "tag", value: tag)) }
         if let before { items.append(URLQueryItem(name: "before", value: ISO8601Formatters.string(from: before))) }
         if let after { items.append(URLQueryItem(name: "after", value: ISO8601Formatters.string(from: after))) }

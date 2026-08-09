@@ -8,6 +8,10 @@ struct RootView: View {
     @State private var sync: EntrySync?
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
+    /// One transcriber for the process, for the same reason there is one upload coordinator:
+    /// **no parallel inference.** Two queues would mean two `SpeechAnalyzer`s warming the phone
+    /// at once, which is a real cost on a device someone is holding.
+    @State private var transcription: TranscriptionQueue?
     /// One picture cache for the whole app, so the timeline, Moments, and a detail screen all
     /// draw from the same fetches rather than each pulling the same photo down again.
     @State private var thumbnails: ThumbnailStore?
@@ -46,6 +50,13 @@ struct RootView: View {
                 // Claim the background session now so tasks outstanding from a previous launch
                 // reattach to this delegate rather than reporting to nobody.
                 MediaUploader.shared.activate()
+            }
+            if transcription == nil, let mediaCoordinator {
+                let queue = TranscriptionQueue(api: session.api, context: context)
+                transcription = queue
+                // The link the coordinator uses to consider a recording the moment its upload
+                // lands. One direction — the queue does not hold the coordinator.
+                mediaCoordinator.transcription = queue
             }
             if sync == nil {
                 sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
@@ -94,7 +105,13 @@ struct RootView: View {
                 case .moments:
                     MomentsScreen(childId: childId, api: session.api) { composer = $0 }
                 case .settings:
-                    SettingsScreen(childId: childId, session: session, sync: sync, syncEngine: syncEngine)
+                    SettingsScreen(
+                        childId: childId,
+                        session: session,
+                        sync: sync,
+                        syncEngine: syncEngine,
+                        transcription: transcription
+                    )
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,
                     // so this is unreachable. Today is what the app falls back to rather than a

@@ -71,6 +71,79 @@ nonisolated enum MediaAccess {
         return data
     }
 
+    /// Why a bulk fetch did not happen, when the difference matters to what gets said about it.
+    nonisolated enum FetchFailure: Error, Equatable {
+        /// The network this phone is on is cellular, a personal hotspot, or in Low Data Mode.
+        /// **Not an error** — a deferral, and the row is retried on a better connection.
+        case networkTooExpensive
+        /// Anything else: offline, a 403 on a stale signature, a 409 on an unfinished upload.
+        case unreachable
+    }
+
+    /// A session for **bulk backfill**, which refuses to run on a network the user pays by the
+    /// megabyte for.
+    ///
+    /// This is the only place in the app that downloads media the parent did not ask to look at.
+    /// A backlog run is hundreds of files at once, kicked off by someone who pressed a button
+    /// about *transcribing* — they did not consent to a few hundred megabytes of cellular data,
+    /// and the app must not read one button as permission for the other. The same reasoning that
+    /// keeps the backlog manual for the battery keeps it off cellular for the data.
+    ///
+    /// Both flags together: `expensive` covers cellular and hotspots, `constrained` covers Low
+    /// Data Mode, which a parent turns on precisely to stop this class of thing.
+    ///
+    /// **Nothing on the ordinary path goes through here.** A recording made on this phone is read
+    /// from its staged original and never downloaded at all, so this affects backfill of rows that
+    /// came from another device and nothing else.
+    private static let backfillSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.allowsExpensiveNetworkAccess = false
+        configuration.allowsConstrainedNetworkAccess = false
+        return URLSession(configuration: configuration)
+    }()
+
+    /// The bytes **on disk**, wherever they have to come from.
+    ///
+    /// Distinct from `playbackURL`, which is happy to hand back a remote URL because `AVPlayer`
+    /// streams. Transcription cannot: `AVAudioFile` reads a file and nothing else, so a recording
+    /// this phone did not make has to be fetched before it can be read.
+    ///
+    /// Written to `destination` and owned by the caller from then on — including deleting it,
+    /// which is why this does not put it in the staging store: staging is where files waiting to
+    /// upload live, and this one is going the other way.
+    static func downloadToFile(
+        mediaId: UUID,
+        destination: URL,
+        api: APIClient
+    ) async -> Result<URL, FetchFailure> {
+        guard let url = await signedURL(mediaId: mediaId, api: api) else { return .failure(.unreachable) }
+
+        let temporary: URL
+        let response: URLResponse
+        do {
+            (temporary, response) = try await backfillSession.download(from: url)
+        } catch let error as URLError where error.networkUnavailableReason != nil {
+            // The radio said no on purpose. Told apart from a real failure so the row can say
+            // "waiting for Wi-Fi" rather than implying the recording is lost.
+            return .failure(.networkTooExpensive)
+        } catch {
+            return .failure(.unreachable)
+        }
+
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return .failure(.unreachable)
+        }
+
+        // `download(from:)` puts the file somewhere the system reclaims the moment this returns,
+        // so it is moved rather than read. Any previous attempt's leftovers go first — a move
+        // onto an existing path fails, and failing there would look like a network problem.
+        try? FileManager.default.removeItem(at: destination)
+        guard (try? FileManager.default.moveItem(at: temporary, to: destination)) != nil else {
+            return .failure(.unreachable)
+        }
+        return .success(destination)
+    }
+
     /// `409 upload_incomplete` is the one failure worth naming: the row exists and its bytes do
     /// not, which is an unfinished upload rather than a lost file. Everything else is nil, and
     /// the view says so in its own words.
