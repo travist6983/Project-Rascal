@@ -771,3 +771,57 @@ execute failed, and it was right to.
 - **Timed on `ContinuousClock`, not `Date`.** A wall clock can step sideways mid-pull — NTP, a
   timezone change — and a negative duration in the report reads as a performance problem that
   never happened.
+
+## Timeline v3 — the entry card rebuilt around the prompt (Aug 9, 2026)
+
+- **The prompt resolves from the assignment when the detail fetch has not cached one.**
+  `GET /entries` carries no `prompt`, so leading the card with the quote would have shown a
+  blank zone on every row until the parent opened it. `entries.assignment_id` → the cached
+  `Assignment.body` is the same sentence, `/sync` keeps it current, and nothing evicts it — so
+  the quote is there on a cold launch with no signal. Written up in `docs/blocked.md` as the
+  field Lane A could add to make it unnecessary.
+- **The overflow count is printed on the fourth tile, not given a fifth.** The old card showed
+  three tiles and a `+6`; v3 shows four and a `+5`. The reason is height: a nine-photo card and
+  a four-photo card must be the same size, or a long scroll acquires a stair nobody designed.
+- **Age moved off the card and onto the day header.** It is a property of the day, not of each
+  entry under it, and repeating "4y 2m" on three cards in a row was noise. It reads once per
+  group now, as a periwinkle capsule on the trailing edge.
+- **The sealed card carries no blurred body, and the mock does.** `EntryCardModel` never reads
+  a sealed entry's body — there is nothing on the card to leak, which is stronger than blurring
+  it. What the card shows instead is when the letter opens. Rendering filler under a blur to
+  match the mockup would be inventing text in a permanent archive.
+- **The waveform is the progress bar on Entry Detail.** Bars behind the playhead at full
+  strength, the rest faint, replacing the separate capsule rule. One object doing one job. On a
+  timeline card the same waveform is drawn flat, with no progress at all — a part-filled
+  waveform there would claim the parent had listened to some of it.
+- **The bars are not the recording's real levels, deliberately.** A true waveform means
+  fetching and decoding every audio entry on a screen that may hold fifty. The heights come
+  from `6 + (i * 29) % 18`, which is stable across scrolls — a waveform that reshuffles when a
+  card returns reads as a loading state.
+- **A voice entry with no note of its own quotes the transcript, in italic.** Recording the
+  child and writing nothing is the ordinary way to make one, and his words are then the only
+  words the card has. Italic because they are somebody else's; the parent's own summary is set
+  upright.
+- **Rejected: restyling `Chip` globally to v3's 12pt semibold.** The chip is on Today, Moments,
+  and Settings, and a timeline change should not restyle three other screens by a point. An
+  opt-in `emphasis` flag carries the v3 weight only where v3 asked for it.
+- **The header count says "412 so far" until paging is exhausted.** `@Query` counts what has
+  been paged in, not what the archive holds. The design's "412 entries" is a total the client
+  has never counted, and printing it would be the timeline inventing a fact about the archive.
+- **The closing line lost its pronoun.** The mock reads "Keep scrolling and he gets younger."
+  Client-side strings are gender-neutral (`CLAUDE.md`, open item 10), so it ships as "Keep
+  scrolling and it only gets younger." The mock's per-screen footers ("Six days in", "Thirty-
+  eight afternoons") were dropped: they count, and nothing in this app counts.
+- **The prompt is written onto the row at composition, not only fetched.** `Assignment` rows
+  come only from `/sync`, and sync pull ships disabled — so on a device the assignment fallback
+  resolved nothing and every card was quoteless. `ComposerView` now caches `assignment.body` as
+  it creates the entry. Both paths stay: the cache is what works today, the fallback is what
+  works for rows this device did not write, once pull is on.
+- **Audio is not a picture, and the mosaic had to be told.** `thumbnails` was built from all
+  live media, so a voice entry drew a 242pt periwinkle rectangle above the voice band — the same
+  recording, rendered twice. The mosaic now takes photos and video only, and `serverMediaCount`
+  has the locally-known non-pictures subtracted so the `+N` count stays honest. Only visible on
+  a device: every test asserted counts, and the counts were right.
+- **A tile carrying the `+5` drops its placeholder glyph.** The design scrims that number over a
+  photograph. With `thumb_key` null it landed over a camera icon instead, and two marks fought
+  over one square.

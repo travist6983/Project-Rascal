@@ -14,22 +14,47 @@ import UIKit
 struct MediaThumbnail: View {
     let mediaId: UUID
     let kind: PromptKind
-    var size: CGFloat = 56
+    /// A fixed square, or the whole cell it is handed. `fill` is what the timeline's mosaic
+    /// uses: the grid decides each tile's shape, and the tile fills it.
+    var sizing: Sizing = .square(56)
     var cornerRadius: CGFloat = 12
+    /// Off inside the mosaic, where the 4pt gutters already separate the tiles and the card
+    /// showing through them is the only line the grid needs.
+    var bordered: Bool = true
+    /// The kind glyph on a tile with no picture yet. Off on the tile carrying the `+5` count,
+    /// where a camera icon behind the number is two marks fighting over one square — the design
+    /// puts that scrim over a photograph, and a placeholder is not one.
+    var showsGlyph: Bool = true
     /// Overlaid bottom-trailing on a video tile.
     var durationSeconds: Int?
+
+    enum Sizing: Equatable {
+        case square(CGFloat)
+        case fill
+
+        var side: CGFloat? {
+            if case .square(let side) = self { return side }
+            return nil
+        }
+    }
 
     @Environment(\.thumbnails) private var thumbnails
     @State private var image: PlatformImage?
 
     var body: some View {
         content
-            .frame(width: size, height: size)
+            .frame(width: sizing.side, height: sizing.side)
+            // A filled tile is sized by its cell and clipped to it. Without this the
+            // `scaledToFill` above would let a landscape photo push its whole grid wider.
+            .frame(maxWidth: sizing.side == nil ? .infinity : nil,
+                   maxHeight: sizing.side == nil ? .infinity : nil)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-            )
+            .overlay {
+                if bordered {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+                }
+            }
             .overlay(alignment: .bottomTrailing) { durationBadge }
             .task(id: mediaId) { await load() }
             .accessibilityHidden(true)
@@ -52,9 +77,13 @@ struct MediaThumbnail: View {
     private var placeholder: some View {
         ZStack {
             tint.soft
-            Image(systemName: kind == .video ? "video.fill" : kind.symbol)
-                .font(.system(size: size * 0.3, weight: .regular))
-                .foregroundStyle(tint.ink)
+            if showsGlyph {
+                Image(systemName: kind == .video ? "video.fill" : kind.symbol)
+                    // A filled tile has no side to scale against; 22pt reads correctly across
+                    // the whole mosaic, from a 108pt quarter up to a 242pt single.
+                    .font(.system(size: (sizing.side.map { $0 * 0.3 }) ?? 22, weight: .regular))
+                    .foregroundStyle(tint.ink)
+            }
         }
     }
 
@@ -66,16 +95,18 @@ struct MediaThumbnail: View {
         }
     }
 
+    /// A tile too small to hold the badge legibly goes without it. A filled tile is never that
+    /// small — the smallest cell in the mosaic is a 108pt quarter.
     @ViewBuilder
     private var durationBadge: some View {
-        if let durationSeconds, kind == .video, size >= 48 {
+        if let durationSeconds, kind == .video, sizing.side.map({ $0 >= 48 }) ?? true {
             Text(DurationText.clock(durationSeconds))
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.surface)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Color.ink.opacity(0.55), in: Capsule())
-                .padding(4)
+                .font(.system(size: sizing.side == nil ? 11.5 : 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.canvas)
+                .padding(.horizontal, sizing.side == nil ? 10 : 5)
+                .padding(.vertical, sizing.side == nil ? 4 : 2)
+                .background(Color.ink.opacity(0.62), in: Capsule())
+                .padding(sizing.side == nil ? 9 : 4)
         }
     }
 

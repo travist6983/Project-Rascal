@@ -9,14 +9,25 @@ import SwiftUI
 enum TypeRole {
     /// 34pt bold, rounded. Occasionally one word in terracotta.
     case display
+    /// 29pt bold, rounded — a screen's own name in its sticky header, below `display` because
+    /// it shares the strip with a filter row and has to leave room for it.
+    case screenTitle
     /// 22pt semibold, rounded.
     case title
+    /// 26pt bold, rounded — the entry title on Entry Detail, where it is the loudest thing on
+    /// the screen rather than one card among many.
+    case detailTitle
+    /// 19pt bold, rounded — the day number on a timeline group header.
+    case dayNumber
     /// 17pt semibold, rounded.
     case cardTitle
     /// 20pt regular — the prompt body on a `PromptCard`, per the component spec.
     case promptBody
     /// 16pt regular, line height 1.45.
     case body
+    /// 14pt regular — a quoted prompt on an `EntryCard`. Set italic at the use site: it is
+    /// somebody else's sentence, and the entry's own words are the ones set upright.
+    case quote
     /// 13pt regular. Pair with `inkMuted`.
     case metadata
     /// 12pt semibold, tracked +0.6, uppercase. Section headers and badges.
@@ -25,10 +36,14 @@ enum TypeRole {
     var size: CGFloat {
         switch self {
         case .display: 34
+        case .screenTitle: 29
+        case .detailTitle: 26
         case .title: 22
         case .promptBody: 20
+        case .dayNumber: 19
         case .cardTitle: 17
         case .body: 16
+        case .quote: 14
         case .metadata: 13
         case .label: 12
         }
@@ -36,17 +51,19 @@ enum TypeRole {
 
     var weight: Font.Weight {
         switch self {
-        case .display: .bold
+        case .display, .screenTitle, .detailTitle, .dayNumber: .bold
         case .title, .cardTitle, .label: .semibold
-        case .promptBody, .body, .metadata: .regular
+        case .promptBody, .body, .quote, .metadata: .regular
         }
     }
 
     /// Rounded for headlines, default (SF Pro Text) for reading copy and metadata.
     var design: Font.Design {
         switch self {
-        case .display, .title, .cardTitle, .promptBody: .rounded
-        case .body, .metadata, .label: .default
+        case .display, .screenTitle, .detailTitle, .dayNumber, .title, .cardTitle, .promptBody:
+            .rounded
+        case .body, .quote, .metadata, .label:
+            .default
         }
     }
 
@@ -54,10 +71,12 @@ enum TypeRole {
     var textStyle: Font.TextStyle {
         switch self {
         case .display: .largeTitle
+        case .screenTitle, .detailTitle: .title
         case .title: .title2
-        case .promptBody: .title3
+        case .promptBody, .dayNumber: .title3
         case .cardTitle: .headline
         case .body: .body
+        case .quote: .callout
         case .metadata: .footnote
         case .label: .caption
         }
@@ -67,6 +86,7 @@ enum TypeRole {
     var lineSpacingMultiple: CGFloat? {
         switch self {
         case .body: 0.45
+        case .quote: 0.40
         case .promptBody: 0.30
         default: nil
         }

@@ -9,6 +9,11 @@ enum Layout {
     static let cardRadius: CGFloat = 20
     /// Photos and media sit inset with rounded corners; they rarely bleed to the screen edge.
     static let mediaInsetRadius: CGFloat = 14
+    /// The hero block at the top of Entry Detail — one step softer than a card, because it is
+    /// the largest shape on the screen and 20 reads as a bubble at that size.
+    static let heroRadius: CGFloat = 18
+    /// A quoted prompt on Entry Detail, where it is a filled block rather than a rule.
+    static let quoteBlockRadius: CGFloat = 16
     static let borderWidth: CGFloat = 1
 
     /// Internal card padding.
@@ -25,8 +30,11 @@ enum Layout {
     }
 }
 
-private struct CardSurface: ViewModifier {
-    let fill: Color
+/// Generic over its fill so a sealed letter can be washed with a gradient through the same
+/// modifier every other card uses. One card shape, one shadow, one place to change them.
+private struct CardSurface<Fill: ShapeStyle>: ViewModifier {
+    let fill: Fill
+    let border: Color
 
     func body(content: Content) -> some View {
         content
@@ -34,7 +42,7 @@ private struct CardSurface: ViewModifier {
             .background(fill, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous)
-                    .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+                    .strokeBorder(border, lineWidth: Layout.borderWidth)
             )
             // SwiftUI's radius is roughly half a designer's blur.
             .shadow(
@@ -48,8 +56,17 @@ private struct CardSurface: ViewModifier {
 
 extension View {
     /// The standard card: padding, tinted fill, hairline border, barely-there shadow.
-    func cardSurface(fill: Color = .surface) -> some View {
-        modifier(CardSurface(fill: fill))
+    ///
+    /// `border` defaults to the cream-tuned hairline. A tinted card wants its own — the neutral
+    /// line reads as a smudge against sage, and as dirt against the sealed wash.
+    func cardSurface(fill: Color = .surface, border: Color = .border) -> some View {
+        modifier(CardSurface(fill: fill, border: border))
+    }
+
+    /// The same card, washed rather than filled. Sealed letters only — the gradient is reserved
+    /// for emotional beats and is never a background for ordinary content.
+    func cardSurface(wash: LinearGradient, border: Color) -> some View {
+        modifier(CardSurface(fill: wash, border: border))
     }
 }
 
@@ -59,12 +76,17 @@ struct Chip: View {
     var foreground: Color = .inkMuted
     var background: Color = .surface
     var bordered: Bool = false
+    /// Semibold and a touch wider, for the tinted chips along the bottom of an `EntryCard`.
+    /// Off everywhere else, so the timeline's v3 weight does not restyle Today and Settings
+    /// on its way past.
+    var emphasis: Bool = false
 
     var body: some View {
         Text(text)
             .typeRole(.metadata)
+            .fontWeight(emphasis ? .semibold : .regular)
             .foregroundStyle(foreground)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, emphasis ? 11 : 10)
             .padding(.vertical, 5)
             .background(background, in: Capsule())
             .overlay {

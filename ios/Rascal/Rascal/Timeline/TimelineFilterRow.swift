@@ -1,10 +1,15 @@
 import SwiftUI
 
-/// The filter row: All · Photos · Video · Voice · Written · Did it.
+/// The filter row: All · Photos · Video · Voice · Written · Did it · Sealed.
 ///
 /// Active is solid terracotta with cream text, inactive is surface with a hairline border —
-/// `docs/design-system.md`, Chip. It scrolls horizontally because six capsules do not fit across
-/// a phone at 13pt with Dynamic Type turned up, and truncating one is worse than scrolling.
+/// `docs/design-system.md`, Chip. It scrolls horizontally because seven capsules do not fit
+/// across a phone at 13pt with Dynamic Type turned up, and truncating one is worse than
+/// scrolling.
+///
+/// **Deliberately transparent.** It sits inside the timeline's sticky header, whose cream-over-
+/// blur is what the archive scrolls behind; a background here would punch an opaque band
+/// through it.
 struct TimelineFilterRow: View {
     let selection: TimelineFilter
     let onSelect: (TimelineFilter) -> Void
@@ -17,10 +22,9 @@ struct TimelineFilterRow: View {
                 }
             }
             .padding(.horizontal, Layout.screenMargin)
-            .padding(.vertical, 10)
+            .padding(.bottom, 12)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .background(Color.canvas)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Filter the archive")
     }
@@ -32,14 +36,16 @@ struct TimelineFilterRow: View {
         } label: {
             Text(filter.title)
                 .typeRole(.metadata)
-                .foregroundStyle(isActive ? Color.surface : Color.inkMuted)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .fontWeight(.semibold)
+                .foregroundStyle(isActive ? Color.canvas : Color.inkMuted)
+                .padding(.horizontal, 15)
+                .padding(.vertical, 8)
                 .background(isActive ? Color.terracotta : Color.surface, in: Capsule())
                 .overlay {
-                    if !isActive {
-                        Capsule().strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-                    }
+                    Capsule().strokeBorder(
+                        isActive ? Color.terracotta : Color.border,
+                        lineWidth: Layout.borderWidth
+                    )
                 }
                 .contentShape(Capsule())
         }

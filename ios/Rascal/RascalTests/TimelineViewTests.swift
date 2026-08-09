@@ -145,15 +145,27 @@ struct EntryCardModelTests {
         #expect(card.overflow == 0)
     }
 
-    @Test("nine photos become three tiles and a +6")
+    @Test("nine photos fill the 2×2 and print +5 on the last tile")
     func overflowCounts() throws {
+        // v3 overlays the count rather than spending a tile on it, which is what keeps a
+        // nine-photo card the same height as a four-photo one.
         let entry = try cachedEntry(type: "photo", mediaCount: 9)
         let media = (0..<9).map { _ in completeMedia(entryId: entry.id) }
         let card = EntryCardModel(entry: entry, media: media)
 
-        #expect(card.thumbnails.count == EntryCardModel.maxTiles - 1)
-        #expect(card.overflow == 6)
+        #expect(card.thumbnails.count == EntryCardModel.maxTiles)
+        #expect(card.overflow == 5)
         #expect(card.thumbnails.count + card.overflow == 9)
+    }
+
+    @Test("exactly four photos is a full mosaic and no count")
+    func fourPhotosHaveNoOverflow() throws {
+        let entry = try cachedEntry(type: "photo", mediaCount: 4)
+        let media = (0..<4).map { _ in completeMedia(entryId: entry.id) }
+        let card = EntryCardModel(entry: entry, media: media)
+
+        #expect(card.thumbnails.count == 4)
+        #expect(card.overflow == 0, "a +0 badge over the fourth picture would be nonsense")
     }
 
     @Test("a photo still uploading elsewhere is counted even though it cannot be drawn")
@@ -167,6 +179,37 @@ struct EntryCardModelTests {
 
         #expect(card.thumbnails.count == 2)
         #expect(card.overflow == 2)
+    }
+
+    @Test("a voice note is never a picture tile")
+    func audioStaysOutOfTheMosaic() throws {
+        // A device caught this: the mosaic drew the recording as a 242pt periwinkle rectangle
+        // and the voice band drew the same recording again underneath it.
+        let entry = try cachedEntry(type: "audio", body: nil, mediaCount: 1)
+        let audio = completeMedia(entryId: entry.id, kind: "audio", duration: 107)
+        let card = EntryCardModel(entry: entry, media: [audio])
+
+        #expect(card.thumbnails.isEmpty)
+        #expect(card.overflow == 0, "one audio row is not one uncounted picture")
+        #expect(card.hasMedia == false)
+        #expect(card.voice != nil, "it still gets its band")
+    }
+
+    @Test("photos are counted and drawn around an audio row on the same entry")
+    func picturesSurviveAnAudioSibling() throws {
+        // An entry can hold both — a recording and the photos taken beside it. The mosaic gets
+        // the pictures and only the pictures, and the count stays honest.
+        let entry = try cachedEntry(type: "photo", mediaCount: 3)
+        let media = [
+            completeMedia(entryId: entry.id),
+            completeMedia(entryId: entry.id),
+            completeMedia(entryId: entry.id, kind: "audio", duration: 30),
+        ]
+        let card = EntryCardModel(entry: entry, media: media)
+
+        #expect(card.thumbnails.count == 2)
+        #expect(card.overflow == 0, "the third row is the audio, not a third picture")
+        #expect(card.voice != nil)
     }
 
     @Test("a voice entry carries its duration and the first line of the transcript")
@@ -228,6 +271,136 @@ struct EntryCardModelTests {
     }
 }
 
+// MARK: - The prompt the card is built around
+
+@MainActor
+@Suite("Entry card prompt")
+struct EntryCardPromptTests {
+
+    @Test("the cached prompt wins over the assignment's copy of it")
+    func promptBodyWins() throws {
+        // `GET /entries/{id}` returns the prompt as the server records it against this entry.
+        // The assignment is the same sentence seen from the schedule's side, and it is the
+        // fallback rather than the source.
+        let entry = try cachedEntry(prompt: "Photograph the mess. Don't clean it up first.")
+        let card = EntryCardModel(entry: entry, media: [], assignedPrompt: "something else")
+
+        #expect(card.prompt == "Photograph the mess. Don't clean it up first.")
+    }
+
+    @Test("a list row with no detail fetch falls back to the assignment it completed")
+    func fallsBackToAssignment() throws {
+        // This is the ordinary case and the reason the fallback exists: `GET /entries` does not
+        // carry `prompt`, so without it the quote — the whole point of the v3 card — would be
+        // blank on every row until the parent had opened it once.
+        let entry = try cachedEntry(assignmentId: UUID())
+        #expect(entry.promptBody == nil, "a list row does not carry the prompt")
+
+        let card = EntryCardModel(
+            entry: entry, media: [],
+            assignedPrompt: "Get on the floor for ten minutes. That's the whole mission."
+        )
+        #expect(card.prompt == "Get on the floor for ten minutes. That's the whole mission.")
+    }
+
+    @Test("a freeform entry has no prompt and the zone drops out")
+    func freeformHasNoPrompt() throws {
+        // Nothing was asked, so there is nothing to quote. The card must not reserve the space.
+        let entry = try cachedEntry(body: "Just a thing I wanted to keep.")
+        let card = EntryCardModel(entry: entry, media: [], assignedPrompt: nil)
+
+        #expect(card.prompt == nil)
+    }
+
+    @Test("a sealed letter still shows the prompt it answered")
+    func sealedKeepsItsPrompt() throws {
+        // The seal is on the letter, not on the question. Hiding the prompt too would leave a
+        // card that says nothing at all about why it exists.
+        let entry = try cachedEntry(
+            body: "Dear you, on the day you turn eighteen",
+            title: "A letter", unlockAtAge: 18,
+            prompt: "Write him something about money you wish you'd been told at nineteen."
+        )
+        let card = EntryCardModel(entry: entry, media: [])
+
+        #expect(card.isSealed)
+        #expect(card.prompt?.hasPrefix("Write him something about money") == true)
+        #expect(card.preview == nil, "the letter itself stays sealed")
+    }
+}
+
+// MARK: - What the card sets as its body
+
+@MainActor
+@Suite("Entry card body")
+struct EntryCardBodyTests {
+
+    @Test("a written entry gets a third line, because the writing is the artifact")
+    func writtenGetsThreeLines() throws {
+        // Escaped in the source, so the fixture emits valid JSON and the decoder produces the
+        // real newlines. A bare "\n" here is an unescaped control character in the body.
+        let lines = #"one\ntwo\nthree\nfour"#
+        let written = try cachedEntry(type: "text", body: lines)
+        let photo = try cachedEntry(type: "photo", body: lines)
+
+        #expect(written.type == .text)
+        #expect(EntryCardModel(entry: written, media: []).bodyLineLimit == 3)
+        #expect(EntryCardModel(entry: written, media: []).preview == "one two three")
+        #expect(EntryCardModel(entry: photo, media: []).bodyLineLimit == 2)
+        #expect(EntryCardModel(entry: photo, media: []).preview == "one two")
+    }
+
+    @Test("the parent's words are the body when there are any")
+    func parentWordsWin() throws {
+        let entry = try cachedEntry(type: "audio", body: "He talked for two minutes straight.")
+        let audio = completeMedia(
+            entryId: entry.id, kind: "audio", duration: 107, transcript: "and then the dinosaur"
+        )
+        let line = EntryCardModel(entry: entry, media: [audio]).bodyLine
+
+        #expect(line?.text == "He talked for two minutes straight.")
+        #expect(line?.isQuote == false, "the parent's summary is set upright")
+    }
+
+    @Test("a voice note with no note of its own quotes the transcript instead")
+    func transcriptFillsIn() throws {
+        // Recording the child and writing nothing is the common way to make a voice entry. His
+        // words are then the only words the card has, and they are somebody else's — italic.
+        let entry = try cachedEntry(type: "audio", body: nil)
+        let audio = completeMedia(
+            entryId: entry.id, kind: "audio", duration: 107,
+            transcript: "and then the dinosaur he goed to the bus stop"
+        )
+        let line = EntryCardModel(entry: entry, media: [audio]).bodyLine
+
+        #expect(line?.text == "and then the dinosaur he goed to the bus stop")
+        #expect(line?.isQuote == true)
+    }
+
+    @Test("a did-it entry with no note has no body line at all")
+    func bareDidItHasNoBody() throws {
+        // Complete, legitimate, and it renders as a prompt and a title. Not as a blank row and
+        // not as a card with an empty paragraph holding space open.
+        let entry = try cachedEntry(type: "did_it", body: nil)
+        let card = EntryCardModel(entry: entry, media: [])
+
+        #expect(card.bodyLine == nil)
+        #expect(card.hasMedia == false)
+        #expect(card.isDidIt)
+    }
+
+    @Test("colour follows meaning, not the brand")
+    func tintsByKind() throws {
+        // Terracotta is photo and video, periwinkle is voice and writing, sage is did-it.
+        // A question card tinted terracotta because terracotta is the brand colour is a defect.
+        #expect(try EntryCardModel(entry: cachedEntry(type: "photo"), media: []).tint == .terracotta)
+        #expect(try EntryCardModel(entry: cachedEntry(type: "video"), media: []).tint == .terracotta)
+        #expect(try EntryCardModel(entry: cachedEntry(type: "audio"), media: []).tint == .periwinkle)
+        #expect(try EntryCardModel(entry: cachedEntry(type: "text"), media: []).tint == .periwinkle)
+        #expect(try EntryCardModel(entry: cachedEntry(type: "did_it"), media: []).tint == .sage)
+    }
+}
+
 // MARK: - Words
 
 @Suite("Formatting")
@@ -243,6 +416,14 @@ struct FormattingTests {
         #expect(AgeText.greeting(24) == "2 years old")
         #expect(AgeText.spoken(62) == "5 years 2 months old")
         #expect(AgeText.spoken(1) == "1 month old")
+        // The long form sits opposite the words "Age at the time", so it never says "old" —
+        // that row would otherwise state age twice.
+        #expect(AgeText.long(62) == "5 years, 2 months")
+        #expect(AgeText.long(24) == "2 years")
+        #expect(AgeText.long(11) == "11 months")
+        #expect(AgeText.long(1) == "1 month")
+        #expect(AgeText.long(0) == "Newborn")
+        #expect(!AgeText.long(62).contains("old"))
     }
 
     @Test("durations read as a clock, and as words for VoiceOver")

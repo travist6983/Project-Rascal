@@ -26,6 +26,19 @@ nonisolated enum AgeText {
         return "\(years)y \(rest)m"
     }
 
+    /// The long form for a labelled row — "5 years, 2 months".
+    ///
+    /// No trailing "old", unlike `spoken`: this sits opposite the words *Age at the time*, and
+    /// "Age at the time — 5 years 2 months old" says age twice.
+    static func long(_ months: Int) -> String {
+        let years = months / 12, rest = months % 12
+        if months <= 0 { return "Newborn" }
+        if years == 0 { return "\(months) month\(months == 1 ? "" : "s")" }
+        let yearPart = "\(years) year\(years == 1 ? "" : "s")"
+        if rest == 0 { return yearPart }
+        return "\(yearPart), \(rest) month\(rest == 1 ? "" : "s")"
+    }
+
     /// Spoken form, for VoiceOver, where "5y 2m" reads as noise.
     static func spoken(_ months: Int) -> String {
         let years = months / 12, rest = months % 12
