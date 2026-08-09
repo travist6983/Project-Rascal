@@ -25,6 +25,9 @@ enum AppConfig {
 enum SessionPhase: Equatable {
     case launching
     case signedIn(childId: UUID)
+    /// The parent signed out deliberately. Distinct from `failed` on purpose: nothing went
+    /// wrong, so the screen must not say anything did, and nothing signs back in on its own.
+    case signedOut
     /// Sign-in could not complete. Carries what to tell the parent — and what they can do.
     case failed(String)
 }
@@ -38,6 +41,12 @@ enum SessionPhase: Equatable {
 @Observable
 final class AppSession {
     private(set) var phase: SessionPhase = .launching
+    /// Who is signed in, when this launch is the one that signed them in.
+    ///
+    /// Nil after a warm start: the token is in the keychain but the user record came back with
+    /// the sign-in response and there is no `GET /me` to ask again. Settings falls back to the
+    /// configured account rather than showing a blank line.
+    private(set) var user: UserResponse?
     let api: APIClient
 
     private let tokens: TokenStoring
@@ -65,7 +74,8 @@ final class AppSession {
 
     func signIn() async {
         do {
-            _ = try await api.devLogin(email: AppConfig.devLoginEmail, displayName: "Dev Parent")
+            let session = try await api.devLogin(email: AppConfig.devLoginEmail, displayName: "Dev Parent")
+            user = session.user
             guard let child = await resolveChild() else {
                 phase = .failed(
                     """
@@ -87,6 +97,15 @@ final class AppSession {
         await api.signOut()
         phase = .launching
         await signIn()
+    }
+
+    /// A deliberate sign-out. Revokes the refresh token, forgets the pair, and stops —
+    /// **nothing signs back in on its own.** A Sign out button that lands you back on Today two
+    /// frames later has not signed you out, it has lied to you.
+    func signOut() async {
+        await api.logout()
+        user = nil
+        phase = .signedOut
     }
 
     /// Config supplies the child for now, but it is verified against the server rather than

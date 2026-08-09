@@ -37,9 +37,11 @@ final class TimelineModel {
     private let childId: UUID
     private let api: APIClient
     private let context: ModelContext
-    private var cursor: String?
     /// What the pages currently in hand were fetched under.
     private var pagedFilter: TimelineFilter = .all
+    /// The `before` this last asked for, so a page that returns only rows already held cannot
+    /// become a loop.
+    private var lastBefore: Date?
 
     init(childId: UUID, api: APIClient, context: ModelContext) {
         self.childId = childId
@@ -69,40 +71,66 @@ final class TimelineModel {
         await loadFirstPage()
     }
 
-    /// Called when the last card appears. Guarded on every side, because a scroll can ask
-    /// several times before the first answer arrives.
+    /// Called when the last card on screen appears. Guarded on every side, because a scroll can
+    /// ask several times before the first answer arrives.
+    ///
+    /// **Paging is seeded from the cache, not from a token.** The endpoint hands back an opaque
+    /// `next_cursor`, and for a stateless pager that is exactly the right tool — but this client
+    /// is offline-first, and its answer to "where am I" is the archive already on screen rather
+    /// than a position remembered from one session. A device found the difference: reopen the
+    /// app with fifteen pages cached and the page-one cursor asks for page two, which is
+    /// entirely rows already held. No new card appears, so nothing triggers again, and the
+    /// timeline stops at the bottom of the cache with years still unfetched.
+    ///
+    /// So it asks for what it does not have: everything older than the oldest row on screen.
+    /// The overlap is deliberate — `before` is exclusive and two entries can share an instant,
+    /// so a boundary drawn exactly at the oldest row can skip its twin. A second of overlap
+    /// re-delivers rows the cache already has, which costs nothing because upserts are by id.
+    /// That is the same trade `GET /sync` makes when it hands back a cursor thirty seconds
+    /// behind: **overlap rather than skip**, in a permanent archive, every time.
     func loadMoreIfNeeded() async {
-        guard hasLoaded, !reachedEnd, !isLoadingMore, !isLoadingFirstPage, cursor != nil else {
+        guard hasLoaded, !reachedEnd, !isLoadingMore, !isLoadingFirstPage else { return }
+        guard let oldest = oldestCachedOccurredAt() else { return }
+
+        let before = oldest.addingTimeInterval(1)
+        guard before != lastBefore else {
+            // The last request did not move the floor, so every row it returned was one the
+            // cache already had. There is nothing older to fetch.
+            reachedEnd = true
             return
         }
+        lastBefore = before
+
         isLoadingMore = true
         defer { isLoadingMore = false }
-        await fetchPage(cursor: cursor)
+        await fetchPage(before: before)
     }
 
     private func loadFirstPage() async {
         isLoadingFirstPage = true
         defer { isLoadingFirstPage = false }
-        cursor = nil
+        lastBefore = nil
         reachedEnd = false
         pagedFilter = filter
-        await fetchPage(cursor: nil)
+        await fetchPage(before: nil)
     }
 
-    private func fetchPage(cursor requested: String?) async {
+    private func fetchPage(before: Date?) async {
         do {
             let page = try await api.entries(
                 childId: childId,
                 type: filter.queryValue,
-                limit: Self.pageSize,
-                cursor: requested
+                before: before,
+                limit: Self.pageSize
             )
             // A filter changed while this was in flight. Its rows are still worth caching —
-            // they are real entries — but its cursor belongs to a sequence nobody is reading.
+            // they are real entries — but its position belongs to a list nobody is reading.
             EntryCache.upsert(page.entries, into: context)
             guard pagedFilter == filter else { return }
 
-            cursor = page.nextCursor
+            // `next_cursor` is not used to page, but it is still the server's own answer to
+            // "is there more after this": it is set whenever another page exists, and null on
+            // the last one. Read as a signal rather than as a position.
             reachedEnd = page.nextCursor == nil
             hasLoaded = true
             notice = nil
@@ -115,6 +143,32 @@ final class TimelineModel {
             notice = error.localizedDescription
             hasLoaded = true
         }
+    }
+
+    /// The oldest row the list is currently showing, under the active filter.
+    ///
+    /// Filtered the same way the screen's `@Query` is, so "the bottom of the list" means the
+    /// same thing to the pager as it does to the parent looking at it.
+    private func oldestCachedOccurredAt() -> Date? {
+        let child = childId
+        var descriptor: FetchDescriptor<Entry>
+        if let wanted = filter.queryValue {
+            descriptor = FetchDescriptor<Entry>(
+                predicate: #Predicate<Entry> { entry in
+                    entry.childId == child && entry.deletedAt == nil && entry.entryType == wanted
+                },
+                sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
+            )
+        } else {
+            descriptor = FetchDescriptor<Entry>(
+                predicate: #Predicate<Entry> { entry in
+                    entry.childId == child && entry.deletedAt == nil
+                },
+                sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
+            )
+        }
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first?.occurredAt
     }
 
     // MARK: Deleting

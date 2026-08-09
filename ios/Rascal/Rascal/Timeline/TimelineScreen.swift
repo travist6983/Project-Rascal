@@ -162,7 +162,21 @@ private struct TimelineList: View {
     }
 
     private func list(_ groups: [TimelineGrouping.Day<EntryCardModel>]) -> some View {
-        List {
+        // The paging trigger hangs off the last card, not off a footer row.
+        //
+        // A footer's `.task` fires once, when the row is first created — which on this screen is
+        // during the first render, *before* the first page has landed. Every guard in
+        // `loadMoreIfNeeded` was correctly false at that moment, the task never ran again
+        // because the footer's identity never changed, and paging stopped dead at page one. It
+        // took a device to see it: every unit test drives the model directly and none of them
+        // has a view lifecycle to get wrong.
+        //
+        // The last card is right for the same reason the footer was wrong. Its identity changes
+        // every time a page lands, so a new one appears — but only when it is actually scrolled
+        // to, which is exactly when another page is wanted.
+        let lastCardId = groups.last?.items.last?.id
+
+        return List {
             if let notice { noticeRow(notice) }
 
             ForEach(groups) { group in
@@ -181,6 +195,10 @@ private struct TimelineList: View {
                         ))
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.canvas)
+                        .onAppear {
+                            guard card.id == lastCardId else { return }
+                            Task { await onReachEnd() }
+                        }
                     }
                 } header: {
                     DayHeader(date: group.start, yearDivider: group.yearDivider)
@@ -213,8 +231,8 @@ private struct TimelineList: View {
         .listRowBackground(Color.canvas)
     }
 
-    /// The paging trigger. A row rather than an `onAppear` on the last card, because the last
-    /// card changes identity every time a page lands and its `onAppear` would fire again.
+    /// The spinner under the last card while another page is in flight. It carries no trigger
+    /// of its own — see `list(_:)` for where paging is actually driven from, and why.
     private var footer: some View {
         HStack {
             Spacer()
@@ -225,7 +243,6 @@ private struct TimelineList: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.canvas)
-        .task { await onReachEnd() }
     }
 
     // MARK: Empty
