@@ -201,7 +201,7 @@ extension APIClient {
     @discardableResult
     func resetBoard(
         childId: UUID,
-        kinds: [String] = ["question", "photo", "video", "activity"]
+        kinds: [String] = ["question", "photo", "video", "audio", "activity"]
     ) async throws -> BoardResetResponse {
         try await send(
             .post, "v1/debug/board",
