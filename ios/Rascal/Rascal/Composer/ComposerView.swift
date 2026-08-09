@@ -7,6 +7,11 @@ struct ComposerRequest: Identifiable {
     let childId: UUID
     let assignment: AssignmentResponse?
     let mode: CompletionMode
+    /// Set when opening an existing entry to edit. Date, title, and body are editable; media
+    /// is shown read-only, because adding or removing files after save is a later phase.
+    var editing: UUID?
+
+    var isEditing: Bool { editing != nil }
 }
 
 /// Writing an entry. Opens knowing its completion mode, because "we did it" and "write it" are
@@ -32,12 +37,16 @@ struct ComposerView: View {
     @State private var drafts: [MediaDraft] = []
     @State private var picking: [PhotosPickerItem] = []
     @State private var showCamera = false
+    @State private var showLibrary = false
     /// Set once the parent has moved the date themselves, so importing another photo cannot
     /// silently overwrite a deliberate choice.
     @State private var dateWasChosen = false
     /// True while the composer itself is moving the date, so the change is not mistaken for
     /// the parent choosing one.
     @State private var importing = false
+    /// Media already attached to an entry being edited. Read-only: adding or removing files
+    /// after save is a later phase, and showing them is better than pretending they are gone.
+    @State private var existingMedia: [Media] = []
     private let staging = StagingStore()
 
     var body: some View {
@@ -50,10 +59,20 @@ struct ComposerView: View {
                         quotedPrompt(assignment)
                     }
 
+                    if !existingMedia.isEmpty { attachedMedia }
+
                     switch request.mode {
-                    case .text: writeIt
-                    case .didIt: didItControl
-                    case .media, .unknown: captureIt
+                    case .didIt:
+                        didItControl
+                    case .media, .unknown:
+                        captureIt
+                    case .text:
+                        // A freeform entry is the camera-roll backfill surface — it is where
+                        // someone sits down with a year of photos — so it attaches media too.
+                        // Deliberately no video anywhere: capture for it does not exist, and
+                        // an affordance leading nowhere is worse than its absence.
+                        if request.assignment == nil { freeformCapture }
+                        writeIt
                     }
 
                     if let notice {
@@ -77,6 +96,7 @@ struct ComposerView: View {
                 }
             }
         }
+        .task { loadForEditing() }
         .presentationDragIndicator(.visible)
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $showCamera) {
@@ -84,6 +104,13 @@ struct ComposerView: View {
                 .ignoresSafeArea()
         }
         #endif
+        .photosPicker(
+            isPresented: $showLibrary,
+            selection: $picking,
+            maxSelectionCount: 10,
+            matching: .images,
+            photoLibrary: .shared()
+        )
         .onChange(of: picking) { _, items in
             guard !items.isEmpty else { return }
             Task { await importPicked(items) }
@@ -93,6 +120,28 @@ struct ComposerView: View {
             // look like a decision the parent made.
             if !importing { dateWasChosen = true }
         }
+    }
+
+    /// Populate from the entry being edited. Runs once; the composer is presented fresh each
+    /// time, so there is no stale-state case to guard.
+    private func loadForEditing() {
+        guard let editingId = request.editing,
+              let entry = try? context.fetch(
+                  FetchDescriptor<Entry>(predicate: #Predicate { $0.id == editingId })
+              ).first
+        else { return }
+
+        importing = true
+        occurredAt = entry.occurredAt
+        text = entry.body ?? ""
+        didIt = true
+        importing = false
+        // A date already chosen once must not be overwritten by anything.
+        dateWasChosen = true
+
+        existingMedia = (try? context.fetch(
+            FetchDescriptor<Media>(predicate: #Predicate { $0.entryId == editingId })
+        )) ?? []
     }
 
     // MARK: Importing
@@ -154,7 +203,7 @@ struct ComposerView: View {
     /// A clean field on canvas, with nothing competing with it.
     private var writeIt: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel("What happened")
+            SectionLabel(request.assignment == nil ? "What happened" : "Your answer")
             TextEditor(text: $text)
                 .typeRole(.body)
                 .foregroundStyle(Color.ink)
@@ -217,7 +266,10 @@ struct ComposerView: View {
             MediaPreviewRow(
                 drafts: drafts,
                 onRemove: remove,
-                onAddMore: { showCamera = false }
+                // Was a no-op: the tile rendered and did nothing. It opens the same picker
+                // as "Choose from library", because that is plainly what a + on a photo row
+                // promises.
+                onAddMore: { showLibrary = true }
             )
             addAnother
         }
@@ -232,6 +284,20 @@ struct ComposerView: View {
         }
 
         writeIt
+    }
+
+    /// Photo attachment on a freeform entry. Framed like the prompted composer rather than
+    /// left bare — this is a whole mission category, not an afterthought.
+    @ViewBuilder
+    private var freeformCapture: some View {
+        if drafts.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionLabel("Add photos — optional")
+                captureChoices
+            }
+        } else {
+            MediaPreviewRow(drafts: drafts, onRemove: remove, onAddMore: { showLibrary = true })
+        }
     }
 
     private var captureChoices: some View {
@@ -282,6 +348,44 @@ struct ComposerView: View {
         .background(Color.terracottaSoft, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
     }
 
+    /// What is already attached. Read-only by design this phase.
+    private var attachedMedia: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(existingMedia.count == 1 ? "1 photo" : "\(existingMedia.count) photos")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(existingMedia, id: \.id) { media in
+                        thumbnail(for: media)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(for media: Media) -> some View {
+        let url = staging.thumbnailURL(for: media.id)
+        Group {
+            #if canImport(UIKit)
+            if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                // The local cache is disposable — the bytes are in storage and reachable
+                // through GET /media/{id}/url. A neutral tile is honest; an error is not.
+                Color.surface
+            }
+            #else
+            Color.surface
+            #endif
+        }
+        .frame(width: 84, height: 84)
+        .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+        )
+    }
+
     private func quotedPrompt(_ assignment: AssignmentResponse) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Rectangle()
@@ -302,7 +406,11 @@ struct ComposerView: View {
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var canSave: Bool {
-        switch request.mode {
+        // An edit may be date-only, which is the whole point of backdating.
+        if request.isEditing { return true }
+        // Explicit `return`: with a statement above it, the switch is no longer the body's
+        // single expression and cannot be implicitly returned.
+        return switch request.mode {
         case .didIt: didIt
         // A photo alone is a complete entry — the archive is full of them, and requiring a
         // caption would be requiring homework.
@@ -316,6 +424,11 @@ struct ComposerView: View {
     private func save() async {
         saving = true
         defer { saving = false }
+
+        if let editingId = request.editing {
+            await saveEdit(editingId)
+            return
+        }
 
         let entry = Entry(
             childId: request.childId,
@@ -376,6 +489,32 @@ struct ComposerView: View {
             dismiss()
         }
     }
+
+    /// An edit follows the same discipline as a creation: local first, then sync. The change
+    /// is on screen before the request goes out, and a failure leaves it queued rather than
+    /// lost.
+    private func saveEdit(_ entryId: UUID) async {
+        guard let entry = try? context.fetch(
+            FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryId })
+        ).first else { dismiss(); return }
+
+        entry.occurredAt = occurredAt
+        entry.body = trimmed.isEmpty ? nil : trimmed
+        entry.updatedAt = Date()
+        entry.sync = .pending
+        try? context.save()
+        dismiss()
+
+        do {
+            let response = try await api.updateEntry(entry)
+            entry.applyServerResponse(response)
+        } catch {
+            // Queued. `EntrySync` sends it as a PATCH on the next sweep, because the row is
+            // already known to the server.
+            entry.sync = .failed
+        }
+        try? context.save()
+    }
 }
 
 /// The backdating affordance, in the composer header where it's obvious.
@@ -414,6 +553,15 @@ struct DatePill: View {
                 .datePickerStyle(.graphical)
                 .tint(.terracotta)
                 .labelsHidden()
+                // The numerals inherit the ambient foreground, which here was `inkMuted` from
+                // the surrounding metadata styling — light grey on cream, well under contrast
+                // minimums, and effectively unreadable on a phone in daylight. The selected
+                // date was fine because `tint` colours it separately, which is exactly why it
+                // was easy to miss. `ink` is the palette's body colour and the right one.
+                .foregroundStyle(Color.ink)
+                .environment(\.colorScheme, .light)
+                .padding(.horizontal, 4)
+                .background(Color.surface, in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius))
             }
         }
     }

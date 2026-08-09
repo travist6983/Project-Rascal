@@ -6,9 +6,16 @@ import SwiftUI
 /// photo/video, periwinkle for questions and voice. A question card tinted terracotta
 /// "because it's the brand colour" is a defect, not a style choice.
 struct PromptCard: View {
-    let assignment: AssignmentResponse
+    let item: TodayBoard.BoardItem
     let onPrimary: () -> Void
     let onDismiss: () -> Void
+    /// Set on done cards: tapping opens the composer in edit mode.
+    var onEdit: (() -> Void)?
+    var failures: [Media] = []
+    var onRetry: (Media) -> Void = { _ in }
+    var onRetryAll: () -> Void = {}
+
+    private var assignment: AssignmentResponse { item.assignment }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -22,10 +29,17 @@ struct PromptCard: View {
                 Button(assignment.completion.actionText, action: onPrimary)
                     .buttonStyle(PrimaryButtonStyle(tint: tint))
             }
+
+            if !failures.isEmpty {
+                FailedUploadList(failures: failures, onRetry: onRetry, onRetryAll: onRetryAll)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .cardSurface(fill: fill)
         .contentShape(RoundedRectangle(cornerRadius: Layout.cardRadius))
+        .onTapGesture {
+            if isDone { onEdit?() }
+        }
         .contextMenu {
             if !isDone {
                 Button("Not for us", systemImage: "xmark.circle", action: onDismiss)
@@ -33,7 +47,7 @@ struct PromptCard: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
-        .accessibilityHint(isDone ? "" : assignment.completion.actionText)
+        .accessibilityHint(isDone ? (onEdit == nil ? "" : "Edit this entry") : assignment.completion.actionText)
     }
 
     private var header: some View {
@@ -48,14 +62,23 @@ struct PromptCard: View {
             Spacer(minLength: 0)
 
             if isDone {
-                CompletionCheck(isComplete: true, diameter: 24)
+                // Ring and check are one control: the ring fills as bytes land and closes
+                // into the check drawing itself, so upload and completion read as one motion.
+                UploadRing(
+                    fraction: item.mediaProgress?.fraction ?? 1,
+                    remaining: item.mediaProgress?.remaining ?? 0,
+                    isComplete: item.mediaProgress?.isFinished ?? true,
+                    diameter: 26
+                )
             }
         }
     }
 
     // MARK: Presentation
 
-    private var isDone: Bool { assignment.status == .done }
+    /// Local truth counts. An entry saved offline is done the instant it is saved; whether
+    /// the server has heard is a fact about the network, not about the parent's evening.
+    private var isDone: Bool { item.isDone }
 
     /// An unrecognised slot or kind renders as a neutral surface card with its body intact —
     /// an unknown value from a future server release is never a crash and never a blank card,
@@ -72,8 +95,18 @@ struct PromptCard: View {
             || assignment.promptKind == .audio ? .periwinkle : .terracotta
     }
 
+    /// **Done keeps its kind.**
+    ///
+    /// Previously every done card went sage, which threw away the one thing the colour was
+    /// carrying at the moment the card is most satisfying to look at: a completed question
+    /// stopped being a question. The tint means mission-or-question; finishing does not change
+    /// what it was.
+    ///
+    /// Sage stays for `did_it` specifically, where it is not decoration — it marks the
+    /// completion shape that produces no artifact, which is the one the archive is most likely
+    /// to under-value.
     private var fill: Color {
-        if isDone { return .sage }
+        if isDone, assignment.completion == .didIt { return .sage }
         guard isRecognised else { return .surface }
         return tint == .periwinkle ? .periwinkleSoft : .terracottaSoft
     }
@@ -93,7 +126,13 @@ struct PromptCard: View {
     private var accessibilityText: String {
         var parts = [assignment.promptKind.badgeText, assignment.body]
         if let expiryText { parts.append(expiryText) }
-        if isDone { parts.append("Done") }
+        if isDone {
+            parts.append("Done")
+            if let progress = item.mediaProgress, !progress.isFinished {
+                parts.append("\(progress.remaining) still uploading")
+            }
+            if !failures.isEmpty { parts.append("\(failures.count) not uploaded yet") }
+        }
         return parts.joined(separator: ". ")
     }
 }

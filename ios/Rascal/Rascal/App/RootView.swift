@@ -7,7 +7,6 @@ struct RootView: View {
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?
     @State private var mediaCoordinator: MediaCoordinator?
-    @State private var unsynced = 0
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -62,7 +61,6 @@ struct RootView: View {
                     TodayScreen(
                         childId: childId,
                         api: session.api,
-                        unsyncedCount: unsynced,
                         onRetrySync: { Task { await runSweep() } }
                     ) { composer = $0 }
                 case .timeline, .moments, .settings:
@@ -84,10 +82,10 @@ struct RootView: View {
 
 extension RootView {
     /// Push anything still local, then refresh the count the Today screen shows.
+    /// Push whatever has not landed. There is no longer a count to update: progress lives on
+    /// the card it belongs to, which is where a parent is already looking.
     private func runSweep() async {
-        guard let sync else { return }
-        await sync.sweep()
-        unsynced = sync.unsyncedCount()
+        await sync?.sweep()
     }
 }
 

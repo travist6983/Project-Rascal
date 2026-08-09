@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 @MainActor
@@ -58,13 +59,18 @@ final class TodayModel {
 struct TodayScreen: View {
     let childId: UUID
     let api: APIClient
-    /// Entries written locally that the server has not acknowledged yet.
-    var unsyncedCount: Int = 0
     var onRetrySync: () -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
     @State private var model: TodayModel?
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var context
+
+    /// Local completions and their media, merged over the server's board every render.
+    /// Queried rather than held, so this survives a relaunch — the board is rebuilt from
+    /// SwiftData, not from anything remembered in memory.
+    @Query(filter: #Predicate<Entry> { $0.deletedAt == nil }) private var localEntries: [Entry]
+    @Query(filter: #Predicate<Media> { $0.deletedAt == nil }) private var localMedia: [Media]
 
     var body: some View {
         ScrollView {
@@ -103,15 +109,17 @@ struct TodayScreen: View {
             }
             .padding(.top, 50)
 
-        case .loaded(let today):
+        case .loaded(let response):
+            // The merge happens here rather than in the model so it re-runs whenever SwiftData
+            // changes — saving an entry updates the board without waiting for a refetch.
+            let board = TodayBoard.merge(response: response, entries: localEntries, media: localMedia)
             VStack(alignment: .leading, spacing: 22) {
-                greeting(today)
+                greeting(board.child)
                 if let notice = model?.notice { noticeBanner(notice) }
-                if unsyncedCount > 0 { unsyncedRow }
-                section("Today", today.today)
-                section("Waiting", today.waiting, count: today.waiting.count)
-                section("Done today", today.doneToday)
-                if today.today.isEmpty && today.waiting.isEmpty && today.doneToday.isEmpty {
+                section("Today", board.today)
+                section("Waiting", board.waiting, count: board.waiting.count)
+                section("Done today", board.doneToday)
+                if board.today.isEmpty && board.waiting.isEmpty && board.doneToday.isEmpty {
                     allCaughtUp
                 }
             }
@@ -119,12 +127,12 @@ struct TodayScreen: View {
         }
     }
 
-    private func greeting(_ today: TodayResponse) -> some View {
+    private func greeting(_ child: ChildSummary) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(today.child.name)
+            Text(child.name)
                 .typeRole(.display)
                 .foregroundStyle(Color.ink)
-            Text(ageText(today.child.ageMonths))
+            Text(ageText(child.ageMonths))
                 .typeRole(.metadata)
                 .foregroundStyle(Color.inkMuted)
         }
@@ -140,7 +148,7 @@ struct TodayScreen: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, _ items: [AssignmentResponse], count: Int? = nil) -> some View {
+    private func section(_ title: String, _ items: [TodayBoard.BoardItem], count: Int? = nil) -> some View {
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: Layout.cardSpacing) {
                 HStack(spacing: 8) {
@@ -152,9 +160,13 @@ struct TodayScreen: View {
                 }
                 ForEach(items) { item in
                     PromptCard(
-                        assignment: item,
-                        onPrimary: { open(item) },
-                        onDismiss: { Task { await model?.dismiss(item) } }
+                        item: item,
+                        onPrimary: { open(item.assignment) },
+                        onDismiss: { Task { await model?.dismiss(item.assignment) } },
+                        onEdit: item.localEntryId.map { id in { edit(entryId: id) } },
+                        failures: failures(for: item),
+                        onRetry: { retry([$0]) },
+                        onRetryAll: { retry(failures(for: item)) }
                     )
                     .transition(Motion.listInsert)
                 }
@@ -173,31 +185,6 @@ struct TodayScreen: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
         .background(Gradients.wash, in: RoundedRectangle(cornerRadius: Layout.cardRadius))
-    }
-
-    /// Stated plainly and quietly. Not a badge, not a red dot, not a count on the tab bar —
-    /// the work is safe on the phone and saying otherwise would be both alarming and untrue.
-    /// It offers a retry because waiting for the next foreground is not an answer when someone
-    /// is standing there wondering.
-    private var unsyncedRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color.inkMuted)
-            Text(unsyncedCount == 1 ? "1 entry still saving" : "\(unsyncedCount) entries still saving")
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-            Spacer(minLength: 0)
-            Button("Try now", action: onRetrySync)
-                .typeRole(.metadata)
-                .foregroundStyle(Color.terracotta)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Color.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.border, lineWidth: Layout.borderWidth))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(unsyncedCount) entries saved on this phone, still uploading.")
     }
 
     private func noticeBanner(_ text: String) -> some View {
@@ -224,5 +211,30 @@ struct TodayScreen: View {
         openComposer(
             ComposerRequest(childId: childId, assignment: assignment, mode: assignment.completion)
         )
+    }
+
+    /// Tapping a done card edits the entry behind it.
+    private func edit(entryId: UUID) {
+        guard let entry = localEntries.first(where: { $0.id == entryId }) else { return }
+        openComposer(
+            ComposerRequest(
+                childId: childId,
+                assignment: nil,
+                mode: entry.body?.isEmpty == false ? .text : .didIt,
+                editing: entry.id
+            )
+        )
+    }
+
+    /// Files on this card that need a decision. Listed individually, never summarised.
+    private func failures(for item: TodayBoard.BoardItem) -> [Media] {
+        guard let entryId = item.localEntryId else { return [] }
+        return localMedia.filter { $0.entryId == entryId && $0.state == .failed }
+    }
+
+    private func retry(_ media: [Media]) {
+        for row in media { row.resetForManualRetry() }
+        try? context.save()
+        onRetrySync()
     }
 }

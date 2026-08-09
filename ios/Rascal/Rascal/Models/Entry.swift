@@ -49,6 +49,12 @@ final class Entry {
     /// row. Generated once, at creation.
     var idempotencyKey: UUID
 
+    /// True once the server has the row, so the sweep knows whether an outstanding change is
+    /// a creation (`POST`) or an edit (`PATCH`). Without it an edit made while offline would
+    /// be re-POSTed, and the idempotency key would return the *original* body — silently
+    /// discarding the edit and reporting success.
+    var existsOnServer: Bool = false
+
     init(
         id: UUID = UUID(),
         childId: UUID,
@@ -85,6 +91,7 @@ final class Entry {
 
     /// The one place server truth is written back onto a local row.
     func applyServerResponse(_ response: EntryResponse) {
+        existsOnServer = true
         entryType = response.entryType
         childAgeMonths = response.childAgeMonths
         updatedAt = response.updatedAt

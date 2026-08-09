@@ -132,3 +132,25 @@ extension APIClient {
         return response.url
     }
 }
+
+private struct EntryUpdateRequest: Encodable {
+    let occurredAt: Date
+    let title: String?
+    let body: String?
+}
+
+extension APIClient {
+    /// Edit an existing entry. Title, body, and `occurred_at` only — media after save is a
+    /// later phase, and `entry_type` stays server-derived.
+    @discardableResult
+    func updateEntry(_ entry: Entry) async throws -> EntryResponse {
+        try await send(
+            .patch, "v1/entries/\(entry.id.uuidString.lowercased())",
+            body: EntryUpdateRequest(
+                occurredAt: entry.occurredAt,
+                title: entry.title,
+                body: entry.body
+            )
+        )
+    }
+}

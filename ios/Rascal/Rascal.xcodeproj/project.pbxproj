@@ -6,14 +6,20 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		1F1B64373027A6B400BFFE84 /* Config.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 1F1B64363027A6B400BFFE84 /* Config.xcconfig */; };
-/* End PBXBuildFile section */
+/* Begin PBXContainerItemProxy section */
+		AA000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F1B641E3027A5C000BFFE84 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1F1B64253027A5C000BFFE84;
+			remoteInfo = Rascal;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		AA0000000000000000000003 /* RascalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RascalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64263027A5C000BFFE84 /* Rascal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rascal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64363027A6B400BFFE84 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		AA0000000000000000000003 /* RascalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RascalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -116,24 +122,6 @@
 		};
 /* End PBXNativeTarget section */
 
-/* Begin PBXContainerItemProxy section */
-		AA000000000000000000000B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 1F1B641E3027A5C000BFFE84 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 1F1B64253027A5C000BFFE84;
-			remoteInfo = Rascal;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXTargetDependency section */
-		AA000000000000000000000A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 1F1B64253027A5C000BFFE84 /* Rascal */;
-			targetProxy = AA000000000000000000000B /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
-
 /* Begin PBXProject section */
 		1F1B641E3027A5C000BFFE84 /* Project object */ = {
 			isa = PBXProject;
@@ -204,6 +192,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA000000000000000000000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1F1B64253027A5C000BFFE84 /* Rascal */;
+			targetProxy = AA000000000000000000000B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		1F1B64313027A5C100BFFE84 /* Debug */ = {

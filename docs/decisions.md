@@ -102,6 +102,23 @@ Last updated: **Aug 3, 2026**
 
 ## Changelog
 
+**Aug 8, 2026** — Completion motion widened after the first device session; the no-confetti and
+no-streak rules **reaffirmed, not relaxed**. On a phone the completion check simply appeared,
+which read as a status field changing value rather than as finishing something. The fix is
+motion and timing, not decoration: the check now *draws itself* on the existing spring
+(`response: 0.35, damping: 0.7`), the upload ring completes into it so saving and finishing are
+one gesture rather than two states swapped at the end, the card settles into Done Today over
+0.4s, and the haptic warms from `.light` impact to `.success` notification. Explicitly still
+excluded: confetti, particles, stamps, sound, streaks. The original rule was never meant to mean
+flat — it meant nothing that congratulates compliance. Reduce Motion still fills the check
+without springing, because removing the feedback entirely is a different bug.
+
+Same session: Today now merges local state over the server's board. A photo mission completed
+offline kept rendering as not-done while a text answer on the same screen showed done, because
+one had synced and the other had not — the same action producing two outcomes decided by network
+timing. A completion is a fact about the parent's evening; whether the server has heard is a
+fact about the network, and the screen must not conflate them.
+
 **Aug 8, 2026** — Bundle id settled as `com.travisterry.childarchive`, ahead of the Xcode
 project rather than after it. Name-neutral on purpose: open question #1 is still open, and a
 bundle id outlives whatever the app ends up being called. This closes the "what I need" line

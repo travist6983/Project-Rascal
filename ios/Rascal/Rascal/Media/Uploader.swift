@@ -94,6 +94,8 @@ extension MediaUploader: URLSessionDataDelegate {
         let context = makeContext()
         guard let media = Self.media(id: id, in: context) else { return }
         if media.state != .uploading { media.state = .uploading }
+        // The real number, not a spinner. The ring in F-2 is drawn from this.
+        media.bytesSent = Int(totalBytesSent)
         try? context.save()
     }
 
@@ -106,6 +108,9 @@ extension MediaUploader: URLSessionDataDelegate {
         else { return }
 
         if let error {
+            // A retry re-sends from the start, so the ring must not keep a stale high-water
+            // mark and appear to go backwards on the next attempt.
+            media.bytesSent = 0
             media.recordAttemptFailure()
             try? context.save()
             return
@@ -124,6 +129,7 @@ extension MediaUploader: URLSessionDataDelegate {
         // ignores `etags` unless `s3_upload_id` is set, so gating completion on a header that
         // may be absent would strand an upload that actually succeeded.
         media.etag = response?.value(forHTTPHeaderField: "ETag")
+        media.bytesSent = media.byteCount
         media.state = .uploaded
         media.attemptCount = 0
         media.nextAttemptAt = nil
