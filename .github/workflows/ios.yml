@@ -65,17 +65,42 @@ jobs:
             exit 1
           fi
 
-      # A simulator named exactly is a hostage to whatever image ships this month;
-      # `generic/platform=iOS Simulator` lets xcodebuild choose, so an image update cannot break
-      # the run with "device not found". No xcbeautify: it is not guaranteed present, and a
-      # prettier log is not worth a dependency that can vanish.
+      # `generic/platform=iOS Simulator` builds but cannot test — xcodebuild refuses with
+      # "Tests must be run on a concrete device". Hardcoding a name is the other trap: whichever
+      # iPhone the image ships changes, and the failure is "device not found" on a green
+      # codebase. So: discover one at runtime and use its UDID.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json \
+            | python3 -c 'import json,sys
+data = json.load(sys.stdin)["devices"]
+best = None
+for runtime, devices in data.items():
+    if "iOS" not in runtime:
+        continue
+    for d in devices:
+        if d.get("isAvailable") and d["name"].startswith("iPhone"):
+            best = (runtime, d["udid"], d["name"])
+print(best[1] if best else "")')
+          if [ -z "$udid" ]; then
+            echo "::error::No available iPhone simulator on this runner."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep -F "$udid"
+
+      # No xcbeautify: it is not guaranteed present, and a prettier log is not worth a
+      # dependency that can vanish.
       - name: Test
         run: |
           set -euo pipefail
           xcodebuild test \
             -project ios/Rascal/Rascal.xcodeproj \
             -scheme Rascal \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee xcodebuild.log
           echo "--- result ---"
