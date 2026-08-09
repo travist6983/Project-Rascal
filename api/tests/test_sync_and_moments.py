@@ -427,6 +427,7 @@ async def test_error_codes_are_the_documented_ones() -> None:
         "not_authorized",
         "not_found",
         "validation_failed",
+        "invalid_display_name",
         "assignment_expired",
         "upload_incomplete",
         "conflict",

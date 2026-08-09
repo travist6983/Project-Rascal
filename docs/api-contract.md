@@ -4,7 +4,7 @@ Plain JSON over HTTPS. No client-specific serialization anywhere in the wire for
 
 Base: `/v1`. Auth: bearer token. All timestamps ISO 8601 UTC. All IDs UUID.
 
-Last updated: **Aug 3, 2026** — build-ready.
+Last updated: **Aug 9, 2026** — build-ready.
 
 ---
 
@@ -86,6 +86,38 @@ Access tokens live 15 minutes (`expires_in: 900`). Refresh tokens live 30 days.
 
 Later: `POST /auth/password` and `POST /auth/google` slot in with no schema change. That's the point.
 
+---
+
+## Me
+
+**`PATCH /me`**
+Body: `{ "display_name": "Travis" }` → the same user object `POST /auth/apple` returns.
+
+The signed-in user's own record. There is no path parameter and no way to name another
+user: the route updates the row behind the bearer token and nothing else.
+
+```json
+{
+  "id": "uuid",
+  "email": "travis@example.com",
+  "display_name": "Travis",
+  "is_admin": false,
+  "created_at": "2026-08-08T00:00:00Z"
+}
+```
+
+- **`display_name` is the only writable field.** `email` comes from the credential provider.
+  Sending one is ignored — Apple's relay address is not the user's to retype, and letting
+  them set it would decouple the row from the credential that produced it.
+- The value is **trimmed**. Blank after trimming, or longer than **100 characters**, is
+  `400` with code `invalid_display_name` and `field: "display_name"`.
+- `users.updated_at` moves, written by the `set_updated_at()` trigger like every other row.
+
+Why it exists: Apple sends a display name exactly once, at first authorization, and the
+relay email is unreliable enough that `users.email` is nullable. `display_name` is the only
+human-readable identity in the product, so an account that cannot fix it is labelled with
+whatever Apple sent that one time, forever.
+
 ### Authorization
 
 Every child-scoped route resolves the child and checks `guardians` for a non-revoked row
@@ -106,6 +138,31 @@ and a wrong 404 sends me debugging the wrong thing.
 Body: `{ name, birthdate, family_timezone }` → creates the child and a `parent` guardian row for the caller.
 
 **`PATCH /children/{id}`** — name, birthdate, timezone, avatar.
+
+**`POST /children/{id}/recompute-ages`** — parent only. No body.
+
+```json
+{ "child_id": "uuid", "entries_updated": 412, "birthdate": "2021-06-01" }
+```
+
+Rewrites `entries.child_age_months` for every entry of the child, each from its own
+`occurred_at` minus the child's current `birthdate`, in the child's `family_timezone` — the
+same computation the write path uses.
+
+`child_age_months` is computed at write and **stored** (`docs/data-model.md`), so correcting
+a birthdate typo does not silently reshape 500 entries. The consequence is that the typo is
+otherwise permanent, and this is the escape hatch: explicit, user-invoked, never a side
+effect of `PATCH /children/{id}`. Fix the birthdate first, then call this.
+
+- **Soft-deleted entries are included.** Nothing is deleted in this system, and a restored
+  entry must not come back carrying an age computed against the wrong birthdate.
+- **Only rows that actually change are written**, so `GET /sync` carries the correction
+  without dragging eighteen years of unchanged entries through the cursor behind it.
+  `entries_updated` counts rows changed, not rows examined.
+- **Idempotent.** A second call immediately after returns `entries_updated: 0` and moves no
+  `updated_at`.
+- One transaction. A partially recomputed archive is not an acceptable outcome.
+- `occurred_at` and `created_at` are never touched.
 
 **`POST /children/{id}/guardians`**
 Body: `{ email, role }` → creates an invite. P2.
@@ -402,6 +459,7 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `not_authorized` | 403 |
 | `not_found` | 404 |
 | `validation_failed` | 422 |
+| `invalid_display_name` | 400 |
 | `assignment_expired` | 409 |
 | `upload_incomplete` | 409 |
 | `conflict` | 409 |

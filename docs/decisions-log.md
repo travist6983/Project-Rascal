@@ -633,3 +633,33 @@ that file left open.
 - **`conftest` now blanks the endpoint for the whole session**, next to the line that keeps
   the suite off a dev database. A property of the suite, not of the two fixtures that happen
   to use moto today.
+
+## Lane A — the two Settings endpoints
+
+- **`PATCH /me` returns `UserOut`, the shape `/auth/apple` already returns.** A second,
+  parallel user model is how two representations of the same row start to drift.
+- **`display_name` is validated in the handler, not by Pydantic bounds.** A `max_length` on
+  the field would answer over-length with `validation_failed` and blankness with
+  `invalid_display_name`; one field showing two codes is a client-side branch nobody wants.
+- **`invalid_display_name` is a new `ErrorCode` at 400, not a reuse of `validation_failed`.**
+  Adding a code is a deliberate act and this is one: the body parsed and the type was right,
+  the value simply is not a name. The enum, the table in `docs/api-contract.md`, and
+  `test_error_codes_are_the_documented_ones` moved together.
+- **The recompute route answers a `viewer` with `not_authorized`, not `insufficient_role`.**
+  The Lane A brief asked for the latter, but authorization here is one dependency
+  (`docs/decisions.md`, Settled) and four existing tests pin `403 not_authorized` as what a
+  read-only guardian gets on every write route. A second 403 code for one endpoint would
+  make this route the exception in a surface whose whole value is having none.
+- **Recompute writes only the rows whose value moves.** `set_updated_at()` is a `BEFORE
+  UPDATE` trigger with no equality check, so a blanket `UPDATE` would restamp the entire
+  archive and push it through every client's sync cursor to correct three rows.
+- **It is one ORM bulk update keyed by primary key, in the request's transaction.** The
+  `get_session` dependency commits once at the end of the handler, so atomicity is the
+  session's, not something the service has to arrange for itself.
+- **The 500-entry test asserts a one-month birthdate shift moves every age by exactly one.**
+  Re-deriving the expected values with `age_at_instant` would have asserted that the
+  function equals itself; the shift's arithmetic is hand-derivable and two rows are pinned
+  to values computed by hand as anchors.
+- **Single-transaction is asserted through `xmin`.** Every row version written by one
+  transaction carries that transaction's id, so a chunked or partial recompute shows up as
+  more than one distinct `xmin` across the child's entries.

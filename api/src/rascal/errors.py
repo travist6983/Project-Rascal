@@ -30,6 +30,7 @@ class ErrorCode(StrEnum):
     NOT_AUTHORIZED = "not_authorized"
     NOT_FOUND = "not_found"
     VALIDATION_FAILED = "validation_failed"
+    INVALID_DISPLAY_NAME = "invalid_display_name"
     ASSIGNMENT_EXPIRED = "assignment_expired"
     UPLOAD_INCOMPLETE = "upload_incomplete"
     CONFLICT = "conflict"
@@ -43,6 +44,9 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.NOT_AUTHORIZED: 403,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.VALIDATION_FAILED: 422,
+    # 400 rather than 422: the body parsed and the field is the right type, the value is
+    # just not a name. A client shows this one next to the text field it came from.
+    ErrorCode.INVALID_DISPLAY_NAME: 400,
     ErrorCode.ASSIGNMENT_EXPIRED: 409,
     ErrorCode.UPLOAD_INCOMPLETE: 409,
     ErrorCode.CONFLICT: 409,
