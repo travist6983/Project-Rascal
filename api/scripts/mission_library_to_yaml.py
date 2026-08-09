@@ -36,9 +36,10 @@ class Section:
     fixed: dict[str, str]
 
 
-# Kinds no client can complete yet. Video left when multipart shipped; audio stays until the
-# recorder does. Deleting a name from this set is the whole of re-enabling a kind.
-UNCOMPLETABLE_KINDS = frozenset({"audio"})
+# Kinds no client can complete yet. Video left when multipart shipped, audio when the recorder
+# did. Empty now — and deliberately kept, because the next new kind will need it again, and
+# adding a name back is the whole of taking a prompt out of circulation.
+UNCOMPLETABLE_KINDS: frozenset[str] = frozenset()
 
 SECTIONS: tuple[Section, ...] = (
     Section(
