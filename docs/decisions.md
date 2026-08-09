@@ -55,6 +55,7 @@ Last updated: **Aug 3, 2026**
 | Letters get their own slot, on the 15th | Sharing `monthly` with the measurement mission meant the money letter could lose that coin flip every month for years. The 15th rather than the 1st because four items in one day breaks the two-item rule. |
 | Sync returns a 30-second overlap window; clients upsert by id | `now()` is transaction-start time, so a slow transaction can commit a row already behind another device's cursor and lose it forever. Re-delivery is free — entries are last-write-wins on a client UUID. A sequence has the identical race for a migration's cost. |
 | Scheduler runs hourly and filters on local time | One daily cron is 5am in exactly one timezone and drifts an hour against DST twice a year. 24 wakeups a day is nothing, and the job is already idempotent. |
+| Video is transcoded to 1080p H.264/AAC in MP4 before upload; the original is written back to the camera roll, never discarded | Same reasoning as HEIC→JPEG: the archive has to open in 2040 in something that isn't Apple, and H.264/MP4 is the most universally decodable video there is. 1080p is what these are actually watched at, and it is roughly a fifth the bytes of 4K — ~70MB/min against ~375MB/min, which over eighteen years and two children is the difference between about 130GB and 650GB. Transcoding is lossy and irreversible, so an in-app capture saves its original to the user's photo library first: the archive stays lean without anything being destroyed to achieve it. |
 | `users.is_admin` gates writes to the mission library | `POST /prompts` was authenticated but not authorized. The library is content every child draws from; a grandparent's `viewer` login must not be able to write to it. |
 | iOS client lives in this repo under `ios/`, not a separate repo | The client reads `docs/api-contract.md` directly instead of a copy that drifts. CI is scoped by path so the lanes stay independent. |
 | Bundle id is `com.travisterry.childarchive` | A bundle id is permanent and the app name is still open, so it is deliberately name-neutral — RASCAL, SMALL FRY, or anything else can ship on top of it. Settled before the Xcode project exists, because changing it afterward means redoing signing and the Sign in with Apple registration for nothing. `APPLE_BUNDLE_ID` must match it: it is the `aud` claim every Apple identity token is verified against. |
@@ -92,7 +93,6 @@ Last updated: **Aug 3, 2026**
 | 2 | Handoff age — 10, 13, 16, or 18? | P4 | This is a *default* for `unlock_at_age`, set per-entry, so it isn't a lock-in. But it changes how you write. |
 | 3 | What the handoff actually *is* — an account, an export, a device, a printed set? | P5 | Worth deciding before writing 500 entries addressed to someone. |
 | 4 | Mission tone — warm, plain, or dry? | P1 | Set it before authoring 200 more prompts, not during. The seed library leans dry-and-specific; confirm that's right. |
-| 5 | Video transcode policy | P1 | Original quality × two kids × eighteen years is real money. Decide before the archive is large. |
 | 6 | Push notification time | P1 | One per day, silenceable. What time actually works? |
 | 7 | Second kid — when? | P2 | Model already supports it. UI cost is a switcher plus per-child scheduling. |
 | 8 | Does the printed book include did-it entries? | P4 | A page of behaviors with no photos may read beautifully or may read empty. |
@@ -102,6 +102,18 @@ Last updated: **Aug 3, 2026**
 ---
 
 ## Changelog
+
+**Aug 9, 2026** — Video transcode settled, and Tigris multipart verified before any client code
+was written. A 40MB object was uploaded in five presigned parts and fetched back byte-identical,
+so the part-splitting contract, the ETag-per-part requirement, and completion all hold on Tigris
+rather than being assumed from S3. `chunk_bytes` came back 8388608 and the server planned five
+parts, which is the number the client must split at — not a number it may choose.
+
+Transcode: **1080p H.264/AAC in MP4**, with an in-app capture's original written back to the
+camera roll. The reasoning is the same one that made photos JPEG rather than HEIC — the archive
+must open in 2040 in something that isn't Apple — plus the storage arithmetic, which is not
+marginal: ~70MB/min against ~375MB/min for 4K. Discarding an original outright was rejected;
+transcoding is irreversible, and a capture taken in-app exists nowhere else unless it is saved.
 
 **Aug 8, 2026** — **The mission library stays he/him for now. This is a decision, not an
 oversight, and it will look like a bug to anyone who reads the library's own rules.**

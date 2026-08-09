@@ -18,8 +18,30 @@ struct UploadRing: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drawn: CGFloat = 0
+    /// The disc arriving. Overshoots slightly and settles — the difference between a state
+    /// change and something happening.
+    @State private var fillScale: CGFloat = 0.7
+    /// 0 → 1 once, driving a ring that expands outward and fades.
+    @State private var halo: CGFloat = 0
 
     private var lineWidth: CGFloat { max(2, diameter * 0.09) }
+
+    /// Three beats on one timeline rather than three animations fired at once: the disc lands,
+    /// the check draws behind it, the halo carries the motion outward. Still no confetti, no
+    /// particles, no sound, no streak — the warmth is in timing.
+    private func play() {
+        guard !reduceMotion else {
+            // The check still fills. Removing the feedback entirely is a different bug, since
+            // the parent still needs to know the tap landed.
+            withAnimation(.easeOut(duration: 0.25)) { drawn = 1; fillScale = 1 }
+            halo = 1
+            return
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.55)) { fillScale = 1 }
+        withAnimation(Motion.completion.delay(0.06)) { drawn = 1 }
+        withAnimation(.easeOut(duration: 0.55)) { halo = 1 }
+        Haptics.completion()
+    }
 
     var body: some View {
         ZStack {
@@ -44,25 +66,33 @@ struct UploadRing: View {
                         .transition(.opacity)
                 }
             } else {
-                Circle().fill(Color.terracotta)
+                // A halo that expands and fades once. Not decoration stuck on top — it is the
+                // ring itself continuing outward after it closes, so the eye follows one
+                // movement from "saving" through "saved" instead of seeing two states swap.
+                Circle()
+                    .stroke(Color.terracotta.opacity(halo > 0 ? 0.35 * (1 - halo) : 0), lineWidth: lineWidth)
+                    .scaleEffect(1 + halo * 0.9)
+
+                Circle()
+                    .fill(Color.terracotta)
+                    .scaleEffect(fillScale)
+
                 Checkmark()
                     .trim(from: 0, to: drawn)
-                    .stroke(Color.surface, style: StrokeStyle(lineWidth: lineWidth * 1.1, lineCap: .round, lineJoin: .round))
+                    .stroke(Color.surface, style: StrokeStyle(lineWidth: lineWidth * 1.25, lineCap: .round, lineJoin: .round))
                     .padding(diameter * 0.28)
+                    .scaleEffect(fillScale)
             }
         }
         .frame(width: diameter, height: diameter)
         .onChange(of: isComplete) { _, done in
-            guard done else { drawn = 0; return }
-            // Drawn, not faded in. Reduce Motion still gets the fill — removing the feedback
-            // entirely is a different bug, since the parent still needs to know the tap landed.
-            withAnimation(reduceMotion ? .easeOut(duration: 0.25) : Motion.completion) {
-                drawn = 1
-            }
+            guard done else { drawn = 0; fillScale = 0.7; halo = 0; return }
+            play()
         }
         .onAppear {
-            // Already-done cards on a fresh render start complete rather than replaying.
-            if isComplete { drawn = 1 }
+            // Already-done cards on a fresh render start complete rather than replaying — the
+            // animation is for the moment it happens, not for every scroll past it.
+            if isComplete { drawn = 1; fillScale = 1; halo = 1 }
         }
         .accessibilityHidden(true)
     }
