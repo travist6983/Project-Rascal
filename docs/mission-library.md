@@ -219,6 +219,13 @@ band, and ask for 20 candidates at a time. Reject anything that:
 - couldn't be done in the middle of an ordinary Tuesday
 - assumes a two-parent household, a particular income, or a particular ability
 
+> **Known and deliberate: the existing library violates the last rule.** Every prompt is written
+> he/him, and several say *his mom* — a gender and a household shape. It is left that way while
+> the app is developed live against one child, and it is **not** a licence for new prompts: the
+> generator's filters still apply, and nothing written from here on should assume either.
+> Unblocked by onboarding, once it collects pronouns. See `docs/decisions.md` open item 10 and
+> the Aug 8 2026 changelog entry for the reasoning and the order of operations.
+
 **This is built.** `api/scripts/generate_prompts.py` does exactly the above — including all
 four rejection rules, implemented in code and tested in `api/tests/test_generate_prompts.py`
 against real prompts from this file, so a filter that would reject "get on the floor for ten

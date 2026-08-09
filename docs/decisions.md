@@ -97,10 +97,52 @@ Last updated: **Aug 3, 2026**
 | 7 | Second kid — when? | P2 | Model already supports it. UI cost is a switcher plus per-child scheduling. |
 | 8 | Does the printed book include did-it entries? | P4 | A page of behaviors with no photos may read beautifully or may read empty. |
 | 9 | Full export format | P2 | Folder of files + JSON manifest. Build it before you'd need it. |
+| 10 | **Pronouns, and where the child's name appears in prompts** | **With onboarding** | The library is written he/him and stays that way for now — see the changelog entry below, this is deliberate, not an oversight. Onboarding is the unlock: once it collects the child's pronouns, prompts should render with the right ones, and the name should appear where it reads warmer than "your child". Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
 
 ---
 
 ## Changelog
+
+**Aug 8, 2026** — **The mission library stays he/him for now. This is a decision, not an
+oversight, and it will look like a bug to anyone who reads the library's own rules.**
+
+`docs/mission-library.md` rejects any prompt that "assumes a two-parent household, a particular
+income, or a particular ability" — and several prompts say *his mom*, which assumes both a
+gender and a household shape. That contradiction is real and it is knowingly left in place.
+
+The reason: this is being developed live against one specific child, who is male, and rewriting
+113 prompts to neutral pronouns now would make every prompt read slightly less naturally for the
+only person currently using the app, in exchange for correctness that no user yet needs.
+
+**What has to happen, and when:** onboarding is the unlock. Once it collects the child's
+pronouns, prompts render with the right ones. Beyond that, the child's *name* should appear
+where it reads warmer than a pronoun would — the same idea P3's on-device personalization builds
+on. Tracked as open item 10.
+
+Two things for whoever picks this up. The mechanisms are **separable**: pronoun substitution is a
+rendering concern needing no new content format, while a `{name}` token is a content-format
+decision with a contract every consumer — client, the browser client reserved for 2027, export —
+has to honour or prompts render with literal braces. Do not let the second hold up the first.
+And prompts naming a *specific other parent* ("his mom") need rewriting or cutting either way;
+that is the household-shape assumption, and it is the part the library's own rules already
+forbid.
+
+**Aug 8, 2026** — Completion motion widened after the first device session; the no-confetti and
+no-streak rules **reaffirmed, not relaxed**. On a phone the completion check simply appeared,
+which read as a status field changing value rather than as finishing something. The fix is
+motion and timing, not decoration: the check now *draws itself* on the existing spring
+(`response: 0.35, damping: 0.7`), the upload ring completes into it so saving and finishing are
+one gesture rather than two states swapped at the end, the card settles into Done Today over
+0.4s, and the haptic warms from `.light` impact to `.success` notification. Explicitly still
+excluded: confetti, particles, stamps, sound, streaks. The original rule was never meant to mean
+flat — it meant nothing that congratulates compliance. Reduce Motion still fills the check
+without springing, because removing the feedback entirely is a different bug.
+
+Same session: Today now merges local state over the server's board. A photo mission completed
+offline kept rendering as not-done while a text answer on the same screen showed done, because
+one had synced and the other had not — the same action producing two outcomes decided by network
+timing. A completion is a fact about the parent's evening; whether the server has heard is a
+fact about the network, and the screen must not conflate them.
 
 **Aug 8, 2026** — Bundle id settled as `com.travisterry.childarchive`, ahead of the Xcode
 project rather than after it. Name-neutral on purpose: open question #1 is still open, and a

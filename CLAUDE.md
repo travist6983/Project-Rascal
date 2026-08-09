@@ -55,6 +55,9 @@ scoped by path so a commit in one lane never runs or deploys the other.
 - `dev-login` and every `/debug/*` route are registered only when `ENVIRONMENT == "local"`.
 - Prompts are seeded from `api/seeds/prompts.yaml`. `docs/mission-library.md` is the
   authoring surface; runtime never parses markdown.
+- The seeded library is written he/him **on purpose, for now** — see `docs/decisions.md` open
+  item 10. Do not bulk-rewrite it, and do not write *new* copy that assumes a child's gender.
+  Client-side strings are already neutral and stay that way.
 
 ## Stack (settled — do not substitute)
 

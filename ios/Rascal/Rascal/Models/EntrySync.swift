@@ -91,7 +91,12 @@ final class EntrySync {
     /// One entry. Returns whether it is now on the server.
     private func push(_ entry: Entry) async -> Bool {
         do {
-            let response = try await api.createEntry(entry)
+            // An edit is a PATCH, not a second POST. Re-POSTing would present the stored
+            // idempotency key and get the *original* body back — the edit would vanish and
+            // the sweep would report success.
+            let response = entry.existsOnServer
+                ? try await api.updateEntry(entry)
+                : try await api.createEntry(entry)
             entry.applyServerResponse(response)
             return true
         } catch let error as APIError {

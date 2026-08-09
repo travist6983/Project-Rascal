@@ -48,6 +48,11 @@ final class Media {
     /// Returned by storage on a successful PUT and required by `complete`.
     var etag: String?
 
+    /// Bytes the background session reports as sent. Written from the delegate as they
+    /// arrive, so the ring measures real progress rather than animating a guess. Persisted
+    /// because a relaunch mid-upload should resume the ring where it was, not at zero.
+    var bytesSent: Int
+
     var attemptCount: Int
     /// When the next retry becomes eligible. Backoff lives on the row, not in memory, so it
     /// survives a relaunch.
@@ -78,6 +83,7 @@ final class Media {
         self.durationSeconds = durationSeconds
         self.hasThumbnail = false
         self.uploadState = MediaUploadState.staged.rawValue
+        self.bytesSent = 0
         self.attemptCount = 0
         self.createdAt = createdAt
         self.updatedAt = createdAt
