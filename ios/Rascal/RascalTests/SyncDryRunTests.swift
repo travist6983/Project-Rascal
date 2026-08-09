@@ -267,6 +267,68 @@ struct SyncDryRunTests {
         #expect(plan.reDeliveredAcrossRounds == 1, "the same record arrived in both rounds")
     }
 
+    /// The report is the only place the first real pull's cost is visible, and the cost of the
+    /// apply — which runs on the main actor — is the open question this whole branch ships
+    /// switched off in order to answer. A report that could not state it would be asking the
+    /// parent to judge performance from a record that omits it.
+    @Test("the report times the network and the apply separately")
+    func reportStatesItsOwnCost() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let body = syncJSON(
+            entries: (0..<20).map { index in
+                entryJSON(
+                    id: UUID(), childId: child,
+                    occurredAt: newest.addingTimeInterval(Double(index)),
+                    body: "entry \(index)", updatedAt: newest
+                )
+            },
+            cursor: laggedCursor(newest: newest)
+        )
+        let performer = StubPerformer()
+        performer.on("/sync") { _ in (body, 200) }
+
+        let plan = try #require(await engine(childId: child, performer: performer, context: context).dryRun().plan)
+        let report = plan.report()
+
+        #expect(report.contains("TIME"))
+        #expect(report.contains("waiting on /sync"))
+        // A dry run plans and does not write, and the report has to say which of the two it
+        // measured rather than letting the number be read as the cost of a real apply.
+        #expect(report.contains("planning"))
+        #expect(report.contains("planning only — an apply writes as well"))
+        #expect(!report.contains("on the main actor"), "that label belongs to a real apply")
+
+        // Monotonic, so never negative however the wall clock moves underneath it.
+        #expect(plan.networkSeconds >= 0)
+        #expect(plan.applySeconds >= 0)
+    }
+
+    @Test("an applied pull labels the apply as main-actor work rather than planning")
+    func appliedReportNamesTheApply() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+        let state = InMemorySyncStateStore(pullEnabled: true)
+
+        let body = syncJSON(
+            entries: [entryJSON(id: UUID(), childId: child, occurredAt: newest, updatedAt: newest)],
+            cursor: laggedCursor(newest: newest)
+        )
+        let performer = StubPerformer()
+        performer.on("/sync") { _ in (body, 200) }
+
+        let plan = try #require(await engine(childId: child, performer: performer, context: context, state: state)
+            .pull().plan)
+        let report = plan.report()
+
+        #expect(report.contains("SYNC PULL — applied"))
+        #expect(report.contains("on the main actor"))
+        #expect(!report.contains("planning only — an apply writes as well"))
+    }
+
     @Test("a report with nothing to say says so plainly")
     func emptyReportIsHonest() async throws {
         let context = try makeContext()

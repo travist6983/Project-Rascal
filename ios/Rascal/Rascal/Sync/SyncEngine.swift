@@ -215,9 +215,16 @@ final class SyncEngine {
 
         for round in 1...Self.maxRounds {
             let response: SyncPullResponse
+            // Timed separately from the apply below. Network cost and main-actor cost are
+            // different problems with different fixes, and a single total would hide which one a
+            // slow pull actually was. Both accumulate across rounds, and a round that fails still
+            // reports the time it spent before failing.
+            let networkStarted = ContinuousClock.now
             do {
                 response = try await api.syncPull(childId: childId, since: since)
+                plan.networkSeconds += Self.elapsed(since: networkStarted)
             } catch {
+                plan.networkSeconds += Self.elapsed(since: networkStarted)
                 // The cursor is untouched, so the records this round would have carried are still
                 // ahead of it and arrive on the next attempt. Nothing is lost by stopping here.
                 let message = Self.describe(error)
@@ -236,9 +243,12 @@ final class SyncEngine {
                 ))
             }
 
+            let applyStarted = ContinuousClock.now
             do {
                 try await applyRound(response, round: round, into: &plan, index: &changeIndex, applying: applying)
+                plan.applySeconds += Self.elapsed(since: applyStarted)
             } catch {
+                plan.applySeconds += Self.elapsed(since: applyStarted)
                 // **Never advance past records that failed to apply.** The round's changes are
                 // discarded and the cursor stays where the last clean round left it; a partial
                 // advance would lose those records permanently and silently.
@@ -809,6 +819,16 @@ final class SyncEngine {
 
     private static func describe(_ error: Error) -> String {
         (error as? APIError)?.userMessage ?? error.localizedDescription
+    }
+
+    /// Seconds since an instant, on the monotonic clock.
+    ///
+    /// `ContinuousClock` rather than `Date`: a wall clock can step sideways mid-pull — NTP, a
+    /// timezone change, the parent editing the date — and a negative or wildly inflated duration
+    /// in the report would be read as a performance problem that never happened.
+    private static func elapsed(since start: ContinuousClock.Instant) -> Double {
+        let components = (ContinuousClock.now - start).components
+        return Double(components.seconds) + Double(components.attoseconds) * 1e-18
     }
 }
 

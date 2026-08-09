@@ -189,6 +189,21 @@ nonisolated struct SyncPlan: Sendable {
     /// than merely duplicate-tolerant.
     var reDeliveredAcrossRounds: Int = 0
 
+    /// Wall clock spent waiting on `GET /sync`, summed across rounds.
+    ///
+    /// Split from `applySeconds` rather than reported as one total because the two have different
+    /// causes and different fixes: this one is the network and the server, and the other is this
+    /// device folding records into the store on the main actor.
+    var networkSeconds: Double = 0
+
+    /// Wall clock spent planning — and, when not a dry run, applying — summed across rounds.
+    ///
+    /// **The number the first real pull is judged on.** The apply runs on the main actor, because
+    /// that is where the `ModelContext` the views read from lives, so this is time the UI is
+    /// sharing rather than time spent elsewhere. It is measured on a dry run too, where it is the
+    /// planning pass alone and so reads as the floor rather than the true cost.
+    var applySeconds: Double = 0
+
     var changes: [PlannedChange] = []
     var conflicts: [SyncConflict] = []
     var anomalies: [SyncAnomaly] = []
@@ -295,7 +310,16 @@ nonisolated struct SyncPlan: Sendable {
             "  below being non-zero is the window working, not a fault.",
             "    re-sent this run    \(reDeliveredAcrossRounds) arrived in more than one round",
             "    already applied     \(alreadyHeld) were held at this version or newer",
+            "",
+            "  TIME",
+            "    waiting on /sync    \(Self.seconds(networkSeconds))",
+            "    \(isDryRun ? "planning        " : "applying        ")    \(Self.seconds(applySeconds))\(isDryRun ? "  (planning only — an apply writes as well)" : "  on the main actor")",
         ]
+    }
+
+    /// Two significant figures is the honest precision for a wall clock on a phone.
+    private static func seconds(_ value: Double) -> String {
+        value < 0.01 ? "under 0.01s" : String(format: "%.2fs", value)
     }
 
     private func countsBlock() -> [String] {
