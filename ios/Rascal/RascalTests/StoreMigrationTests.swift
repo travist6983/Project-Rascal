@@ -87,6 +87,82 @@ struct StoreMigrationTests {
         #expect(!stored.syncState.isEmpty)
     }
 
+    /// The schema as it stood before `Assignment` was added, written out literally.
+    ///
+    /// This is what the file's own header said could not be covered — "it cannot cover a schema
+    /// that does not exist yet". It can now, because a previous schema finally exists to express:
+    /// a container built from these three entities writes a real store on disk, and the current
+    /// four-entity schema then has to open it.
+    private static let schemaBeforeAssignments = Schema([Entry.self, Media.self, MediaPart.self])
+
+    @Test("a store written before Assignment existed opens under the schema that has it")
+    func addingAnEntityMigratesAnExistingStore() throws {
+        let directory = URL(filePath: NSTemporaryDirectory())
+            .appending(path: "rascal-store-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "test.store")
+
+        // A launch on the previous build: three entities, real rows, written to a real file.
+        let old = try ModelContainer(
+            for: Self.schemaBeforeAssignments,
+            configurations: ModelConfiguration(url: url)
+        )
+        let writing = ModelContext(old)
+        let entry = Entry(childId: UUID(), occurredAt: Date(), body: "written before assignments existed")
+        writing.insert(entry)
+        let media = Media(entryId: entry.id, kind: "photo", contentType: "image/jpeg", byteCount: 2_048)
+        media.bytesSent = 512
+        writing.insert(media)
+        try writing.save()
+
+        // The upgrade. A **new entity** is the one schema change that cannot fail the way rule 6
+        // of `ios/CLAUDE.md` describes: there are no existing rows of a type that never existed,
+        // so SwiftData has nothing to backfill and no mandatory attribute to infer.
+        let upgraded = try ModelContainer(for: LocalStore.schema, configurations: ModelConfiguration(url: url))
+        let reading = ModelContext(upgraded)
+
+        // Everything that was there is still there, unaltered.
+        let entries = try reading.fetch(FetchDescriptor<Entry>())
+        #expect(entries.count == 1)
+        #expect(entries.first?.body == "written before assignments existed")
+        #expect(try reading.fetch(FetchDescriptor<Media>()).first?.bytesSent == 512)
+
+        // And the new table exists, empty, and writable.
+        #expect(try reading.fetchCount(FetchDescriptor<Assignment>()) == 0)
+        reading.insert(Assignment(
+            id: UUID(), childId: UUID(), slot: "mission", body: "Take a photo", kind: "photo",
+            completionMode: "media", status: "pending", assignedOn: "2026-08-08", updatedAt: Date()
+        ))
+        try reading.save()
+        #expect(try reading.fetchCount(FetchDescriptor<Assignment>()) == 1)
+    }
+
+    @Test("every non-optional property on an Assignment carries a value after a reopen")
+    func assignmentRowsSurviveAReopen() throws {
+        let (container, url) = try onDisk()
+        let context = ModelContext(container)
+        let id = UUID()
+        context.insert(Assignment(
+            id: id, childId: UUID(), slot: "mission", body: "Take a photo of what he built",
+            kind: "photo", completionMode: "media", status: "pending",
+            assignedOn: "2026-08-08", updatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        ))
+        try context.save()
+
+        let reopened = ModelContext(
+            try ModelContainer(for: LocalStore.schema, configurations: ModelConfiguration(url: url))
+        )
+        // Reading these is the assertion: a mandatory attribute with no value fails the fetch
+        // rather than returning a placeholder.
+        let stored = try #require(try reopened.fetch(FetchDescriptor<Assignment>()).first)
+        #expect(stored.id == id)
+        #expect(!stored.slot.isEmpty)
+        #expect(!stored.status.isEmpty)
+        #expect(!stored.assignedOn.isEmpty)
+        #expect(stored.isCustom == false)
+        #expect(stored.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
     @Test("a store that cannot be opened is moved aside, never deleted")
     func unreadableStoreIsQuarantinedNotDestroyed() throws {
         // Deliberately not a real migration failure — reproducing one needs a store written by

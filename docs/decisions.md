@@ -2,7 +2,7 @@
 
 Read this before proposing anything. Settled decisions are settled; don't relitigate them without new information.
 
-Last updated: **Aug 3, 2026**
+Last updated: **Aug 9, 2026**
 
 ---
 
@@ -142,6 +142,52 @@ has to honour or prompts render with literal braces. Do not let the second hold 
 And prompts naming a *specific other parent* ("his mom") need rewriting or cutting either way;
 that is the household-shape assumption, and it is the part the library's own rules already
 forbid.
+
+**Aug 9, 2026** — The client's half of sync lands, and **ships switched off**. `GET /sync` is
+now read, applied, and gated behind `syncPullEnabled`, which defaults to false. The engine
+touches the local cache every other screen reads from, so it is verified against a real archive
+before it is trusted with one; a dry-run mode does a genuine `GET /sync`, computes exactly what
+it would insert, update and soft-delete, and reports it without applying a single change. Four
+decisions settled with it.
+
+**The conflict rule.** Last-write-wins by `updated_at`, matching the server — *except* that a
+local record with unpushed changes is never overwritten. The push queue wins, and the record
+reconciles on the next pull after a successful push. This is not a refinement of last-write-wins,
+it is the thing that makes the engine safe: a row this phone has written and not yet sent is the
+parent's most recent intent, and the server's copy is by definition older. Without it, an edit
+made on a train disappears the moment the train reaches a signal. The same rule covers media
+still uploading and — the case Today already relied on — an assignment completed here that the
+server still calls pending. A pull must never revert a locally-completed mission, and that is now
+enforced in the cache rather than only papered over by the board's merge.
+
+**The overlap window is handled by being idempotent, not by deduplicating.** The server hands
+back `max(updated_at)` minus thirty seconds so a row written by a slow transaction is
+re-delivered rather than skipped. The consequence for the client is not that duplicates are
+tolerable — it is that **every apply path must leave the store byte-identical when run twice**,
+because the window guarantees it happens on every pull. Every apply is therefore a pure
+assignment of server fields and never an accumulation, and the idempotency is asserted directly
+rather than assumed. Two other things fell out of reading the server rather than the contract:
+`GET /sync` does not page, and an *empty* batch still returns an advancing cursor (`now() - 30s`,
+since there is no maximum to take), so the round loop terminates on an empty batch first and on a
+non-advancing cursor second. Testing only for cursor movement spins forever against an idle
+archive.
+
+**The trigger set is deliberately boring:** app foreground, pull-to-refresh on Timeline, straight
+after a push-queue drain, and Today's load. **Background sync is deferred** — no `BGAppRefreshTask`,
+no timers. It is a separate decision with battery and App Review implications, and taking it
+alongside a first sync engine would mean shipping two unverified things and being unable to tell
+which one misbehaved. The four triggers coalesce: overlapping ones join the in-flight pull rather
+than queueing four identical ones. Push always drains before a pull applies, for the same reason
+entries drain before media in the upload sweep — pulling first can hand back a stale row that
+overwrites a local edit still in the queue.
+
+**`Assignment` becomes a local `@Model`**, which is the one part of this that touches the
+SwiftData schema. It was taken rather than dropping the `assignments` array on the floor: a new
+entity is the only schema change that cannot fail lightweight migration the way rule 6 of
+`ios/CLAUDE.md` describes, because there are no existing rows of a type that never existed. It is
+covered by a real old-schema-to-new-schema test — a store written by the previous three-entity
+schema, reopened under the four-entity one — which is the test `StoreMigrationTests` said it could
+not write until there was a previous schema to express.
 
 **Aug 8, 2026** — Completion motion widened after the first device session; the no-confetti and
 no-streak rules **reaffirmed, not relaxed**. On a phone the completion check simply appeared,

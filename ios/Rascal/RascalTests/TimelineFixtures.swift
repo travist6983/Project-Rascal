@@ -23,10 +23,16 @@ func entryJSON(
     assignmentId: UUID? = nil,
     tags: [String] = [],
     media: [String] = [],
-    prompt: String? = nil
+    prompt: String? = nil,
+    updatedAt: Date? = nil,
+    deletedAt: Date? = nil
 ) -> String {
     let occurred = ISO8601Formatters.string(from: occurredAt)
     let created = ISO8601Formatters.string(from: createdAt ?? occurredAt)
+    // Defaults to `created_at` so every existing caller is unchanged. Sync filters on this and
+    // on nothing else, so the two have to be separable the moment `/sync` is in the picture.
+    let updated = ISO8601Formatters.string(from: updatedAt ?? createdAt ?? occurredAt)
+    let deleted = deletedAt.map { "\"\(ISO8601Formatters.string(from: $0))\"" } ?? "null"
     let tagJSON = tags.map {
         #"{"id":"\#(UUID().uuidString)","name":"\#($0)","source":"user"}"#
     }.joined(separator: ",")
@@ -37,8 +43,8 @@ func entryJSON(
     {"id":"\(id.uuidString)","child_id":"\(childId.uuidString)",
      "assignment_id":\(assignmentId.map { "\"\($0.uuidString)\"" } ?? "null"),
      "author_id":"\(UUID().uuidString)",
-     "occurred_at":"\(occurred)","created_at":"\(created)","updated_at":"\(created)",
-     "deleted_at":null,"title":\(title.map { "\"\($0)\"" } ?? "null"),
+     "occurred_at":"\(occurred)","created_at":"\(created)","updated_at":"\(updated)",
+     "deleted_at":\(deleted),"title":\(title.map { "\"\($0)\"" } ?? "null"),
      "body":\(body.map { "\"\($0)\"" } ?? "null"),
      "entry_type":"\(type)","child_age_months":\(ageMonths),
      "unlock_at_age":\(unlockAtAge.map(String.init) ?? "null"),
@@ -90,14 +96,15 @@ func cachedEntry(
     ageMonths: Int = 62,
     unlockAtAge: Int? = nil,
     tags: [String] = [],
-    mediaCount: Int = 0
+    mediaCount: Int = 0,
+    id: UUID = UUID(),
+    updatedAt: Date? = nil
 ) throws -> Entry {
-    let id = UUID()
     let media = (0..<mediaCount).map { _ in mediaJSON() }
     let response = try decodeEntry(entryJSON(
         id: id, childId: childId, occurredAt: occurredAt, type: type,
         body: body, title: title, ageMonths: ageMonths, unlockAtAge: unlockAtAge,
-        tags: tags, media: media
+        tags: tags, media: media, updatedAt: updatedAt
     ))
     let entry = Entry(
         id: id, childId: childId, occurredAt: occurredAt,

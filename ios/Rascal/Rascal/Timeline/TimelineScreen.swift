@@ -13,6 +13,10 @@ import SwiftUI
 struct TimelineScreen: View {
     let childId: UUID
     let api: APIClient
+    /// Runs the push-then-pull sweep. Pull to refresh means "show me what is actually there",
+    /// and page one of `GET /entries` is only half of that — a deletion made elsewhere never
+    /// appears in a page, only in `/sync`.
+    var onSync: () async -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
     @Environment(\.modelContext) private var context
@@ -37,7 +41,10 @@ struct TimelineScreen: View {
                     notice: model?.notice,
                     onOpen: { path.append($0) },
                     onReachEnd: { await model?.loadMoreIfNeeded() },
-                    onRefresh: { await model?.refresh(thumbnails: thumbnails) },
+                    onRefresh: {
+                        await model?.refresh(thumbnails: thumbnails)
+                        await onSync()
+                    },
                     onClearFilter: { Task { await model?.apply(.all) } },
                     onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
                 )

@@ -24,6 +24,24 @@ router = APIRouter(prefix="/me", tags=["users"])
 MAX_DISPLAY_NAME_LENGTH = 100
 
 
+@router.get(
+    "",
+    response_model=UserOut,
+    summary="The caller's own record",
+    description=(
+        "Returns the same user object as `POST /auth/apple` and `PATCH /me`, for the account "
+        "behind the bearer token. There is no path parameter and no way to name another user.\n\n"
+        "It exists because the user record otherwise arrives exactly once, with the sign-in "
+        "response — so a client that force-quits and relaunches on a stored token has a valid "
+        "session and no idea whose it is."
+    ),
+)
+async def read_me(user: CurrentUser) -> UserOut:
+    # No `SessionDep`: `current_user` has already loaded the row this returns, and taking the
+    # session again only to re-read it would be a second query for the same object.
+    return UserOut.model_validate(user)
+
+
 @router.patch(
     "",
     response_model=UserOut,

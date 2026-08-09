@@ -663,3 +663,111 @@ that file left open.
 - **Single-transaction is asserted through `xmin`.** Every row version written by one
   transaction carries that transaction's id, so a chunked or partial recompute shows up as
   more than one distinct `xmin` across the child's entries.
+
+## Aug 9, 2026 — the client's half of sync
+
+- **The engine ships behind a flag that defaults off.** It touches the cache every screen
+  reads from, and it has never met a real archive. A dry run that performs a genuine
+  `GET /sync` and applies nothing is the thing that gets read before the flag is flipped.
+- **`GET /sync` does not page.** Read from `routers/sync.py`, which declares one query
+  parameter besides `child_id`, not inferred from the contract doc. The client still loops,
+  for a different reason: the cursor comes back lagged, so a second call closes the gap
+  between the lagged position and the present. Two rounds is the normal finish.
+- **An empty batch returns an *advancing* cursor.** `service.pull` falls back to `now()` when
+  there are no rows to take a maximum from, so the cursor comes back as `now() - 30s`, which
+  is ahead of whatever was sent. The loop therefore terminates on an empty batch **before**
+  it checks for cursor movement; the other order spins forever against an idle archive.
+- **The cursor advances per round, never mid-round.** A round applies whole and is saved
+  whole; a failure rolls it back and leaves the cursor where the last clean round put it.
+  A partial advance loses records permanently and silently, which is the one failure here
+  with no recovery short of a manual reset.
+- **Media has no usable `updated_at` to compare against.** `MediaOut` carries one, but a local
+  `Media.updatedAt` is stamped by this device's own clock on every state transition, so the
+  two are not comparable. "Has anything changed" is answered by comparing the fields
+  `applyServerSummary` actually writes, and the predicate mirrors that method including its
+  two one-way rules.
+- **Assignments carry no `deleted_at`.** They are never soft-deleted server-side; they change
+  `status`. There is no soft-delete branch for them, and that is a fact about the contract
+  rather than a gap.
+- **Tag links fold onto `Entry.storedTagNames`** rather than gaining a `Tag` model, matching
+  the existing denormalised design. The link is still what the server sends, because a bare
+  tag list would not say which entry lost which tag.
+- **A planned change is keyed by entity + id + a discriminator.** Only tags need the
+  discriminator, and they need it badly: a link is keyed on the entry id, so six tags on one
+  entry would collapse into one planned change and the report would undercount.
+- **When one record is decided twice in a run, the more *significant* verdict survives, not
+  the later one.** By round two, a record round one inserted is genuinely unchanged — round
+  two is looking at round one's own work. Letting the later verdict win made the report say
+  "0 soft-deletes" immediately after soft-deleting something. Caught by the tests, and the
+  assertions were right.
+- **The apply yields to the main run loop every 100 records.** It runs on the main actor
+  because that is where the `ModelContext` the views read from lives. This is cooperative —
+  it does not move the work off the main thread, it stops the work monopolising it.
+- **`GET /me` returns the row `current_user` already loaded** and takes no `SessionDep`.
+  Taking the session again only to re-read the same object would be a second query for it.
+
+## Aug 9, 2026 — cutting the Actions bill
+
+Actions is metered because the repo is private; it is free and unlimited on public ones.
+macOS bills at **ten times** Linux, so the Free plan's 2,000 minutes is 200 macOS minutes.
+Measured from run history: an `ios.yml` run is 3–7 minutes of wall clock, so **30–70 billed
+minutes each** — 1.5–3.5% of a month's allowance per run.
+
+- **The push trigger on `ci.yml` and `ios.yml` was `branches: ["**"]`, and that was the bug.**
+  A push to a branch with an open pull request fired both the push and the pull_request
+  workflow, on different concurrency groups, so neither cancelled the other and every push
+  cost double. Both are now `branches: [main]`. `pull_request` already tests the *merge
+  result*, which is the thing that matters; the push leg remains so a direct push to main is
+  still gated. This is where essentially all of the saving is.
+- **Draft pull requests no longer spend a macOS runner.** A draft here means paused or
+  blocked work — the stop-condition procedure says to open one — and 40 billed minutes to
+  report that an unfinished branch is unfinished is not worth it. `ready_for_review` is in the
+  trigger list so marking it ready runs what the guard deferred.
+- **Every job in `ci.yml` was unbounded**, which is six hours apiece by default: a single hung
+  run could have cost more than a normal month. All three now have timeouts. `ios.yml` came
+  down from 25 to 12, against an observed worst case of 7, capping a hang at 120 billed
+  minutes rather than 250.
+- **The simulator starts booting in the step that picks it**, so the boot overlaps the compile
+  in the next step instead of following it. `simctl boot` initiates and returns; waiting is
+  `bootstatus`.
+- **The build settings are marginal and are labelled as such.** Measured cold and locally,
+  `COMPILER_INDEX_STORE_ENABLE=NO`, `ONLY_ACTIVE_ARCH=YES` and
+  `-disableAutomaticPackageResolution` take a ~6s compile to ~5s. The job takes 3–7 minutes,
+  so compilation is not what it is spending. Kept because they are free, not because they are
+  a saving.
+- **Rejected: caching DerivedData.** Xcode's build cache is unreliable across runners, and the
+  failure mode here is specific — a stale cache means a file is not recompiled, and a file
+  that is not recompiled emits no warning. That would silently turn the zero-warning gate
+  green. The same mechanism had just hidden nine real warnings from an incremental local run.
+- **Rejected: touching `backup.yml`.** It looked like a candidate — a daily cron that had been
+  failing all week — but it started succeeding on Aug 8 once the secrets landed. It is the
+  archive's insurance, it runs on Linux, and it costs about 45 minutes a month. Left alone.
+- **Rejected: making the repo public**, which would make Actions free outright. `docs/` is
+  full of personal context about a specific child. Not a trade worth $5.
+
+## Aug 9, 2026 — what CI caught the moment it came back
+
+The billing block cleared between 18:36Z and 18:53Z. The first `iOS` run that was allowed to
+execute failed, and it was right to.
+
+- **`Sync at scale` is `.serialized`, and it is about the measurement rather than about safety.**
+  All three tests there are `@MainActor` and all three apply 736 entries; Swift Testing runs
+  tests in parallel by default, so they interleave onto the one main actor and the wall clock
+  each test reads spans the other two's work. `fullPullAtArchiveScale` measured **2.7s alone,
+  10.7s beside its siblings locally, and 47.5s on the CI runner** — failing a 30s budget the
+  apply is nowhere near. No assertion and no budget changed; the trait makes `elapsed` measure
+  the one cold start the assertion names.
+- **The general lesson, worth more than the fix: a wall-clock assertion inside a parallel suite
+  measures the machine's contention, not the code.** It was invisible on a fast laptop for
+  exactly as long as CI was down. Any future timing assertion belongs in a serialized suite.
+- **Rejected: raising the 30s budget.** That is editing an assertion to make a test pass, and it
+  would have buried the real finding — that the number being asserted on was never the number
+  the test claimed to measure.
+- **The dry-run report now states its own cost**, split into time waiting on `/sync` and time in
+  the apply, because the apply runs on the main actor and the network does not — one total would
+  hide which of the two a slow pull actually was. The report is the only artefact the first real
+  pull is judged from, and the top open question about this engine is main-actor cost, so a
+  report that omitted it was asking for a judgement it withheld the evidence for.
+- **Timed on `ContinuousClock`, not `Date`.** A wall clock can step sideways mid-pull — NTP, a
+  timezone change — and a negative duration in the report reads as a performance problem that
+  never happened.

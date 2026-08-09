@@ -14,7 +14,7 @@ Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker d
 Neither blocks the Lane B Settings work, which shipped complete. Recorded because both were
 discovered by building against the merged API and neither is written down anywhere else.
 
-### There is no `GET /me`, so the app cannot show your own name after a relaunch
+### ~~There is no `GET /me`, so the app cannot show your own name after a relaunch~~ — RESOLVED Aug 9, in PR #24. The route exists, the client stores the record between launches and refreshes it from `GET /me` on every launch that has a network.
 
 `PATCH /me` exists and works. The user record arrives once, with the sign-in response, and
 `AppSession` holds it in memory — so after a force quit the app has a valid keychain token, a
@@ -58,6 +58,40 @@ Worth writing down because a run instruction asked for exactly that as a preflig
 the only way to satisfy it is against a local API (`make up && make dev`), which is what
 `make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
 anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
+
+## 0. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
+
+**Cleared between 18:36Z and 18:53Z on Aug 9.** The 18:36 runs on PR #24 still died in 3 and 12
+seconds with the billing annotation; the 18:53 runs executed properly — `CI` green in 1m50s,
+`iOS` running a full 9m27s. Nothing in the repo changed in between, so the account-level block
+was lifted rather than worked around.
+
+Kept here because the first genuinely-executed run immediately earned its keep, and because the
+original entry claimed local runs were an adequate substitute for CI. They were not:
+
+**`iOS` failed on `SyncScaleTests.fullPullAtArchiveScale()` — 47.5s against a 30s budget** — a
+test that passes locally. The cause is not the engine. All three tests in `Sync at scale` are
+`@MainActor` and all three apply 736 entries, and Swift Testing runs them in parallel by
+default, so they interleave onto the one main actor and the wall clock each one reads spans the
+other two's work. Measured directly:
+
+| | `fullPullAtArchiveScale` elapsed |
+|---|---|
+| alone, locally (`-only-testing`) | **2.7s** |
+| beside its two siblings, locally | **10.7s** |
+| beside its two siblings, on the CI runner | **47.5s** — fails |
+
+The budget was right and the apply was never slow; the timer was reading three archives and
+calling it one. Fixed by marking the suite `.serialized`, which changes no assertion and no
+budget — it makes `elapsed` measure the thing the assertion names.
+
+**The lesson worth keeping:** a wall-clock assertion inside a parallel suite measures the
+machine's contention, not the code. This one was invisible on a fast laptop for exactly as long
+as CI was down, and it is the kind of test that reports a number nobody should trust.
+
+**Still missing from the picture:** the `image` job, which builds the Docker image and is the
+only thing that would catch a Dockerfile-level break. It has never had anything to do with the
+iOS lane.
 
 ## 1. Apple Developer enrollment — blocks real Sign in with Apple
 

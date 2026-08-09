@@ -41,24 +41,34 @@ enum SessionPhase: Equatable {
 @Observable
 final class AppSession {
     private(set) var phase: SessionPhase = .launching
-    /// Who is signed in, when this launch is the one that signed them in.
+    /// Who is signed in.
     ///
-    /// Nil after a warm start: the token is in the keychain but the user record came back with
-    /// the sign-in response and there is no `GET /me` to ask again. Settings falls back to the
-    /// configured account rather than showing a blank line.
+    /// Populated from the stored record before any request goes out, so a cold or offline launch
+    /// names the account immediately, then corrected by `GET /me`. It used to be nil after a warm
+    /// start — the record arrived once with the sign-in response and there was no route to ask
+    /// again — which is why Settings had to fall back to the configured account.
     private(set) var user: UserResponse?
     let api: APIClient
 
     private let tokens: TokenStoring
+    private let record: UserRecordStoring
 
-    init(api: APIClient, tokens: TokenStoring) {
+    init(api: APIClient, tokens: TokenStoring, record: UserRecordStoring = InMemoryUserRecordStore()) {
         self.api = api
         self.tokens = tokens
+        self.record = record
+        // Before anything else, so the first render of Settings has a name rather than a blank
+        // line it fills in a moment later.
+        self.user = record.load()
     }
 
     static func live() -> AppSession {
         let tokens = KeychainTokenStore()
-        return AppSession(api: APIClient.fromBundle(tokens: tokens), tokens: tokens)
+        return AppSession(
+            api: APIClient.fromBundle(tokens: tokens),
+            tokens: tokens,
+            record: UserDefaultsUserRecordStore()
+        )
     }
 
     /// A stored token means we can go straight to Today. If it has expired, the first request
@@ -67,15 +77,27 @@ final class AppSession {
     func start() async {
         if await api.hasSession(), let child = await resolveChild() {
             phase = .signedIn(childId: child)
+            await refreshUser()
             return
         }
         await signIn()
     }
 
+    /// Re-read the account on launch.
+    ///
+    /// Deliberately best effort and deliberately after the phase is set: the archive does not
+    /// depend on knowing the parent's name, and blocking the app on this — or failing the launch
+    /// because it did not answer — would trade something that matters for something that does
+    /// not. Offline, the stored copy stands and is not cleared.
+    private func refreshUser() async {
+        guard let fetched = try? await api.me() else { return }
+        apply(user: fetched)
+    }
+
     func signIn() async {
         do {
             let session = try await api.devLogin(email: AppConfig.devLoginEmail, displayName: "Dev Parent")
-            user = session.user
+            apply(user: session.user)
             guard let child = await resolveChild() else {
                 phase = .failed(
                     """
@@ -93,10 +115,12 @@ final class AppSession {
         }
     }
 
-    /// Fold a `PATCH /me` result back in, so the name the parent just set is what every screen
-    /// shows without waiting for a relaunch. There is no `GET /me` to refetch from.
+    /// Fold a user record back in, from either `/me` route, so the name the parent just set is
+    /// what every screen shows without waiting for a relaunch — and what the next cold launch
+    /// shows before any request goes out.
     func apply(user updated: UserResponse) {
         user = updated
+        record.save(updated)
     }
 
     func signOutAndRetry() async {
@@ -111,6 +135,9 @@ final class AppSession {
     func signOut() async {
         await api.logout()
         user = nil
+        // The stored record goes with the token. Leaving somebody's name in UserDefaults after
+        // they asked to leave is the sort of thing "signed out" is supposed to mean.
+        record.clear()
         phase = .signedOut
     }
 
@@ -154,7 +181,12 @@ enum LocalStore {
     /// the app and the delegate take it from here.
     static let shared: ModelContainer = container()
 
-    static let schema = Schema([Entry.self, Media.self, MediaPart.self])
+    /// `Assignment` joined this in the sync-pull phase, so `GET /sync`'s `assignments` array has
+    /// somewhere to land. A **new entity** is the one schema change that cannot fail lightweight
+    /// migration the way rule 6 of `ios/CLAUDE.md` describes: there are no existing rows of a type
+    /// that has never existed, so there is nothing for SwiftData to backfill. `StoreMigration
+    /// Tests` proves it against a real file written by the previous three-entity schema.
+    static let schema = Schema([Entry.self, Media.self, MediaPart.self, Assignment.self])
 
     /// Open the store, and if it cannot be opened, recover rather than die.
     ///

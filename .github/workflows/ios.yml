@@ -5,12 +5,21 @@ name: iOS
 # assurance anyone had. Tolerable at one branch; not once two people — or two agents — are
 # landing Swift.
 #
-# Deliberately its own workflow rather than a job inside `ci.yml`. macOS runners bill at roughly
-# ten times the Linux rate, so the filter below has to stay tight, and a separate file makes it
+# Deliberately its own workflow rather than a job inside `ci.yml`. macOS runners bill at **ten
+# times** the Linux rate, so the filters below have to stay tight, and a separate file makes it
 # obvious what triggers the expensive thing.
+#
+# Measured, not guessed: a run here takes 3–7 minutes of wall clock, which bills as 30–70. That
+# is 1.5–3.5% of a Free plan's entire monthly allowance **per run**, so what triggers this is a
+# budget decision rather than a style one.
 on:
+  # **`main` only, not `["**"]`.** A push to a branch with an open pull request used to fire
+  # this twice — once for the push and once for the pull request — on different concurrency
+  # groups, so neither cancelled the other and every push cost double. `pull_request` already
+  # tests the *merge result*, which is the thing that matters; this leg is here so a direct
+  # push to main is still gated.
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - 'ios/**'
       # Markdown under ios/ — reports, the device session — cannot change a build. Excluded so
@@ -19,6 +28,9 @@ on:
       - '!ios/**.md'
       - '.github/workflows/ios.yml'
   pull_request:
+    # `ready_for_review` is in the list because of the `draft` guard on the job below: without
+    # it, marking a draft ready would never trigger the run the guard deferred.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'ios/**'
       - '!ios/**.md'
@@ -32,8 +44,15 @@ concurrency:
 
 jobs:
   test:
+    # **Drafts do not spend a macOS runner.** A draft in this repo means work that is paused or
+    # blocked — the stop-condition procedure says to open one — and paying 40 billed minutes per
+    # push to tell someone their unfinished branch is unfinished is not worth it. Marking the
+    # pull request ready runs it, via `ready_for_review` above.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: macos-latest
-    timeout-minutes: 25
+    # Observed range is 3–7 minutes. 12 leaves nearly double the headroom over the worst run
+    # seen and caps a hung job at 120 billed minutes instead of 250.
+    timeout-minutes: 12
 
     steps:
       - uses: actions/checkout@v4
@@ -85,8 +104,29 @@ jobs:
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
           xcrun simctl list devices available | grep -F "$udid"
 
+          # Start it booting now rather than letting `xcodebuild test` do it later. `simctl
+          # boot` initiates the boot and returns — it does not wait for the device to come up,
+          # which is `bootstatus` — so the boot overlaps the compile in the next step instead
+          # of running after it. Booting a simulator is a meaningful slice of this job, and at
+          # ten times the Linux rate a minute of it is worth overlapping.
+          # `|| true`: an already-booted device exits non-zero, which is not a failure here.
+          xcrun simctl boot "$udid" || true
+
       # No xcbeautify: it is not guaranteed present, and a prettier log is not worth a
-      # dependency that can vanish.
+      # dependency that can vanish. No `-quiet` either, for a sharper reason — the warning gate
+      # below greps this log, and quieting the build is how that gate silently starts passing.
+      #
+      # The three settings below are free and slightly positive, and that is the honest size of
+      # them — **not** where the savings in this file come from. Measured cold and locally they
+      # take a ~6s compile to ~5s; this job takes 3–7 minutes, so compilation is not what it is
+      # spending. The savings are in running the job half as often. Kept because they cost
+      # nothing and each is defensible on its own:
+      #   COMPILER_INDEX_STORE_ENABLE=NO  — the index is for an editor. Nothing on this runner
+      #                                     opens one, and building it is pure cost.
+      #   ONLY_ACTIVE_ARCH=YES            — one simulator, one architecture.
+      #   -disableAutomaticPackageResolution — rule 4 of ios/CLAUDE.md: there are no third-party
+      #                                     dependencies, so this can only ever be a network
+      #                                     round trip that resolves nothing.
       - name: Test
         run: |
           set -euo pipefail
@@ -94,7 +134,10 @@ jobs:
             -project ios/Rascal/Rascal.xcodeproj \
             -scheme Rascal \
             -destination "id=${{ steps.sim.outputs.udid }}" \
+            -disableAutomaticPackageResolution \
             CODE_SIGNING_ALLOWED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            ONLY_ACTIVE_ARCH=YES \
             2>&1 | tee xcodebuild.log
           echo "--- result ---"
           grep -E "Test run with|Executed .* test" xcodebuild.log | tail -3 || true
