@@ -90,11 +90,18 @@ Later: `POST /auth/password` and `POST /auth/google` slot in with no schema chan
 
 ## Me
 
+**`GET /me`**
+→ the same user object `POST /auth/apple` returns, for the account behind the bearer token.
+
+It exists because the user record otherwise arrives exactly once, with the sign-in response.
+A client that force-quits and relaunches on a stored token has a valid session and no idea
+whose it is, so its Settings screen cannot show the account's own name. Call it on launch.
+
 **`PATCH /me`**
 Body: `{ "display_name": "Travis" }` → the same user object `POST /auth/apple` returns.
 
 The signed-in user's own record. There is no path parameter and no way to name another
-user: the route updates the row behind the bearer token and nothing else.
+user: both routes act on the row behind the bearer token and nothing else.
 
 ```json
 {
