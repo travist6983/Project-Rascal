@@ -1,11 +1,11 @@
 import Foundation
 
 /// Anything that can perform a request. Lets tests drive the client without a network.
-protocol HTTPPerforming: Sendable {
+nonisolated protocol HTTPPerforming: Sendable {
     func perform(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
 }
 
-struct URLSessionPerformer: HTTPPerforming {
+nonisolated struct URLSessionPerformer: HTTPPerforming {
     let session: URLSession
 
     init(session: URLSession = .shared) { self.session = session }
@@ -19,7 +19,7 @@ struct URLSessionPerformer: HTTPPerforming {
     }
 }
 
-enum HTTPMethod: String {
+nonisolated enum HTTPMethod: String {
     case get = "GET", post = "POST", patch = "PATCH", delete = "DELETE"
 }
 
@@ -308,25 +308,25 @@ actor APIClient {
 
 // MARK: - Wire models
 
-struct EmptyResponse: Decodable {}
+nonisolated struct EmptyResponse: Decodable {}
 
-struct DevLoginRequest: Encodable {
+nonisolated struct DevLoginRequest: Encodable {
     let email: String
     let displayName: String
 }
 
-struct RefreshRequest: Encodable {
+nonisolated struct RefreshRequest: Encodable {
     let refreshToken: String
 }
 
-struct TokenPairResponse: Decodable {
+nonisolated struct TokenPairResponse: Decodable {
     let accessToken: String
     let refreshToken: String
     let tokenType: String
     let expiresIn: Int
 }
 
-struct SessionResponse: Decodable {
+nonisolated struct SessionResponse: Decodable {
     let accessToken: String
     let refreshToken: String
     let tokenType: String
@@ -334,7 +334,7 @@ struct SessionResponse: Decodable {
     let user: UserResponse
 }
 
-struct UserResponse: Decodable, Identifiable {
+nonisolated struct UserResponse: Decodable, Identifiable {
     let id: UUID
     let email: String?
     let displayName: String?
@@ -343,7 +343,7 @@ struct UserResponse: Decodable, Identifiable {
 }
 
 /// Timestamps arrive with fractional seconds and occasionally without. Both parse.
-enum ISO8601Formatters {
+nonisolated enum ISO8601Formatters {
     private static let withFraction: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

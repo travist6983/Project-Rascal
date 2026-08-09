@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Everything is addressed by `media_id`, and the path is recorded in SwiftData rather than
 /// held in memory. After a force quit the uploader reconstructs its work from disk state alone.
-struct StagingStore {
+nonisolated struct StagingStore {
     /// `Application Support` rather than `Caches`: the system may purge Caches under pressure,
     /// and this holds the only copy of a photo until the upload completes.
     let root: URL

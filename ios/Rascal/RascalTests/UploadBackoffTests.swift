@@ -234,7 +234,7 @@ struct UploadBackoffTests {
     @Test("a completed or deleted row is never swept")
     func skipsFinishedAndDeleted() throws {
         let context = try makeContext()
-        media(in: context, state: .complete)
+        _ = media(in: context, state: .complete)
         let deleted = media(in: context)
         deleted.deletedAt = Date()
 

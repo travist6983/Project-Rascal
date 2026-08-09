@@ -6,7 +6,7 @@ import Foundation
 /// network, a session, or a clock. The schedule lives on the media row as `nextAttemptAt`, not
 /// in memory, so it survives a relaunch — a backoff that resets on every launch is not a
 /// backoff.
-enum UploadBackoff {
+nonisolated enum UploadBackoff {
     /// First retry roughly here, doubling from there.
     static let base: TimeInterval = 5
     /// No point waiting longer than this; the sweep runs on foreground anyway.

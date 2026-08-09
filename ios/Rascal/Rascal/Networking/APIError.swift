@@ -2,11 +2,11 @@ import Foundation
 
 /// The one error shape the server renders, from `docs/api-contract.md`:
 /// `{"error": {"code": ..., "message": ..., "field": ...}}`
-struct APIErrorEnvelope: Decodable {
+nonisolated struct APIErrorEnvelope: Decodable {
     let error: APIErrorDetail
 }
 
-struct APIErrorDetail: Decodable {
+nonisolated struct APIErrorDetail: Decodable {
     let code: APIErrorCode
     let message: String
     let field: String?
@@ -17,7 +17,7 @@ struct APIErrorDetail: Decodable {
 /// `unknown` exists because the server may add a code before this client knows about it, and
 /// an unrecognised value must degrade rather than crash. It is the same reasoning that keeps
 /// constrained columns as `text` + CHECK instead of a Postgres enum.
-enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable {
+nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable {
     case unauthenticated
     case tokenExpired
     case refreshTokenReused

@@ -107,7 +107,7 @@ extension MediaUploader: URLSessionDataDelegate {
               let media = Self.media(id: id, in: context)
         else { return }
 
-        if let error {
+        if error != nil {
             // A retry re-sends from the start, so the ring must not keep a stale high-water
             // mark and appear to go backwards on the next attempt.
             media.bytesSent = 0

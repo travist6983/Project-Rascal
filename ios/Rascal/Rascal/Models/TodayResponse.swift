@@ -5,7 +5,7 @@ import Foundation
 /// Deliberately separate from the SwiftData models. The API shape and the local cache shape
 /// are different concerns and will drift; collapsing them into one type means every server
 /// change becomes a migration.
-struct TodayResponse: Decodable {
+nonisolated struct TodayResponse: Decodable {
     /// The child's local date, computed server-side in `family_timezone`. Never derived here.
     let date: String
     let child: ChildSummary
@@ -16,7 +16,7 @@ struct TodayResponse: Decodable {
     let doneToday: [AssignmentResponse]
 }
 
-struct ChildSummary: Decodable, Identifiable, Equatable {
+nonisolated struct ChildSummary: Decodable, Identifiable, Equatable {
     let id: UUID
     let name: String
     /// Computed and stored server-side from `occurred_at` minus birthdate. Displayed, never
@@ -25,7 +25,7 @@ struct ChildSummary: Decodable, Identifiable, Equatable {
     let ageMonths: Int
 }
 
-struct AssignmentResponse: Decodable, Identifiable, Equatable {
+nonisolated struct AssignmentResponse: Decodable, Identifiable, Equatable {
     let id: UUID
     let slot: String
     let body: String
@@ -47,7 +47,7 @@ struct AssignmentResponse: Decodable, Identifiable, Equatable {
 /// Server-constrained values arrive as `text` + CHECK rather than an enum, specifically so a
 /// value can be added without a migration. Every one of these therefore carries an `unknown`
 /// case: a future server release must render as a neutral card, never crash and never blank.
-enum AssignmentStatus: RawRepresentable, Decodable, Equatable, Sendable {
+nonisolated enum AssignmentStatus: RawRepresentable, Decodable, Equatable, Sendable {
     case pending, done, dismissed, expired
     case unknown(String)
 
@@ -77,7 +77,7 @@ enum AssignmentStatus: RawRepresentable, Decodable, Equatable, Sendable {
 }
 
 /// `question` · `mission` · `weekly` · `monthly` · `letter`. Letters land on the 15th.
-enum Slot: RawRepresentable, Equatable, Sendable {
+nonisolated enum Slot: RawRepresentable, Equatable, Sendable {
     case question, mission, weekly, monthly, letter
     case unknown(String)
 
@@ -119,7 +119,7 @@ enum Slot: RawRepresentable, Equatable, Sendable {
     var isQuestion: Bool { self == .question }
 }
 
-enum PromptKind: RawRepresentable, Equatable, Sendable {
+nonisolated enum PromptKind: RawRepresentable, Equatable, Sendable {
     case question, photo, video, audio, activity, letter
     case unknown(String)
 
@@ -175,7 +175,7 @@ enum PromptKind: RawRepresentable, Equatable, Sendable {
 
 /// The three completion shapes. Nothing may assume an entry has media — "get on the floor for
 /// ten minutes" is a complete, legitimate entry with no artifact.
-enum CompletionMode: RawRepresentable, Equatable, Sendable {
+nonisolated enum CompletionMode: RawRepresentable, Equatable, Sendable {
     case didIt, media, text
     case unknown(String)
 
