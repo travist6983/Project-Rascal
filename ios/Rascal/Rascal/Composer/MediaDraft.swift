@@ -20,15 +20,27 @@ struct MediaDraft: Identifiable, Equatable {
     /// EXIF `DateTimeOriginal`, or a video's creation date, where the source had one.
     let capturedAt: Date?
     /// Held in memory for the preview only; also written to staging for the timeline cache.
-    /// For a video this is the poster frame.
+    /// For a video this is the poster frame. **Empty for audio**, which has nothing to draw.
     let thumbnail: Data
-    /// `photo` or `video`. Drives the badge on the preview tile and the `kind` sent to the
-    /// server, which decides single-PUT versus multipart.
+    /// `photo` · `video` · `audio`. Drives the badge on the preview tile and the `kind` sent to
+    /// the server, which decides single-PUT versus multipart and derives `entry_type`.
     var kind: String = "photo"
-    /// Seconds, for a video. Sent to `complete`.
+    /// Seconds, for a video or a voice note. Sent to `complete`.
+    ///
+    /// **Required for audio**, and read from the finished asset rather than a UI timer — a
+    /// wrong duration is wrong in the archive forever.
     var durationSeconds: Int?
 
     var isVideo: Bool { kind == "video" }
+    var isAudio: Bool { kind == "audio" }
+
+    /// Whether a thumbnail was actually written to staging for this file.
+    ///
+    /// Audio has none, and saying otherwise is not harmless: the staging sweep treats
+    /// `hasThumbnail` as permission to delete the only local copy of the original, and
+    /// `needingRefetch` uses it to decide what the timeline must go and fetch. A voice note
+    /// claiming a thumbnail is a row lying about what is on disk.
+    var hasThumbnail: Bool { !isAudio }
 
     var image: Image? {
         #if canImport(UIKit)
@@ -54,6 +66,29 @@ enum MediaDraftBuilder {
     static func make(fileAt url: URL, store: StagingStore) throws -> MediaDraft {
         let processed = try ImagePipeline.process(fileAt: url)
         return try stage(processed, store: store)
+    }
+
+    /// A finished voice note. The file is already in staging — `AVAudioRecorder` wrote it there
+    /// directly under the media id, so there is nothing to copy and nothing to transcode.
+    ///
+    /// The duration comes from the recording rather than being re-derived: `AudioPipeline`
+    /// already read it off the written asset, which is the value that has to reach
+    /// `POST /media/{id}/complete`.
+    static func makeAudio(_ recording: AudioPipeline.Recording) -> MediaDraft {
+        MediaDraft(
+            id: recording.mediaId,
+            stagedURL: recording.url,
+            fileExtension: AudioPipeline.fileExtension,
+            byteCount: recording.byteCount,
+            contentType: AudioPipeline.contentType,
+            // A voice note has no EXIF and no creation metadata worth trusting. Nil rather than
+            // "now": the composer's date pill owns `occurred_at`, and a recording made tonight
+            // against a mission from Tuesday belongs on Tuesday.
+            capturedAt: nil,
+            thumbnail: Data(),
+            kind: "audio",
+            durationSeconds: Int(recording.duration.rounded())
+        )
     }
 
     /// A video, transcoded to 1080p H.264 on the way in. The original is preserved to the

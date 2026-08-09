@@ -84,6 +84,18 @@ nonisolated struct StagingStore {
         return destination
     }
 
+    /// Make a path ready for something that writes to it directly.
+    ///
+    /// The other staging methods hand over finished bytes. `AVAudioRecorder` is the exception —
+    /// it opens the file itself and writes into it over minutes — so it needs the directory to
+    /// exist and any previous take at the same id cleared out of the way first.
+    func prepareForWriting(at destination: URL) throws {
+        try Self.prepare(root)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+    }
+
     /// Re-staging the same id overwrites cleanly. Happens when a retry re-derives a file.
     private func replaceItem(at destination: URL, _ write: () throws -> Void) throws {
         try Self.prepare(root)

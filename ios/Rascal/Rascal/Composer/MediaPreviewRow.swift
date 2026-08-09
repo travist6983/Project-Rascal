@@ -37,11 +37,17 @@ struct MediaPreviewRow: View {
     private func tile(_ draft: MediaDraft) -> some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let image = draft.image {
+                if draft.isAudio {
+                    // A voice note has no thumbnail and never will. Periwinkle, because colour
+                    // carries meaning here and periwinkle is voice — a grey box would read as
+                    // a picture that failed to load.
+                    voiceTile(draft)
+                } else if let image = draft.image {
                     image.resizable().scaledToFill()
                 } else {
-                    // A draft always has a thumbnail, so this is a should-not-happen. It stays
-                    // a neutral surface rather than an error: the photo is staged either way.
+                    // Photo and video drafts always carry a thumbnail, so this is a
+                    // should-not-happen. Neutral rather than an error: the file is staged
+                    // either way.
                     Color.surface
                 }
             }
@@ -63,9 +69,25 @@ struct MediaPreviewRow: View {
             }
             .buttonStyle(TapScaleButtonStyle())
             .padding(5)
-            .accessibilityLabel("Remove this photo")
+            .accessibilityLabel(draft.isAudio ? "Remove this voice note" : "Remove this photo")
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private func voiceTile(_ draft: MediaDraft) -> some View {
+        ZStack {
+            Color.periwinkleSoft
+            VStack(spacing: 4) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 20, weight: .regular))
+                if let seconds = draft.durationSeconds {
+                    Text(DurationText.clock(seconds))
+                        .typeRole(.metadata)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(Color.periwinkle)
+        }
     }
 
     private var overflowTile: some View {

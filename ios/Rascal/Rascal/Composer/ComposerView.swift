@@ -38,6 +38,7 @@ struct ComposerView: View {
     @State private var picking: [PhotosPickerItem] = []
     @State private var showCamera = false
     @State private var showLibrary = false
+    @State private var showRecorder = false
     /// Set once the parent has moved the date themselves, so importing another photo cannot
     /// silently overwrite a deliberate choice.
     @State private var dateWasChosen = false
@@ -96,8 +97,24 @@ struct ComposerView: View {
                 }
             }
         }
-        .task { loadForEditing() }
+        .task {
+            loadForEditing()
+            // An audio mission lands on the recorder with nothing in between. The brief is
+            // fifteen seconds, one-handed, and a setup screen is most of that budget.
+            if request.assignment?.promptKind == .audio, !request.isEditing, drafts.isEmpty {
+                showRecorder = true
+            }
+        }
         .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $showRecorder) {
+            AudioRecorderSheet(
+                onFinish: { recording in
+                    drafts.append(MediaDraftBuilder.makeAudio(recording))
+                    showRecorder = false
+                },
+                onCancel: { showRecorder = false }
+            )
+        }
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker(
@@ -289,8 +306,7 @@ struct ComposerView: View {
         .padding(.top, 8)
     }
 
-    /// Photo capture. Video and audio are not this phase, and the card says so rather than
-    /// offering a button that cannot deliver.
+    /// Capture, whichever kind the mission asked for.
     @ViewBuilder
     private var captureIt: some View {
         if drafts.isEmpty {
@@ -307,29 +323,21 @@ struct ComposerView: View {
             addAnother
         }
 
-        if request.assignment?.promptKind == .video {
-            // The scheduler served a video mission and this phase cannot complete one. Said
-            // plainly: the Today screen must not lie about what was served, and neither
-            // should this.
-            Text("Video arrives next phase. You can add photos or write about it now.")
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-        }
-
         writeIt
     }
 
-    /// Photo attachment on a freeform entry. Framed like the prompted composer rather than
-    /// left bare — this is a whole mission category, not an afterthought.
+    /// Photo and voice attachment on a freeform entry. Framed like the prompted composer rather
+    /// than left bare — this is a whole mission category, not an afterthought.
     @ViewBuilder
     private var freeformCapture: some View {
         if drafts.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel("Add photos — optional")
+                SectionLabel("Add photos or a voice note — optional")
                 captureChoices
             }
         } else {
             MediaPreviewRow(drafts: drafts, onRemove: remove, onAddMore: { showLibrary = true })
+            addAnother
         }
     }
 
@@ -337,43 +345,73 @@ struct ComposerView: View {
     /// videos. Previously it offered a stills camera above copy explaining video was not
     /// ready, which is the lie the device session caught twice.
     private var isVideoPrompt: Bool { request.assignment?.promptKind == .video }
+    private var isAudioPrompt: Bool { request.assignment?.promptKind == .audio }
 
+    /// What a mission of this kind can be answered with.
+    ///
+    /// An audio mission offers the microphone and nothing else — it opened straight into the
+    /// recorder, and this is the way back in after a cancel. Everything else keeps the photo
+    /// affordances and gains a voice tile, because a voice note is a legitimate answer to
+    /// almost anything and to a freeform entry especially.
+    @ViewBuilder
     private var captureChoices: some View {
-        HStack(spacing: 10) {
+        if isAudioPrompt {
+            Button { showRecorder = true } label: {
+                choiceTile(symbol: "mic", label: "Record")
+            }
+            .buttonStyle(TapScaleButtonStyle())
+        } else {
+            HStack(spacing: 10) {
+                PhotosPicker(
+                    selection: $picking,
+                    maxSelectionCount: 10,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    choiceTile(symbol: "photo.on.rectangle", label: "Choose")
+                }
+                .buttonStyle(TapScaleButtonStyle())
+
+                #if canImport(UIKit)
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button { showCamera = true } label: {
+                        choiceTile(
+                            symbol: isVideoPrompt ? "video" : "camera",
+                            label: isVideoPrompt ? "Record" : "Take a photo"
+                        )
+                    }
+                    .buttonStyle(TapScaleButtonStyle())
+                }
+                #endif
+
+                if !isVideoPrompt {
+                    Button { showRecorder = true } label: {
+                        choiceTile(symbol: "mic", label: "Voice")
+                    }
+                    .buttonStyle(TapScaleButtonStyle())
+                }
+            }
+        }
+    }
+
+    /// Adding to an entry that already has something on it. Both, because an entry may hold
+    /// photos and a voice note together — the media model has always allowed it.
+    private var addAnother: some View {
+        HStack(spacing: 16) {
             PhotosPicker(
                 selection: $picking,
                 maxSelectionCount: 10,
                 matching: .images,
                 photoLibrary: .shared()
             ) {
-                choiceTile(symbol: "photo.on.rectangle", label: "Choose")
+                Text("Choose from library")
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.terracotta)
             }
-            .buttonStyle(TapScaleButtonStyle())
-
-            #if canImport(UIKit)
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                Button { showCamera = true } label: {
-                    choiceTile(
-                        symbol: isVideoPrompt ? "video" : "camera",
-                        label: isVideoPrompt ? "Record" : "Take a photo"
-                    )
-                }
-                .buttonStyle(TapScaleButtonStyle())
-            }
-            #endif
-        }
-    }
-
-    private var addAnother: some View {
-        PhotosPicker(
-            selection: $picking,
-            maxSelectionCount: 10,
-            matching: .images,
-            photoLibrary: .shared()
-        ) {
-            Text("Choose from library")
+            Button("Add a voice note") { showRecorder = true }
                 .typeRole(.metadata)
                 .foregroundStyle(Color.terracotta)
+            Spacer(minLength: 0)
         }
     }
 
@@ -496,7 +534,9 @@ struct ComposerView: View {
                 capturedAt: draft.capturedAt,
                 durationSeconds: draft.durationSeconds
             )
-            media.hasThumbnail = true
+            // From the draft, not unconditionally. Audio has no thumbnail, and the staging
+            // sweep reads this flag as permission to delete the only local copy of the file.
+            media.hasThumbnail = draft.hasThumbnail
             context.insert(media)
         }
         try? context.save()
