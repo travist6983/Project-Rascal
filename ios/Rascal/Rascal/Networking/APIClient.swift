@@ -369,7 +369,9 @@ nonisolated struct SessionResponse: Decodable {
     let user: UserResponse
 }
 
-nonisolated struct UserResponse: Decodable, Identifiable {
+/// `Codable` rather than `Decodable`: the record is persisted between launches so Settings can
+/// name the account on a cold, offline start, and `GET /me` corrects it once there is a network.
+nonisolated struct UserResponse: Codable, Identifiable, Equatable {
     let id: UUID
     let email: String?
     let displayName: String?

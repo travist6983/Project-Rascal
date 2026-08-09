@@ -14,6 +14,15 @@ extension APIClient {
         try await send(.get, "v1/children")
     }
 
+    /// `GET /v1/me` — the account behind the bearer token.
+    ///
+    /// The user record otherwise arrives exactly once, with the sign-in response, so a relaunch
+    /// on a stored token has a valid session and no idea whose it is. There is no path parameter
+    /// and no way to name another user.
+    func me() async throws -> UserResponse {
+        try await send(.get, "v1/me")
+    }
+
     /// The assignment flips to `done` in the same transaction that creates the entry, so this
     /// is the only call a completion needs.
     ///

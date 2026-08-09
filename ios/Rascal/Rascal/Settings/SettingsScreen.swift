@@ -162,11 +162,11 @@ struct SettingsScreen: View {
     private var accountSection: some View {
         section("Account") {
             SettingsCard {
-                // Three states, not two. "Not set" is a claim about the server, and this app
-                // cannot make it after a warm start: the token is in the keychain, the user
-                // record came back with the sign-in response, and there is no `GET /me` to ask
-                // again. When the record is absent the row shows no value at all rather than
-                // asserting something it has not checked.
+                // Three states, not two. "Not set" is a claim about the server, and the app can
+                // now make it: the record is stored between launches and re-read from `GET /me`
+                // on every launch that has a network. The third state survives anyway — a first
+                // launch that has never reached the server has no record to show, and the row
+                // shows no value at all rather than asserting something it has not checked.
                 SettingsRow(
                     label: "Your name",
                     value: accountNameValue,
