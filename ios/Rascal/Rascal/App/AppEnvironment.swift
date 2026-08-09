@@ -154,7 +154,12 @@ enum LocalStore {
     /// the app and the delegate take it from here.
     static let shared: ModelContainer = container()
 
-    static let schema = Schema([Entry.self, Media.self, MediaPart.self])
+    /// `Assignment` joined this in the sync-pull phase, so `GET /sync`'s `assignments` array has
+    /// somewhere to land. A **new entity** is the one schema change that cannot fail lightweight
+    /// migration the way rule 6 of `ios/CLAUDE.md` describes: there are no existing rows of a type
+    /// that has never existed, so there is nothing for SwiftData to backfill. `StoreMigration
+    /// Tests` proves it against a real file written by the previous three-entity schema.
+    static let schema = Schema([Entry.self, Media.self, MediaPart.self, Assignment.self])
 
     /// Open the store, and if it cannot be opened, recover rather than die.
     ///

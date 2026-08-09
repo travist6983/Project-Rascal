@@ -19,6 +19,9 @@ struct SettingsScreen: View {
     /// The app's one sync, so the status section reads the same numbers the sweep acts on rather
     /// than inventing a second source of truth for upload state.
     let sync: EntrySync?
+    /// The pull half. Optional for the same reason `sync` is: the screen is buildable in a test
+    /// without one, and it renders the upload rows and nothing else when it has none.
+    var syncEngine: SyncEngine?
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -32,6 +35,7 @@ struct SettingsScreen: View {
     @State private var isRetrying = false
     @State private var export: ArchiveExport?
     @State private var recompute: RecomputeAgesModel?
+    @State private var syncStatus: SyncStatusModel?
 
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
@@ -73,6 +77,7 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if recompute == nil { recompute = RecomputeAgesModel(childId: childId, api: session.api) }
+            if syncStatus == nil, let syncEngine { syncStatus = SyncStatusModel(engine: syncEngine) }
             refreshOutstanding()
             await loadChild()
         }
@@ -198,7 +203,10 @@ struct SettingsScreen: View {
         section("Your data") {
             VStack(spacing: Layout.cardSpacing) {
                 SettingsCard { exportRow }
-                SettingsCard { syncRows }
+                SettingsCard {
+                    syncRows
+                    if let syncStatus { SyncPullSection(model: syncStatus) }
+                }
             }
         }
     }

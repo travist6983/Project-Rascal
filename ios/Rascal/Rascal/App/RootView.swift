@@ -6,6 +6,7 @@ struct RootView: View {
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?
+    @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
     /// One picture cache for the whole app, so the timeline, Moments, and a detail screen all
     /// draw from the same fetches rather than each pulling the same photo down again.
@@ -49,6 +50,16 @@ struct RootView: View {
             if sync == nil {
                 sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
             }
+            // The engine needs the child, so it cannot be built until the session resolves one.
+            if syncEngine == nil, case .signedIn(let childId) = session.phase {
+                syncEngine = SyncEngine(
+                    childId: childId,
+                    api: session.api,
+                    context: context,
+                    state: UserDefaultsSyncStateStore(),
+                    push: sync
+                )
+            }
             await runSweep()
         }
         // Entries saved while offline live in SwiftData until something re-sends them. This is
@@ -69,14 +80,21 @@ struct RootView: View {
                     TodayScreen(
                         childId: childId,
                         api: session.api,
-                        onRetrySync: { Task { await runSweep() } }
+                        onRetrySync: { Task { await runSweep() } },
+                        onSync: { await runSweep() }
                     ) { composer = $0 }
                 case .timeline:
-                    TimelineScreen(childId: childId, api: session.api) { composer = $0 }
+                    // Pull to refresh is a sync trigger: the gesture means "show me what is
+                    // actually there", and page one of `GET /entries` is only half of that.
+                    TimelineScreen(
+                        childId: childId,
+                        api: session.api,
+                        onSync: { await runSweep() }
+                    ) { composer = $0 }
                 case .moments:
                     MomentsScreen(childId: childId, api: session.api) { composer = $0 }
                 case .settings:
-                    SettingsScreen(childId: childId, session: session, sync: sync)
+                    SettingsScreen(childId: childId, session: session, sync: sync, syncEngine: syncEngine)
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,
                     // so this is unreachable. Today is what the app falls back to rather than a
@@ -97,11 +115,21 @@ struct RootView: View {
 }
 
 extension RootView {
-    /// Push anything still local, then refresh the count the Today screen shows.
-    /// Push whatever has not landed. There is no longer a count to update: progress lives on
-    /// the card it belongs to, which is where a parent is already looking.
+    /// Push whatever has not landed, then apply whatever the server has.
+    ///
+    /// **The order is the engine's, not this function's.** `SyncEngine.pull` drains the push
+    /// queue itself before applying anything, because pulling first can hand back a stale server
+    /// row that overwrites a local edit which has not been pushed yet. Calling it here rather
+    /// than sweeping separately is what keeps that ordering in one place.
+    ///
+    /// With `syncPullEnabled` off — which is how this ships — `pull()` drains the queue and
+    /// returns without reading `/sync`, so this is exactly the behaviour that was here before.
     private func runSweep() async {
-        await sync?.sweep()
+        if let syncEngine {
+            await syncEngine.pull()
+        } else {
+            await sync?.sweep()
+        }
     }
 }
 

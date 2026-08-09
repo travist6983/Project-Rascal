@@ -60,6 +60,9 @@ struct TodayScreen: View {
     let childId: UUID
     let api: APIClient
     var onRetrySync: () -> Void = {}
+    /// Runs the push-then-pull sweep. One of the four triggers, and the boring one: opening the
+    /// screen a parent opens most is a good moment to be up to date.
+    var onSync: () async -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
     @State private var model: TodayModel?
@@ -83,6 +86,7 @@ struct TodayScreen: View {
         .task {
             if model == nil { model = TodayModel(childId: childId, api: api) }
             await model?.load()
+            await onSync()
         }
         // Refetch on foreground: the server owns what day it is, so a phone left open
         // overnight must not keep showing yesterday's board.
