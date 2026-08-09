@@ -27,9 +27,9 @@ ELIGIBLE_AT_48_MONTHS = {
 }
 
 TOTAL_PROMPTS = 113
-# Seeded minus the kinds no client can complete yet. Video returned when multipart shipped;
-# only the 12 audio prompts remain inactive, pending a recorder.
-ACTIVE_PROMPTS = 101
+# Every seeded prompt is served: video returned when multipart shipped, audio when the recorder
+# did. `UNCOMPLETABLE_KINDS` is empty and stays in place for the next kind that needs it.
+ACTIVE_PROMPTS = 113
 
 
 def _buckets() -> dict[str, list[dict]]:
@@ -53,13 +53,13 @@ def test_every_seeded_prompt_parses_and_validates() -> None:
     assert len(rows) == TOTAL_PROMPTS
     assert all(row["source"] == "seeded" for row in rows)
 
-    # Video and audio are seeded but inactive: the client cannot complete either yet, and a
-    # prompt it cannot complete is a dead end rather than a mission. They stay in the library
-    # so re-enabling is one line in mission_library_to_yaml.py when the capability lands.
+    # Nothing is held back any more — video returned when multipart shipped, audio when the
+    # recorder did. The mechanism stays in place for the next kind that arrives before its
+    # capture surface: a prompt no client can complete is a dead end rather than a mission.
     active = {row["kind"] for row in rows if row["active"]}
     inactive = {row["kind"] for row in rows if not row["active"]}
-    assert inactive == {"audio"}, f"unexpected inactive kinds: {inactive}"
-    assert "audio" not in active, "an uncompletable kind is being served"
+    assert inactive == set(), f"unexpected inactive kinds: {inactive}"
+    assert {"video", "audio"} <= active, "the capture kinds are served again"
     assert sum(1 for row in rows if row["active"]) == ACTIVE_PROMPTS
 
 

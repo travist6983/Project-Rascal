@@ -718,7 +718,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -729,7 +729,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -740,7 +740,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -751,7 +751,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -762,7 +762,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -773,7 +773,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -784,7 +784,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -795,7 +795,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -806,7 +806,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -817,7 +817,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -828,7 +828,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -839,7 +839,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: false
+  active: true
 - kind: activity
   cadence: daily
   completion_mode: did_it
