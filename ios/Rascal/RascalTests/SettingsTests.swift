@@ -365,12 +365,18 @@ struct RecomputeAgesModelTests {
         """.utf8)
         performer.on("/recompute-ages") { _ in (ok, 200) }
 
+        // The newest page is re-read afterwards so the entries a parent looks at straight
+        // after this are correct immediately. Not a full sync — see the model's own note.
+        let page = pageJSON([], cursor: nil)
+        performer.on("/entries") { _ in (page, 200) }
+
         let context = try makeContext()
         let model = RecomputeAgesModel(childId: child, api: client(performer))
-        await model.run(sync: EntrySync(api: client(performer), context: context))
+        await model.run(context: context)
 
         #expect(model.state == .done(updated: 412, birthdate: "2021-06-01"))
         #expect(performer.count(for: "/recompute-ages") == 1)
+        #expect(performer.count(for: "/entries") == 1, "one page, not the whole archive")
     }
 
     @Test("zero updated is a real outcome and does not read as a failure")
@@ -383,7 +389,7 @@ struct RecomputeAgesModelTests {
         performer.on("/recompute-ages") { _ in (ok, 200) }
 
         let model = RecomputeAgesModel(childId: child, api: client(performer))
-        await model.run(sync: nil)
+        await model.run(context: nil)
 
         #expect(model.state == .done(updated: 0, birthdate: "2021-06-01"))
         #expect(RecomputeAgesModel.summary(updated: 0, birthdate: "2021-06-01")
@@ -410,9 +416,10 @@ struct RecomputeAgesModelTests {
         performer.on("/recompute-ages") { _ in (errorJSON("not_authorized", "Parent only."), 403) }
 
         let model = RecomputeAgesModel(childId: UUID(), api: client(performer))
-        await model.run(sync: nil)
+        await model.run(context: nil)
 
         #expect(model.state == .failed("Only a parent on this archive can do this."))
+        #expect(performer.count(for: "/entries") == 0, "a refused correction refreshes nothing")
     }
 }
 

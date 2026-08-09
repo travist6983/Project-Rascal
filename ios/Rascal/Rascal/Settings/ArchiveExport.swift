@@ -29,10 +29,15 @@ final class ArchiveExport {
 
     private let api: APIClient
     private var task: Task<Void, Never>?
-    private let progress = DownloadProgress()
+    private let downloader = ArchiveDownloader()
 
     init(api: APIClient) {
         self.api = api
+    }
+
+    deinit {
+        // A session holds its delegate until invalidated, so this is not optional tidiness.
+        downloader.invalidate()
     }
 
     var isRunning: Bool {
@@ -50,14 +55,16 @@ final class ArchiveExport {
         // from a *nested* concurrent closure counts as a captured var, which Swift 6 rejects;
         // an immutable local in between is the same weak reference and satisfies it. The class
         // is MainActor-isolated, so it is Sendable to hand across.
-        progress.onProgress = { [weak self] fraction in
+        downloader.onProgress = { [weak self] fraction in
             let owner = self
             Task { @MainActor in owner?.applyProgress(fraction) }
         }
 
-        task = Task { [api, progress] in
+        task = Task { [api, downloader] in
             do {
-                let result = try await Self.download(childId: childId, api: api, progress: progress)
+                let result = try await Self.download(
+                    childId: childId, api: api, downloader: downloader
+                )
                 guard !Task.isCancelled else { return }
                 self.state = .ready(url: result.url, bytes: result.bytes)
             } catch is CancellationError {
@@ -109,85 +116,90 @@ final class ArchiveExport {
     private nonisolated static func download(
         childId: UUID,
         api: APIClient,
-        progress: DownloadProgress
+        downloader: ArchiveDownloader
     ) async throws -> Result {
         let path = "v1/children/\(childId.uuidString.lowercased())/export"
         var request = try await api.authorizedRequest(.get, path)
 
-        var (temporary, response) = try await URLSession.shared.download(
-            for: request, delegate: progress
-        )
+        var outcome = try await downloader.run(request: request, childId: childId)
 
         // One retry after a refresh, the same discipline `sendRaw` uses. A parent who left the
         // app open over lunch should not be told their archive failed because a fifteen-minute
         // access token expired while they were deciding.
-        if (response as? HTTPURLResponse)?.statusCode == 401 {
-            try? FileManager.default.removeItem(at: temporary)
+        if outcome.status == 401 {
             let refreshed = try await api.refreshSession()
             request.setValue("Bearer \(refreshed.accessToken)", forHTTPHeaderField: "Authorization")
-            (temporary, response) = try await URLSession.shared.download(
-                for: request, delegate: progress
-            )
+            outcome = try await downloader.run(request: request, childId: childId)
         }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.transport("Not an HTTP response")
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            // A non-2xx still has a body, and it is small — the error envelope, written to the
-            // same temporary file the zip would have been.
-            defer { try? FileManager.default.removeItem(at: temporary) }
-            if let data = try? Data(contentsOf: temporary),
+        guard (200..<300).contains(outcome.status) else {
+            // A non-2xx has a body, and it is small — the error envelope, kept in memory rather
+            // than moved to the archive's destination.
+            if let data = outcome.errorBody,
                let envelope = try? APIClient.decoder.decode(APIErrorEnvelope.self, from: data) {
                 throw APIError.api(
                     code: envelope.error.code,
                     message: envelope.error.message,
                     field: envelope.error.field,
-                    status: http.statusCode
+                    status: outcome.status
                 )
             }
-            throw APIError.unexpectedStatus(http.statusCode)
+            throw APIError.unexpectedStatus(outcome.status)
         }
 
-        // Moved out of the system's temporary slot immediately: the URL handed back by
-        // `download(for:)` is only guaranteed to exist until this call returns.
-        let destination = try stagedDestination(named: filename(from: http, childId: childId))
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: temporary, to: destination)
-
-        let bytes = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? Int64) ?? nil
-        return Result(url: destination, bytes: bytes ?? http.expectedContentLength)
+        guard let url = outcome.url else {
+            throw APIError.transport("The archive downloaded but could not be saved.")
+        }
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? nil
+        return Result(url: url, bytes: bytes ?? outcome.expectedBytes)
     }
 
-    /// The server's own filename, which already encodes the child and the date —
-    /// `rascal-miles-20260809.zip`. Parsed rather than reinvented so the file the parent saves
-    /// is named the same everywhere.
-    private nonisolated static func filename(from response: HTTPURLResponse, childId: UUID) -> String {
-        guard let disposition = response.value(forHTTPHeaderField: "content-disposition"),
-              let range = disposition.range(of: "filename=")
-        else { return "rascal-archive-\(childId.uuidString.prefix(8)).zip" }
-
-        let raw = disposition[range.upperBound...]
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"; "))
-        // A header is not a path. Anything with a separator in it gets the fallback rather
-        // than a chance to write outside the directory it was handed.
-        guard !raw.isEmpty, !raw.contains("/"), !raw.contains("..") else {
-            return "rascal-archive-\(childId.uuidString.prefix(8)).zip"
+    /// Delete anything left in the exports directory.
+    ///
+    /// Called when the screen appears, which is the only moment nothing can be referencing one.
+    /// Orphans are easy to make and impossible to notice: leaving the tab mid-download tears
+    /// down the view while the task keeps running, and a force quit between the move and the
+    /// share leaves a finished zip nobody will ever open. Tens or hundreds of megabytes of a
+    /// copy of data that already exists twice is not something to leave lying around waiting
+    /// for the system to feel memory pressure.
+    static func purgeStale() {
+        guard let folder = try? exportsFolder() else { return }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: folder, includingPropertiesForKeys: nil
+        )) ?? []
+        for url in contents {
+            try? FileManager.default.removeItem(at: url)
         }
-        return raw
     }
 
     /// `Caches`, not `Application Support`: this file is a copy of data that exists on the
     /// server and in the local store, so the system is welcome to reclaim it under pressure.
     /// Excluded from backup for the same reason — nobody wants their archive in iCloud twice.
-    private nonisolated static func stagedDestination(named name: String) throws -> URL {
+    nonisolated static func exportsFolder() throws -> URL {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         var folder = caches.appending(path: "exports", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? folder.setResourceValues(values)
-        return folder.appending(path: name)
+        return folder
+    }
+
+    /// The server's own filename, which already encodes the child and the date —
+    /// `rascal-miles-20260809.zip`. Parsed rather than reinvented so the file the parent saves
+    /// is named the same everywhere.
+    nonisolated static func filename(from response: HTTPURLResponse, childId: UUID) -> String {
+        let fallback = "rascal-archive-\(childId.uuidString.prefix(8)).zip"
+        guard let disposition = response.value(forHTTPHeaderField: "content-disposition"),
+              let range = disposition.range(of: "filename=")
+        else { return fallback }
+
+        let raw = disposition[range.upperBound...]
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"; "))
+        // A header is not a path. Anything with a separator in it gets the fallback rather
+        // than a chance to write outside the directory it was handed.
+        guard !raw.isEmpty, !raw.contains("/"), !raw.contains("..") else { return fallback }
+        return raw
     }
 
     /// Calm and specific: what failed, and the fact that nothing was lost. No red anywhere on
@@ -209,16 +221,105 @@ final class ArchiveExport {
     }
 }
 
-/// Byte progress for one download.
+/// The download itself, and the only way to get byte progress out of one.
 ///
-/// A per-task delegate rather than a shared session delegate: this is a foreground download the
-/// parent is watching, not the background upload path, and it must not be confused with
-/// `MediaUploader`'s session — that one is a process-wide singleton by necessity and adding a
-/// second responsibility to it would be the wrong kind of reuse.
-nonisolated final class DownloadProgress: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+/// **`download(for:delegate:)` cannot do this.** The async variants take a per-task delegate for
+/// `URLSessionTaskDelegate` callbacks, but `didWriteData` belongs to `URLSessionDownloadDelegate`
+/// and is never delivered to it. Instrumenting the delegate proved it: zero callbacks across a
+/// full 86MB transfer, on `URLSession.shared` and on a dedicated session alike, while the bar sat
+/// at nothing and the row read as hung. Progress needs a classic **session-level** delegate and a
+/// `URLSessionDownloadTask`, bridged back to async with a continuation.
+///
+/// Deliberately its own session rather than `MediaUploader.shared`. That one is process-wide by
+/// necessity because a background *upload* delegate can be called into a process that has just
+/// been launched to receive it; this is a foreground download a parent is watching, and giving
+/// the upload session a second responsibility would be the wrong kind of reuse.
+nonisolated final class ArchiveDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+
+    struct Outcome: Sendable {
+        let status: Int
+        /// Set on success, once the file has been moved somewhere that outlives the callback.
+        let url: URL?
+        /// Set on a non-2xx: the error envelope, which is small enough to hold in memory.
+        let errorBody: Data?
+        let expectedBytes: Int64
+    }
 
     /// Nil fraction when the server sends no `content-length`, which the export always does.
-    var onProgress: (@Sendable (Double?) -> Void)?
+    ///
+    /// Behind the lock like everything else here: the delegate is called on the session's own
+    /// queue, and the setter is called from the main actor when a download starts.
+    var onProgress: (@Sendable (Double?) -> Void)? {
+        get { lock.withLock { storedOnProgress } }
+        set { lock.withLock { storedOnProgress = newValue } }
+    }
+
+    // `nonisolated(unsafe)` on each, because every one of them is read and written **only**
+    // under `lock`. The delegate is called on the session's own queue and the setters are called
+    // from the main actor, so the mutual exclusion is real rather than assumed — the annotation
+    // says the compiler cannot see it, not that it is absent.
+    private nonisolated(unsafe) var storedOnProgress: (@Sendable (Double?) -> Void)?
+    private let lock = NSLock()
+    private nonisolated(unsafe) var continuation: CheckedContinuation<Outcome, Error>?
+    private nonisolated(unsafe) var childId: UUID?
+    private nonisolated(unsafe) var movedURL: URL?
+    private nonisolated(unsafe) var errorBody: Data?
+    private nonisolated(unsafe) var moveFailure: Error?
+    private nonisolated(unsafe) var task: URLSessionDownloadTask?
+    private nonisolated(unsafe) var storedSession: URLSession?
+
+    /// Built on first use rather than in `init`, because the session takes `self` as its
+    /// delegate and `self` is not available until `init` has finished.
+    ///
+    /// Spelled out by hand instead of `lazy var`: `lazy` is a mutable stored property, and a
+    /// mutable stored property cannot be `nonisolated` — which this has to be, since the whole
+    /// type lives off the main actor. The lock is not held by any caller when this runs, and
+    /// `URLSession.init` does not call back into the delegate, so there is nothing to deadlock
+    /// against.
+    private var session: URLSession {
+        lock.withLock {
+            if let storedSession { return storedSession }
+            let configuration = URLSessionConfiguration.default
+            // A parent on a train should not lose an archive to a tunnel; the export is large
+            // and worth waiting out.
+            configuration.timeoutIntervalForRequest = 60
+            configuration.timeoutIntervalForResource = 60 * 60
+            configuration.waitsForConnectivity = true
+            let created = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            storedSession = created
+            return created
+        }
+    }
+
+    /// Run one download to completion. One at a time — the caller guards that.
+    func run(request: URLRequest, childId: UUID) async throws -> Outcome {
+        lock.withLock {
+            self.childId = childId
+            movedURL = nil
+            errorBody = nil
+            moveFailure = nil
+        }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = session.downloadTask(with: request)
+                lock.withLock {
+                    self.continuation = continuation
+                    self.task = task
+                }
+                task.resume()
+            }
+        } onCancel: {
+            lock.withLock { task }?.cancel()
+        }
+    }
+
+    /// A session delegate keeps the session alive until it is told otherwise.
+    func invalidate() {
+        session.finishTasksAndInvalidate()
+    }
+
+    // MARK: URLSessionDownloadDelegate
 
     func urlSession(
         _ session: URLSession,
@@ -227,18 +328,70 @@ nonisolated final class DownloadProgress: NSObject, URLSessionDownloadDelegate, 
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
+        let report = onProgress
         guard totalBytesExpectedToWrite > 0 else {
-            onProgress?(nil)
+            report?(nil)
             return
         }
-        onProgress?(min(1, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
+        report?(min(1, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
     }
 
-    /// Required by the protocol. The async `download(for:delegate:)` hands the file back through
-    /// its return value, so there is nothing to do here.
+    /// **Everything here has to happen before this method returns.** The file at `location` is
+    /// deleted the moment it does, so moving it is not something that can be deferred to a task.
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
         didFinishDownloadingTo location: URL
-    ) {}
+    ) {
+        let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+
+        guard (200..<300).contains(status),
+              let http = downloadTask.response as? HTTPURLResponse,
+              let childId = lock.withLock({ self.childId })
+        else {
+            // A refusal, not an archive. Kept in memory rather than moved into the exports
+            // directory, where it would masquerade as a zip.
+            let body = try? Data(contentsOf: location)
+            lock.withLock { errorBody = body }
+            return
+        }
+
+        do {
+            let destination = try ArchiveExport.exportsFolder()
+                .appending(path: ArchiveExport.filename(from: http, childId: childId))
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: location, to: destination)
+            lock.withLock { movedURL = destination }
+        } catch {
+            lock.withLock { moveFailure = error }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        let resumed: CheckedContinuation<Outcome, Error>? = lock.withLock {
+            defer { continuation = nil; self.task = nil }
+            return continuation
+        }
+        guard let resumed else { return }
+
+        if let error {
+            let cancelled = (error as? URLError)?.code == .cancelled
+            resumed.resume(throwing: cancelled ? CancellationError() : APIError.transport(error.localizedDescription))
+            return
+        }
+        if let moveFailure = lock.withLock({ self.moveFailure }) {
+            resumed.resume(throwing: moveFailure)
+            return
+        }
+
+        let http = task.response as? HTTPURLResponse
+        resumed.resume(returning: Outcome(
+            status: http?.statusCode ?? 0,
+            url: lock.withLock { movedURL },
+            errorBody: lock.withLock { errorBody },
+            expectedBytes: http?.expectedContentLength ?? 0
+        ))
+    }
 }
+
+

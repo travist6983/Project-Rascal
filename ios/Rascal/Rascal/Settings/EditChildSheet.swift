@@ -211,9 +211,14 @@ struct TimeZonePickerSheet: View {
             }
         }
         .task {
-            // Seeded with this phone's zone, which is usually the answer and never the
-            // assumption — the field it sets is where the *child* lives.
-            if query.isEmpty, selection == TimeZoneCatalog.deviceZone {
+            // Seeded with this phone's city, which is usually the answer — a parent setting
+            // this up is normally setting it to where they are.
+            //
+            // Previously conditioned on the selection *already* matching the device, which made
+            // it a no-op in the one case worth seeding for. It is only a starting point: the
+            // field it sets is where the *child* lives, and clearing the search shows every
+            // zone.
+            if query.isEmpty {
                 query = TimeZoneCatalog.city(TimeZoneCatalog.deviceZone)
             }
         }

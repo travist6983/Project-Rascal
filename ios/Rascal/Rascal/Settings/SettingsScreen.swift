@@ -69,11 +69,16 @@ struct SettingsScreen: View {
         }
         .background(Color.canvas)
         .task {
+            // The only moment nothing can be referencing a staged zip. See `purgeStale`.
+            ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if recompute == nil { recompute = RecomputeAgesModel(childId: childId, api: session.api) }
             refreshOutstanding()
             await loadChild()
         }
+        // Leaving the tab tears this view down while the download would carry on writing to a
+        // file nobody is going to open. Cancelled rather than orphaned.
+        .onDisappear { export?.cancel() }
         // A sweep can finish while this screen is open — from a foreground elsewhere, or from a
         // background upload landing — so the counts are re-read rather than left stale.
         .onChange(of: scenePhase) { _, phase in
@@ -126,20 +131,23 @@ struct SettingsScreen: View {
     private var archiveSection: some View {
         section("Archive") {
             SettingsCard {
+                // `openChild()` rather than assigning the route directly: the sheet needs a
+                // child to build its model from, and tapping a row while the fetch is still in
+                // flight would present an empty sheet you have to dismiss.
                 SettingsRow(
                     label: "Name",
                     value: child?.name
-                ) { route = .editChild }
+                ) { openChild() }
                 SettingsDivider()
                 SettingsRow(
                     label: "Birthday",
                     value: child.map { formattedBirthdate($0.birthdate) }
-                ) { route = .editChild }
+                ) { openChild() }
                 SettingsDivider()
                 SettingsRow(
                     label: "Timezone",
                     value: child.map { TimeZoneCatalog.city($0.familyTimezone) }
-                ) { route = .editChild }
+                ) { openChild() }
             }
         }
     }
@@ -169,6 +177,12 @@ struct SettingsScreen: View {
                 )
             }
         }
+    }
+
+    /// Ignored until the child has loaded. Nothing to say about it, so nothing is presented.
+    private func openChild() {
+        guard child != nil else { return }
+        route = .editChild
     }
 
     /// The name, "Not set" when the server says there is none, and nothing when this launch
@@ -442,7 +456,7 @@ struct SettingsScreen: View {
     }
 
     private func runRecompute() async {
-        await recompute?.run(sync: sync)
+        await recompute?.run(context: context)
         refreshOutstanding()
         // The corrected ages are in the archive now; reload the child so the birthday row and
         // the greeting agree with what was just computed against.

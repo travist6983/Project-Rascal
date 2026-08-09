@@ -30,6 +30,24 @@ Deliberately not built in this run: Lane B is the iOS lane, the endpoint is Lane
 the client degrades correctly without it. Item 6 of `docs/device-verification-settings.md` asks
 the human to judge how badly it reads on a real device.
 
+### The archive export's progress bar needs a session delegate, not the async API
+
+Not blocking anything — fixed — but written down because it is invisible in code review and the
+kind of thing that gets reintroduced.
+
+`URLSession`'s async `download(for:delegate:)` takes a per-task delegate, accepts a
+`URLSessionDownloadDelegate`, and **never calls `didWriteData` on it.** That method belongs to
+the download delegate, and the async variants only route `URLSessionTaskDelegate` callbacks.
+Instrumenting it proved the point: zero callbacks across a full 86MB transfer, on
+`URLSession.shared` and on a dedicated session alike, while the progress bar sat at nothing and
+the row read as hung — the exact failure the export was supposed to avoid.
+
+Byte progress requires a classic **session-level** delegate and a `URLSessionDownloadTask`,
+bridged back to async with a continuation. `ArchiveDownloader` does that, and the same
+instrumentation then recorded 180 delegate callbacks and 269 UI state updates from 0.2% to 100%.
+
+Worth knowing for the media path too, if a download ever needs progress there.
+
 ### `POST /v1/auth/dev-login` can never satisfy a preflight aimed at a deployed API
 
 Not a defect — the opposite. `main.py` registers `auth.dev_router` only `if settings.is_local`,

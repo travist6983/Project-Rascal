@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// The birthdate correction, made explicit.
 ///
@@ -34,25 +35,41 @@ final class RecomputeAgesModel {
 
     var isRunning: Bool { state == .running }
 
-    /// Runs the correction, then pulls so the corrected values reach the local mirror.
+    /// Runs the correction, then refreshes what it can of the local mirror.
     ///
-    /// The pull is not optional. The server writes only changed rows, which is what keeps the
-    /// correction out of every other client's sync cursor — but it also means this device's
-    /// cached ages are stale the instant the call returns, and the screen that shows them is one
-    /// tab away.
-    func run(sync: EntrySync?) async {
+    /// **This is a partial refresh, and the limit is worth stating.** Every cached entry's
+    /// `child_age_months` is stale the instant the server returns, and the proper mechanism for
+    /// carrying that down is `GET /sync` — which is exactly why the server writes only the rows
+    /// that changed. This client has no `/sync` yet: `EntrySync` pushes local writes and pulls
+    /// nothing, so calling its sweep here would look like a refresh and move no ages at all.
+    ///
+    /// So it re-reads the newest page instead. That corrects the entries a parent is most likely
+    /// to look at straight after doing this, immediately; the rest correct as the timeline
+    /// reconciles, which it does on pull-to-refresh and as pages load. Recorded in
+    /// `docs/blocked.md` — a full correction across an eighteen-year archive is `/sync`'s job and
+    /// re-paging the whole thing here would undo the point of the server writing only what moved.
+    func run(context: ModelContext?) async {
         guard !isRunning else { return }
         state = .running
 
         do {
             let result = try await api.recomputeAges(childId: childId)
             state = .done(updated: result.entriesUpdated, birthdate: result.birthdate)
-            await sync?.sweep()
+            await refreshNewestPage(into: context)
         } catch let error as APIError {
             state = .failed(Self.explain(error))
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    /// One request. Best effort: a correction that landed on the server is not undone by a
+    /// refresh that did not, and the screen already says what changed.
+    private func refreshNewestPage(into context: ModelContext?) async {
+        guard let context else { return }
+        guard let page = try? await api.entries(childId: childId, limit: TimelineModel.pageSize)
+        else { return }
+        EntryCache.upsert(page.entries, into: context)
     }
 
     func dismiss() {
