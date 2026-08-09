@@ -187,23 +187,34 @@ Your son is 48 months. Prompts eligible at 48 months, by kind.
 matching, the test fails and tells you the new numbers. Corrected Aug 4, 2026: the previous
 version predated the last handful of prompts and under-counted video, activity, and weekly.
 
-| Kind | Total | Eligible at 48mo | Of those, any-month | Enough for 14 days? |
-|---|---|---|---|---|
-| Question | 30 | 30 | 30 | ✅ |
-| Photo | 22 | 22 | 18 | ✅ |
-| Video | 11 | 11 | 10 | ✅ |
-| Audio | 12 | 11 | 11 | ✅ |
-| Activity | 16 | 16 | 16 | ✅ |
-| Weekly | 10 | 10 | 10 | ✅ |
-| Monthly | 4 | 4 | 4 | ✅ |
-| Letter | 8 | 8 | 8 | ✅ |
+| Kind | Total | Active | Eligible at 48mo | Of those, any-month | Enough for 14 days? |
+|---|---|---|---|---|---|
+| Question | 30 | 30 | 30 | 30 | ✅ |
+| Photo | 22 | 22 | 22 | 18 | ✅ |
+| **Video** | 11 | **0** | — | — | **inactive — no multipart upload yet** |
+| **Audio** | 12 | **0** | — | — | **inactive — no recorder yet** |
+| Activity | 16 | 16 | 16 | 16 | ✅ |
+| Weekly | 10 | 9 | 9 | 9 | ✅ |
+| Monthly | 4 | 4 | 4 | 4 | ✅ |
+| Letter | 8 | 8 | 8 | 8 | ✅ |
 
-113 prompts in total. "Any-month" excludes the seasonal ones — a prompt tagged to December
+**113 prompts in the library, 89 active.** The 24 video and audio prompts are seeded but
+inactive: no client can complete either yet, and a prompt the client cannot complete is a dead
+end rather than a mission — a device session hit exactly that, with the composer offering a
+still camera on a prompt that said to film. They stay in the library rather than being deleted,
+because re-enabling them is one line (`UNCOMPLETABLE_KINDS` in
+`api/scripts/mission_library_to_yaml.py`) once multipart upload and the recorder ship.
+
+Deactivation lives in the generator, not hand-edited into the yaml: this markdown is the
+authoring surface and the yaml is generated from it, so an edit made only in the yaml is erased
+by the next regeneration and drifts silently until then. "Any-month" excludes the seasonal ones — a prompt tagged to December
 is eligible by age but will not be served in August, so that column is what the scheduler
 actually has to draw from on an arbitrary day.
 
-The daily `mission` slot draws from photo, video, audio, and activity together (55 eligible
-at 48 months), not from any one of them alone. `monthly` draws from the four measurement and
+The daily `mission` slot draws from photo, video, audio, and activity together — **38 eligible
+at 48 months while video and audio are inactive**, down from 55 — not from any one of them
+alone. Still comfortably past the 14-day requirement; worth re-checking if more kinds ever go
+inactive at once. `monthly` draws from the four measurement and
 camera-roll prompts on the 1st; `letter` draws from the eight letters on the 15th.
 
 The 180-day cooldown holds comfortably at this size. When the library grows past ~300 you can tighten theme rotation instead of loosening cooldown.
