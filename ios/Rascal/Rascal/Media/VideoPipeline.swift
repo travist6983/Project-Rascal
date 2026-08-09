@@ -69,7 +69,9 @@ enum VideoPipeline {
 
         return Processed(
             url: destination,
-            byteCount: bytes ?? 0,
+            // `bytes` already coalesced to 0 above; a second `?? 0` here was dead and the
+            // compiler said so.
+            byteCount: bytes,
             durationSeconds: Int(CMTimeGetSeconds(duration).rounded()),
             posterFrame: try? await posterFrame(for: asset),
             capturedAt: created
