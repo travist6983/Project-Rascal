@@ -20,6 +20,8 @@ struct EntryDetailScreen: View {
 
     @Query private var entries: [Entry]
     @Query private var media: [Media]
+    /// For the prompt block, when the detail fetch has not landed yet. See `displayPrompt`.
+    @Query private var assignments: [Assignment]
 
     @State private var notice: String?
     @State private var confirmingDelete = false
@@ -47,6 +49,7 @@ struct EntryDetailScreen: View {
             filter: #Predicate<Media> { $0.entryId == entryId && $0.deletedAt == nil },
             sort: [SortDescriptor(\Media.createdAt, order: .forward)]
         )
+        _assignments = Query(filter: #Predicate<Assignment> { $0.childId == childId })
     }
 
     private var entry: Entry? { entries.first }
@@ -92,25 +95,70 @@ struct EntryDetailScreen: View {
 
     // MARK: Body
 
+    /// v3's reading order: the artifact, then the question it answered, then the answer.
+    ///
+    /// The transcript moved out of the player and down here, set as body copy under its own
+    /// label. His words are what the archive is keeping — they get reading type, not caption
+    /// type bolted to a control.
     @ViewBuilder
     private func content(_ entry: Entry) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 0) {
             if entry.unlockAtAge != nil, !unsealed {
                 sealedCard(entry)
             } else {
-                if !pictures.isEmpty { gallery }
-                if let prompt = entry.promptBody { promptBlock(prompt, on: entry.occurredAt) }
+                hero
+                if let prompt = displayPrompt(entry) {
+                    promptBlock(prompt, on: entry.occurredAt)
+                        .padding(.top, heroIsPresent ? 18 : 0)
+                }
                 writtenContent(entry)
-                if let voice = voiceMedia { voiceSection(voice) }
+                if let transcript = voiceMedia?.transcript, !transcript.isEmpty {
+                    transcriptSection(transcript)
+                }
                 metadata(entry)
+                tags(entry)
             }
             if let notice {
                 Text(notice)
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
+                    .padding(.top, 16)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The top block: pictures if there are any, else the voice player, else nothing.
+    ///
+    /// Nothing is the ordinary case, not the broken one — a written entry and a did-it entry
+    /// have no artifact, and the screen opens on the prompt instead.
+    @ViewBuilder
+    private var hero: some View {
+        if !pictures.isEmpty {
+            gallery
+        } else if let voice = voiceMedia {
+            VoicePlayerView(
+                mediaId: voice.id,
+                durationSeconds: voice.durationSeconds,
+                transcript: nil,
+                localFile: stagedOriginal(voice),
+                api: api
+            )
+        }
+    }
+
+    private var heroIsPresent: Bool { !pictures.isEmpty || voiceMedia != nil }
+
+    /// The cached prompt, falling back to the assignment this entry completed.
+    ///
+    /// `promptBody` arrives with `GET /entries/{id}` and is the better source — it is the prompt
+    /// as the server records it. The assignment is what the timeline card quoted a moment ago,
+    /// and using it here means the block does not disappear when the detail fetch has not landed
+    /// yet, which would read as the screen losing something on the way in.
+    private func displayPrompt(_ entry: Entry) -> String? {
+        if let cached = entry.promptBody, !cached.isEmpty { return cached }
+        guard let assignmentId = entry.assignmentId else { return nil }
+        return assignments.first { $0.id == assignmentId }?.body
     }
 
     /// Photos and video. Audio is not here — it gets a player of its own below the text.
@@ -156,43 +204,54 @@ struct EntryDetailScreen: View {
         }
     }
 
-    /// A soft quoted block, with the day it was answered.
+    /// The question, in a block tinted to the kind of entry that answered it.
+    ///
+    /// A filled block here, where the card uses a rule and an indent: on the detail screen the
+    /// prompt is one of two or three things on the page and can hold its own shape.
     ///
     /// The date shown is the entry's `occurred_at` and it is labelled as such. The prompt's own
     /// date — when the assignment landed — is not in `GET /entries/{id}`, and inventing one for
     /// a permanent archive is worse than saying the thing that is true.
     private func promptBlock(_ prompt: String, on date: Date) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Rectangle()
-                .fill(Color.terracotta.opacity(0.35))
-                .frame(width: 3)
-                .clipShape(Capsule())
-            VStack(alignment: .leading, spacing: 6) {
-                Text(prompt)
-                    .typeRole(.body)
-                    .foregroundStyle(Color.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Answered \(DayHeaderText.full(date))")
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-            }
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Answered \(DayHeaderText.full(date))")
+                .typeRole(.label)
+                .foregroundStyle(Color.inkFaint)
+            Text(prompt)
+                .typeRole(.body)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 15)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.surface, in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-        )
+        .background(promptTint, in: RoundedRectangle(cornerRadius: Layout.quoteBlockRadius, style: .continuous))
+    }
+
+    /// Colour carries meaning here too — periwinkle for voice and writing, sage for did-it,
+    /// terracotta for anything with a picture in it.
+    private var promptTint: Color {
+        switch entry?.type {
+        case .didIt: .sage
+        case .audio, .text: .periwinkleSoft
+        default: .terracottaSoft
+        }
     }
 
     @ViewBuilder
     private func writtenContent(_ entry: Entry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title = entry.title, !title.isEmpty {
-                Text(title)
-                    .typeRole(.title)
-                    .foregroundStyle(Color.ink)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if entry.type == .didIt {
+                        CompletionCheck(isComplete: true, diameter: 22, tint: .sageInk, check: .sage)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
+                    }
+                    Text(title)
+                        .typeRole(.detailTitle)
+                        .foregroundStyle(Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if let body = entry.body, !body.isEmpty {
                 Text(body)
@@ -203,49 +262,101 @@ struct EntryDetailScreen: View {
                 // A did-it entry with no note. Complete, and it says so rather than rendering
                 // as a screen with nothing on it.
                 HStack(spacing: 10) {
-                    CompletionCheck(isComplete: true, diameter: 26)
+                    CompletionCheck(isComplete: true, diameter: 26, tint: .sageInk, check: .sage)
                     Text("We did it")
-                        .typeRole(.title)
+                        .typeRole(.detailTitle)
                         .foregroundStyle(Color.ink)
                 }
             }
         }
+        .padding(.top, 20)
     }
 
-    private func voiceSection(_ item: Media) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel("Voice")
-            VoicePlayerView(
-                mediaId: item.id,
-                durationSeconds: item.durationSeconds,
-                transcript: item.transcript,
-                localFile: stagedOriginal(item),
-                api: api
-            )
+    /// What was actually said, under a quiet label.
+    ///
+    /// Body type, not caption type. The phone transcribed this on device and
+    /// `PATCH /media/{id}/derived` made it permanent — it is the artifact, not a note about one.
+    private func transcriptSection(_ transcript: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Transcript")
+                .typeRole(.label)
+                .foregroundStyle(Color.inkFaint)
+                .accessibilityAddTraits(.isHeader)
+            Text(transcript)
+                .typeRole(.body)
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.top, 14)
     }
 
+    /// The facts, as a key-and-value list above the tags.
     private func metadata(_ entry: Entry) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Divider().overlay(Color.border)
-            HStack(spacing: 6) {
-                if let months = entry.childAgeMonths {
-                    Chip(text: AgeText.chip(months), background: .border)
+        VStack(alignment: .leading, spacing: 11) {
+            Divider().overlay(Color.border).padding(.bottom, 7)
+
+            if let months = entry.childAgeMonths {
+                metaRow("Age at the time") {
+                    Text(AgeText.spoken(months))
+                        .typeRole(.metadata)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.periwinkle)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Color.periwinkleSoft, in: Capsule())
                 }
+            }
+            metaRow("Date") { metaValue(DayHeaderText.full(entry.occurredAt)) }
+            if pictures.count > 1 {
+                metaRow(picturesLabel) { metaValue("\(pictures.count)") }
+            }
+            if let seconds = voiceMedia?.durationSeconds {
+                metaRow("Length") { metaValue(DurationText.clock(seconds)) }
+            }
+            if entry.sync != .synced {
+                // A network fact, not an error and not a loss.
+                metaRow("Saved") { metaValue("Here — it'll sync when you're back on") }
+            }
+        }
+        .padding(.top, 24)
+    }
+
+    /// "Photos", "Videos", or "Items" when the entry holds both. Never "Media", which is a word
+    /// for the people who build the app rather than the people who use it.
+    private var picturesLabel: String {
+        if pictures.allSatisfy({ $0.mediaKind == .photo }) { return "Photos" }
+        if pictures.allSatisfy({ $0.mediaKind == .video }) { return "Videos" }
+        return "Items"
+    }
+
+    private func metaRow<Value: View>(_ key: String, @ViewBuilder value: () -> Value) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(key)
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+            Spacer(minLength: 8)
+            value()
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func metaValue(_ text: String) -> some View {
+        Text(text)
+            .typeRole(.metadata)
+            .foregroundStyle(Color.ink)
+            .multilineTextAlignment(.trailing)
+    }
+
+    @ViewBuilder
+    private func tags(_ entry: Entry) -> some View {
+        if !entry.tagNames.isEmpty {
+            HStack(spacing: 6) {
                 ForEach(entry.tagNames, id: \.self) { tag in
-                    Chip(text: tag, background: .border)
+                    Chip(text: tag, background: .chipPlain, emphasis: true)
                 }
                 Spacer(minLength: 0)
             }
-            Text(DayHeaderText.full(entry.occurredAt))
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-            if entry.sync != .synced {
-                // A network fact, not an error and not a loss.
-                Text("Saved here. It'll sync when you're back on.")
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-            }
+            .padding(.top, 16)
         }
     }
 

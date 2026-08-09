@@ -1,172 +1,175 @@
 import SwiftUI
 
-/// The timeline workhorse, to the spec in `docs/design-system.md`.
+/// The timeline workhorse, rebuilt in v3 **around the prompt**.
 ///
-/// The rule the layout is built around: **nothing here assumes an entry has media.** A written
-/// entry and a did-it entry are complete, legitimate entries, and they render with no thumbnail
-/// slot at all — not an empty frame, not a grey square, not a gap where a picture would go. Half
-/// the mission library produces no artifact, so this is the common case rather than the edge.
+/// The card reads top to bottom in the order the moment happened: what was asked, then what
+/// came back. Six zones, stacked — mosaic, voice band, quoted prompt, title, body, chips — and
+/// **every one of them drops out when it is empty.** No reserved space, no placeholder frame,
+/// no gap where a picture would go. Half the mission library produces no artifact at all, so a
+/// card with nothing but a prompt and a title is the common case rather than the degenerate one,
+/// and it has to look deliberate.
+///
+/// Height therefore follows content, and that variation is the only rhythm the list needs. It is
+/// also why the overflow count is printed on the fourth tile rather than taking a fifth: nine
+/// photos and four photos should not produce two different card heights.
 struct EntryCard: View {
     let model: EntryCardModel
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                text
-                if let voice = model.voice { voiceChip(voice) }
-                metadata
-                // A row of tiles across the card, rather than a single trailing square, once
-                // there is more than one picture. An entry holding six photos should look like
-                // it holds six photos.
-                if model.thumbnails.count > 1 || (model.thumbnails.count == 1 && model.overflow > 0) {
-                    thumbnailRow
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            if !model.thumbnails.isEmpty {
+                MediaMosaic(tiles: model.thumbnails, overflow: model.overflow)
+                    .padding(.bottom, 13)
             }
-
-            // One picture keeps the trailing square the spec asks for, which is what makes a
-            // long list scan: the text starts in the same place on every row.
-            if model.thumbnails.count == 1, model.overflow == 0, let only = model.thumbnails.first {
-                Spacer(minLength: 8)
-                MediaThumbnail(
-                    mediaId: only.id,
-                    kind: only.kind,
-                    durationSeconds: only.durationSeconds
-                )
-            } else {
-                Spacer(minLength: 0)
+            if let voice = model.voice {
+                EntryAudioRow(durationSeconds: voice.durationSeconds)
+                    .padding(.bottom, 13)
             }
+            if let prompt = model.prompt {
+                PromptQuote(text: prompt, rule: ruleColor)
+                    .padding(.bottom, 9)
+            }
+            titleRow.padding(.bottom, 5)
+            bodyText
+            if hasChips { chips.padding(.top, 12) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .cardSurface(fill: model.isDidIt ? .sage : .surface)
+        .modifier(CardSkin(isDidIt: model.isDidIt, isSealed: model.isSealed))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
     }
 
-    // MARK: Text
+    // MARK: Title
 
-    @ViewBuilder
-    private var text: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let title = model.title, !title.isEmpty {
-                Text(title)
-                    .typeRole(.cardTitle)
-                    .foregroundStyle(Color.ink)
-                    .lineLimit(2)
+    /// The title, with the one glyph that says what kind of completion this was.
+    ///
+    /// Only two kinds get a glyph, and both earn it by being invisible otherwise: a did-it entry
+    /// has no artifact to look at, and a sealed letter has content the card is deliberately not
+    /// showing. Everything else is announced by the thing above it.
+    private var titleRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            if model.isDidIt {
+                CompletionCheck(isComplete: true, diameter: 19, tint: .sageInk, check: .sage)
+                    .padding(.top, 2)
+            } else if model.isSealed {
+                Image(systemName: "envelope.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.terracotta)
+                    .frame(width: 17, height: 19)
+                    .padding(.top, 2)
             }
-            if let preview = model.preview {
-                Text(preview)
-                    .typeRole(.body)
-                    .foregroundStyle(model.title == nil ? Color.ink : Color.inkMuted)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-            if model.isSealed { sealedLine }
-            // A card with neither a title nor a body still has to say what it is. A did-it
-            // entry with no note is the archive working as designed, not a blank row.
-            if model.title == nil, model.preview == nil, !model.isSealed {
-                Text(model.isDidIt ? "We did it" : (model.typeLabel ?? "Entry"))
-                    .typeRole(.cardTitle)
-                    .foregroundStyle(Color.ink)
-            }
-        }
-    }
-
-    /// Warm and deliberate, not mysterious. It says what it is and when it opens.
-    private var sealedLine: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "lock")
-                .font(.system(size: 12, weight: .medium))
-            Text(model.unlockAtAge.map { "Sealed until \($0)" } ?? "Sealed")
-                .typeRole(.metadata)
-        }
-        .foregroundStyle(Color.terracottaDeep)
-    }
-
-    // MARK: Voice
-
-    private func voiceChip(_ voice: EntryCardModel.Voice) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 12, weight: .semibold))
-                Text(voice.durationSeconds.map(DurationText.clock) ?? "Voice")
-                    .typeRole(.metadata)
-            }
-            .foregroundStyle(Color.periwinkle)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color.periwinkleSoft, in: Capsule())
-
-            if let line = voice.openingLine {
-                Text(line)
-                    .typeRole(.body)
-                    .foregroundStyle(Color.inkMuted)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    // MARK: Media
-
-    private var thumbnailRow: some View {
-        HStack(spacing: 8) {
-            ForEach(model.thumbnails) { thumbnail in
-                MediaThumbnail(
-                    mediaId: thumbnail.id,
-                    kind: thumbnail.kind,
-                    durationSeconds: thumbnail.durationSeconds
-                )
-            }
-            if model.overflow > 0 { OverflowTile(count: model.overflow) }
+            Text(titleText)
+                .typeRole(.cardTitle)
+                .foregroundStyle(Color.ink)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
     }
 
-    // MARK: Metadata
+    /// A card with no title still has to say what it is. A did-it entry with no note is the
+    /// archive working as designed, not a blank row.
+    private var titleText: String {
+        if let title = model.title, !title.isEmpty { return title }
+        if model.isSealed { return "A letter" }
+        if model.isDidIt { return "We did it" }
+        return model.typeLabel ?? "Entry"
+    }
 
-    private var metadata: some View {
+    // MARK: Body
+
+    @ViewBuilder
+    private var bodyText: some View {
+        if let line = model.bodyLine {
+            Text(line.text)
+                .typeRole(.body)
+                .italic(line.isQuote)
+                .foregroundStyle(Color.inkMuted)
+                .lineLimit(model.bodyLineLimit)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if model.isSealed {
+            // The sealed card carries no body at all — `EntryCardModel` never reads one, so
+            // there is nothing here to blur or to leak. What it says instead is when it opens,
+            // which is the one fact about a sealed letter that is not sealed.
+            Text(model.unlockAtAge.map { "Opens at \($0)." } ?? "Sealed.")
+                .typeRole(.body)
+                .foregroundStyle(Color.sealedInk)
+        }
+    }
+
+    // MARK: Chips
+
+    /// An entry the server has not typed yet, with no tags and nothing outstanding, has no
+    /// chips — and then it has no chip row either, rather than 12pt of held-open space.
+    private var hasChips: Bool {
+        model.typeLabel != nil || !model.tags.isEmpty || model.isAwaitingSync
+    }
+
+    /// The kind leads, tinted; tags follow, neutral.
+    ///
+    /// **No age chip.** In v3 the age moved to the day header, where it is stated once for the
+    /// whole group instead of repeated on every card under the same date.
+    private var chips: some View {
         HStack(spacing: 6) {
-            if let months = model.ageMonths {
-                Chip(text: AgeText.chip(months), background: .border)
-            }
             if let label = model.typeLabel {
-                Chip(text: label, foreground: typeTint.ink, background: typeTint.soft)
+                Chip(
+                    text: label,
+                    foreground: chipTint.ink,
+                    background: chipTint.soft,
+                    emphasis: true
+                )
             }
-            // Two tags. A third would push the row past the card on a narrow phone, and a
-            // truncated chip reads as a rendering fault rather than as a tag.
+            // Two tags. A third pushes the row past the card on a narrow phone, and a truncated
+            // chip reads as a rendering fault rather than as a tag.
             ForEach(model.tags.prefix(2), id: \.self) { tag in
-                Chip(text: tag, background: .border)
+                Chip(text: tag, background: .chipPlain, emphasis: true)
             }
             if model.isAwaitingSync {
                 // A fact about the network, never an error and never a loss.
-                Chip(text: "Saving", foreground: .inkMuted, background: .surface, bordered: true)
+                Chip(text: "Saving", background: .surface, bordered: true, emphasis: true)
             }
             Spacer(minLength: 0)
         }
         .lineLimit(1)
     }
 
-    /// Colour carries meaning: terracotta for photo and video, periwinkle for voice, and a
-    /// neutral for the rest. On a sage did-it card the chip goes to surface, because sage on
-    /// sage is not a chip.
-    private var typeTint: (soft: Color, ink: Color) {
-        switch model.type {
-        case .photo, .video: (.terracottaSoft, .terracottaDeep)
-        case .audio: (.periwinkleSoft, .periwinkle)
-        case .didIt: (.surface, .inkMuted)
-        default: (.border, .inkMuted)
+    // MARK: Tints
+    //
+    // Colour carries meaning: terracotta is missions and photo/video, periwinkle is questions,
+    // voice and writing, sage is did-it. A question card tinted terracotta "because it's the
+    // brand colour" is a defect, not a style choice.
+
+    private var ruleColor: Color {
+        switch model.tint {
+        case .terracotta: .ruleTerracotta
+        case .periwinkle: .rulePeriwinkle
+        case .sage: .ruleSage
+        }
+    }
+
+    /// On a sage card the kind chip goes sage-on-sage-soft, a step darker than the card, because
+    /// the surface tint it would otherwise wear is invisible there.
+    private var chipTint: (soft: Color, ink: Color) {
+        switch model.tint {
+        case .terracotta: (.terracottaSoft, .terracottaDeep)
+        case .periwinkle: (.periwinkleSoft, .periwinkle)
+        case .sage: (.sageSoft, .sageInk)
         }
     }
 
     // MARK: Accessibility
 
-    /// One sentence, in the order someone would say it. `AgeText.spoken` rather than the chip's
-    /// "5y 2m", which VoiceOver reads as noise.
+    /// One sentence, in the order someone would say it — and it leads with the prompt, because
+    /// that is what the card now leads with. `AgeText.spoken` rather than the header's "4y 2m",
+    /// which VoiceOver reads as noise.
     private var accessibilityLabel: String {
         var parts: [String] = []
-        if let title = model.title, !title.isEmpty { parts.append(title) }
-        if let preview = model.preview { parts.append(preview) }
+        if let prompt = model.prompt { parts.append("Prompt: \(prompt)") }
+        parts.append(titleText)
+        if let line = model.bodyLine { parts.append(line.text) }
         if model.isSealed {
             parts.append(model.unlockAtAge.map { "Sealed until age \($0)" } ?? "Sealed")
         }
@@ -179,5 +182,50 @@ struct EntryCard: View {
         if let months = model.ageMonths { parts.append(AgeText.spoken(months)) }
         parts.append(DayHeaderText.full(model.occurredAt))
         return parts.joined(separator: ". ")
+    }
+}
+
+/// The originating prompt, quoted above the entry that answered it.
+///
+/// A rule and an indent rather than a filled block: on a card the prompt introduces the entry,
+/// it does not compete with it. Italic because the words are somebody else's — the archive
+/// asked, and everything below this line is the answer.
+///
+/// Two lines, clamped. The prompts in the library are written to land in one or two.
+struct PromptQuote: View {
+    let text: String
+    let rule: Color
+
+    var body: some View {
+        Text(text)
+            .typeRole(.quote)
+            .italic()
+            .foregroundStyle(Color.inkMuted)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 11)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(rule)
+                    .frame(width: 2)
+            }
+    }
+}
+
+/// Fill and hairline for the three card states, kept in one place so they cannot drift apart.
+private struct CardSkin: ViewModifier {
+    let isDidIt: Bool
+    let isSealed: Bool
+
+    func body(content: Content) -> some View {
+        if isSealed {
+            content.cardSurface(wash: Gradients.wash, border: .sealedBorder)
+        } else if isDidIt {
+            content.cardSurface(fill: .sage, border: .sageBorder)
+        } else {
+            content.cardSurface(fill: .surface, border: .border)
+        }
     }
 }

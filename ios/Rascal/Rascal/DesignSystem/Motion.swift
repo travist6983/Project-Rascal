@@ -45,22 +45,28 @@ struct TapScaleButtonStyle: ButtonStyle {
 struct CompletionCheck: View {
     let isComplete: Bool
     var diameter: CGFloat = 28
+    /// Terracotta where completing is the action — the Today board. **Sage on a timeline card**,
+    /// where the same glyph is reporting a did-it entry rather than offering to make one, and
+    /// sage is the colour that shape of entry owns.
+    var tint: Color = .terracotta
+    /// The tick itself, which has to read against `tint`.
+    var check: Color = .surface
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(isComplete ? Color.terracotta : Color.clear)
+                .fill(isComplete ? tint : Color.clear)
                 .overlay(
                     Circle().strokeBorder(
-                        isComplete ? Color.terracotta : Color.border,
+                        isComplete ? tint : Color.border,
                         lineWidth: Layout.borderWidth * 1.5
                     )
                 )
             Image(systemName: "checkmark")
                 .font(.system(size: diameter * 0.45, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.surface)
+                .foregroundStyle(check)
                 .scaleEffect(isComplete ? 1 : 0.4)
                 .opacity(isComplete ? 1 : 0)
         }

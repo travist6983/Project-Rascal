@@ -9,6 +9,70 @@ Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker d
 
 ---
 
+## iOS Timeline v3 — two things the list endpoint cannot express
+
+Neither blocks the v3 skin, which shipped complete. Both are Lane A's to own, and the client
+degrades correctly without either — recorded because they were found by building the screen
+against the merged API and are written down nowhere else.
+
+### `GET /entries` does not carry `prompt`, and v3's card is built around it
+
+`EntryOut` has no `prompt`; only `EntryDetail` from `GET /entries/{id}` does, and
+`docs/api-contract.md` says so deliberately. The v3 card leads with the prompt the entry
+answered, so on a list row there was nothing to quote.
+
+**Worked around inside the iOS lane, in two places, and the pair is good enough to ship.**
+The card reads `entries.prompt_body` when it has one, and otherwise resolves `assignment_id`
+against a locally cached `Assignment`, whose `body` is the same sentence.
+
+`prompt_body` is filled from two directions:
+
+1. `GET /entries/{id}`, whenever the parent opens the entry.
+2. **At composition.** `ComposerView` writes `assignment.body` onto the row as it creates it.
+   The sentence is on screen above the field the parent is typing into, so writing it down
+   costs nothing and the quote is correct offline, immediately, and for good.
+
+**The assignment fallback is currently the weaker of the two, and a device proved it.**
+`Assignment` rows are written *only* by `SyncEngine` from a `/sync` response, and sync pull
+ships behind `syncPullEnabled`, which is **off**. So with the app as it ships today the
+fallback resolves nothing, and the composer cache in (2) is what actually puts prompts on
+cards. The fallback becomes real the day pull is switched on — it is written and tested, not
+speculative — but it is not carrying the feature right now.
+
+**Where it still comes up short:** an entry written on another device, or before this build,
+shows no quote until the parent opens it once. The zone drops out cleanly, so the card reads
+as freeform rather than broken — but it reads as freeform when it wasn't. Only the server
+field fixes that one.
+
+The fix is a field, not a feature: `prompt_body` (or the existing `PromptRef`) on `EntryOut`.
+The join is already there — `entries.assignment_id → assignments.prompt_id → prompts.body` —
+and `EntryDetail` performs it today.
+
+### There is no way to ask the server for sealed entries
+
+The v3 filter row has seven chips and the seventh is **Sealed**. Sealed is `unlock_at_age
+IS NOT NULL`, not an `entry_type`, so `?type=` cannot express it and `GET /entries` has no
+other parameter that can.
+
+**Shipped as a client-side filter**, on the explicit call that a Sealed chip is worth having.
+The consequences are real and are handled rather than hidden:
+
+- The `@Query` narrows on `unlockAtAge != nil` against the local cache.
+- The server still pages the whole archive, so `serverType` stays nil and the paging seed stays
+  unfiltered — seeding from the oldest *sealed* row would ask for everything older than it and
+  strand every ordinary entry in between.
+- **Paging needed a loop.** The trigger hangs off the last card appearing, so a page of fifty
+  ordinary entries adds no card and therefore nothing to trigger the next page — the filter
+  stopped dead on any stretch of archive without a letter in it. `TimelineModel.drain` keeps
+  fetching while a client-side-only filter has nothing to show, bounded to
+  `clientFilterPageBudget` (10 pages, 500 entries) per load, and never retries a failure.
+
+So a sealed list is correct but can cost ten round trips to fill on an archive where letters
+are rare, and after a budget it reports what it found rather than what exists.
+
+`?sealed=true` on `GET /entries` — one `WHERE unlock_at_age IS NOT NULL` — removes the loop,
+the budget, and the caveat. It is a small change and it is not urgent.
+
 ## iOS Settings — one gap, and one note about the preflight
 
 Neither blocks the Lane B Settings work, which shipped complete. Recorded because both were

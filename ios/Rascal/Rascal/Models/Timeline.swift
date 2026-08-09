@@ -100,6 +100,11 @@ nonisolated struct MomentGroupResponse: Decodable, Sendable, Identifiable {
 
 /// The timeline's filter row. Maps to the `type` query parameter, and to `entry_type` on a
 /// locally cached row so the same filter works with no connection.
+///
+/// **`sealed` is the exception and it is deliberate.** A sealed letter is `unlock_at_age` being
+/// set, not an `entry_type`, so there is no `?type=` value that expresses it — see
+/// `isClientSideOnly` for what the client does instead, and `docs/blocked.md` for the server
+/// parameter that would make it unnecessary.
 nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case photo
@@ -107,6 +112,7 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
     case audio
     case text
     case didIt
+    case sealed
 
     var id: String { rawValue }
 
@@ -118,6 +124,7 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
         case .audio: "Voice"
         case .text: "Written"
         case .didIt: "Did it"
+        case .sealed: "Sealed"
         }
     }
 
@@ -134,13 +141,18 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
         case .audio: "voice notes"
         case .text: "written entries"
         case .didIt: "did-it entries"
+        case .sealed: "sealed letters"
         }
     }
 
-    /// What goes on the wire. Nil for `all`, which sends no `type` at all.
-    var queryValue: String? {
+    /// What goes on the wire as `?type=`.
+    ///
+    /// Nil for `all`, which sends no `type` at all — and nil for `sealed`, which the server has
+    /// no parameter for. **The two nils do not mean the same thing**, which is what
+    /// `isClientSideOnly` exists to say out loud.
+    var serverType: String? {
         switch self {
-        case .all: nil
+        case .all, .sealed: nil
         case .photo: EntryType.photo.rawValue
         case .video: EntryType.video.rawValue
         case .audio: EntryType.audio.rawValue
@@ -149,14 +161,28 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// True when the server cannot express this filter, so the client asks for the whole
+    /// archive and narrows it locally.
+    ///
+    /// The consequence is real and it is why `TimelineModel` has a loop: a page of fifty
+    /// entries can contain no sealed letters at all, and a page that adds no visible row also
+    /// adds nothing to trigger the next one. Paging has to keep going on its own until it finds
+    /// something or runs out of archive.
+    var isClientSideOnly: Bool { serverType == nil && self != .all }
+
     /// The same decision against a cached row, so an offline filter and an online one agree.
     ///
     /// A locally-created entry whose type the server has not derived yet has no `entry_type` at
     /// all. It matches `All` and nothing else: guessing a type on device would be the client
     /// deciding something the server owns, and it would be wrong exactly when media is still
     /// uploading — a photo entry that looks like a text one.
-    func matches(entryType: String?) -> Bool {
-        guard let queryValue else { return true }
-        return entryType == queryValue
+    ///
+    /// `unlockAtAge` is what makes a letter sealed, and it is set by the parent at write time
+    /// rather than derived — so unlike `entry_type` it is trustworthy on a row the server has
+    /// never seen.
+    func matches(entryType: String?, unlockAtAge: Int? = nil) -> Bool {
+        if self == .sealed { return unlockAtAge != nil }
+        guard let serverType else { return true }
+        return entryType == serverType
     }
 }

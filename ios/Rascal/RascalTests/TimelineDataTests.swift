@@ -119,12 +119,12 @@ struct TimelineFilterTests {
 
     @Test("every filter maps to the entry_type the server derives")
     func mapsToServerTypes() {
-        #expect(TimelineFilter.all.queryValue == nil)
-        #expect(TimelineFilter.photo.queryValue == "photo")
-        #expect(TimelineFilter.video.queryValue == "video")
-        #expect(TimelineFilter.audio.queryValue == "audio")
-        #expect(TimelineFilter.text.queryValue == "text")
-        #expect(TimelineFilter.didIt.queryValue == "did_it")
+        #expect(TimelineFilter.all.serverType == nil)
+        #expect(TimelineFilter.photo.serverType == "photo")
+        #expect(TimelineFilter.video.serverType == "video")
+        #expect(TimelineFilter.audio.serverType == "audio")
+        #expect(TimelineFilter.text.serverType == "text")
+        #expect(TimelineFilter.didIt.serverType == "did_it")
     }
 
     @Test("the offline filter agrees with the query it would have sent")
@@ -132,12 +132,42 @@ struct TimelineFilterTests {
         // The same decision, made twice: once as a query parameter, once against a cached row.
         // They must not drift, or a filter would show one archive with signal and another
         // without.
-        for filter in TimelineFilter.allCases {
+        //
+        // Sealed is excluded because there is no query to agree with — see `sealedIsNotAType`.
+        for filter in TimelineFilter.allCases where !filter.isClientSideOnly {
             for type in ["photo", "video", "audio", "text", "did_it"] {
-                let online = filter.queryValue == nil || filter.queryValue == type
+                let online = filter.serverType == nil || filter.serverType == type
                 #expect(filter.matches(entryType: type) == online, "\(filter) vs \(type)")
             }
         }
+    }
+
+    @Test("sealed is unlock_at_age, not an entry type, and it says so")
+    func sealedIsNotAType() {
+        // Two different nils. `all` sends no `type` because it wants everything; `sealed` sends
+        // none because the server has no parameter for it. Collapsing them would make the
+        // sealed filter silently show the whole archive.
+        #expect(TimelineFilter.sealed.serverType == nil)
+        #expect(TimelineFilter.sealed.isClientSideOnly)
+        #expect(!TimelineFilter.all.isClientSideOnly)
+        #expect(TimelineFilter.allCases.filter(\.isClientSideOnly) == [.sealed])
+
+        // A letter is sealed whatever the server derived its type to be.
+        #expect(TimelineFilter.sealed.matches(entryType: "text", unlockAtAge: 18))
+        #expect(TimelineFilter.sealed.matches(entryType: "photo", unlockAtAge: 21))
+        #expect(!TimelineFilter.sealed.matches(entryType: "text", unlockAtAge: nil))
+        // And unsealed filters do not care that it is sealed.
+        #expect(TimelineFilter.text.matches(entryType: "text", unlockAtAge: 18))
+        #expect(TimelineFilter.all.matches(entryType: "text", unlockAtAge: 18))
+    }
+
+    @Test("a sealed letter written on this phone matches before the server has typed it")
+    func sealedMatchesUntypedRow() {
+        // `unlock_at_age` is the parent's, set at write time — unlike `entry_type`, which the
+        // server derives. So this is the one filter that is trustworthy on a row that has never
+        // been pushed, and a letter written offline belongs in the sealed list immediately.
+        #expect(TimelineFilter.sealed.matches(entryType: nil, unlockAtAge: 18))
+        #expect(!TimelineFilter.sealed.matches(entryType: nil, unlockAtAge: nil))
     }
 
     @Test("the empty-state sentence reads like a sentence for every filter")
@@ -149,6 +179,7 @@ struct TimelineFilterTests {
         #expect("No \(TimelineFilter.audio.emptyNoun) so far." == "No voice notes so far.")
         #expect("No \(TimelineFilter.text.emptyNoun) so far." == "No written entries so far.")
         #expect("No \(TimelineFilter.didIt.emptyNoun) so far." == "No did-it entries so far.")
+        #expect("No \(TimelineFilter.sealed.emptyNoun) so far." == "No sealed letters so far.")
         // Nothing anywhere implies a day was missed.
         for filter in TimelineFilter.allCases {
             #expect(!filter.emptyNoun.contains("entries entries"))

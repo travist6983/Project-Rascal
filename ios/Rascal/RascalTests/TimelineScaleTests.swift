@@ -121,7 +121,7 @@ struct TimelineScaleTests {
         let child = UUID()
         EntryCache.upsert(try fixture(childId: child), into: context)
 
-        let wanted: String? = TimelineFilter.photo.queryValue
+        let wanted: String? = TimelineFilter.photo.serverType
         let photos = try context.fetch(FetchDescriptor<Entry>(
             predicate: #Predicate<Entry> { entry in
                 entry.childId == child && entry.deletedAt == nil && entry.entryType == wanted

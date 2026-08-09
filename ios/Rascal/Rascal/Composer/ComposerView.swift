@@ -518,6 +518,20 @@ struct ComposerView: View {
             occurredAt: occurredAt,
             body: trimmed.isEmpty ? nil : trimmed
         )
+        // Cache the prompt at the moment it is answered.
+        //
+        // The timeline card quotes the prompt the entry answered, and there are only two other
+        // places it could come from: `GET /entries/{id}`, which the list never calls, and a
+        // cached `Assignment`, which only `/sync` writes and `/sync` ships disabled. So without
+        // this the quote on an entry written today would not appear until the parent opened it.
+        //
+        // The composer already has the sentence in hand — it is on screen above the field the
+        // parent is typing into — so writing it down costs nothing and makes the card correct
+        // offline, immediately, and for good.
+        if let assignment = request.assignment {
+            entry.promptBody = assignment.body
+            entry.promptKind = assignment.kind
+        }
         context.insert(entry)
 
         // Media rows are created alongside the entry, before any request. The files are

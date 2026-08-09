@@ -372,3 +372,173 @@ struct TimelinePagingTests {
         #expect(ordered.allSatisfy { abs($0.createdAt.timeIntervalSince(now)) < 1 })
     }
 }
+
+// MARK: - A filter the server cannot express
+
+/// A page holding one ordinary entry — nothing sealed.
+///
+/// Free rather than a suite member because `StubPerformer`'s rule closures are `@Sendable` and
+/// nonisolated, and cannot reach a `@MainActor` method. Same reason the fixtures are free.
+func ordinaryPage(child: UUID, at seconds: TimeInterval, cursor: String?) -> Data {
+    pageJSON(
+        [entryJSON(id: UUID(), childId: child, occurredAt: Date(timeIntervalSince1970: seconds))],
+        cursor: cursor
+    )
+}
+
+
+/// Sealed is `unlock_at_age`, not an `entry_type`, so there is no `?type=` for it: the server
+/// pages the whole archive and the client narrows. That makes paging a different problem, because
+/// **a page that adds no visible card also adds nothing to trigger the next one** — the trigger
+/// hangs off the last card appearing. These cover the loop that fixes it.
+@MainActor
+@Suite("Timeline paging under a client-side filter")
+struct SealedFilterPagingTests {
+
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: LocalStore.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
+    }
+
+    private func client(_ performer: StubPerformer) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "http://localhost:8000/")!,
+            performer: performer,
+            tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+        )
+    }
+
+    @Test("the sealed filter sends no type parameter, because there is none to send")
+    func sendsNoTypeParameter() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { _ in (ordinaryPage(child: child, at: 1_700_000_000, cursor: nil), 200) }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.sealed)
+
+        let types = performer.requests
+            .filter { $0.url?.path().contains("/entries") ?? false }
+            .map { request in
+                URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "type" }?.value
+            }
+        #expect(types.allSatisfy { $0 == nil }, "the server has no parameter for sealed")
+    }
+
+    @Test("it keeps paging past pages with no letter in them, and stops when one lands")
+    func drainsUntilSomethingMatches() async throws {
+        // Three pages of ordinary entries, then one holding a sealed letter. Without the drain
+        // loop this stops after page one with an empty screen and no way to ask for more.
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        let sealedPage = pageJSON(
+            [entryJSON(
+                id: UUID(), childId: child,
+                occurredAt: Date(timeIntervalSince1970: 1_400_000_000),
+                title: "A letter", unlockAtAge: 18
+            )],
+            cursor: "cursor-after-sealed"
+        )
+        performer.on("/entries") { hit in
+            switch hit {
+            case 1: (ordinaryPage(child: child, at: 1_700_000_000, cursor: "c1"), 200)
+            case 2: (ordinaryPage(child: child, at: 1_600_000_000, cursor: "c2"), 200)
+            case 3: (ordinaryPage(child: child, at: 1_500_000_000, cursor: "c3"), 200)
+            default: (sealedPage, 200)
+            }
+        }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.sealed)
+
+        #expect(performer.count(for: "/entries") == 4, "it stops the moment a letter lands")
+        let sealedRows = try context.fetch(FetchDescriptor<Entry>(
+            predicate: #Predicate<Entry> { $0.unlockAtAge != nil }
+        ))
+        #expect(sealedRows.count == 1)
+        #expect(model.reachedEnd == false, "the server still has pages")
+    }
+
+    @Test("an archive with no letters in it stops at the end rather than spinning")
+    func stopsAtTheEndOfTheArchive() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { hit in
+            hit == 1
+                ? (ordinaryPage(child: child, at: 1_700_000_000, cursor: "c1"), 200)
+                : (ordinaryPage(child: child, at: 1_600_000_000, cursor: nil), 200)
+        }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.sealed)
+
+        #expect(performer.count(for: "/entries") == 2, "a null cursor is the end, not a pause")
+        #expect(model.reachedEnd)
+    }
+
+    @Test("the drain is bounded, so a filter matching nothing cannot walk the whole archive")
+    func respectsThePageBudget() async throws {
+        // Every page holds an ordinary entry and offers another cursor — an archive that never
+        // runs out and never matches. One load spends its budget and stops.
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { hit in
+            (ordinaryPage(
+                child: child,
+                at: 1_700_000_000 - Double(hit) * 100_000,
+                cursor: "cursor-\(hit)"
+            ), 200)
+        }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.sealed)
+
+        #expect(performer.count(for: "/entries") == TimelineModel.clientFilterPageBudget)
+        #expect(model.reachedEnd == false, "there is more archive, it just has no letters yet")
+    }
+
+    @Test("a failed request ends the drain instead of retrying it ten times")
+    func doesNotRetryAFailure() async throws {
+        // Ten identical failures against a dead network is a flat battery and the same empty
+        // screen. The cache is already on the screen; offline is not a failure worth a loop.
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { hit in
+            hit == 1
+                ? (ordinaryPage(child: child, at: 1_700_000_000, cursor: "c1"), 200)
+                : (Data("{}".utf8), 500)
+        }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.sealed)
+
+        #expect(performer.count(for: "/entries") == 2)
+        #expect(model.notice != nil, "quietly noted, never a dialog over the archive")
+    }
+
+    @Test("an ordinary filter still makes exactly one request per load")
+    func serverSideFiltersDoNotDrain() async throws {
+        // The loop must be invisible to every filter the server can express: each row it returns
+        // is a row the screen draws, so there is never a page with nothing in it.
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { hit in
+            (ordinaryPage(child: child, at: 1_700_000_000 - Double(hit) * 100_000, cursor: "c\(hit)"), 200)
+        }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.apply(.photo)
+
+        #expect(performer.count(for: "/entries") == 1)
+    }
+}

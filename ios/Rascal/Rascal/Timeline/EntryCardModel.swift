@@ -23,11 +23,29 @@ nonisolated struct EntryCardModel: Identifiable, Equatable, Sendable {
         let openingLine: String?
     }
 
+    /// The body line a card actually sets, and where it came from.
+    ///
+    /// A voice entry often has no note of its own — the parent recorded the child and wrote
+    /// nothing. The transcript's opening line is then the only words the card can show, and it
+    /// is set italic because they are somebody else's, not the parent's summary of them.
+    struct BodyLine: Equatable, Sendable {
+        let text: String
+        let isQuote: Bool
+    }
+
     let id: UUID
     let occurredAt: Date
     let title: String?
-    /// Two lines' worth. Nil for a sealed letter, which is the point of sealing it.
+    /// Two lines' worth, three for a written entry. Nil for a sealed letter, which is the point
+    /// of sealing it.
     let preview: String?
+    /// The prompt this entry answered, quoted at the top of the card.
+    ///
+    /// **The card is built around this** — v3 leads with the question rather than the artifact.
+    /// Nil for a freeform entry, and the zone drops out rather than reserving space: a parent
+    /// who wrote something unprompted did not answer anything, and an empty quote rule above
+    /// their words would be furniture.
+    let prompt: String?
     let type: EntryType?
     let ageMonths: Int?
     let tags: [String]
@@ -43,14 +61,41 @@ nonisolated struct EntryCardModel: Identifiable, Equatable, Sendable {
     /// Written here, not yet acknowledged by the server. Never rendered as an error or a loss.
     let isAwaitingSync: Bool
 
-    /// At most four tiles fit across a card at 56pt with the gaps the layout uses. Past that,
-    /// three and a count reads better than four and a count.
+    /// The mosaic has four shapes — one, two, three, and a 2×2 — so four is the most tiles a
+    /// card ever draws. Past that the count is **overlaid on the fourth tile** rather than
+    /// taking a tile of its own, which is what keeps a nine-photo card the same height as a
+    /// four-photo one.
     static let maxTiles = 4
 
     var hasMedia: Bool { !thumbnails.isEmpty || overflow > 0 }
 
     /// Did-it entries carry the sage tint; everything else sits on surface.
     var isDidIt: Bool { type == .didIt }
+
+    /// The parent's words if they wrote any, else the child's from the transcript, else nothing.
+    var bodyLine: BodyLine? {
+        if let preview { return BodyLine(text: preview, isQuote: false) }
+        if let line = voice?.openingLine { return BodyLine(text: line, isQuote: true) }
+        return nil
+    }
+
+    /// A written entry gets a third line, because the writing *is* the artifact — there is no
+    /// photo above it competing for the card, and two lines truncate the one thing it holds.
+    var bodyLineLimit: Int { type == .text ? 3 : 2 }
+
+    /// The kind's tint, used for the quote rule and the leading chip. Colour carries meaning:
+    /// terracotta is photo and video, periwinkle is voice and writing, sage is did-it.
+    var tint: Tint {
+        switch type {
+        case .didIt: .sage
+        case .audio, .text: .periwinkle
+        default: .terracotta
+        }
+    }
+
+    nonisolated enum Tint: Equatable, Sendable {
+        case terracotta, periwinkle, sage
+    }
 
     /// What the type chip says. "Written", not "Text" — a parent wrote it, they did not enter
     /// data.
@@ -74,20 +119,30 @@ extension EntryCardModel {
     ///
     /// `media` is expected to be that entry's live media, oldest first — the order they were
     /// attached, which is the order a multi-photo card should show them in.
-    init(entry: Entry, media: [Media]) {
+    ///
+    /// `assignedPrompt` is the fallback for the quoted prompt, and it is the caller's job
+    /// because the lookup is a dictionary the list builds once for the whole screen rather than
+    /// a fetch per card. See `TimelineList.cards`.
+    init(entry: Entry, media: [Media], assignedPrompt: String? = nil) {
         let sealed = entry.unlockAtAge != nil
         let live = media.filter { $0.deletedAt == nil }
+        // **Only photos and video go in the mosaic.** A voice note is media, but it is not a
+        // picture — it has its own band on the card, and putting it in the grid gave a voice
+        // entry a 242pt periwinkle rectangle above the player for the same recording.
+        let pictures = live.filter { $0.mediaKind == .photo || $0.mediaKind == .video }
         // The server's count can exceed what is cached here: a photo still uploading from
         // another phone is real, it just has no bytes this device can draw. Claiming fewer
         // pictures than the archive holds would be the wrong way to be wrong.
-        let total = sealed ? 0 : max(entry.serverMediaCount, live.count)
-
-        let shown: [Media]
-        if total <= Self.maxTiles {
-            shown = sealed ? [] : live
-        } else {
-            shown = Array(live.prefix(Self.maxTiles - 1))
-        }
+        //
+        // `serverMediaCount` counts every kind, so the locally-known non-pictures come back off
+        // it. Where the server holds an audio row this phone has not cached, that leaves the
+        // count one high — and erring towards "there is more here" beats erring towards a
+        // picture the archive has and the card denies.
+        let localNonPictures = live.count - pictures.count
+        let total = sealed ? 0 : max(entry.serverMediaCount - localNonPictures, pictures.count)
+        // Up to four tiles, and any remainder is a number printed on the fourth rather than a
+        // fifth tile. A card holding nine photos is the same height as one holding four.
+        let shown = sealed ? [] : Array(pictures.prefix(Self.maxTiles))
 
         let audio = live.first { $0.mediaKind == .audio }
 
@@ -97,7 +152,15 @@ extension EntryCardModel {
             title: entry.title,
             // A sealed letter shows its title and nothing else. Rendering the first two lines
             // of something sealed until eighteen would make the seal decorative.
-            preview: sealed ? nil : Self.preview(of: entry.body),
+            preview: sealed ? nil : Self.preview(
+                of: entry.body,
+                lines: entry.type == .text ? 3 : 2
+            ),
+            // `promptBody` is only filled by `GET /entries/{id}`, so on a list row it is
+            // usually nil. The assignment this entry completed carries the same sentence, is
+            // pulled down by `/sync`, and is never evicted — so the quote survives a cold
+            // launch on a plane, which is the case the archive is built for.
+            prompt: entry.promptBody ?? assignedPrompt,
             type: entry.type,
             ageMonths: entry.childAgeMonths,
             tags: sealed ? [] : entry.tagNames,

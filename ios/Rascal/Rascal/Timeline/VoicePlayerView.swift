@@ -14,6 +14,9 @@ import SwiftUI
 struct VoicePlayerView: View {
     let mediaId: UUID
     let durationSeconds: Int?
+    /// Rendered under the control when set. Entry Detail passes nil and sets the transcript
+    /// itself, further down the screen where v3 puts it — as readable body copy under a label,
+    /// rather than as a caption bolted to a control.
     let transcript: String?
     let localFile: URL?
     let api: APIClient
@@ -46,49 +49,70 @@ struct VoicePlayerView: View {
 
     // MARK: The control
 
+    /// The hero block at the top of a voice entry: play, waveform, elapsed and total.
+    ///
+    /// **The waveform is the progress bar.** Bars behind the playhead are drawn at full strength
+    /// and the rest faint, so there is one object doing one job rather than a decorative
+    /// waveform above a functional rule. That is also why the bars are not the recording's real
+    /// levels — see `StaticWaveform`.
     private var control: some View {
-        HStack(spacing: 14) {
-            Button { Task { await toggle() } } label: {
-                Group {
-                    if loading {
-                        ProgressView().tint(.surface)
-                    } else {
-                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(Color.surface)
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                Button { Task { await toggle() } } label: {
+                    Group {
+                        if loading {
+                            ProgressView().tint(.canvas)
+                        } else {
+                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(Color.canvas)
+                        }
                     }
+                    .frame(width: 52, height: 52)
+                    // Periwinkle is voice. A terracotta play button here would be the brand
+                    // colour overriding the meaning, which is a defect rather than a style
+                    // choice.
+                    .background(Color.periwinkle, in: Circle())
                 }
-                .frame(width: 46, height: 46)
-                // Periwinkle is voice. A terracotta play button here would be the brand colour
-                // overriding the meaning, which is a defect rather than a style choice.
-                .background(Color.periwinkle, in: Circle())
-            }
-            .buttonStyle(TapScaleButtonStyle())
-            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+                .buttonStyle(TapScaleButtonStyle())
+                .accessibilityLabel(isPlaying ? "Pause" : "Play")
 
-            VStack(alignment: .leading, spacing: 6) {
-                progressBar
-                Text(timeLabel)
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-                    .monospacedDigit()
+                StaticWaveform(progress: fraction, maxBarHeight: 44)
             }
+
+            times
         }
-        .padding(14)
-        .background(Color.periwinkleSoft, in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
+        .background(Color.periwinkleSoft, in: RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous)
+                .strokeBorder(Color.periwinkleBorder, lineWidth: Layout.borderWidth)
+        )
     }
 
-    private var progressBar: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.periwinkle.opacity(0.22))
-                Capsule()
-                    .fill(Color.periwinkle)
-                    .frame(width: geometry.size.width * fraction)
+    /// Elapsed on the left, the whole length on the right — the two numbers a player is asked
+    /// for. Monospaced so the left one does not jitter the layout as it counts.
+    @ViewBuilder
+    private var times: some View {
+        if duration > 0 {
+            HStack {
+                Text(DurationText.clock(Int(elapsed)))
+                Spacer(minLength: 0)
+                Text(DurationText.clock(Int(duration.rounded())))
             }
+            .font(.system(size: 12, weight: .regular, design: .monospaced))
+            .foregroundStyle(Color.periwinkle)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(DurationText.spoken(Int(elapsed))) of \(DurationText.spoken(Int(duration.rounded())))")
+        } else {
+            // The server had no `duration_seconds` and playback has not started, so there is no
+            // length to state. Saying 0:00 would be a measurement nobody took.
+            Text("Voice note")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.periwinkle)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 5)
-        .accessibilityHidden(true)
     }
 
     /// Zero until playback starts, which is honest — a bar that animates before anything is
@@ -101,12 +125,6 @@ struct VoicePlayerView: View {
     /// The server's `duration_seconds` before playback, the player's own once it knows.
     private var duration: Double {
         total > 0 ? total : Double(durationSeconds ?? 0)
-    }
-
-    private var timeLabel: String {
-        let left = Int(duration.rounded()) - Int(elapsed.rounded())
-        guard duration > 0 else { return "Voice note" }
-        return "\(DurationText.clock(Int(elapsed))) · \(DurationText.clock(max(0, left))) left"
     }
 
     // MARK: Playing

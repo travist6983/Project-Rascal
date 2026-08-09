@@ -26,34 +26,29 @@ struct TimelineScreen: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 0) {
-                TimelineFilterRow(selection: model?.filter ?? .all) { filter in
-                    Task { await model?.apply(filter) }
-                }
-                Divider().overlay(Color.border)
-
-                TimelineList(
-                    childId: childId,
-                    filter: model?.filter ?? .all,
-                    isLoading: model?.isLoadingFirstPage ?? true,
-                    hasLoaded: model?.hasLoaded ?? false,
-                    isLoadingMore: model?.isLoadingMore ?? false,
-                    notice: model?.notice,
-                    onOpen: { path.append($0) },
-                    onReachEnd: { await model?.loadMoreIfNeeded() },
-                    onRefresh: {
-                        await model?.refresh(thumbnails: thumbnails)
-                        await onSync()
-                    },
-                    onClearFilter: { Task { await model?.apply(.all) } },
-                    onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
-                )
-                .id(model?.filter ?? .all)
-            }
+            TimelineList(
+                childId: childId,
+                filter: model?.filter ?? .all,
+                isLoading: model?.isLoadingFirstPage ?? true,
+                hasLoaded: model?.hasLoaded ?? false,
+                isLoadingMore: model?.isLoadingMore ?? false,
+                reachedEnd: model?.reachedEnd ?? false,
+                notice: model?.notice,
+                onSelectFilter: { filter in Task { await model?.apply(filter) } },
+                onOpen: { path.append($0) },
+                onReachEnd: { await model?.loadMoreIfNeeded() },
+                onRefresh: {
+                    await model?.refresh(thumbnails: thumbnails)
+                    await onSync()
+                },
+                onClearFilter: { Task { await model?.apply(.all) } },
+                onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
+            )
+            .id(model?.filter ?? .all)
             .background(Color.canvas)
-            // The list is the root of its own stack and wears no bar; the detail pushed on top
-            // of it gets the standard one, with a back chevron. Today has no bar either, and a
-            // title strip over the filter row would be a second header saying nothing.
+            // The list is the root of its own stack and wears no navigation bar: v3 gives it a
+            // sticky header of its own, carrying the screen's name, its count, and the filters.
+            // The detail pushed on top of it gets the standard bar, with a back chevron.
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: UUID.self) { id in
                 EntryDetailScreen(
@@ -85,7 +80,9 @@ private struct TimelineList: View {
     let isLoading: Bool
     let hasLoaded: Bool
     let isLoadingMore: Bool
+    let reachedEnd: Bool
     let notice: String?
+    let onSelectFilter: (TimelineFilter) -> Void
     let onOpen: (UUID) -> Void
     let onReachEnd: () async -> Void
     let onRefresh: () async -> Void
@@ -94,6 +91,7 @@ private struct TimelineList: View {
 
     @Query private var entries: [Entry]
     @Query private var media: [Media]
+    @Query private var assignments: [Assignment]
 
     init(
         childId: UUID,
@@ -101,7 +99,9 @@ private struct TimelineList: View {
         isLoading: Bool,
         hasLoaded: Bool,
         isLoadingMore: Bool,
+        reachedEnd: Bool,
         notice: String?,
+        onSelectFilter: @escaping (TimelineFilter) -> Void,
         onOpen: @escaping (UUID) -> Void,
         onReachEnd: @escaping () async -> Void,
         onRefresh: @escaping () async -> Void,
@@ -112,7 +112,9 @@ private struct TimelineList: View {
         self.isLoading = isLoading
         self.hasLoaded = hasLoaded
         self.isLoadingMore = isLoadingMore
+        self.reachedEnd = reachedEnd
         self.notice = notice
+        self.onSelectFilter = onSelectFilter
         self.onOpen = onOpen
         self.onReachEnd = onReachEnd
         self.onRefresh = onRefresh
@@ -123,7 +125,17 @@ private struct TimelineList: View {
         // tonight belongs in 2019, and sorting by when the row was made is the exact bug the
         // two timestamps exist to prevent.
         let sort = [SortDescriptor(\Entry.occurredAt, order: .reverse)]
-        if let wanted = filter.queryValue {
+        if filter == .sealed {
+            // Sealed is `unlock_at_age`, not an `entry_type` — there is no `?type=` for it, so
+            // the server pages the whole archive and the narrowing happens here. See
+            // `TimelineModel.drain` for how paging survives a page with nothing in it.
+            _entries = Query(
+                filter: #Predicate<Entry> { entry in
+                    entry.childId == childId && entry.deletedAt == nil && entry.unlockAtAge != nil
+                },
+                sort: sort
+            )
+        } else if let wanted = filter.serverType {
             _entries = Query(
                 filter: #Predicate<Entry> { entry in
                     entry.childId == childId && entry.deletedAt == nil && entry.entryType == wanted
@@ -144,6 +156,10 @@ private struct TimelineList: View {
             filter: #Predicate<Media> { $0.deletedAt == nil },
             sort: [SortDescriptor(\Media.createdAt, order: .forward)]
         )
+        // The prompts, for the quote each card is built around. Assignments carry the same
+        // sentence `GET /entries/{id}` returns, `/sync` keeps them current, and nothing evicts
+        // them — so the quote is there on a cold launch with no signal.
+        _assignments = Query(filter: #Predicate<Assignment> { $0.childId == childId })
     }
 
     var body: some View {
@@ -157,6 +173,49 @@ private struct TimelineList: View {
             }
         }
         .background(Color.canvas)
+        // Reserves its own height and lets the archive scroll underneath it, which is what the
+        // translucency below is for.
+        .safeAreaInset(edge: .top, spacing: 0) { header }
+    }
+
+    // MARK: Header
+
+    /// The screen's name, what it holds, and the filters — one strip, floating over the archive.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Timeline")
+                    .typeRole(.screenTitle)
+                    .foregroundStyle(Color.ink)
+                Spacer(minLength: 0)
+                if let countLabel {
+                    Text(countLabel)
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                }
+            }
+            .padding(.horizontal, Layout.screenMargin)
+            .padding(.bottom, 10)
+
+            TimelineFilterRow(selection: filter, onSelect: onSelectFilter)
+        }
+        .padding(.top, 10)
+        .background {
+            // Cream at 94% over a blur, so a card scrolling behind the strip is softened rather
+            // than hidden. A solid bar would read as a second screen edge.
+            Color.canvas.opacity(0.94).background(.ultraThinMaterial)
+        }
+    }
+
+    /// How much is here — and it never claims to know the size of the archive.
+    ///
+    /// `entries` is what has been paged in, not what the server holds, so until the last page
+    /// has landed this says **"so far"** and means it. Printing a total the client has not
+    /// counted would be the timeline inventing a fact about the archive.
+    private var countLabel: String? {
+        guard hasLoaded, !entries.isEmpty else { return nil }
+        let noun = entries.count == 1 ? "entry" : "entries"
+        return reachedEnd ? "\(entries.count) \(noun)" : "\(entries.count) so far"
     }
 
     // MARK: Rows
@@ -165,7 +224,19 @@ private struct TimelineList: View {
     /// over its media instead of five hundred lookups through SwiftData.
     private var cards: [EntryCardModel] {
         let byEntry = Dictionary(grouping: media, by: \.entryId)
-        return entries.map { EntryCardModel(entry: $0, media: byEntry[$0.id] ?? []) }
+        // Built once for the whole screen. A lookup per card would be a linear scan of every
+        // assignment ever synced, five hundred times over.
+        let promptByAssignment = Dictionary(
+            assignments.map { ($0.id, $0.body) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return entries.map { entry in
+            EntryCardModel(
+                entry: entry,
+                media: byEntry[entry.id] ?? [],
+                assignedPrompt: entry.assignmentId.flatMap { promptByAssignment[$0] }
+            )
+        }
     }
 
     private func list(_ groups: [TimelineGrouping.Day<EntryCardModel>]) -> some View {
@@ -208,7 +279,14 @@ private struct TimelineList: View {
                         }
                     }
                 } header: {
-                    DayHeader(date: group.start, yearDivider: group.yearDivider)
+                    DayHeader(
+                        date: group.start,
+                        yearDivider: group.yearDivider,
+                        // Every entry under one date belongs to one child on one day, so the
+                        // age is a property of the group. In v3 it is stated once here instead
+                        // of repeating on every card below it.
+                        ageMonths: group.items.first?.ageMonths
+                    )
                 }
             }
 
@@ -238,18 +316,38 @@ private struct TimelineList: View {
         .listRowBackground(Color.canvas)
     }
 
-    /// The spinner under the last card while another page is in flight. It carries no trigger
-    /// of its own — see `list(_:)` for where paging is actually driven from, and why.
+    /// The spinner under the last card while another page is in flight, and the closing line
+    /// once there is no page after it. Neither carries a paging trigger — see `list(_:)` for
+    /// where paging is actually driven from, and why.
     private var footer: some View {
-        HStack {
-            Spacer()
-            if isLoadingMore { ProgressView().tint(.terracotta) }
-            Spacer()
+        VStack(spacing: 0) {
+            if isLoadingMore {
+                ProgressView().tint(.terracotta).frame(height: 44)
+            } else if reachedEnd {
+                Text(closingLine)
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkFaint)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Layout.screenMargin + 2)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
+            }
         }
-        .frame(height: isLoadingMore ? 44 : 1)
+        .frame(maxWidth: .infinity)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
         .listRowSeparator(.hidden)
         .listRowBackground(Color.canvas)
+    }
+
+    /// The line at the bottom of the archive.
+    ///
+    /// It says what scrolling further would do and nothing else — **no count of days, no
+    /// streak, no note about how long it has been.** The bottom of a permanent archive is the
+    /// last place to start keeping score.
+    private var closingLine: String {
+        filter == .all
+            ? "Keep scrolling and it only gets younger."
+            : "That's every one of these in the archive."
     }
 
     // MARK: Empty
@@ -317,35 +415,58 @@ private struct TimelineList: View {
     }
 }
 
-/// **25** AUGUST 2026 · MON, with a year rule above it where the calendar turns over.
+/// **9** August 2026 · SUN, with the age he was that day on the right, and a year rule above it
+/// where the calendar turns over.
 struct DayHeader: View {
     let date: Date
     let yearDivider: Int?
+    var ageMonths: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let yearDivider { yearRule(yearDivider) }
 
-            HStack(spacing: 6) {
-                // The day number carries the weight; the month is the lighter half of the pair.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                // The day number carries the weight; the month is the lighter half of the pair,
+                // and the weekday is quieter still.
                 Text(DayHeaderText.day(date))
-                    .typeRole(.label)
-                    .fontWeight(.bold)
-                    .foregroundStyle(Color.ink)
-                Text("\(DayHeaderText.monthAndYear(date)) · \(DayHeaderText.weekday(date))")
-                    .typeRole(.label)
+                    .typeRole(.dayNumber)
                     .foregroundStyle(Color.inkMuted)
-                Spacer(minLength: 0)
+                Text(DayHeaderText.monthAndYear(date))
+                    .typeRole(.body)
+                    .foregroundStyle(Color.inkMuted)
+                Text(DayHeaderText.weekday(date))
+                    .typeRole(.label)
+                    .foregroundStyle(Color.inkFaint)
+                Spacer(minLength: 4)
+                if let ageMonths {
+                    // How old he was, stated once for the day. Periwinkle, because it is a fact
+                    // about the child rather than about the entries under it.
+                    Text(AgeText.chip(ageMonths))
+                        .typeRole(.metadata)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.periwinkle)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Color.periwinkleSoft, in: Capsule())
+                }
             }
+            .lineLimit(1)
             .padding(.top, yearDivider == nil ? 12 : 4)
-            .padding(.bottom, 6)
+            .padding(.bottom, 8)
         }
         .padding(.horizontal, Layout.screenMargin)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.canvas)
         .listRowInsets(EdgeInsets())
+        .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityLabel(DayHeaderText.full(date))
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var accessibilityLabel: String {
+        guard let ageMonths else { return DayHeaderText.full(date) }
+        return "\(DayHeaderText.full(date)). \(AgeText.spoken(ageMonths))"
     }
 
     private func yearRule(_ year: Int) -> some View {

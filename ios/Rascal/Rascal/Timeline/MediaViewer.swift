@@ -37,9 +37,11 @@ struct DetailMediaView: View {
                 .aspectRatio(4 / 3, contentMode: .fit)
                 .overlay { picture }
                 .overlay { if kind == .video { playGlyph } }
-                .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
+                // The hero radius, not the general media inset: this is the largest shape on
+                // Entry Detail and v3 softens it a step past a card.
+                .clipShape(RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous)
                         .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
                 )
                 .overlay(alignment: .bottomTrailing) { runtime }

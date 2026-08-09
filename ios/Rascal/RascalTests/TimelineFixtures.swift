@@ -98,16 +98,22 @@ func cachedEntry(
     tags: [String] = [],
     mediaCount: Int = 0,
     id: UUID = UUID(),
+    assignmentId: UUID? = nil,
+    /// Set only by `GET /entries/{id}`, so passing this models a row whose detail has been
+    /// fetched. A list row arrives with it nil — which is the case the card's assignment
+    /// fallback exists for.
+    prompt: String? = nil,
     updatedAt: Date? = nil
 ) throws -> Entry {
     let media = (0..<mediaCount).map { _ in mediaJSON() }
     let response = try decodeEntry(entryJSON(
         id: id, childId: childId, occurredAt: occurredAt, type: type,
         body: body, title: title, ageMonths: ageMonths, unlockAtAge: unlockAtAge,
-        tags: tags, media: media, updatedAt: updatedAt
+        assignmentId: assignmentId, tags: tags, media: media, prompt: prompt,
+        updatedAt: updatedAt
     ))
     let entry = Entry(
-        id: id, childId: childId, occurredAt: occurredAt,
+        id: id, childId: childId, assignmentId: assignmentId, occurredAt: occurredAt,
         title: title, body: body, unlockAtAge: unlockAtAge
     )
     entry.applyServerTruth(response)
