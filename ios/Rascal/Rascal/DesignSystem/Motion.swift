@@ -75,6 +75,9 @@ struct CompletionCheck: View {
 enum Haptics {
     @MainActor
     static func completion() {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        // `.success`, not a light impact. A light tap reads as "button pressed"; this is the
+        // one moment in the app worth a warmer note, and it is still a single haptic rather
+        // than a sequence.
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }

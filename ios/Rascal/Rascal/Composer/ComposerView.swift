@@ -300,6 +300,11 @@ struct ComposerView: View {
         }
     }
 
+    /// Video capture does not exist yet, so a video prompt gets the library and text — never
+    /// the stills camera, which is the lie the device session caught: a mission saying "film
+    /// the whole thing" above a button that takes a photograph.
+    private var isVideoPrompt: Bool { request.assignment?.promptKind == .video }
+
     private var captureChoices: some View {
         HStack(spacing: 10) {
             PhotosPicker(
@@ -313,9 +318,9 @@ struct ComposerView: View {
             .buttonStyle(TapScaleButtonStyle())
 
             #if canImport(UIKit)
-            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            if !isVideoPrompt, UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button { showCamera = true } label: {
-                    choiceTile(symbol: "camera", label: "Take one")
+                    choiceTile(symbol: "camera", label: "Take a photo")
                 }
                 .buttonStyle(TapScaleButtonStyle())
             }
@@ -410,12 +415,14 @@ struct ComposerView: View {
         if request.isEditing { return true }
         // Explicit `return`: with a statement above it, the switch is no longer the body's
         // single expression and cannot be implicitly returned.
+        // A photo alone is a complete entry — the archive is full of them, and requiring a
+        // caption would be requiring homework. This applies to *every* mode that can hold
+        // media, which includes the freeform composer: it opens in `.text` mode and used to
+        // fall through to the text-only rule, so attaching a photo and pressing Save did
+        // nothing at all. Save was disabled and said nothing about why.
         return switch request.mode {
         case .didIt: didIt
-        // A photo alone is a complete entry — the archive is full of them, and requiring a
-        // caption would be requiring homework.
-        case .media, .unknown: !drafts.isEmpty || !trimmed.isEmpty
-        default: !trimmed.isEmpty
+        default: !drafts.isEmpty || !trimmed.isEmpty
         }
     }
 

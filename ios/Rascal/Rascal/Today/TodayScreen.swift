@@ -128,15 +128,38 @@ struct TodayScreen: View {
     }
 
     private func greeting(_ child: ChildSummary) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(child.name)
-                .typeRole(.display)
-                .foregroundStyle(Color.ink)
-            Text(ageText(child.ageMonths))
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(child.name)
+                    .typeRole(.display)
+                    .foregroundStyle(Color.ink)
+                Text(ageText(child.ageMonths))
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+            }
+            .accessibilityElement(children: .combine)
+
+            Spacer(minLength: 0)
+
+            // TESTING ONLY — remove before this ships. Pull-to-refresh already exists and is
+            // the real gesture; this is here so a device session can force a refetch without
+            // the scroll view fighting a short board.
+            Button {
+                Task {
+                    await model?.load(showSpinner: false)
+                    onRetrySync()
+                }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.inkMuted)
+                    .padding(9)
+                    .background(Color.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.border, lineWidth: Layout.borderWidth))
+            }
+            .buttonStyle(TapScaleButtonStyle())
+            .accessibilityLabel("Refresh")
         }
-        .accessibilityElement(children: .combine)
     }
 
     /// Read from the server's `age_months`, never computed from a birthdate here.
