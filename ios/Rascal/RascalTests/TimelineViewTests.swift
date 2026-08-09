@@ -416,6 +416,14 @@ struct FormattingTests {
         #expect(AgeText.greeting(24) == "2 years old")
         #expect(AgeText.spoken(62) == "5 years 2 months old")
         #expect(AgeText.spoken(1) == "1 month old")
+        // The long form sits opposite the words "Age at the time", so it never says "old" —
+        // that row would otherwise state age twice.
+        #expect(AgeText.long(62) == "5 years, 2 months")
+        #expect(AgeText.long(24) == "2 years")
+        #expect(AgeText.long(11) == "11 months")
+        #expect(AgeText.long(1) == "1 month")
+        #expect(AgeText.long(0) == "Newborn")
+        #expect(!AgeText.long(62).contains("old"))
     }
 
     @Test("durations read as a clock, and as words for VoiceOver")

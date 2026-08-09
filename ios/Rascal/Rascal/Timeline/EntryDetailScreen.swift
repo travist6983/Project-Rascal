@@ -297,7 +297,7 @@ struct EntryDetailScreen: View {
 
             if let months = entry.childAgeMonths {
                 metaRow("Age at the time") {
-                    Text(AgeText.spoken(months))
+                    Text(AgeText.long(months))
                         .typeRole(.metadata)
                         .fontWeight(.semibold)
                         .foregroundStyle(Color.periwinkle)
