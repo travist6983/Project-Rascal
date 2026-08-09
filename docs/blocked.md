@@ -14,7 +14,7 @@ Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker d
 Neither blocks the Lane B Settings work, which shipped complete. Recorded because both were
 discovered by building against the merged API and neither is written down anywhere else.
 
-### There is no `GET /me`, so the app cannot show your own name after a relaunch
+### ~~There is no `GET /me`, so the app cannot show your own name after a relaunch~~ — RESOLVED Aug 9, in PR #24. The route exists, the client stores the record between launches and refreshes it from `GET /me` on every launch that has a network.
 
 `PATCH /me` exists and works. The user record arrives once, with the sign-in response, and
 `AppSession` holds it in memory — so after a force quit the app has a valid keychain token, a
@@ -58,6 +58,27 @@ Worth writing down because a run instruction asked for exactly that as a preflig
 the only way to satisfy it is against a local API (`make up && make dev`), which is what
 `make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
 anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
+
+## 0. GitHub Actions is not running — account billing
+
+**Every CI job on PR #24 failed in 2 seconds, before doing anything.** The annotation is the
+same on all of them:
+
+> The job was not started because recent account payments have failed or your spending limit
+> needs to be increased. Please check the 'Billing & plans' section in your settings
+
+This is not a code failure and not a repo setting. It is an account-level block on
+`travist6983`, and it appeared **after** PR #22 merged — that run, at 17:13Z on Aug 9, was
+green. Nothing in the sync-pull branch caused it and nothing in the branch can clear it.
+
+**What I need from you:** GitHub → Settings → Billing & plans. Either a failed payment method
+or a spending limit that needs raising.
+
+**What this does not block:** both suites were run locally on the branch head and are green —
+API 302 passed, iOS 273 passed in 34 suites with zero warnings, `make lint` clean. What is
+missing is the independent confirmation, and the `image` job, which is the only thing that
+builds the Docker image and would catch a Dockerfile-level break. That job has never had
+anything to do with the iOS lane.
 
 ## 1. Apple Developer enrollment — blocks real Sign in with Apple
 
