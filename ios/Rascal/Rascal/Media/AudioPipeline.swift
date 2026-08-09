@@ -163,22 +163,49 @@ final class AudioPipeline: NSObject {
         }
     }
 
-    /// Stop and keep. Produces a `Recording` with the duration read from the written asset.
+    /// Stop and keep.
+    ///
+    /// **Works with or without a live recorder.** Backgrounding stops the recorder to get AAC's
+    /// trailer written, which leaves a finished file and no recorder object — and this is the
+    /// button the parent presses when they come back. Requiring a live recorder here is what
+    /// made that file unreachable: confirm did nothing, record did nothing, and the take sat on
+    /// disk with no way into the archive.
     func stop() async {
-        guard let recorder, let mediaId else { return }
+        guard let mediaId else { return }
         stopMetering()
-        recorder.stop()
-        self.recorder = nil
-        deactivateSession()
 
-        let url = recorder.url
+        if let recorder {
+            // Stopping fires `audioRecorderDidFinishRecording`, which is the single place a
+            // finished file becomes a `Recording`. Nothing is finalised twice.
+            recorder.stop()
+            self.recorder = nil
+            deactivateSession()
+            return
+        }
+
+        // No live recorder: the file was already closed by a background finalize, so read it
+        // straight off disk.
+        deactivateSession()
+        await settle(mediaId: mediaId, url: store.originalURL(for: mediaId, ext: Self.fileExtension))
+    }
+
+    /// Turn a written file into a finished take, or say why it could not be.
+    ///
+    /// The one place `.finished` is set, so a stop and a ten-minute cap and a return from the
+    /// background all end the same way.
+    private func settle(mediaId: UUID, url: URL) async {
         guard let finished = await Self.finalize(mediaId: mediaId, url: url) else {
-            // The file is still on disk; only the reading of it failed. Said plainly rather than
-            // pretending the take is gone.
+            // The bytes are still on disk; only reading them failed. Said plainly rather than
+            // pretending the take is gone — and the id is kept so a retry does not orphan it.
             state = .failed("That recording saved, but its length couldn't be read.")
             return
         }
         elapsed = finished.duration
+        // **Retired.** The take now belongs to the composer, which holds a draft pointing at
+        // this exact file. Reusing the id would let a second recording overwrite the first, and
+        // whether that happens would depend on when SwiftUI decides to rebuild a sheet's state —
+        // not something someone's recording should rest on.
+        self.mediaId = nil
         state = .finished(finished)
     }
 
@@ -202,7 +229,10 @@ final class AudioPipeline: NSObject {
             state = .failed(Self.explain(error))
             return
         }
-        guard recorder.record() else {
+        // `record()` alone drops the cap: a take paused once could then run forever. Resumed
+        // with what is left of the ten minutes.
+        let remaining = max(1, Self.maximumDuration - recorder.currentTime)
+        guard recorder.record(forDuration: remaining) else {
             state = .failed(Self.explain(Failure.couldNotStart))
             return
         }
@@ -216,11 +246,22 @@ final class AudioPipeline: NSObject {
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        if let mediaId { store.removeAll(for: mediaId) }
+        // Whichever id is live: one in flight, or one already handed to a finished take. After
+        // `settle` the in-flight id is retired, so a re-record has to look at the take itself
+        // or it would delete nothing and leave the file behind.
+        for id in [mediaId, finishedRecording?.mediaId].compactMap({ $0 }) {
+            store.removeAll(for: id)
+        }
         mediaId = nil
         elapsed = 0
         levels = []
         state = .idle
+    }
+
+    /// The take being reviewed, if there is one.
+    private var finishedRecording: Recording? {
+        if case .finished(let recording) = state { return recording }
+        return nil
     }
 
     /// Throw away a finished take and start again. Same destruction, same rule: confirmed first.
@@ -237,10 +278,21 @@ final class AudioPipeline: NSObject {
     func finalizeForBackground() {
         guard state == .recording || isPaused else { return }
         stopMetering()
+        // Synchronous on purpose: this is the last moment before the app may be suspended, and
+        // `stop()` is what writes AAC's trailer. An unfinalised recording is not a short
+        // recording, it is an unopenable one.
+        //
+        // It also fires the delegate, which settles the take into `.finished` — so coming back
+        // lands on the review screen with the recording in hand rather than on a paused screen
+        // whose buttons have no recorder to talk to.
         recorder?.stop()
         recorder = nil
         deactivateSession()
-        state = .paused(canResume: false)
+        // A definite state, set synchronously. The delegate will settle this into `.finished`
+        // when its hop runs, but until then the screen must not show a running timer over a
+        // recorder that has already stopped — and if the hop never runs, `stop()` reads the take
+        // off disk from exactly this state. Both routes reach the recording; neither lies.
+        if case .recording = state { state = .paused(canResume: false) }
     }
 
     private var isPaused: Bool {
@@ -455,16 +507,16 @@ extension AudioPipeline: AVAudioRecorderDelegate {
     nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
         let url = recorder.url
         Task { @MainActor in
-            guard self.state == .recording, let mediaId = self.mediaId else { return }
+            // A cancel also stops the recorder, and there is nothing to settle after one.
+            guard let mediaId = self.mediaId else { return }
             self.stopMetering()
             self.recorder = nil
             self.deactivateSession()
-            guard flag, let finished = await Self.finalize(mediaId: mediaId, url: url) else {
+            guard flag else {
                 self.state = .failed("That recording stopped early. What was captured is saved.")
                 return
             }
-            self.elapsed = finished.duration
-            self.state = .finished(finished)
+            await self.settle(mediaId: mediaId, url: url)
         }
     }
 

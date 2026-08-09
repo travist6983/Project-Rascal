@@ -124,6 +124,13 @@ struct VoicePlayerView: View {
                 notice = "Can't play this right now. It's safe in the archive."
                 return
             }
+            // **Set explicitly, because the recorder leaves `.playAndRecord` on the shared
+            // session and a category outlives the screen that set it.** Without this, playing a
+            // voice entry after recording one routes through the recording category and, worse,
+            // activates a session nothing deactivates — so the user's music stays ducked long
+            // after they have left the archive.
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            try? AVAudioSession.sharedInstance().setActive(true)
             let created = AVPlayer(url: url)
             observe(created)
             player = created
@@ -161,5 +168,8 @@ struct VoicePlayerView: View {
         player?.pause()
         player = nil
         isPlaying = false
+        // Handed back, always. A session left active is silence in someone's car an hour later,
+        // with nothing on screen to connect it to this app.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

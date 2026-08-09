@@ -101,7 +101,8 @@ struct ComposerView: View {
             loadForEditing()
             // An audio mission lands on the recorder with nothing in between. The brief is
             // fifteen seconds, one-handed, and a setup screen is most of that budget.
-            if request.assignment?.promptKind == .audio, !request.isEditing, drafts.isEmpty {
+            if request.assignment?.promptKind == .audio, request.mode == .media,
+               !request.isEditing, drafts.isEmpty {
                 showRecorder = true
             }
         }

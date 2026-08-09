@@ -54,6 +54,10 @@ struct AudioRecorderSheet: View {
         .onDisappear {
             pipeline.stopObservingInterruptions()
             player.stop()
+            // Last line of defence. Every route out of here is meant to stop or cancel first,
+            // but if this view is ever torn down with a recorder still running, the file has to
+            // be closed rather than left as an unopenable container.
+            pipeline.finalizeForBackground()
         }
         // Backgrounding finalises rather than abandons. The bytes captured so far become a
         // playable file on disk; nothing is discarded because a phone call arrived.

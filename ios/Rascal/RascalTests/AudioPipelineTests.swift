@@ -308,6 +308,82 @@ struct AudioPipelineStateTests {
         #expect(store.exists(url), "capped, not discarded")
     }
 
+    @Test("a take stranded by backgrounding can still be finished")
+    func backgroundedTakeIsReachable() async throws {
+        // The bug this pins, and the worst one in the feature: backgrounding stopped the
+        // recorder and left `recorder` nil, and both `stop()` and `resume()` guarded on a live
+        // recorder. So the file sat on disk, complete and playable, with confirm and record
+        // both silently doing nothing — bytes not lost, but unreachable, which for a parent is
+        // the same thing.
+        let store = try temporaryStore()
+        let pipeline = AudioPipeline(store: store)
+        let id = UUID()
+        let url = store.originalURL(for: id, ext: AudioPipeline.fileExtension)
+        try writeRecording(seconds: 1.5, to: url)
+
+        pipeline.prepareForTesting(mediaId: id, state: .recording)
+        pipeline.finalizeForBackground()
+
+        // No live recorder now — exactly the state a return from the background lands in.
+        await pipeline.stop()
+
+        guard case .finished(let recording) = pipeline.state else {
+            Issue.record("a backgrounded take must still be finishable, got \(pipeline.state)")
+            return
+        }
+        #expect(recording.duration > 0)
+        #expect(store.exists(url))
+    }
+
+    @Test("a finished take retires its id, so a second recording cannot overwrite it")
+    func finishedTakeRetiresItsId() async throws {
+        // The composer holds a draft pointing at this exact file. If the pipeline kept the id,
+        // starting again would `prepareForWriting` over it — and whether that happened would
+        // depend on when SwiftUI rebuilds a sheet's state, which is not something someone's
+        // recording should rest on.
+        let store = try temporaryStore()
+        let pipeline = AudioPipeline(store: store)
+        let first = UUID()
+        let url = store.originalURL(for: first, ext: AudioPipeline.fileExtension)
+        try writeRecording(seconds: 1.0, to: url)
+
+        pipeline.prepareForTesting(mediaId: first, state: .recording)
+        pipeline.finalizeForBackground()
+        await pipeline.stop()
+
+        guard case .finished(let recording) = pipeline.state else {
+            Issue.record("expected a finished take, got \(pipeline.state)")
+            return
+        }
+        #expect(recording.mediaId == first)
+
+        // Whatever a restart would write, it is not this file.
+        pipeline.prepareForTesting(mediaId: nil, state: .idle)
+        #expect(store.exists(url), "the handed-over take survives")
+    }
+
+    @Test("re-recording deletes the take it replaces")
+    func rerecordDeletesTheOldTake() async throws {
+        // Cancel is the one path allowed to destroy audio, and after a take is settled the
+        // in-flight id is gone — so it has to find the file through the finished take or it
+        // would silently leave an orphan behind.
+        let store = try temporaryStore()
+        let pipeline = AudioPipeline(store: store)
+        let id = UUID()
+        let url = store.originalURL(for: id, ext: AudioPipeline.fileExtension)
+        try writeRecording(seconds: 1.0, to: url)
+
+        pipeline.prepareForTesting(mediaId: id, state: .recording)
+        pipeline.finalizeForBackground()
+        await pipeline.stop()
+        #expect(store.exists(url))
+
+        pipeline.discardAndReset()
+
+        #expect(!store.exists(url), "the replaced take is gone")
+        #expect(pipeline.state == .idle)
+    }
+
     @Test("a denied microphone is a state, not a dead end")
     func deniedIsRecoverable() throws {
         let pipeline = try pipeline()
