@@ -266,3 +266,134 @@ struct SyncDefectTests {
         #expect(try context.fetchCount(FetchDescriptor<Media>()) == 1, "soft, as always")
     }
 }
+
+/// Where the entry's inline media list and the top-level `media` array describe the same file.
+///
+/// Both paths are live at once during a pull, and they can reach the same row. These pin what
+/// happens when they do — including the report, because a plan that under-counts deletions is
+/// exactly the thing the dry run exists to be trusted about.
+@MainActor
+@Suite("Sync — the two media paths")
+struct SyncMediaPathTests {
+
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(
+            for: LocalStore.schema,
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        return ModelContext(container)
+    }
+
+    private func engine(
+        childId: UUID,
+        performer: StubPerformer,
+        context: ModelContext,
+        state: SyncStateStoring = InMemorySyncStateStore(pullEnabled: true)
+    ) -> SyncEngine {
+        SyncEngine(
+            childId: childId,
+            api: APIClient(
+                baseURL: URL(string: "http://localhost:8000/")!,
+                performer: performer,
+                tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+            ),
+            context: context,
+            state: state
+        )
+    }
+
+    /// The entry is applied first, so its inline list marks the photo gone before `planMedia`
+    /// ever sees it. The deletion still has to be reported as a deletion.
+    @Test("a deletion both paths carry is reported once, as a deletion")
+    func deletionSeenByBothPathsIsStillReported() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let occurred = Date(timeIntervalSince1970: 1_600_000_000)
+        let deletedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let cached = try cachedEntry(childId: child, occurredAt: occurred,
+                                     updatedAt: Date(timeIntervalSince1970: 1_650_000_000))
+        context.insert(cached)
+        let photo = completeMedia(entryId: cached.id)
+        context.insert(photo)
+        try context.save()
+
+        // The entry comes back updated with an empty (live-only) media list, *and* the top-level
+        // array carries the same row with `deleted_at` set. That is what the server sends.
+        let body = syncJSON(
+            entries: [entryJSON(id: cached.id, childId: child, occurredAt: occurred,
+                                body: "still here", media: [], updatedAt: deletedAt)],
+            media: [syncMediaJSON(id: photo.id, entryId: cached.id, deletedAt: deletedAt)],
+            cursor: laggedCursor(newest: deletedAt)
+        )
+        let performer = StubPerformer()
+        performer.on("/sync") { _ in (body, 200) }
+
+        let plan = try #require(await engine(childId: child, performer: performer, context: context).pull().plan)
+
+        #expect(plan.count(.media, .softDelete) == 1, "applied plans must not under-count deletions")
+        #expect(plan.count(.media, .unchanged) == 0)
+        #expect(photo.deletedAt == deletedAt, "and it carries the server's timestamp, not a local guess")
+        #expect(try context.fetchCount(FetchDescriptor<Media>()) == 1, "soft, as always")
+    }
+
+    @Test("the dry run predicts that deletion, and the apply agrees with it")
+    func dryRunAndApplyAgreeOnMediaDeletions() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let occurred = Date(timeIntervalSince1970: 1_600_000_000)
+        let deletedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let cached = try cachedEntry(childId: child, occurredAt: occurred,
+                                     updatedAt: Date(timeIntervalSince1970: 1_650_000_000))
+        context.insert(cached)
+        let photo = completeMedia(entryId: cached.id)
+        context.insert(photo)
+        try context.save()
+
+        let body = syncJSON(
+            entries: [entryJSON(id: cached.id, childId: child, occurredAt: occurred,
+                                body: "still here", media: [], updatedAt: deletedAt)],
+            media: [syncMediaJSON(id: photo.id, entryId: cached.id, deletedAt: deletedAt)],
+            cursor: laggedCursor(newest: deletedAt)
+        )
+        let performer = StubPerformer()
+        performer.on("/sync") { _ in (body, 200) }
+        let engine = engine(childId: child, performer: performer, context: context)
+
+        let predicted = try #require(await engine.dryRun().plan)
+        let actual = try #require(await engine.pull().plan)
+
+        // The number the report promises and the number the pull delivers are the same number.
+        #expect(predicted.count(.media, .softDelete) == 1)
+        #expect(actual.count(.media, .softDelete) == predicted.count(.media, .softDelete))
+        #expect(predicted.deletions.count == actual.deletions.count)
+    }
+
+    @Test("a deletion applied by an earlier pull is unchanged, not deleted again")
+    func alreadyDeletedMediaIsUnchanged() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let deletedAt = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let cached = try cachedEntry(childId: child, updatedAt: Date(timeIntervalSince1970: 1_600_000_000))
+        context.insert(cached)
+        let photo = completeMedia(entryId: cached.id)
+        photo.deletedAt = deletedAt
+        context.insert(photo)
+        try context.save()
+
+        let body = syncJSON(
+            media: [syncMediaJSON(id: photo.id, entryId: cached.id, deletedAt: deletedAt)],
+            cursor: laggedCursor(newest: deletedAt)
+        )
+        let performer = StubPerformer()
+        performer.on("/sync") { _ in (body, 200) }
+
+        let plan = try #require(await engine(childId: child, performer: performer, context: context).pull().plan)
+
+        #expect(plan.count(.media, .softDelete) == 0)
+        #expect(plan.count(.media, .unchanged) == 1)
+        #expect(photo.deletedAt == deletedAt, "the stamp does not move")
+    }
+}

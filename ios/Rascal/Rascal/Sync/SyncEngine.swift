@@ -320,6 +320,20 @@ final class SyncEngine {
         // that is exactly why they are worth naming rather than quietly letting the last one win.
         detectDuplicates(response, into: &plan)
 
+        // Media that is live *before* this round's entries are applied.
+        //
+        // Load bearing for the report, not for the apply. An entry's inline media list is
+        // live-only, so applying the entry marks any photo missing from it as deleted — which is
+        // the existing, correct path. By the time `planMedia` reaches the same row through the
+        // top-level array, it is already deleted, and the honest verdict for a deletion this
+        // round performed is `soft-delete`, not `unchanged`. Without this snapshot the applied
+        // plan under-reports media deletions relative to the dry run that predicted them.
+        let liveMediaBefore = Set(
+            ((try? context.fetch(FetchDescriptor<Media>())) ?? [])
+                .filter { $0.deletedAt == nil }
+                .map(\.id)
+        )
+
         for incoming in response.entries {
             note(planEntry(incoming, applying: applying, into: &plan))
             applied += 1
@@ -327,7 +341,7 @@ final class SyncEngine {
         }
 
         for incoming in response.media {
-            note(planMedia(incoming, batch: response, applying: applying, into: &plan))
+            note(planMedia(incoming, liveBefore: liveMediaBefore, applying: applying, into: &plan))
             applied += 1
             await yieldIfNeeded(applied)
         }
@@ -504,7 +518,7 @@ final class SyncEngine {
 
     private func planMedia(
         _ incoming: SyncMediaResponse,
-        batch: SyncPullResponse,
+        liveBefore: Set<UUID>,
         applying: Bool,
         into plan: inout SyncPlan
     ) -> PlannedChange {
@@ -554,12 +568,17 @@ final class SyncEngine {
         }
 
         if incoming.deletedAt != nil {
-            guard existing.deletedAt == nil else {
+            // `liveBefore`, not `existing.deletedAt`: this round's entry application may already
+            // have marked the row through the inline list, and a deletion this round performed
+            // is a soft-delete however it got there. See where the snapshot is taken.
+            guard liveBefore.contains(incoming.id) else {
                 return PlannedChange(
                     entity: .media, recordId: incoming.id, action: .unchanged,
                     preview: preview, occurredAt: existing.capturedAt
                 )
             }
+            // Assigned unconditionally so the row ends up carrying the *server's* timestamp. The
+            // inline path stamps a local `now`, which is a guess at when someone else deleted it.
             if applying { existing.deletedAt = incoming.deletedAt }
             return PlannedChange(
                 entity: .media, recordId: incoming.id, action: .softDelete,
