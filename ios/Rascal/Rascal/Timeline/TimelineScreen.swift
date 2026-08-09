@@ -22,7 +22,12 @@ struct TimelineScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.thumbnails) private var thumbnails
     @State private var model: TimelineModel?
+    @State private var search: TimelineSearchModel?
     @State private var path: [UUID] = []
+    /// What is in the field. Held here rather than in the model because it changes on every
+    /// keystroke and the model should only hear about it through `search(_:)`, which debounces.
+    @State private var searchText = ""
+    @State private var isSearchOpen = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -34,17 +39,36 @@ struct TimelineScreen: View {
                 isLoadingMore: model?.isLoadingMore ?? false,
                 reachedEnd: model?.reachedEnd ?? false,
                 notice: model?.notice,
+                search: searchState,
+                searchText: $searchText,
                 onSelectFilter: { filter in Task { await model?.apply(filter) } },
                 onOpen: { path.append($0) },
-                onReachEnd: { await model?.loadMoreIfNeeded() },
+                onReachEnd: {
+                    // One trigger, two lists. Whichever one is on screen is the one that pages.
+                    if isSearchOpen {
+                        await search?.loadMoreIfNeeded()
+                    } else {
+                        await model?.loadMoreIfNeeded()
+                    }
+                },
                 onRefresh: {
                     await model?.refresh(thumbnails: thumbnails)
                     await onSync()
                 },
                 onClearFilter: { Task { await model?.apply(.all) } },
-                onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) }
+                onCompose: { openComposer(ComposerRequest(childId: childId, assignment: nil, mode: .text)) },
+                onOpenSearch: { isSearchOpen = true },
+                onCloseSearch: {
+                    isSearchOpen = false
+                    searchText = ""
+                    search?.clear()
+                },
+                onQueryChange: { search?.search($0) }
             )
-            .id(model?.filter ?? .all)
+            // Rebuilt when the filter changes — `@Query`'s predicate is fixed at init — and when
+            // search opens or closes, because a search reads the whole archive regardless of which
+            // filter chip is selected underneath it.
+            .id(SearchIdentity(filter: model?.filter ?? .all, searching: isSearchOpen))
             .background(Color.canvas)
             // The list is the root of its own stack and wears no navigation bar: v3 gives it a
             // sticky header of its own, carrying the screen's name, its count, and the filters.
@@ -64,9 +88,51 @@ struct TimelineScreen: View {
             if model == nil {
                 model = TimelineModel(childId: childId, api: api, context: context)
             }
+            if search == nil {
+                search = TimelineSearchModel(childId: childId, api: api, context: context)
+            }
             await model?.start()
         }
     }
+
+    /// What the list needs to draw results, flattened out of the model.
+    ///
+    /// Nil whenever search is closed, which is what makes "the timeline" and "results" one screen
+    /// rather than two: the same list, the same cards, the same day headers.
+    private var searchState: TimelineSearchState? {
+        guard isSearchOpen, let search else { return nil }
+        return TimelineSearchState(
+            query: search.matchedQuery,
+            resultIds: search.resultIds,
+            isSearching: search.isSearching,
+            isLoadingMore: search.isLoadingMore,
+            hasSearched: search.hasSearched,
+            notice: search.notice
+        )
+    }
+}
+
+/// What the list is currently showing, for `@Query`'s benefit.
+///
+/// `@Query` fixes its predicate at initialisation, so the list has to be a new instance whenever
+/// either half of this changes. A struct rather than two `.id` modifiers because SwiftUI takes one
+/// identity, and two calls would mean the second silently won.
+private struct SearchIdentity: Hashable {
+    let filter: TimelineFilter
+    let searching: Bool
+}
+
+/// A snapshot of the search, for the list to render.
+struct TimelineSearchState: Equatable {
+    /// The query the results belong to, which is not necessarily what is in the field — the field
+    /// is ahead of the results by up to one debounce, and the cards must describe what they are.
+    let query: String?
+    /// In the server's order: relevance, then newest first.
+    let resultIds: [UUID]
+    let isSearching: Bool
+    let isLoadingMore: Bool
+    let hasSearched: Bool
+    let notice: String?
 }
 
 /// The list itself, separated so its `@Query` can be built with the active filter.
@@ -82,16 +148,22 @@ private struct TimelineList: View {
     let isLoadingMore: Bool
     let reachedEnd: Bool
     let notice: String?
+    let search: TimelineSearchState?
+    @Binding var searchText: String
     let onSelectFilter: (TimelineFilter) -> Void
     let onOpen: (UUID) -> Void
     let onReachEnd: () async -> Void
     let onRefresh: () async -> Void
     let onClearFilter: () -> Void
     let onCompose: () -> Void
+    let onOpenSearch: () -> Void
+    let onCloseSearch: () -> Void
+    let onQueryChange: (String) -> Void
 
     @Query private var entries: [Entry]
     @Query private var media: [Media]
     @Query private var assignments: [Assignment]
+    @FocusState private var fieldFocused: Bool
 
     init(
         childId: UUID,
@@ -101,12 +173,17 @@ private struct TimelineList: View {
         isLoadingMore: Bool,
         reachedEnd: Bool,
         notice: String?,
+        search: TimelineSearchState?,
+        searchText: Binding<String>,
         onSelectFilter: @escaping (TimelineFilter) -> Void,
         onOpen: @escaping (UUID) -> Void,
         onReachEnd: @escaping () async -> Void,
         onRefresh: @escaping () async -> Void,
         onClearFilter: @escaping () -> Void,
-        onCompose: @escaping () -> Void
+        onCompose: @escaping () -> Void,
+        onOpenSearch: @escaping () -> Void,
+        onCloseSearch: @escaping () -> Void,
+        onQueryChange: @escaping (String) -> Void
     ) {
         self.filter = filter
         self.isLoading = isLoading
@@ -114,18 +191,33 @@ private struct TimelineList: View {
         self.isLoadingMore = isLoadingMore
         self.reachedEnd = reachedEnd
         self.notice = notice
+        self.search = search
+        self._searchText = searchText
         self.onSelectFilter = onSelectFilter
         self.onOpen = onOpen
         self.onReachEnd = onReachEnd
         self.onRefresh = onRefresh
         self.onClearFilter = onClearFilter
         self.onCompose = onCompose
+        self.onOpenSearch = onOpenSearch
+        self.onCloseSearch = onCloseSearch
+        self.onQueryChange = onQueryChange
 
         // Sorted by `occurred_at`, descending. Not `created_at` — a photo from 2019 added
         // tonight belongs in 2019, and sorting by when the row was made is the exact bug the
         // two timestamps exist to prevent.
         let sort = [SortDescriptor(\Entry.occurredAt, order: .reverse)]
-        if filter == .sealed {
+        // **Search reads the whole archive.** Combining a filter chip with a query is explicitly
+        // out of scope, and narrowing the query behind it would silently drop results the server
+        // ranked and returned.
+        if search != nil {
+            _entries = Query(
+                filter: #Predicate<Entry> { entry in
+                    entry.childId == childId && entry.deletedAt == nil
+                },
+                sort: sort
+            )
+        } else if filter == .sealed {
             // Sealed is `unlock_at_age`, not an `entry_type` — there is no `?type=` for it, so
             // the server pages the whole archive and the narrowing happens here. See
             // `TimelineModel.drain` for how paging survives a page with nothing in it.
@@ -181,23 +273,22 @@ private struct TimelineList: View {
     // MARK: Header
 
     /// The screen's name, what it holds, and the filters — one strip, floating over the archive.
+    ///
+    /// Searching replaces the title row with the field and hides the filters, because a filter
+    /// chip that no longer narrows anything is a control that lies. It is the same strip either
+    /// way rather than a second screen: search is a way of looking at the timeline, not a place.
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Timeline")
-                    .typeRole(.screenTitle)
-                    .foregroundStyle(Color.ink)
-                Spacer(minLength: 0)
-                if let countLabel {
-                    Text(countLabel)
-                        .typeRole(.metadata)
-                        .foregroundStyle(Color.inkMuted)
-                }
+            if search != nil {
+                searchField
+                    .padding(.horizontal, Layout.screenMargin)
+                    .padding(.bottom, 10)
+            } else {
+                titleRow
+                    .padding(.horizontal, Layout.screenMargin)
+                    .padding(.bottom, 10)
+                TimelineFilterRow(selection: filter, onSelect: onSelectFilter)
             }
-            .padding(.horizontal, Layout.screenMargin)
-            .padding(.bottom, 10)
-
-            TimelineFilterRow(selection: filter, onSelect: onSelectFilter)
         }
         .padding(.top, 10)
         .background {
@@ -205,6 +296,63 @@ private struct TimelineList: View {
             // than hidden. A solid bar would read as a second screen edge.
             Color.canvas.opacity(0.94).background(.ultraThinMaterial)
         }
+    }
+
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Timeline")
+                .typeRole(.screenTitle)
+                .foregroundStyle(Color.ink)
+            Spacer(minLength: 0)
+            if let countLabel {
+                Text(countLabel)
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+            }
+            Button(action: onOpenSearch) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color.inkMuted)
+                    // A 44pt target on a 16pt glyph. The strip is the one place on this screen
+                    // where a thumb reaching from the bottom arrives at an angle.
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(TapScaleButtonStyle())
+            .accessibilityLabel("Search the archive")
+        }
+    }
+
+    /// One field and one way out. No scope bar, no recent searches, no suggestions.
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.inkFaint)
+                TextField("Search the archive", text: $searchText)
+                    .typeRole(.body)
+                    .foregroundStyle(Color.ink)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .focused($fieldFocused)
+                    .onChange(of: searchText) { _, value in onQueryChange(value) }
+                if search?.isSearching == true {
+                    ProgressView().tint(.inkFaint).controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.border, lineWidth: Layout.borderWidth))
+
+            Button("Cancel", action: onCloseSearch)
+                .typeRole(.body)
+                .foregroundStyle(Color.terracotta)
+        }
+        // Opening the affordance should put a cursor in the field. Anything else means the
+        // magnifier costs two taps to do one thing.
+        .onAppear { fieldFocused = true }
     }
 
     /// How much is here — and it never claims to know the size of the archive.
@@ -222,6 +370,10 @@ private struct TimelineList: View {
 
     /// Flattened once per render rather than per card, so a five-hundred row list does one pass
     /// over its media instead of five hundred lookups through SwiftData.
+    ///
+    /// Under search this draws the same cards from the same cache, narrowed to what the server
+    /// returned and **in the order the server returned it**. Rank is the server's answer and
+    /// nothing on device can recompute it, so the ordering is carried rather than derived.
     private var cards: [EntryCardModel] {
         let byEntry = Dictionary(grouping: media, by: \.entryId)
         // Built once for the whole screen. A lookup per card would be a linear scan of every
@@ -230,13 +382,21 @@ private struct TimelineList: View {
             assignments.map { ($0.id, $0.body) },
             uniquingKeysWith: { first, _ in first }
         )
-        return entries.map { entry in
+
+        func card(_ entry: Entry) -> EntryCardModel {
             EntryCardModel(
                 entry: entry,
                 media: byEntry[entry.id] ?? [],
-                assignedPrompt: entry.assignmentId.flatMap { promptByAssignment[$0] }
+                assignedPrompt: entry.assignmentId.flatMap { promptByAssignment[$0] },
+                searchQuery: search?.query
             )
         }
+
+        guard let search else { return entries.map(card) }
+        // One pass to index, then one to order. The alternative — `first(where:)` per result id —
+        // is quadratic over an archive the cache may hold thousands of.
+        let byId = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return search.resultIds.compactMap { byId[$0] }.map(card)
     }
 
     private func list(_ groups: [TimelineGrouping.Day<EntryCardModel>]) -> some View {
@@ -255,7 +415,7 @@ private struct TimelineList: View {
         let lastCardId = groups.last?.items.last?.id
 
         return List {
-            if let notice { noticeRow(notice) }
+            if let notice = activeNotice { noticeRow(notice) }
 
             ForEach(groups) { group in
                 Section {
@@ -321,9 +481,11 @@ private struct TimelineList: View {
     /// where paging is actually driven from, and why.
     private var footer: some View {
         VStack(spacing: 0) {
-            if isLoadingMore {
+            if search?.isLoadingMore ?? isLoadingMore {
                 ProgressView().tint(.terracotta).frame(height: 44)
-            } else if reachedEnd {
+            } else if search == nil, reachedEnd {
+                // No closing line under search. "Keep scrolling and it only gets younger" is a
+                // sentence about an archive, and a page of results is not one.
                 Text(closingLine)
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkFaint)
@@ -352,9 +514,16 @@ private struct TimelineList: View {
 
     // MARK: Empty
 
+    /// The notice on screen belongs to whichever list is on screen.
+    private var activeNotice: String? {
+        search != nil ? search?.notice : notice
+    }
+
     @ViewBuilder
     private var emptyState: some View {
-        if isLoading && !hasLoaded {
+        if let search {
+            searchEmpty(search)
+        } else if isLoading && !hasLoaded {
             // Nothing fetched yet is not the same as nothing in the archive, and they must not
             // render the same.
             ProgressView().tint(.terracotta)
@@ -391,6 +560,29 @@ private struct TimelineList: View {
         .background(Gradients.wash, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
         .padding(Layout.screenMargin)
         .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    /// Nothing found, or nothing asked yet.
+    ///
+    /// **One line, no illustration, no suggestions.** A search that comes back empty is not an
+    /// error and it is not a moment — the parent typed a word their archive does not contain, and
+    /// the only useful thing to say is so.
+    @ViewBuilder
+    private func searchEmpty(_ state: TimelineSearchState) -> some View {
+        if !state.hasSearched {
+            // Before the first result lands. Deliberately blank rather than a spinner: the field
+            // already shows one, and a second on the canvas would make typing feel like waiting.
+            Color.clear
+        } else {
+            Text(state.query.map { "Nothing in the archive matches “\($0)”." } ?? "")
+                .typeRole(.body)
+                .foregroundStyle(Color.inkMuted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, Layout.screenMargin)
+                .padding(.top, 40)
+                .frame(maxHeight: .infinity, alignment: .top)
+        }
     }
 
     /// A filter with nothing behind it. Quieter than the first-run state on purpose: nothing is

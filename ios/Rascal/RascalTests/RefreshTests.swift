@@ -17,6 +17,9 @@ final class StubPerformer: HTTPPerforming, @unchecked Sendable {
     private(set) var hits: [String: Int] = [:]
     /// Delay applied to refresh, to hold the window open while a second caller arrives.
     var refreshDelay: Duration = .zero
+    /// Delay applied to *every* path, so a request can be genuinely outstanding while a test does
+    /// something else. Zero by default, so no existing suite changes behaviour.
+    var delay: Duration = .zero
 
     func on(_ pathContains: String, respond: @escaping @Sendable (Int) -> (Data, Int)) {
         lock.lock(); defer { lock.unlock() }
@@ -38,6 +41,10 @@ final class StubPerformer: HTTPPerforming, @unchecked Sendable {
         // function is what the compiler objects to — nothing here is held across a suspension,
         // but the diagnostic is about shape, not about this particular body being safe.
         let (n, rule) = record(request, path: path)
+
+        // Recorded *before* the pause, so a test can spin until the request is genuinely
+        // outstanding rather than sleeping and hoping it is.
+        if delay > .zero { try await Task.sleep(for: delay) }
 
         guard let rule else { return (Data("{}".utf8), http(request, 200)) }
         let (data, status) = rule.respond(n)

@@ -60,6 +60,13 @@ nonisolated struct EntryCardModel: Identifiable, Equatable, Sendable {
     let unlockAtAge: Int?
     /// Written here, not yet acknowledged by the server. Never rendered as an error or a loss.
     let isAwaitingSync: Bool
+    /// The line of transcript that answers "why is this row on my screen".
+    ///
+    /// Set only under search, and only when the words that matched are in the *transcript* rather
+    /// than in something the card would have shown anyway. A search result whose title contains
+    /// the query needs no explanation; one that matched a sentence buried in four minutes of a
+    /// four-year-old talking needs exactly this.
+    var searchMatch: String?
 
     /// The mosaic has four shapes — one, two, three, and a 2×2 — so four is the most tiles a
     /// card ever draws. Past that the count is **overlaid on the fourth tile** rather than
@@ -72,8 +79,14 @@ nonisolated struct EntryCardModel: Identifiable, Equatable, Sendable {
     /// Did-it entries carry the sage tint; everything else sits on surface.
     var isDidIt: Bool { type == .didIt }
 
-    /// The parent's words if they wrote any, else the child's from the transcript, else nothing.
+    /// Why this row is here, else the parent's words, else the child's from the transcript.
+    ///
+    /// **The search match outranks the parent's own body**, and only under search. On the ordinary
+    /// timeline a card shows what the parent wrote; in a list of results it has to show what
+    /// matched, or a row whose only connection to the query is a sentence forty seconds into a
+    /// recording looks like the search is broken.
     var bodyLine: BodyLine? {
+        if let searchMatch { return BodyLine(text: searchMatch, isQuote: true) }
         if let preview { return BodyLine(text: preview, isQuote: false) }
         if let line = voice?.openingLine { return BodyLine(text: line, isQuote: true) }
         return nil
@@ -123,7 +136,12 @@ extension EntryCardModel {
     /// `assignedPrompt` is the fallback for the quoted prompt, and it is the caller's job
     /// because the lookup is a dictionary the list builds once for the whole screen rather than
     /// a fetch per card. See `TimelineList.cards`.
-    init(entry: Entry, media: [Media], assignedPrompt: String? = nil) {
+    init(
+        entry: Entry,
+        media: [Media],
+        assignedPrompt: String? = nil,
+        searchQuery: String? = nil
+    ) {
         let sealed = entry.unlockAtAge != nil
         let live = media.filter { $0.deletedAt == nil }
         // **Only photos and video go in the mosaic.** A voice note is media, but it is not a
@@ -174,8 +192,54 @@ extension EntryCardModel {
             ),
             isSealed: sealed,
             unlockAtAge: entry.unlockAtAge,
-            isAwaitingSync: entry.sync != .synced && entry.deletedAt == nil
+            isAwaitingSync: entry.sync != .synced && entry.deletedAt == nil,
+            // A sealed letter explains nothing about why it matched. The seal is the whole point,
+            // and a search that quoted the inside of one would make it decorative.
+            searchMatch: sealed ? nil : searchQuery.flatMap { query in
+                Self.matchingLine(query: query, in: live.compactMap(\.transcript))
+            }
         )
+    }
+
+    /// The sentence in a transcript that a query landed on.
+    ///
+    /// **Client-side, and deliberately less clever than the server.** Postgres stems, so a search
+    /// for "running" finds "ran" — this cannot, and when it cannot the card simply shows nothing
+    /// extra rather than guessing. A missing explanation is a smaller wrong than a wrong one.
+    ///
+    /// It is also limited by what the cache holds: `GET /entries` inlines `MediaSummary`, which
+    /// carries no transcript, so the words are only here when this phone wrote them or has opened
+    /// the entry before. That covers the case this exists for — reading back what the phone
+    /// transcribed last night — and degrades to silence for the rest.
+    static func matchingLine(query: String, in transcripts: [String]) -> String? {
+        let terms = query
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .map { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+            .filter { $0.count > 1 }
+        guard !terms.isEmpty else { return nil }
+
+        for transcript in transcripts {
+            for sentence in Self.sentences(of: transcript) {
+                let folded = sentence.folding(
+                    options: [.caseInsensitive, .diacriticInsensitive], locale: nil
+                )
+                if terms.contains(where: { folded.contains($0) }) { return sentence }
+            }
+        }
+        return nil
+    }
+
+    /// Cut a transcript into readable pieces.
+    ///
+    /// The transcriber writes one whitespace-normalised blob with no line breaks, so "the matching
+    /// line" has to be recovered from punctuation. Sentences that survive are trimmed and
+    /// non-empty; a transcript with no terminators at all comes back as itself, which is right —
+    /// a child talking for ten seconds without pausing is one line.
+    private static func sentences(of transcript: String) -> [String] {
+        transcript
+            .split(whereSeparator: { $0 == "." || $0 == "?" || $0 == "!" || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
     }
 
     /// Collapse whitespace so a body that starts with three blank lines does not render as an

@@ -22,6 +22,9 @@ struct SettingsScreen: View {
     /// The pull half. Optional for the same reason `sync` is: the screen is buildable in a test
     /// without one, and it renders the upload rows and nothing else when it has none.
     var syncEngine: SyncEngine?
+    /// The backlog action. Optional too, and its row is absent rather than empty when there is
+    /// no queue or nothing waiting.
+    var transcription: TranscriptionQueue?
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -205,6 +208,7 @@ struct SettingsScreen: View {
                 SettingsCard { exportRow }
                 SettingsCard {
                     syncRows
+                    if let transcription { TranscriptionBacklogSection(queue: transcription) }
                     if let syncStatus { SyncPullSection(model: syncStatus) }
                 }
             }

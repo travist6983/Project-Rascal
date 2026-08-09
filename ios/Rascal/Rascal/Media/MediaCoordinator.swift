@@ -44,6 +44,19 @@ final class MediaCoordinator {
     private let uploader: MediaUploader
     private var sweeping = false
 
+    /// Words, once the bytes have landed.
+    ///
+    /// Assigned after construction rather than injected, because the queue needs a `ModelContext`
+    /// from the SwiftUI environment and this object is built before there is one — the same
+    /// ordering that makes `MediaCoordinator.shared` necessary in the first place. Optional for
+    /// the reason `EntrySync.media` is: the upload tests need no transcriber, and a nil one makes
+    /// this file behave exactly as it did before transcription existed.
+    ///
+    /// **One direction only.** The queue does not hold this object back; it takes the `APIClient`
+    /// directly. Two process-lifetime singletons pointing at each other is a retain cycle that
+    /// nothing would ever notice and nobody could ever explain.
+    var transcription: TranscriptionQueue?
+
     /// The uploader defaults inside the body rather than in the signature: a default argument
     /// is evaluated in a nonisolated context, and `MediaUploader.shared` is main-actor bound.
     init(api: APIClient, store: StagingStore = StagingStore(), uploader: MediaUploader? = nil) {
@@ -187,6 +200,14 @@ final class MediaCoordinator {
             media.attemptCount = 0
             media.nextAttemptAt = nil
             try? context.save()
+            // The server now has the row, which is the precondition
+            // `PATCH /media/{id}/derived` needs — so this is the earliest honest moment to
+            // consider transcribing it. **After the save**, so the queue's own context reads a
+            // row that is genuinely complete rather than one this context has not written yet.
+            //
+            // Opportunistic and unawaited by anything a parent is looking at: nothing on Today,
+            // Timeline, or the composer waits on a word of this.
+            await transcription?.enqueue(mediaId: media.id)
         } catch let error as APIError where error.code == .notFound {
             // The entry or media row is gone server-side. Retrying cannot bring it back.
             media.state = .failed
@@ -226,6 +247,10 @@ final class MediaCoordinator {
                 continue
             }
         }
+        // **Last, and after the uploads.** A derived write resolves a media row the server has to
+        // already know about, so a transcript pushed before its own `complete` landed would spend
+        // an attempt on a 404 — the same discipline as entries-before-media above.
+        await transcription?.sweep(now: now)
         return due.count
     }
 

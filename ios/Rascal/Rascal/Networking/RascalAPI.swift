@@ -98,6 +98,29 @@ private nonisolated struct CompletedPart: Encodable {
     let etag: String
 }
 
+/// `MediaDerivedRequest`. Every field on the server is optional; this client only ever fills one.
+private nonisolated struct MediaDerivedRequest: Encodable {
+    let transcript: String
+}
+
+/// `MediaDerivedResponse` — the updated media row, plus every tag on its entry afterwards.
+///
+/// `media` decodes as `SyncMediaResponse` because the two are the same server type: `MediaOut`.
+/// A second Swift struct for one JSON shape is two things to keep in step.
+private nonisolated struct MediaDerivedResponse: Decodable {
+    let media: SyncMediaResponse
+    let tags: [TagResponse]
+}
+
+/// The two fields the caller actually uses, lifted out so the wire type stays private.
+///
+/// `updatedAt` is the trigger's own value, not this device's clock — the API has a test named
+/// for that. Writing it onto the row is what keeps the next pull comparing two server timestamps.
+nonisolated struct MediaDerivedResult: Sendable {
+    let transcript: String?
+    let updatedAt: Date
+}
+
 private nonisolated struct CompleteRequest: Encodable {
     /// Required for multipart, ignored for a single PUT — the server's own rule decides which,
     /// so the client sends what it has rather than branching on file size.
@@ -153,6 +176,31 @@ extension APIClient {
                 durationSeconds: durationSeconds
             ),
             as: EmptyResponse.self
+        )
+    }
+
+    /// `PATCH /v1/media/{id}/derived` — make on-device AI output permanent.
+    ///
+    /// The phone is an inference worker and this is where its output stops being local. **The
+    /// server never regenerates a transcript**, and a browser in 2027 will never have a model to
+    /// regenerate it with, so a transcript that does not reach this endpoint does not exist.
+    ///
+    /// Documented idempotent: the same transcript twice changes nothing, which is what makes the
+    /// retry after a crash between the local write and this call safe rather than merely likely
+    /// to work.
+    ///
+    /// **`caption` and `tags` are deliberately not sent.** This phase transcribes and nothing
+    /// else. Sending nil for a field the client has no opinion about is the same mistake
+    /// `updateEntry` avoids with `title` — a call that claims more than it knows.
+    @discardableResult
+    func writeDerived(mediaId: UUID, transcript: String) async throws -> MediaDerivedResult {
+        let response: MediaDerivedResponse = try await send(
+            .patch, "v1/media/\(mediaId.uuidString.lowercased())/derived",
+            body: MediaDerivedRequest(transcript: transcript)
+        )
+        return MediaDerivedResult(
+            transcript: response.media.transcript,
+            updatedAt: response.media.updatedAt
         )
     }
 

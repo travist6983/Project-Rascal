@@ -71,6 +71,33 @@ nonisolated enum MediaAccess {
         return data
     }
 
+    /// The bytes **on disk**, wherever they have to come from.
+    ///
+    /// Distinct from `playbackURL`, which is happy to hand back a remote URL because `AVPlayer`
+    /// streams. Transcription cannot: `AVAudioFile` reads a file and nothing else, so a recording
+    /// this phone did not make has to be fetched before it can be read.
+    ///
+    /// Returns nil rather than throwing, and the caller records that as one quiet failed attempt.
+    /// Written to `destination` and owned by the caller from then on — including deleting it,
+    /// which is why this does not put it in the staging store: staging is where files waiting to
+    /// upload live, and this one is going the other way.
+    static func downloadToFile(mediaId: UUID, destination: URL, api: APIClient) async -> URL? {
+        guard let url = await signedURL(mediaId: mediaId, api: api) else { return nil }
+        guard let (temporary, response) = try? await URLSession.shared.download(from: url),
+              let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode)
+        else { return nil }
+
+        // `download(from:)` puts the file somewhere the system reclaims the moment this returns,
+        // so it is moved rather than read. Any previous attempt's leftovers go first — a move
+        // onto an existing path fails, and failing there would look like a network problem.
+        try? FileManager.default.removeItem(at: destination)
+        guard (try? FileManager.default.moveItem(at: temporary, to: destination)) != nil else {
+            return nil
+        }
+        return destination
+    }
+
     /// `409 upload_incomplete` is the one failure worth naming: the row exists and its bytes do
     /// not, which is an unfinished upload rather than a lost file. Everything else is nil, and
     /// the view says so in its own words.

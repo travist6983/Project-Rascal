@@ -564,12 +564,15 @@ final class SyncEngine {
             )
         }
 
-        // Bytes this phone is still carrying. The server's row describes an upload that has not
-        // finished, and folding it over local state would drag a row mid-flight backwards.
+        // Bytes this phone is still carrying, or words it has written and not yet delivered.
+        // The server's row describes a journey that has not finished, and folding it over local
+        // state would drag a row mid-flight backwards.
         if Self.hasUnpushedChanges(existing) {
             plan.conflicts.append(SyncConflict(
                 entity: .media, recordId: incoming.id, winner: .local, preview: preview,
-                reason: "this file is still uploading from here (\(existing.state.rawValue)); the upload sweep wins"
+                reason: existing.hasUnpushedTranscript
+                    ? "transcribed here and not yet pushed (\(existing.transcriptSync.rawValue)); the transcription queue wins"
+                    : "this file is still uploading from here (\(existing.state.rawValue)); the upload sweep wins"
             ))
             return PlannedChange(
                 entity: .media, recordId: incoming.id, action: .skippedLocalPending,
@@ -618,30 +621,47 @@ final class SyncEngine {
 
     /// Whether the fields `applyServerSummary` writes would come out different.
     ///
-    /// Mirrors that method exactly, including its two one-way rules: a list row must not blank a
-    /// transcript the detail fetch cached, and upload state is only ever written forward to
-    /// `complete`. A predicate that disagreed with the writer would make the report claim updates
-    /// that do nothing, or miss ones that do something.
+    /// Mirrors that method exactly, including its three one-way rules: a list row must not blank a
+    /// transcript the detail fetch cached, a transcript written here and not yet pushed is not
+    /// written at all, and upload state is only ever moved forward to `complete`. A predicate that
+    /// disagreed with the writer would make the report claim updates that do nothing, or miss ones
+    /// that do something.
+    ///
+    /// The transcript clause is unreachable in practice — `hasUnpushedChanges` short-circuits such
+    /// a row into `skippedLocalPending` before this is asked — and it is written anyway, because
+    /// "mirrors that method exactly" has to survive the next person who changes one of them.
     private static func differs(_ existing: Media, from incoming: SyncMediaResponse) -> Bool {
         if existing.s3Key != incoming.s3Key { return true }
         if existing.thumbKey != incoming.thumbKey { return true }
         if let duration = incoming.durationSeconds, existing.durationSeconds != duration { return true }
         if let captured = incoming.capturedAt, existing.capturedAt != captured { return true }
-        if let transcript = incoming.transcript, existing.transcript != transcript { return true }
+        if !existing.hasUnpushedTranscript,
+           let transcript = incoming.transcript, existing.transcript != transcript { return true }
         if let caption = incoming.caption, existing.caption != caption { return true }
         if incoming.isComplete, !existing.isComplete { return true }
         if existing.updatedAt != incoming.updatedAt { return true }
         return false
     }
 
-    /// A media row this phone is still working on.
+    /// A media row this phone is still working on — in either of the two senses.
     ///
-    /// `failed` is deliberately **not** pending: past the retry cap there is nothing in flight to
-    /// protect, and the server's copy is the better of the two.
+    /// **The bytes.** `staged`, `uploading`, `uploaded` are in flight. `failed` deliberately is
+    /// not: past the retry cap there is nothing in flight to protect, and the server's copy is the
+    /// better of the two.
+    ///
+    /// **The words.** A transcript written here and not pushed is a pending local change on a row
+    /// whose upload finished long ago — `complete`, and therefore invisible to the switch below.
+    /// Without the first clause a pull carrying the server's older row would take the
+    /// `.update` branch and `applyServerSummary` would overwrite words that exist nowhere else.
+    /// This is the case `SyncEngineTests` calls out by name.
+    ///
+    /// Note the asymmetry with the bytes: `failed` **does** count here, and
+    /// `Media.hasUnpushedTranscript` says why.
     private static func hasUnpushedChanges(_ media: Media) -> Bool {
+        if media.hasUnpushedTranscript { return true }
         switch media.state {
-        case .staged, .uploading, .uploaded: true
-        default: false
+        case .staged, .uploading, .uploaded: return true
+        default: return false
         }
     }
 

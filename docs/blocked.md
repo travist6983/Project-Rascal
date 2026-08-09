@@ -391,6 +391,24 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   pipeline slots in later with no schema or contract change.
 - **The `ORDER BY random()` scan in the moments fallback.** Fine at 100 entries, worth
   revisiting at P1.
+- **Transcribing the audio track of a video.** Cut from the transcription phase rather than
+  shipped shaky. The roadmap asks for it and `AVAudioFile` plausibly opens an MPEG-4
+  container's audio track — but *plausibly* is the whole problem: nothing in this environment
+  can run a single real transcription, so a second input path would be unverifiable on top of
+  an already unverified first one. It is also the expensive one, because a backlog video has
+  to be fetched to be read at roughly 70MB a minute. **What it needs:** the audio path
+  confirmed on a device via `docs/device-verification-transcription.md`. After that it is one
+  clause in `TranscriptionQueue.isTranscribable` plus a rule about not doing it on cellular.
+- **Transcript editing.** A parent will eventually want to correct a word. That is a real
+  feature with a real conflict story — two devices editing the same derived field against a
+  server documented never to regenerate it — and shipping an editor without that story turns
+  "on-device output is durable data" into "whichever phone typed last".
+- **A search result matched on someone else's transcript cannot say why it matched.**
+  `GET /entries` inlines `MediaSummary`, which carries no transcript, so the client can only
+  quote a matching line for a transcript it has cached. It renders as an ordinary card
+  otherwise, which is correct rather than broken. **What it needs:** either `transcript` on
+  `MediaSummary` or a `matched_snippet` on the search response — both are API-lane changes and
+  neither is worth making for this alone.
 
 ---
 
