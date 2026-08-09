@@ -128,7 +128,34 @@ enum ImagePipeline {
 
     // MARK: Internals
 
+    /// Redraw without an alpha channel before encoding.
+    ///
+    /// `CGImageSourceCreateThumbnailAtIndex` hands back `premultipliedLast` even for a fully
+    /// opaque photo. JPEG cannot store alpha at all, so encoding it that way buys nothing and
+    /// ImageIO says so on device:
+    ///
+    ///     'Rascal' is trying to save an opaque image (4284x5712) with 'AlphaPremulLast'.
+    ///     This would ... double (!!!) the required memory when decoding
+    ///
+    /// Doubling decode memory on a 24-megapixel photo is not academic — a multi-photo import
+    /// is the case most likely to be killed for memory, and it is the one this app is for.
+    private static func withoutAlpha(_ image: CGImage) -> CGImage {
+        guard let context = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return image }
+
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return context.makeImage() ?? image
+    }
+
     private static func encodeJPEG(_ image: CGImage, quality: CGFloat) -> Data? {
+        let image = withoutAlpha(image)
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             output, UTType.jpeg.identifier as CFString, 1, nil
