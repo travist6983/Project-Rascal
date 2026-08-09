@@ -178,3 +178,32 @@ extension APIClient {
         )
     }
 }
+
+private nonisolated struct BoardResetRequest: Encodable {
+    let childId: UUID
+    let kinds: [String]
+}
+
+nonisolated struct BoardResetResponse: Decodable {
+    let date: String
+    let cleared: Int
+    let created: [String]
+    /// Kinds with no active prompt to serve — audio, today. Reported rather than silently
+    /// producing a shorter board than was asked for.
+    let unavailable: [String]
+}
+
+extension APIClient {
+    /// Rebuild today as one assignment per kind. **Local builds only** — `/v1/debug/*` is not
+    /// registered when the API runs with `ENVIRONMENT=prod`, so this 404s anywhere real.
+    @discardableResult
+    func resetBoard(
+        childId: UUID,
+        kinds: [String] = ["question", "photo", "video", "activity"]
+    ) async throws -> BoardResetResponse {
+        try await send(
+            .post, "v1/debug/board",
+            body: BoardResetRequest(childId: childId, kinds: kinds)
+        )
+    }
+}

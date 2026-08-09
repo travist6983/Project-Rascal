@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 
 from rascal.deps import ChildAccess, CurrentUser, SessionDep, child_access_from_body
 from rascal.errors import not_authorized
-from rascal.models import Assignment, Guardian
+from rascal.models import Assignment, Guardian, Prompt
 from rascal.schemas.common import ApiModel
 from rascal.services.dates import today_in
 from rascal.services.scheduler import run_scheduler
@@ -109,3 +109,94 @@ async def reset_today(
         )
     )
     return ResetTodayResponse(child_id=access.child_id, date=day, deleted=result.rowcount or 0)
+
+
+class BoardResetRequest(ApiModel):
+    child_id: uuid.UUID
+    kinds: list[str] = Field(
+        default_factory=lambda: ["question", "photo", "video", "activity"],
+        description="One pending assignment per kind, in this order.",
+    )
+
+
+class BoardResetResponse(ApiModel):
+    date: dt.date
+    cleared: int
+    created: list[str]
+    unavailable: list[str]
+
+
+@router.post(
+    "/board",
+    response_model=BoardResetResponse,
+    summary="Reset today to exactly one assignment per kind",
+    description=(
+        "A test fixture, not a scheduler. The real scheduler fills slots — one question, one "
+        "mission, one weekly — so it cannot produce one of every *kind* on demand, and "
+        "exercising the photo and video paths meant hand-editing rows. This does that in one "
+        "call. Local only, like every route in this file."
+    ),
+)
+async def reset_board(
+    payload: BoardResetRequest,
+    session: SessionDep,
+    access: ChildAccess = Depends(child_access_from_body("parent")),
+) -> BoardResetResponse:
+    day = today_in(access.child.family_timezone)
+
+    # Hard delete, like reset-today: assignments are scheduler output rather than archive, and
+    # this is the one place in the service allowed to treat them that way.
+    cleared = await session.execute(
+        delete(Assignment).where(
+            Assignment.child_id == access.child_id, Assignment.assigned_on == day
+        )
+    )
+
+    created: list[str] = []
+    unavailable: list[str] = []
+
+    # `uq_assignments_child_id_assigned_on_slot` allows one assignment per slot per day — the
+    # "one child, one slot, one date" signature in docs/data-model.md. A test board wanting one
+    # of every *kind* therefore has to spread them across slots, because photo, video and
+    # activity would otherwise all want `mission` and the second insert would fail.
+    spare_slots = ["mission", "weekly", "monthly"]
+
+    for kind in payload.kinds:
+        prompt = await session.scalar(
+            select(Prompt)
+            .where(Prompt.kind == kind, Prompt.active.is_(True), Prompt.cadence == "daily")
+            .order_by(Prompt.id)
+            .limit(1)
+        )
+        if prompt is None:
+            # An inactive kind — audio today — has no prompt to serve. Saying so beats
+            # silently returning a shorter board than was asked for.
+            unavailable.append(kind)
+            continue
+
+        if kind == "question":
+            slot = "question"
+        elif kind == "letter":
+            slot = "letter"
+        elif spare_slots:
+            slot = spare_slots.pop(0)
+        else:
+            unavailable.append(kind)
+            continue
+
+        session.add(
+            Assignment(
+                child_id=access.child_id,
+                prompt_id=prompt.id,
+                slot=slot,
+                assigned_on=day,
+                expires_on=day + dt.timedelta(days=14),
+                status="pending",
+            )
+        )
+        created.append(kind)
+
+    await session.flush()
+    return BoardResetResponse(
+        date=day, cleared=cleared.rowcount or 0, created=created, unavailable=unavailable
+    )

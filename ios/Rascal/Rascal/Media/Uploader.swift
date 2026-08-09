@@ -38,6 +38,34 @@ final class MediaUploader: NSObject {
         return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
     }()
 
+    /// Last persisted byte count per task, so progress writes can be throttled without
+    /// re-reading the row to find out what was last written.
+    private let progressLock = NSLock()
+    private var lastPersisted: [Int: Int] = [:]
+
+    /// True when this callback is worth a database write.
+    ///
+    /// Terminal values always pass: the last callback of a part must land, or the ring stops
+    /// short of full and stays there.
+    private func shouldPersistProgress(task: URLSessionTask, bytes: Int, of expected: Int) -> Bool {
+        progressLock.lock()
+        defer { progressLock.unlock() }
+
+        let key = task.taskIdentifier
+        let previous = lastPersisted[key] ?? 0
+        let step = max(256 * 1024, expected / 100)
+
+        guard bytes >= previous + step || (expected > 0 && bytes >= expected) else { return false }
+        lastPersisted[key] = bytes
+        return true
+    }
+
+    private func forgetProgress(for task: URLSessionTask) {
+        progressLock.lock()
+        defer { progressLock.unlock() }
+        lastPersisted[task.taskIdentifier] = nil
+    }
+
     /// Rule 3. Never a stored context — a context outlives its usefulness across a relaunch,
     /// and the delegate may run before any exists.
     private func makeContext() -> ModelContext {
@@ -142,6 +170,16 @@ extension MediaUploader: URLSessionDataDelegate {
         totalBytesExpectedToSend: Int64
     ) {
         guard let route = Self.route(task) else { return }
+
+        // Persist coarsely. This fires many times a second per part, parts run concurrently,
+        // and every save wakes the @Query behind Today — which re-runs the whole board merge.
+        // Photos finished too fast for that to show; a 70MB video turned it into hundreds of
+        // full re-renders a second, which is what made the app feel slow.
+        //
+        // A ring cannot render more finely than a pixel anyway, so ~1% is free.
+        guard shouldPersistProgress(task: task, bytes: Int(totalBytesSent), of: Int(totalBytesExpectedToSend))
+        else { return }
+
         let context = makeContext()
 
         if let partNumber = route.part {
@@ -169,6 +207,7 @@ extension MediaUploader: URLSessionDataDelegate {
         let context = makeContext()
 
         guard let route = Self.route(task) else { return }
+        forgetProgress(for: task)
 
         if let partNumber = route.part {
             finishPart(route.mediaId, partNumber, task: task, error: error, context: context)
@@ -292,8 +331,14 @@ extension MediaUploader: URLSessionDataDelegate {
     }
 
     static func parts(of mediaId: UUID, in context: ModelContext) -> [MediaPart] {
-        let all = (try? context.fetch(FetchDescriptor<MediaPart>())) ?? []
-        return all.filter { $0.mediaId == mediaId }.sorted { $0.partNumber < $1.partNumber }
+        // Predicate-filtered, not fetch-everything-then-filter. This runs on the progress path
+        // for every part of every upload, and reading the whole table each time is how a
+        // 70MB video made the app crawl.
+        let descriptor = FetchDescriptor<MediaPart>(
+            predicate: #Predicate { $0.mediaId == mediaId },
+            sortBy: [SortDescriptor(\.partNumber)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
     }
 
     private static func media(id: UUID, in context: ModelContext) -> Media? {
