@@ -171,24 +171,31 @@ final class TimelineModel {
         }
     }
 
-    /// The oldest row the list is currently showing, under the active filter.
+    /// The oldest row **the server has given us**, under the active filter.
     ///
-    /// Filtered the same way the screen's `@Query` is, so "the bottom of the list" means the
-    /// same thing to the pager as it does to the parent looking at it.
+    /// Filtered the same way the screen's `@Query` is, with one addition that is easy to miss
+    /// and expensive to get wrong: `existsOnServer`. A row written on this phone and not yet
+    /// pushed is on screen, but it is **not a position in the server's ordering** — the server
+    /// has never heard of it. Someone scans a photo from 1990 and files it on the day it was
+    /// taken; it becomes the bottom of the list, the seed asks for everything older than 1990,
+    /// the answer is nothing, and every page between there and the last one fetched is stranded
+    /// until the next refresh. Backdating is a first-class flow here, so this is a thing that
+    /// happens, not an edge case.
     private func oldestCachedOccurredAt() -> Date? {
         let child = childId
         var descriptor: FetchDescriptor<Entry>
         if let wanted = filter.queryValue {
             descriptor = FetchDescriptor<Entry>(
                 predicate: #Predicate<Entry> { entry in
-                    entry.childId == child && entry.deletedAt == nil && entry.entryType == wanted
+                    entry.childId == child && entry.deletedAt == nil
+                        && entry.existsOnServer && entry.entryType == wanted
                 },
                 sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
             )
         } else {
             descriptor = FetchDescriptor<Entry>(
                 predicate: #Predicate<Entry> { entry in
-                    entry.childId == child && entry.deletedAt == nil
+                    entry.childId == child && entry.deletedAt == nil && entry.existsOnServer
                 },
                 sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
             )

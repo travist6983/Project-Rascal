@@ -219,6 +219,50 @@ struct TimelinePagingTests {
         #expect(model.reachedEnd)
     }
 
+    @Test("an entry backdated past the archive does not strand everything above it")
+    func unsyncedFloorIsNotAPosition() async throws {
+        // Someone scans a photo from 1990 and files it on the day it was taken, offline. It is
+        // now the oldest row in the cache — but it is not a position in the server's ordering,
+        // because the server has never seen it. Seeding from it asks for rows older than 1990,
+        // gets nothing, and concludes the archive has ended, stranding every page between the
+        // last one fetched and 1990.
+        let context = try makeContext()
+        let child = UUID()
+        let recent = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let performer = StubPerformer()
+        let first = pageJSON(
+            [entryJSON(id: UUID(), childId: child, occurredAt: recent)],
+            cursor: "cursor-one"
+        )
+        let older = pageJSON(
+            [entryJSON(id: UUID(), childId: child, occurredAt: recent.addingTimeInterval(-86_400))],
+            cursor: nil
+        )
+        performer.on("/entries") { hit in (hit == 1 ? first : older, 200) }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.start()
+
+        // The scanned photo, written locally and not yet pushed.
+        let scanned = Entry(
+            childId: child,
+            occurredAt: Date(timeIntervalSince1970: 631_152_000),  // 1990-01-01
+            body: "scanned from the album"
+        )
+        context.insert(scanned)
+        try context.save()
+
+        await model.loadMoreIfNeeded()
+
+        let window = try #require(befores(performer).last.flatMap { $0 }.flatMap(ISO8601Formatters.parse))
+        #expect(
+            window > Date(timeIntervalSince1970: 1_600_000_000),
+            "the seed must come from a row the server has actually given us, not from a local one"
+        )
+        #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 3, "the next page still arrived")
+    }
+
     @Test("a refresh re-seeds from the cache rather than resuming where paging had reached")
     func refreshResetsTheContinuation() async throws {
         // Pull-to-refresh re-reads page one. If it left the continuation in place, the next
