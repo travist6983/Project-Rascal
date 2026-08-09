@@ -133,7 +133,7 @@ struct TodayScreen: View {
                 Text(child.name)
                     .typeRole(.display)
                     .foregroundStyle(Color.ink)
-                Text(ageText(child.ageMonths))
+                Text(AgeText.greeting(child.ageMonths))
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
             }
@@ -158,14 +158,6 @@ struct TodayScreen: View {
             .buttonStyle(TapScaleButtonStyle())
             .accessibilityLabel("Refresh")
         }
-    }
-
-    /// Read from the server's `age_months`, never computed from a birthdate here.
-    private func ageText(_ months: Int) -> String {
-        let years = months / 12, rest = months % 12
-        if years == 0 { return "\(months) month\(months == 1 ? "" : "s") old" }
-        if rest == 0 { return "\(years) year\(years == 1 ? "" : "s") old" }
-        return "\(years)y \(rest)m"
     }
 
     @ViewBuilder
