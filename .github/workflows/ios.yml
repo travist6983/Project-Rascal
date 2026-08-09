@@ -1,0 +1,118 @@
+name: iOS
+
+# The iOS lane had no gate at all until now: `ci.yml` is scoped to `api/**`, so an iOS-only pull
+# request reported a reassuring nothing, and "the tests passed on my machine" was the only
+# assurance anyone had. Tolerable at one branch; not once two people — or two agents — are
+# landing Swift.
+#
+# Deliberately its own workflow rather than a job inside `ci.yml`. macOS runners bill at roughly
+# ten times the Linux rate, so the filter below has to stay tight, and a separate file makes it
+# obvious what triggers the expensive thing.
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - 'ios/**'
+      # Markdown under ios/ — reports, the device session — cannot change a build. Excluded so
+      # editing a document does not spend a macOS runner. Negations must come after the pattern
+      # they narrow; GitHub applies these in order.
+      - '!ios/**.md'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '!ios/**.md'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  # Cancel superseded runs. Unlike deploy there is nothing half-applied to protect, and a queued
+  # macOS runner is the most expensive idle thing in this repo.
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Runner images ship several Xcodes and default to one that is not necessarily ours.
+      # Selecting explicitly means an image update cannot silently change the compiler, and
+      # printing it means the log says which was used.
+      - name: Select and report Xcode
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      # Config.xcconfig is gitignored — it holds the dev child id and the API host — so CI has to
+      # create one. The values are never contacted: there are no network tests, by design. What
+      # matters is the *shape*, so a key added to the example but not produced by it fails here
+      # rather than resolving to empty at build time.
+      - name: Provide a build configuration
+        run: |
+          set -euo pipefail
+          cp ios/Rascal/Config.xcconfig.example ios/Rascal/Config.xcconfig
+
+          missing=""
+          for key in API_SCHEME API_HOST API_BASE_URL DEV_LOGIN_EMAIL DEV_CHILD_ID; do
+            grep -qE "^${key} *=" ios/Rascal/Config.xcconfig || missing="$missing $key"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Config.xcconfig.example is missing:${missing}"
+            exit 1
+          fi
+
+      # A simulator named exactly is a hostage to whatever image ships this month;
+      # `generic/platform=iOS Simulator` lets xcodebuild choose, so an image update cannot break
+      # the run with "device not found". No xcbeautify: it is not guaranteed present, and a
+      # prettier log is not worth a dependency that can vanish.
+      - name: Test
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project ios/Rascal/Rascal.xcodeproj \
+            -scheme Rascal \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee xcodebuild.log
+          echo "--- result ---"
+          grep -E "Test run with|Executed .* test" xcodebuild.log | tail -3 || true
+
+      # A warning introduced today is a warning ignored forever. Grepping the log rather than
+      # parsing an .xcresult bundle: the bundle's schema moves between Xcode versions and the
+      # parsing breaks silently, whereas a compiler warning has said `path:line: warning:` for
+      # twenty years. Scoped to this project's own sources so SDK and toolchain noise cannot
+      # fail a build for something nobody here can fix.
+      - name: No new warnings in our own sources
+        if: success()
+        run: |
+          set -uo pipefail
+          grep -E "ios/Rascal/(Rascal|RascalTests)/.*: warning:" xcodebuild.log | sort -u > ours.txt || true
+          count=$(wc -l < ours.txt | tr -d ' ')
+          echo "warnings in ios/Rascal/{Rascal,RascalTests}: ${count}"
+          if [ "$count" != "0" ]; then
+            sed 's/^/::error::/' ours.txt
+            exit 1
+          fi
+
+      - name: Keep the log when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### iOS"
+            echo ""
+            echo "- scheme: \`Rascal\`, generic iOS Simulator"
+            echo "- \`$(xcodebuild -version | head -1)\`"
+            grep -E "Test run with" xcodebuild.log | tail -1 || true
+          } >> "$GITHUB_STEP_SUMMARY"
