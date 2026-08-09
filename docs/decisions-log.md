@@ -744,3 +744,30 @@ minutes each** — 1.5–3.5% of a month's allowance per run.
   archive's insurance, it runs on Linux, and it costs about 45 minutes a month. Left alone.
 - **Rejected: making the repo public**, which would make Actions free outright. `docs/` is
   full of personal context about a specific child. Not a trade worth $5.
+
+## Aug 9, 2026 — what CI caught the moment it came back
+
+The billing block cleared between 18:36Z and 18:53Z. The first `iOS` run that was allowed to
+execute failed, and it was right to.
+
+- **`Sync at scale` is `.serialized`, and it is about the measurement rather than about safety.**
+  All three tests there are `@MainActor` and all three apply 736 entries; Swift Testing runs
+  tests in parallel by default, so they interleave onto the one main actor and the wall clock
+  each test reads spans the other two's work. `fullPullAtArchiveScale` measured **2.7s alone,
+  10.7s beside its siblings locally, and 47.5s on the CI runner** — failing a 30s budget the
+  apply is nowhere near. No assertion and no budget changed; the trait makes `elapsed` measure
+  the one cold start the assertion names.
+- **The general lesson, worth more than the fix: a wall-clock assertion inside a parallel suite
+  measures the machine's contention, not the code.** It was invisible on a fast laptop for
+  exactly as long as CI was down. Any future timing assertion belongs in a serialized suite.
+- **Rejected: raising the 30s budget.** That is editing an assertion to make a test pass, and it
+  would have buried the real finding — that the number being asserted on was never the number
+  the test claimed to measure.
+- **The dry-run report now states its own cost**, split into time waiting on `/sync` and time in
+  the apply, because the apply runs on the main actor and the network does not — one total would
+  hide which of the two a slow pull actually was. The report is the only artefact the first real
+  pull is judged from, and the top open question about this engine is main-actor cost, so a
+  report that omitted it was asking for a judgement it withheld the evidence for.
+- **Timed on `ContinuousClock`, not `Date`.** A wall clock can step sideways mid-pull — NTP, a
+  timezone change — and a negative duration in the report reads as a performance problem that
+  never happened.
