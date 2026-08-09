@@ -100,7 +100,7 @@ final class Entry {
     }
 }
 
-enum SyncState: RawRepresentable, Equatable, Sendable {
+nonisolated enum SyncState: RawRepresentable, Equatable, Sendable {
     case pending, synced, failed
     case unknown(String)
 
@@ -124,7 +124,7 @@ enum SyncState: RawRepresentable, Equatable, Sendable {
 }
 
 /// `photo` · `video` · `audio` · `text` · `did_it`. Server-derived.
-enum EntryType: RawRepresentable, Equatable, Sendable {
+nonisolated enum EntryType: RawRepresentable, Equatable, Sendable {
     case photo, video, audio, text, didIt
     case unknown(String)
 
@@ -155,7 +155,7 @@ enum EntryType: RawRepresentable, Equatable, Sendable {
 
 /// `POST /v1/entries`. `entry_type` is deliberately absent — the server derives it and
 /// ignores anything sent, so including it would be a lie the client tells itself.
-struct EntryCreateRequest: Encodable {
+nonisolated struct EntryCreateRequest: Encodable {
     let id: UUID
     let childId: UUID
     let assignmentId: UUID?
@@ -166,7 +166,7 @@ struct EntryCreateRequest: Encodable {
     let tags: [String]
 }
 
-struct EntryResponse: Decodable, Identifiable {
+nonisolated struct EntryResponse: Decodable, Identifiable {
     let id: UUID
     let childId: UUID
     let assignmentId: UUID?

@@ -44,10 +44,12 @@ final class MediaCoordinator {
     private let uploader: MediaUploader
     private var sweeping = false
 
-    init(api: APIClient, store: StagingStore = StagingStore(), uploader: MediaUploader = .shared) {
+    /// The uploader defaults inside the body rather than in the signature: a default argument
+    /// is evaluated in a nonisolated context, and `MediaUploader.shared` is main-actor bound.
+    init(api: APIClient, store: StagingStore = StagingStore(), uploader: MediaUploader? = nil) {
         self.api = api
         self.store = store
-        self.uploader = uploader
+        self.uploader = uploader ?? .shared
     }
 
     private func context() -> ModelContext { ModelContext(LocalStore.shared) }

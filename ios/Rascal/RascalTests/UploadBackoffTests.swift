@@ -177,7 +177,7 @@ struct UploadBackoffTests {
     func uploadedRetriesCompletionOnly() throws {
         let context = try makeContext()
         // The PUT landed; only the acknowledgement failed.
-        let row = media(in: context, state: .uploaded)
+        _ = media(in: context, state: .uploaded)
 
         let due = MediaCoordinator.dueMedia(in: context)
 
@@ -189,8 +189,8 @@ struct UploadBackoffTests {
     @Test("a row already in flight is not started twice")
     func skipsInFlight() throws {
         let context = try makeContext()
-        let row = media(in: context)
-        #expect(MediaCoordinator.dueMedia(in: context, excluding: [row.id]).isEmpty)
+        let inFlight = media(in: context)
+        #expect(MediaCoordinator.dueMedia(in: context, excluding: [inFlight.id]).isEmpty)
     }
 
     // MARK: Media waits for its entry
@@ -234,7 +234,7 @@ struct UploadBackoffTests {
     @Test("a completed or deleted row is never swept")
     func skipsFinishedAndDeleted() throws {
         let context = try makeContext()
-        media(in: context, state: .complete)
+        _ = media(in: context, state: .complete)
         let deleted = media(in: context)
         deleted.deletedAt = Date()
 

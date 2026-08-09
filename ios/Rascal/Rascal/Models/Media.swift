@@ -118,7 +118,7 @@ final class Media {
     }
 }
 
-enum MediaUploadState: RawRepresentable, Equatable, Sendable {
+nonisolated enum MediaUploadState: RawRepresentable, Equatable, Sendable {
     /// On disk, nothing sent.
     case staged
     /// A background task is carrying the bytes.

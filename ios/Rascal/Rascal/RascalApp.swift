@@ -20,7 +20,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
         // Touching `shared` here is what re-creates the session and reattaches the delegate
         // on a launch that exists only to deliver these events.
-        MediaUploader.shared.backgroundCompletionHandler = completionHandler
+        // UIKit hands this over non-Sendable, but it is only ever called once, on the main
+        // queue, by the delegate. Wrapping states that rather than leaving the compiler to
+        // assume the worst.
+        let handler = completionHandler
+        MediaUploader.shared.backgroundCompletionHandler = { handler() }
         MediaUploader.shared.activate()
     }
 }

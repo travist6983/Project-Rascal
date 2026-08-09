@@ -42,7 +42,7 @@ extension APIClient {
     }
 }
 
-struct ChildResponse: Decodable, Identifiable {
+nonisolated struct ChildResponse: Decodable, Identifiable {
     let id: UUID
     let name: String
     let birthdate: String
@@ -53,7 +53,7 @@ struct ChildResponse: Decodable, Identifiable {
 
 // MARK: - Media
 
-struct UploadTicket: Decodable {
+nonisolated struct UploadTicket: Decodable {
     let mediaId: UUID
     let s3Key: String
     /// Exactly one of these is set. Single PUT under the multipart threshold.
@@ -67,7 +67,7 @@ struct UploadTicket: Decodable {
     var uploadURL: String? { uploadUrl }
 }
 
-private struct UploadURLRequest: Encodable {
+private nonisolated struct UploadURLRequest: Encodable {
     let mediaId: UUID
     let entryId: UUID
     let kind: String
@@ -76,7 +76,7 @@ private struct UploadURLRequest: Encodable {
     let contentType: String
 }
 
-private struct CompleteRequest: Encodable {
+private nonisolated struct CompleteRequest: Encodable {
     let capturedAt: Date?
     let durationSeconds: Int?
 }
@@ -133,7 +133,7 @@ extension APIClient {
     }
 }
 
-private struct EntryUpdateRequest: Encodable {
+private nonisolated struct EntryUpdateRequest: Encodable {
     let occurredAt: Date
     let title: String?
     let body: String?

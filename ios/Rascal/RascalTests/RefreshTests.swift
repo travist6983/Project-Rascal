@@ -34,16 +34,22 @@ final class StubPerformer: HTTPPerforming, @unchecked Sendable {
             try await Task.sleep(for: refreshDelay)
         }
 
-        lock.lock()
-        requests.append(request)
-        hits[path, default: 0] += 1
-        let n = hits[path] ?? 1
-        let rule = rules.last { $0.match(request) }
-        lock.unlock()
+        // Locking is confined to a synchronous helper. Taking a lock directly in an `async`
+        // function is what the compiler objects to — nothing here is held across a suspension,
+        // but the diagnostic is about shape, not about this particular body being safe.
+        let (n, rule) = record(request, path: path)
 
         guard let rule else { return (Data("{}".utf8), http(request, 200)) }
         let (data, status) = rule.respond(n)
         return (data, http(request, status))
+    }
+
+    /// Synchronous by design — see `perform`.
+    private func record(_ request: URLRequest, path: String) -> (Int, Rule?) {
+        lock.lock(); defer { lock.unlock() }
+        requests.append(request)
+        hits[path, default: 0] += 1
+        return (hits[path] ?? 1, rules.last { $0.match(request) })
     }
 
     private func http(_ request: URLRequest, _ status: Int) -> HTTPURLResponse {

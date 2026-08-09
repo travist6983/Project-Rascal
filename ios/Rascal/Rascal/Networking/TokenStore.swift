@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-struct TokenPair: Equatable, Sendable {
+nonisolated struct TokenPair: Equatable, Sendable {
     var accessToken: String
     var refreshToken: String
 }
@@ -11,13 +11,13 @@ struct TokenPair: Equatable, Sendable {
 /// Keychain rather than UserDefaults: these tokens reach a child's photos and voice. Backed by
 /// `kSecAttrAccessibleAfterFirstUnlock` so a background refresh after a reboot still works,
 /// while the values stay unreadable on a device that has never been unlocked.
-protocol TokenStoring: Sendable {
+nonisolated protocol TokenStoring: Sendable {
     func load() -> TokenPair?
     func save(_ pair: TokenPair)
     func clear()
 }
 
-final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
+nonisolated final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
     private let service: String
     private let account = "session"
     private let lock = NSLock()
@@ -89,7 +89,7 @@ final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
 }
 
 /// For tests and previews. Never used by the app.
-final class InMemoryTokenStore: TokenStoring, @unchecked Sendable {
+nonisolated final class InMemoryTokenStore: TokenStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var pair: TokenPair?
 
