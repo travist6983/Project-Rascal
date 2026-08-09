@@ -51,7 +51,7 @@ extension APIClient {
     }
 }
 
-nonisolated struct ChildResponse: Decodable, Identifiable {
+nonisolated struct ChildResponse: Decodable, Identifiable, Equatable, Sendable {
     let id: UUID
     let name: String
     let birthdate: String

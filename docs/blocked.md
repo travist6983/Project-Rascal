@@ -5,7 +5,61 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker daemon.
+Last reviewed: **Aug 9, 2026**, after onboarding was built against the merged API.
+
+---
+
+## iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live
+
+Found by building first-run setup against the merged API. Neither blocks onboarding, which ships
+complete: the avatar is optional by design and a skipped one is a finished setup. Both are Lane A's
+to own.
+
+### There is no endpoint that presigns an upload for a child's avatar
+
+`children.avatar_key` exists and `PATCH /children/{id}` accepts it, so the *destination* is
+modelled. Nothing mints a key. The only presign route is `POST /media/upload-url`, and
+`UploadUrlRequest.entry_id` is **required** — its access check is `entry_access_from_body` and
+`plan_upload` creates a `media` row against an entry. There is no child-scoped equivalent, and the
+registered router list in `main.py` has nothing else that could serve one.
+
+**Not worked around, deliberately.** Pushing avatar bytes through the entry-scoped route would
+file a picture of a child in the archive as some entry's artifact — a wrong row in a permanent
+archive, which is worse than no upload. So the processed image is stored on the device only, by
+`LocalAvatarStore` in `Application Support/avatars/`, and `avatar_key` stays null.
+
+**Consequence:** an avatar does not survive a new phone and does not reach the browser client
+reserved for 2027. Everything else about the child does.
+
+**What the client needs.** A child-scoped presign, mirroring the media one minus the entry:
+
+```
+POST /v1/children/{child_id}/avatar-upload-url
+Body:     { "content_type": "image/jpeg", "bytes": 41234 }
+Returns:  { "upload_url": "https://…", "avatar_key": "children/{id}/avatar/{uuid}.jpg",
+            "expires_in": 900 }
+```
+
+Parent role, single PUT only — an avatar is a ~512px square and never needs multipart. The client
+would then `PATCH /children/{id}` with the returned `avatar_key`, which already works today. A
+matching `GET /v1/children/{id}/avatar-url` is needed to read it back, since the bucket is private.
+`LocalAvatarStore` is the seam that would be swapped, and the crop and JPEG conversion already run.
+
+### Onboarding cannot collect pronouns, because `children` has no column for them
+
+`docs/decisions.md` open item 10 says the mission library stays he/him until **onboarding collects
+the child's pronouns**, and lists it as needed "with onboarding". This phase built onboarding and
+**could not close it.** `Child` has `name`, `birthdate`, `avatar_key`, `family_timezone` and
+nothing else (`api/src/rascal/models/child.py`), so there is nowhere to put the answer, and adding
+a column is a Lane A change the iOS lane may not make.
+
+Asking for pronouns and then discarding them would be worse than not asking, so onboarding does
+not ask. Client copy is neutral throughout and needs no pronoun to render.
+
+**What it needs:** a nullable `children.pronouns` (`text` + a named `CHECK`, per the enum
+convention), exposed on `ChildCreate`, `ChildUpdate` and `ChildOut`. The rendering half — pronoun
+substitution in prompt bodies — is separable and is the part item 10 says not to let the `{name}`
+token block.
 
 ---
 

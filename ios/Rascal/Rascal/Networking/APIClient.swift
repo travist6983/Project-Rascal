@@ -313,6 +313,30 @@ actor APIClient {
         return session
     }
 
+    /// `POST /v1/auth/apple` — exchange a Sign in with Apple credential for a session.
+    ///
+    /// **`display_name` is omitted when Apple did not supply one — never null, never empty.**
+    /// Apple populates `fullName` only on the very first authorization for a given Apple ID,
+    /// ever, and deleting the app does not reset that, so every later sign-in has no name to
+    /// send. The server applies first-write-wins and leaves the stored value alone when the
+    /// field is absent; an empty string would be a *value*, and it could not tell that from
+    /// "this parent's name is blank". `AppleSignInRequest.encode(to:)` is where that is
+    /// enforced, and `OnboardingAuthTests` is what keeps it enforced.
+    @discardableResult
+    func signInWithApple(_ exchange: AppleExchange) async throws -> SessionResponse {
+        let session: SessionResponse = try await send(
+            .post, "v1/auth/apple",
+            body: AppleSignInRequest(
+                identityToken: exchange.identityToken,
+                authorizationCode: exchange.authorizationCode,
+                displayName: exchange.displayName
+            ),
+            authenticated: false
+        )
+        tokens.save(TokenPair(accessToken: session.accessToken, refreshToken: session.refreshToken))
+        return session
+    }
+
     func hasSession() -> Bool { tokens.load() != nil }
 
     func signOut() { tokens.clear() }

@@ -42,7 +42,9 @@ struct RascalApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            // The gate decides whether this launch has a session and a child, and renders
+            // `RootView` once it does. It owns the one `AppSession` in the process.
+            OnboardingGate()
         }
         .modelContainer(container)
     }

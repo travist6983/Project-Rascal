@@ -1,0 +1,45 @@
+<!-- @dsCard group="Components" viewport="700x400" name="App" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const NS = window.RASCAL || window.RASCALDesignSystem || window.Rascal || {};
+const { PromptCard, TimelineEntry, AgeChip, TabBar, WaveformMeter, RecordButton, ProgressBar, NotificationPreview } = NS;
+
+function Demo() {
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+      <ProgressBar step={3} total={5} />
+      <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
+        <PromptCard style={{flex:1}} kind="voice" cta="Record it"
+          prompt="Ask Milo what the best part of today was. Hold the phone and let him talk." />
+        <PromptCard style={{flex:1}} kind="question" cta="Write it"
+          prompt="What's the thing he does that nobody else would notice?" />
+        <PromptCard style={{width:170}} kind="did" compact
+          prompt="Ten minutes on the floor. Nothing to save." />
+      </div>
+      <div style={{display:'flex',gap:20,alignItems:'center'}}>
+        <TimelineEntry style={{flex:1}} live date="AUG 8, 2026" age="4 years, 2 months"
+          kind="voice" prompt="Ask Milo what the best part of today was." artifact="0:34 · his voice" />
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10}}>
+          <RecordButton recording />
+          <WaveformMeter active height={48} style={{width:180}} />
+          <AgeChip prefix="Age">4y 2m</AgeChip>
+        </div>
+      </div>
+      <NotificationPreview body="Today: photograph the mess Milo made. Don't clean it up first." />
+      <div style={{position:'relative',height:92,borderRadius:24,background:'var(--rascal-canvas)',border:'1px solid var(--rascal-border)'}}>
+        <TabBar active="Today" />
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+</script>
+</body></html>

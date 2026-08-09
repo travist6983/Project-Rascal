@@ -2,7 +2,9 @@ import SwiftData
 import SwiftUI
 
 struct RootView: View {
-    @State private var session = AppSession.live()
+    /// Owned by `OnboardingGate` and handed down, so the whole process shares one `APIClient`
+    /// and one single-flight refresh. Two would race a rotating refresh token against itself.
+    let session: AppSession
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?

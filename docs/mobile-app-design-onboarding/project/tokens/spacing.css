@@ -1,0 +1,25 @@
+/* No strict 4/8 grid — the source uses the values it uses. These are the
+   ones that actually repeat. */
+:root {
+  --rascal-space-1:  4px;
+  --rascal-space-2:  8px;
+  --rascal-space-3:  10px;
+  --rascal-space-4:  12px;
+  --rascal-space-5:  14px;
+  --rascal-space-6:  18px;
+  --rascal-space-7:  20px;
+  --rascal-space-8:  22px;
+  --rascal-space-9:  26px;
+  --rascal-space-10: 34px;
+  --rascal-space-11: 56px;
+
+  --rascal-wrap: 1180px;
+  --rascal-pad: 24px;
+
+  /* App gutters, measured from the 393pt screens */
+  --rascal-app-gutter: 22px;
+  --rascal-app-gutter-wide: 30px;
+  --rascal-app-safe-top: 88px;
+  --rascal-app-safe-bottom: 34px;
+  --rascal-app-tabbar-clearance: 110px;
+}
