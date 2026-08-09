@@ -42,9 +42,20 @@ final class Media {
     var uploadState: String
 
     var s3Key: String?
+    /// The server's thumbnail key. **Null on every row today** — that pipeline was cut from P0
+    /// — so the timeline derives its own from the original. Stored anyway, because the day it
+    /// stops being null is the day the client should stop downloading full-size photos.
+    var thumbKey: String?
     /// From the upload-url response. Unused on the single-PUT path — it is null there — but
     /// stored so the multipart phase reads the server's number rather than guessing 8MB.
     var chunkBytes: Int?
+
+    // MARK: Derived — written back from the phone, owned by the server afterwards
+
+    /// On-device transcription, persisted through `PATCH /media/{id}/derived`. Cached here so
+    /// a voice entry reads as text offline. The server never regenerates it.
+    var transcript: String?
+    var caption: String?
     /// Returned by storage on a successful PUT and required by `complete`.
     var etag: String?
 
@@ -122,6 +133,65 @@ final class Media {
     /// Outstanding work, for the one sweep that owns retries.
     var needsUpload: Bool {
         deletedAt == nil && !isComplete && state != .uploading
+    }
+
+    // MARK: Rows the server told us about
+
+    /// A media row this phone never staged, cached from a timeline or detail response.
+    ///
+    /// **Only ever built from a `complete` summary.** A row the server still calls pending has
+    /// no bytes anywhere this device can reach, and creating it locally would put it in the
+    /// upload sweep — which would look for a staged file that was never here, find nothing, and
+    /// mark a perfectly healthy upload on someone else's phone as failed.
+    ///
+    /// `contentType` is inferred from `kind` rather than carried on the wire, because
+    /// `MediaSummary` does not include it. It is only ever read on the upload path, which a
+    /// complete row can no longer take.
+    static func fromServer(_ summary: MediaSummaryResponse, entryId: UUID) -> Media? {
+        guard summary.isComplete else { return nil }
+        let media = Media(
+            id: summary.id,
+            entryId: entryId,
+            kind: summary.kind,
+            contentType: summary.mediaKind.archiveContentType,
+            byteCount: summary.bytes,
+            capturedAt: summary.capturedAt,
+            durationSeconds: summary.durationSeconds
+        )
+        media.applyServerSummary(summary)
+        return media
+    }
+
+    /// Fold a summary onto an existing row.
+    ///
+    /// Upload state is written **only forward, to complete**. A row this phone is mid-upload on
+    /// must not be dragged back to `staged` by a list response that raced the acknowledgement.
+    func applyServerSummary(_ summary: MediaSummaryResponse) {
+        s3Key = summary.s3Key
+        thumbKey = summary.thumbKey
+        durationSeconds = summary.durationSeconds ?? durationSeconds
+        capturedAt = summary.capturedAt ?? capturedAt
+        // Detail carries these; a list row does not, and must not blank what detail cached.
+        transcript = summary.transcript ?? transcript
+        caption = summary.caption ?? caption
+        if summary.isComplete, !isComplete {
+            state = .complete
+            attemptCount = 0
+            nextAttemptAt = nil
+        }
+    }
+}
+
+extension PromptKind {
+    /// What the archive stores for this kind. The decisions behind these are in
+    /// `ImagePipeline` (JPEG, not HEIC) and `VideoPipeline` (H.264 in MP4).
+    var archiveContentType: String {
+        switch self {
+        case .photo: "image/jpeg"
+        case .video: "video/mp4"
+        case .audio: "audio/m4a"
+        default: "application/octet-stream"
+        }
     }
 }
 
