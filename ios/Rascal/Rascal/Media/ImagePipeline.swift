@@ -119,6 +119,13 @@ enum ImagePipeline {
         return data
     }
 
+    /// A poster frame is already a CGImage from AVFoundation, so it skips the source-based
+    /// path and only needs the same alpha-stripped JPEG encoding everything else gets.
+    static func encodeJPEGForPoster(_ image: CGImage) throws -> Data {
+        guard let data = encodeJPEG(image, quality: 0.8) else { throw Failure.encodingFailed }
+        return data
+    }
+
     static func makeThumbnail(fileAt url: URL) throws -> Data {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
             throw Failure.unreadable

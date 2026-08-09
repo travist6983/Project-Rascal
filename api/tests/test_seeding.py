@@ -27,8 +27,9 @@ ELIGIBLE_AT_48_MONTHS = {
 }
 
 TOTAL_PROMPTS = 113
-# Seeded minus the kinds no client can complete yet — 11 daily video, 1 weekly video, 12 audio.
-ACTIVE_PROMPTS = 89
+# Seeded minus the kinds no client can complete yet. Video returned when multipart shipped;
+# only the 12 audio prompts remain inactive, pending a recorder.
+ACTIVE_PROMPTS = 101
 
 
 def _buckets() -> dict[str, list[dict]]:
@@ -57,8 +58,8 @@ def test_every_seeded_prompt_parses_and_validates() -> None:
     # so re-enabling is one line in mission_library_to_yaml.py when the capability lands.
     active = {row["kind"] for row in rows if row["active"]}
     inactive = {row["kind"] for row in rows if not row["active"]}
-    assert inactive == {"video", "audio"}, f"unexpected inactive kinds: {inactive}"
-    assert not (active & {"video", "audio"}), "an uncompletable kind is being served"
+    assert inactive == {"audio"}, f"unexpected inactive kinds: {inactive}"
+    assert "audio" not in active, "an uncompletable kind is being served"
     assert sum(1 for row in rows if row["active"]) == ACTIVE_PROMPTS
 
 

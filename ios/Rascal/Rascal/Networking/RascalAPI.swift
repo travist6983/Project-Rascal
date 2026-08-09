@@ -53,11 +53,19 @@ nonisolated struct ChildResponse: Decodable, Identifiable {
 
 // MARK: - Media
 
+nonisolated struct UploadPart: Decodable {
+    let partNumber: Int
+    let uploadUrl: String
+}
+
 nonisolated struct UploadTicket: Decodable {
     let mediaId: UUID
     let s3Key: String
     /// Exactly one of these is set. Single PUT under the multipart threshold.
     let uploadUrl: String?
+    /// Present instead of `uploadUrl` when the object is large enough to need multipart. The
+    /// count is the server's, computed from `chunkBytes`.
+    let parts: [UploadPart]?
     let multipart: Bool
     /// **Null on the single-PUT path, which is normal.** Stored rather than read: the
     /// multipart phase must split at the server's number instead of assuming 8MB.
@@ -76,7 +84,15 @@ private nonisolated struct UploadURLRequest: Encodable {
     let contentType: String
 }
 
+private nonisolated struct CompletedPart: Encodable {
+    let partNumber: Int
+    let etag: String
+}
+
 private nonisolated struct CompleteRequest: Encodable {
+    /// Required for multipart, ignored for a single PUT — the server's own rule decides which,
+    /// so the client sends what it has rather than branching on file size.
+    let etags: [CompletedPart]?
     let capturedAt: Date?
     let durationSeconds: Int?
 }
@@ -113,12 +129,20 @@ extension APIClient {
     @discardableResult
     func completeMedia(
         mediaId: UUID,
+        etags: [(part: Int, etag: String)] = [],
         capturedAt: Date?,
         durationSeconds: Int?
     ) async throws -> EmptyResponse {
         try await send(
             .post, "v1/media/\(mediaId.uuidString.lowercased())/complete",
-            body: CompleteRequest(capturedAt: capturedAt, durationSeconds: durationSeconds),
+            body: CompleteRequest(
+                // Sorted by part number: the server assembles in the order it is given, and an
+                // out-of-order list produces a corrupt object rather than an error.
+                etags: etags.isEmpty ? nil : etags.sorted { $0.part < $1.part }
+                    .map { CompletedPart(partNumber: $0.part, etag: $0.etag) },
+                capturedAt: capturedAt,
+                durationSeconds: durationSeconds
+            ),
             as: EmptyResponse.self
         )
     }
