@@ -22,6 +22,29 @@ Tick each line or write down what happened instead. A line that "seemed fine" is
 
 ---
 
+## 0a. Upgrade the build in place, before anything else
+
+**Do this first, and do it before you delete anything.** This phase adds five properties to the
+`Media` `@Model` — `transcriptState`, `transcriptAttemptCount`, `transcriptNextAttemptAt`,
+`transcriptFailure`, `transcriptLocaleIdentifier`. Every one carries a declaration default or is
+optional, which is the rule in `ios/CLAUDE.md`, and **nothing in the suite or in CI can prove it
+worked.** Every test uses `isStoredInMemoryOnly: true`; `StoreMigrationTests` exercises the
+file-backed path but writes and reads the *same* schema, so it cannot see a migration from the
+previous build's store. A fresh install also starts from nothing and proves nothing.
+
+The failure mode is not subtle: the store refuses to open and the app crashes on **every** launch
+with no way back in. It has happened once already, to `bytesSent`.
+
+- [ ] Install this build **over** the existing one — `xcrun simctl install` on a device that
+      already has the previous build, or the equivalent over TestFlight. **Do not uninstall
+      first.**
+- [ ] Launch. It opens, and the timeline still has the entries it had before.
+- [ ] Check `Library/Application Support/` for the app: there must be **no**
+      `unreadable-store-*` folder. One means migration failed and the store was quarantined —
+      the app recovered, but every unsynced local write in it is stranded.
+
+Only once this passes is the rest of the page worth running.
+
 ## 0. The one that matters most, and no test can tell you
 
 **Transcription quality on a four-year-old's speech is the open question of this entire phase.**
