@@ -27,6 +27,8 @@ ELIGIBLE_AT_48_MONTHS = {
 }
 
 TOTAL_PROMPTS = 113
+# Seeded minus the kinds no client can complete yet — 11 daily video, 1 weekly video, 12 audio.
+ACTIVE_PROMPTS = 89
 
 
 def _buckets() -> dict[str, list[dict]]:
@@ -49,7 +51,15 @@ def test_every_seeded_prompt_parses_and_validates() -> None:
     rows = load_seed_file()
     assert len(rows) == TOTAL_PROMPTS
     assert all(row["source"] == "seeded" for row in rows)
-    assert all(row["active"] is True for row in rows)
+
+    # Video and audio are seeded but inactive: the client cannot complete either yet, and a
+    # prompt it cannot complete is a dead end rather than a mission. They stay in the library
+    # so re-enabling is one line in mission_library_to_yaml.py when the capability lands.
+    active = {row["kind"] for row in rows if row["active"]}
+    inactive = {row["kind"] for row in rows if not row["active"]}
+    assert inactive == {"video", "audio"}, f"unexpected inactive kinds: {inactive}"
+    assert not (active & {"video", "audio"}), "an uncompletable kind is being served"
+    assert sum(1 for row in rows if row["active"]) == ACTIVE_PROMPTS
 
 
 def test_age_ranges_and_month_tags_follow_the_conversion_rules() -> None:

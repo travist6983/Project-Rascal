@@ -595,7 +595,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -606,7 +606,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -617,7 +617,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -628,7 +628,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -639,7 +639,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -650,7 +650,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -661,7 +661,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -672,7 +672,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -683,7 +683,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -694,7 +694,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: video
   cadence: daily
   completion_mode: media
@@ -707,7 +707,7 @@
   - 6
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -718,7 +718,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -729,7 +729,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -740,7 +740,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -751,7 +751,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -762,7 +762,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -773,7 +773,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -784,7 +784,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -795,7 +795,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -806,7 +806,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -817,7 +817,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -828,7 +828,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: audio
   cadence: daily
   completion_mode: media
@@ -839,7 +839,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: activity
   cadence: daily
   completion_mode: did_it
@@ -1059,7 +1059,7 @@
   month_tags: []
   default_unlock_age: null
   source: seeded
-  active: true
+  active: false
 - kind: activity
   cadence: weekly
   completion_mode: media

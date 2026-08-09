@@ -36,6 +36,9 @@ class Section:
     fixed: dict[str, str]
 
 
+# Kinds no client can complete yet. Emptied when multipart and the recorder ship.
+UNCOMPLETABLE_KINDS = frozenset({"video", "audio"})
+
 SECTIONS: tuple[Section, ...] = (
     Section(
         "## Questions",
@@ -136,7 +139,17 @@ def _prompt(section: Section, cells: list[str]) -> dict[str, Any]:
         # Letters are sealed until the child reaches this age; everything else stays null.
         "default_unlock_age": int(fields["unlock"]) if fields.get("unlock") else None,
         "source": "seeded",
-        "active": True,
+        # A prompt the client cannot complete is a dead end, not a mission. Video needs
+        # multipart upload and audio needs a recorder; neither exists yet, so the scheduler
+        # must not serve them — a device session hit exactly this, and the composer offered
+        # a still camera on a prompt that said to film.
+        #
+        # Deliberately here rather than hand-edited into the yaml: the markdown is the
+        # authoring surface and the yaml is generated from it, so an edit made only in the
+        # yaml is erased by the next regeneration and drifts silently until then.
+        #
+        # One line to reverse when the capability lands.
+        "active": section.fixed.get("kind", fields.get("kind", "")) not in UNCOMPLETABLE_KINDS,
     }
 
 
