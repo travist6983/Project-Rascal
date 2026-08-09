@@ -140,6 +140,22 @@ struct TimelineFilterTests {
         }
     }
 
+    @Test("the empty-state sentence reads like a sentence for every filter")
+    func emptyCopyReadsWell() {
+        // Reusing the chip label produced "No photos entries so far", which a device screenshot
+        // caught and no assertion would have. These are the finished sentences.
+        #expect("No \(TimelineFilter.photo.emptyNoun) so far." == "No photos so far.")
+        #expect("No \(TimelineFilter.video.emptyNoun) so far." == "No video so far.")
+        #expect("No \(TimelineFilter.audio.emptyNoun) so far." == "No voice notes so far.")
+        #expect("No \(TimelineFilter.text.emptyNoun) so far." == "No written entries so far.")
+        #expect("No \(TimelineFilter.didIt.emptyNoun) so far." == "No did-it entries so far.")
+        // Nothing anywhere implies a day was missed.
+        for filter in TimelineFilter.allCases {
+            #expect(!filter.emptyNoun.contains("entries entries"))
+            #expect(filter.emptyNoun == filter.emptyNoun.lowercased())
+        }
+    }
+
     @Test("an entry the server has not typed yet matches only All")
     func untypedMatchesOnlyAll() {
         // Guessing a type on device would be the client deciding something the server owns,
@@ -287,6 +303,54 @@ struct EntryCacheTests {
         )
 
         #expect(media.state == .uploading)
+    }
+
+    @Test("a photo deleted on another phone leaves this one")
+    func mediaDeletedElsewhereIsMarked() throws {
+        // Every response carrying an entry carries all of its live media, so absence from that
+        // list is information rather than silence. Without acting on it the card keeps drawing a
+        // picture that is gone from the archive — `GET /entries` omits deleted media instead of
+        // returning it with a `deleted_at` the way `/sync` does.
+        let context = try makeContext()
+        let entryId = UUID()
+        let kept = UUID()
+        let removed = UUID()
+
+        EntryCache.upsert(
+            [try response(id: entryId, type: "photo", media: [mediaJSON(id: kept), mediaJSON(id: removed)])],
+            into: context
+        )
+        #expect(try context.fetch(FetchDescriptor<Media>()).filter { $0.deletedAt == nil }.count == 2)
+
+        // The same entry, now with one photo.
+        EntryCache.upsert(
+            [try response(id: entryId, type: "photo", media: [mediaJSON(id: kept)])],
+            into: context
+        )
+
+        #expect(EntryCache.media(id: kept, in: context)?.deletedAt == nil)
+        #expect(EntryCache.media(id: removed, in: context)?.deletedAt != nil)
+        // Marked, never removed. A deletion the client cannot describe is one it cannot sync.
+        #expect(try context.fetchCount(FetchDescriptor<Media>()) == 2)
+    }
+
+    @Test("a photo still uploading from this phone is not mistaken for a deleted one")
+    func inFlightMediaSurvivesAReconcile() throws {
+        // A local row the server has not been told about yet is absent from every response by
+        // definition. Marking it would throw away a photo that is still on its way.
+        let context = try makeContext()
+        let entryId = UUID()
+        let staged = Media(entryId: entryId, kind: "photo", contentType: "image/jpeg", byteCount: 900)
+        let uploading = Media(entryId: entryId, kind: "photo", contentType: "image/jpeg", byteCount: 900)
+        uploading.state = .uploading
+        context.insert(staged)
+        context.insert(uploading)
+        try context.save()
+
+        EntryCache.upsertMedia([], entryId: entryId, into: context)
+
+        #expect(staged.deletedAt == nil)
+        #expect(uploading.deletedAt == nil)
     }
 
     @Test("deleting marks the entry and its media, and removes neither")

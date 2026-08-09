@@ -68,7 +68,8 @@ enum EntryCache {
     static func upsertMedia(
         _ summaries: [MediaSummaryResponse],
         entryId: UUID,
-        into context: ModelContext
+        into context: ModelContext,
+        now: Date = Date()
     ) {
         for summary in summaries {
             if let existing = media(id: summary.id, in: context) {
@@ -76,6 +77,32 @@ enum EntryCache {
             } else if let created = Media.fromServer(summary, entryId: entryId) {
                 context.insert(created)
             }
+        }
+        markMediaDeletedElsewhere(keeping: summaries, entryId: entryId, in: context, now: now)
+    }
+
+    /// A photo removed on another phone has to leave this one.
+    ///
+    /// Every response carrying an entry carries **all** of its live media — `to_entry_out` builds
+    /// the list from scratch and `media_count` is its length — so absence from that list is
+    /// information, not silence. Without this the card keeps rendering a picture that is gone
+    /// from the archive, forever, because `GET /entries` omits deleted media rather than
+    /// returning it with a `deleted_at` the way `/sync` does.
+    ///
+    /// **Only rows the server already knows about.** A local row that is still staged, uploading,
+    /// or uploaded is one the server has not been told about yet; its absence means the upload is
+    /// unfinished, not that someone deleted it, and marking it would throw away a photo that is
+    /// still on its way.
+    private static func markMediaDeletedElsewhere(
+        keeping summaries: [MediaSummaryResponse],
+        entryId: UUID,
+        in context: ModelContext,
+        now: Date
+    ) {
+        let live = Set(summaries.map(\.id))
+        for row in media(ofEntry: entryId, in: context)
+        where row.deletedAt == nil && row.isComplete && !live.contains(row.id) {
+            row.deletedAt = now
         }
     }
 

@@ -6,10 +6,11 @@ import Testing
 
 /// Paging, and the states around its edges.
 ///
-/// The client pages by asking for everything older than the oldest row on screen, and reads the
-/// server's `next_cursor` only as "is there more". These assert that bargain: seed from the
-/// cache, overlap rather than skip, stop when the server says there is no next page, and never
-/// loop on a request that returns nothing new.
+/// The rule has two halves and both are load bearing: the first request of a run is seeded from
+/// the bottom of the cache, and every request after it follows the server's `next_cursor`. These
+/// assert each half does its job — that a warm cache pages on from its own floor, and that a page
+/// made entirely of rows already held still advances, because a keyset position advances even
+/// when the floor does not.
 @MainActor
 @Suite("Timeline paging")
 struct TimelinePagingTests {
@@ -45,14 +46,17 @@ struct TimelinePagingTests {
         return performer
     }
 
-    private func befores(_ performer: StubPerformer) -> [String?] {
+    private func query(_ performer: StubPerformer, _ name: String) -> [String?] {
         performer.requests
             .filter { $0.url?.path().contains("/entries") ?? false }
             .map { request in
                 URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
-                    .queryItems?.first { $0.name == "before" }?.value
+                    .queryItems?.first { $0.name == name }?.value
             }
     }
+
+    private func befores(_ performer: StubPerformer) -> [String?] { query(performer, "before") }
+    private func cursors(_ performer: StubPerformer) -> [String?] { query(performer, "cursor") }
 
     @Test("the first page asks for no window at all")
     func firstPageTakesNoWindow() async throws {
@@ -64,6 +68,7 @@ struct TimelinePagingTests {
         await model.start()
 
         #expect(befores(performer) == [nil])
+        #expect(cursors(performer) == [nil])
         #expect(model.hasLoaded)
         #expect(model.reachedEnd == false, "the server offered another page")
         #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 1)
@@ -100,7 +105,7 @@ struct TimelinePagingTests {
         await model.loadMoreIfNeeded()
         #expect(model.reachedEnd)
 
-        // The footer reappears every time the list settles; it must not turn into a loop.
+        // The last card reappears every time the list settles; it must not turn into a loop.
         await model.loadMoreIfNeeded()
         await model.loadMoreIfNeeded()
 
@@ -134,9 +139,10 @@ struct TimelinePagingTests {
         await model.start()
         await model.apply(.photo)
 
-        // A window belongs to one list. Carrying it into another would page the photo filter
-        // from a position established by the unfiltered one.
+        // A position belongs to one list. Carrying it into another would page the photo filter
+        // from somewhere the unfiltered one established.
         #expect(befores(performer) == [nil, nil])
+        #expect(cursors(performer) == [nil, nil])
         let types = performer.requests.compactMap { request -> String? in
             URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
                 .queryItems?.first { $0.name == "type" }?.value
@@ -177,29 +183,74 @@ struct TimelinePagingTests {
         )
     }
 
-    @Test("a page that returns only rows already held is the end, not a loop")
-    func doesNotLoopOnAnUnmovedFloor() async throws {
+    @Test("a whole page of entries sharing one instant does not stall paging")
+    func advancesPastATieEvenWhenTheFloorDoesNot() async throws {
+        // A bulk import of photos with no EXIF date gives every entry the same `occurred_at`.
+        // Seeding from the cache floor cannot get past that on its own: `before` is exclusive
+        // and compares only `occurred_at`, so the page comes back full of rows already held, the
+        // floor does not move, and an earlier version of this concluded the archive had ended —
+        // hiding everything older until the app was relaunched. The cursor is a keyset position
+        // on `(occurred_at, id)`, so it advances even when the floor cannot.
         let context = try makeContext()
         let child = UUID()
+        let tie = Date(timeIntervalSince1970: 1_700_000_000)
+        let stuck = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+
         let performer = StubPerformer()
-        // Always the same row, and always another cursor: a server that never advances.
-        let stuck = pageJSON(
-            [entryJSON(
-                id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
-                childId: child, occurredAt: Date(timeIntervalSince1970: 1_700_000_000)
-            )],
-            cursor: "always-more"
+        let sameRow = pageJSON(
+            [entryJSON(id: stuck, childId: child, occurredAt: tie)],
+            cursor: "past-the-tie"
         )
-        performer.on("/entries") { _ in (stuck, 200) }
+        let older = pageJSON(
+            [entryJSON(id: UUID(), childId: child, occurredAt: Date(timeIntervalSince1970: 1_600_000_000))],
+            cursor: nil
+        )
+        performer.on("/entries") { hit in (hit <= 2 ? sameRow : older, 200) }
 
         let model = TimelineModel(childId: child, api: client(performer), context: context)
         await model.start()
         await model.loadMoreIfNeeded()
-        await model.loadMoreIfNeeded()
+        #expect(model.reachedEnd == false, "the server said there was more, and there was")
+
         await model.loadMoreIfNeeded()
 
-        #expect(model.reachedEnd, "the floor stopped moving, so there is nothing older")
-        #expect(performer.count(for: "/entries") == 2)
+        #expect(cursors(performer) == [nil, nil, "past-the-tie"])
+        #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 2, "it got past the tie")
+        #expect(model.reachedEnd)
+    }
+
+    @Test("a refresh re-seeds from the cache rather than resuming where paging had reached")
+    func refreshResetsTheContinuation() async throws {
+        // Pull-to-refresh re-reads page one. If it left the continuation in place, the next
+        // `loadMore` would resume from deep in the archive and skip everything between.
+        let context = try makeContext()
+        let child = UUID()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // A server with no end: every page offers another, so nothing stops on its own.
+        let pages: [Data] = (0..<6).map { index in
+            pageJSON(
+                [entryJSON(
+                    id: UUID(), childId: child,
+                    occurredAt: base.addingTimeInterval(-Double(index) * 86_400)
+                )],
+                cursor: "c\(index)"
+            )
+        }
+        let performer = StubPerformer()
+        performer.on("/entries") { hit in (pages[min(hit - 1, pages.count - 1)], 200) }
+
+        let model = TimelineModel(childId: child, api: client(performer), context: context)
+        await model.start()
+        await model.loadMoreIfNeeded()
+        #expect(cursors(performer).last ?? nil == nil, "the seed request carries no cursor")
+
+        await model.refresh()
+        await model.loadMoreIfNeeded()
+
+        // Four requests: page one, a seed, page one again, another seed. No cursor anywhere,
+        // because a refresh puts paging back at the top.
+        #expect(cursors(performer) == [nil, nil, nil, nil])
+        #expect(befores(performer).filter { $0 != nil }.count == 2)
     }
 
     @Test("a page that fails leaves a quiet note and keeps whatever is already cached")

@@ -75,4 +75,9 @@ nonisolated enum DayHeaderText {
     static func full(_ date: Date) -> String {
         date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
     }
+
+    /// Short enough for a navigation bar: "8 Aug 2026".
+    static func compact(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
 }

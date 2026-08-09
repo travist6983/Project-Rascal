@@ -121,6 +121,22 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// How the empty state names this kind: "No **voice notes** so far."
+    ///
+    /// Separate from `title`, because a chip label and a sentence are different jobs. Reusing
+    /// the chip gave "No photos entries so far", which is the sort of thing that reads as
+    /// carelessness in an app someone is trusting with their child's childhood.
+    var emptyNoun: String {
+        switch self {
+        case .all: "entries"
+        case .photo: "photos"
+        case .video: "video"
+        case .audio: "voice notes"
+        case .text: "written entries"
+        case .didIt: "did-it entries"
+        }
+    }
+
     /// What goes on the wire. Nil for `all`, which sends no `type` at all.
     var queryValue: String? {
         switch self {

@@ -295,7 +295,7 @@ private struct TimelineList: View {
             Text("Nothing here yet")
                 .typeRole(.title)
                 .foregroundStyle(Color.ink)
-            Text("No \(filter.title.lowercased()) entries so far.")
+            Text("No \(filter.emptyNoun) so far.")
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
             Button("Show everything", action: onClearFilter)

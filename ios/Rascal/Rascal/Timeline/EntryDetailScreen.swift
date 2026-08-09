@@ -62,6 +62,11 @@ struct EntryDetailScreen: View {
             }
         }
         .background(Color.canvas)
+        // The day it happened, in the bar. The timeline's root hides its bar, so without a title
+        // this screen's back chevron and menu float as bare circles on cream — chrome that looks
+        // accidental rather than designed. The date is also the one thing worth keeping visible
+        // once the metadata row has scrolled away, and it is `occurred_at`, never `created_at`.
+        .navigationTitle(entry.map { DayHeaderText.compact($0.occurredAt) } ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task(id: entryId) { await load() }
@@ -139,7 +144,9 @@ struct EntryDetailScreen: View {
         DetailMediaView(
             mediaId: item.id,
             kind: item.mediaKind,
-            durationSeconds: item.durationSeconds
+            durationSeconds: item.durationSeconds,
+            api: api,
+            localFile: stagedOriginal(item)
         ) {
             viewing = ViewerRequest(
                 id: item.id,

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 /// Getting at the bytes themselves, for a screen that shows one entry rather than five hundred.
@@ -39,6 +40,35 @@ nonisolated enum MediaAccess {
             return localFile
         }
         return await signedURL(mediaId: mediaId, api: api)
+    }
+
+    /// A poster frame for a video this phone did not record.
+    ///
+    /// The timeline will not do this — pulling a hundred megabytes to draw a 56pt square is not
+    /// a trade worth making on someone's cellular plan. **Entry Detail is different**: the parent
+    /// has opened this one entry and the next thing they will do is press play, which downloads
+    /// the video regardless. So the cost is borrowed rather than added, and it buys a frame of
+    /// their child instead of a tinted rectangle.
+    ///
+    /// `AVAssetImageGenerator` reads over ranged HTTP, so it takes the first moments of the file
+    /// rather than the whole thing. The result is written to the same staging cache the composer
+    /// uses, so it happens once per video, ever — and the timeline picks it up from disk after.
+    static func posterFrame(
+        mediaId: UUID,
+        localFile: URL?,
+        api: APIClient,
+        staging: StagingStore
+    ) async -> Data? {
+        guard let url = await playbackURL(mediaId: mediaId, localFile: localFile, api: api) else {
+            return nil
+        }
+        // `try?` over a throwing function that already returns `Data?` flattens to one optional.
+        guard let data = try? await VideoPipeline.posterFrame(for: AVURLAsset(url: url)) else {
+            return nil
+        }
+
+        do { try staging.stageThumbnail(data, for: mediaId) } catch {}
+        return data
     }
 
     /// `409 upload_incomplete` is the one failure worth naming: the row exists and its bytes do

@@ -134,17 +134,23 @@ struct VoicePlayerView: View {
 
     /// Progress comes from the player rather than from a timer, so the bar measures playback
     /// instead of animating alongside it.
+    ///
+    /// **`[weak player]` is not tidiness.** A player retains its periodic observer block, so a
+    /// block that captures the player strongly is a cycle Apple documents by name — the player,
+    /// its item, and the decoded audio all outlive the screen. `stop()` breaks it on the way
+    /// out, but a view torn down without `onDisappear` firing would leak an entire AVPlayer, and
+    /// this one is opened from a screen a parent can swipe away mid-sentence.
     private func observe(_ player: AVPlayer) {
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
             queue: .main
-        ) { time in
+        ) { [weak player] time in
+            // Read out here, where the block already runs on the main queue, so the hop below
+            // carries two plain numbers and captures nothing that can be mutated underneath it.
+            let duration = player?.currentItem?.duration.seconds
             Task { @MainActor in
                 elapsed = time.seconds
-                if let item = player.currentItem {
-                    let seconds = item.duration.seconds
-                    if seconds.isFinite, seconds > 0 { total = seconds }
-                }
+                if let duration, duration.isFinite, duration > 0 { total = duration }
             }
         }
     }

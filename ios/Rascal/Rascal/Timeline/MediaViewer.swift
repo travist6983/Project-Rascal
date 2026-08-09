@@ -14,40 +14,86 @@ struct DetailMediaView: View {
     let mediaId: UUID
     let kind: PromptKind
     let durationSeconds: Int?
+    /// Needed only to generate a poster for a video this phone did not record. Nil elsewhere,
+    /// and the view degrades to its tinted placeholder.
+    var api: APIClient?
+    var localFile: URL?
     let onOpen: () -> Void
 
     @Environment(\.thumbnails) private var thumbnails
     @State private var poster: PlatformImage?
+    private let staging = StagingStore()
 
     var body: some View {
         Button(action: onOpen) {
-            ZStack {
-                Color.terracottaSoft
-                #if canImport(UIKit)
-                if let poster {
-                    Image(uiImage: poster)
-                        .resizable()
-                        .scaledToFill()
-                }
-                #endif
-                if kind == .video { playGlyph }
-            }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(4 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                    .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-            )
-            .contentShape(Rectangle())
+            // **The picture is an overlay, not a stack child, and that is load bearing.**
+            // At `scaledToFill` the image is deliberately larger than the box it sits in, and a
+            // `ZStack` sizes itself to its children — so the photo decided the layout and bled
+            // to the screen edge, straight past the inset the design system asks for. It only
+            // shows on media that is not 4:3: a 16:9 video, or any portrait photograph, which
+            // is to say most of them.
+            Color.terracottaSoft
+                .frame(maxWidth: .infinity)
+                .aspectRatio(4 / 3, contentMode: .fit)
+                .overlay { picture }
+                .overlay { if kind == .video { playGlyph } }
+                .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                        .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+                )
+                .overlay(alignment: .bottomTrailing) { runtime }
+                .contentShape(Rectangle())
         }
         .buttonStyle(TapScaleButtonStyle())
-        .task(id: mediaId) {
-            #if canImport(UIKit)
-            poster = await thumbnails?.image(for: mediaId, kind: kind)
-            #endif
+        .task(id: mediaId) { await loadPoster() }
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    /// How long the video runs, before anyone commits to watching it.
+    @ViewBuilder
+    private var runtime: some View {
+        if kind == .video, let durationSeconds {
+            Text(DurationText.clock(durationSeconds))
+                .typeRole(.metadata)
+                .foregroundStyle(Color.surface)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.ink.opacity(0.55), in: Capsule())
+                .padding(10)
         }
-        .accessibilityLabel(kind == .video ? "Video, tap to play" : "Photo, tap to open")
+    }
+
+    private var accessibilityLabel: String {
+        guard kind == .video else { return "Photo, tap to open" }
+        guard let durationSeconds else { return "Video, tap to play" }
+        return "Video, \(DurationText.spoken(durationSeconds)), tap to play"
+    }
+
+    @ViewBuilder
+    private var picture: some View {
+        #if canImport(UIKit)
+        if let poster {
+            Image(uiImage: poster)
+                .resizable()
+                .scaledToFill()
+        }
+        #endif
+    }
+
+    /// The cache first, then — for a video with nothing cached — one generated frame.
+    private func loadPoster() async {
+        #if canImport(UIKit)
+        if let cached = await thumbnails?.image(for: mediaId, kind: kind) {
+            poster = cached
+            return
+        }
+        guard kind == .video, let api else { return }
+        guard let data = await MediaAccess.posterFrame(
+            mediaId: mediaId, localFile: localFile, api: api, staging: staging
+        ) else { return }
+        poster = UIImage(data: data)
+        #endif
     }
 
     /// A poster frame at 400px stretched across a phone is soft, and the play glyph is what
@@ -106,7 +152,13 @@ struct MediaViewerScreen: View {
             .padding(Layout.screenMargin)
         }
         .task { await load() }
-        .onDisappear { player?.pause() }
+        .onDisappear {
+            // Released rather than only paused. A paused AVPlayer still holds its item and its
+            // decode buffers, and this screen is opened and dismissed repeatedly while someone
+            // works through an afternoon's photos.
+            player?.pause()
+            player = nil
+        }
         .statusBarHidden()
     }
 

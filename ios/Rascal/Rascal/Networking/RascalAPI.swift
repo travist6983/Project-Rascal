@@ -158,19 +158,22 @@ extension APIClient {
 }
 
 extension APIClient {
-    /// Edit an existing entry. Title, body, and `occurred_at` only — media after save is a
-    /// later phase, and `entry_type` stays server-derived.
+    /// Edit an existing entry from the composer. Body and `occurred_at` — the two things it can
+    /// actually change. Media after save is a later phase, and `entry_type` stays server-derived.
     ///
-    /// All three are sent as *set*, including when nil. This body is built from the whole local
-    /// row rather than from a diff, so an omitted key would mean "the parent cleared it" was
-    /// indistinguishable from "the parent didn't touch it" — and clearing the text of an entry
-    /// would silently leave the old words in the archive.
+    /// Both are sent as *set*, including when nil, because an omitted key would make "the parent
+    /// cleared the text" indistinguishable from "the parent didn't touch it", and the old words
+    /// would stay in the archive.
+    ///
+    /// **`title` is deliberately not sent.** The composer has no title field, so this call has no
+    /// opinion about titles and must not express one — sending the locally cached value would
+    /// mean editing a body on a stale row quietly reverts a title someone set on another phone.
+    /// A call that claims more than it knows is how last-write-wins turns into last-open-wins.
     @discardableResult
     func updateEntry(_ entry: Entry) async throws -> EntryResponse {
         try await updateEntry(
             id: entry.id,
             changes: EntryChanges(
-                title: .set(entry.title),
                 body: .set(entry.body),
                 occurredAt: .set(entry.occurredAt)
             )
