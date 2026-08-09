@@ -59,26 +59,39 @@ the only way to satisfy it is against a local API (`make up && make dev`), which
 `make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
 anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
 
-## 0. GitHub Actions is not running — account billing
+## 0. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
 
-**Every CI job on PR #24 failed in 2 seconds, before doing anything.** The annotation is the
-same on all of them:
+**Cleared between 18:36Z and 18:53Z on Aug 9.** The 18:36 runs on PR #24 still died in 3 and 12
+seconds with the billing annotation; the 18:53 runs executed properly — `CI` green in 1m50s,
+`iOS` running a full 9m27s. Nothing in the repo changed in between, so the account-level block
+was lifted rather than worked around.
 
-> The job was not started because recent account payments have failed or your spending limit
-> needs to be increased. Please check the 'Billing & plans' section in your settings
+Kept here because the first genuinely-executed run immediately earned its keep, and because the
+original entry claimed local runs were an adequate substitute for CI. They were not:
 
-This is not a code failure and not a repo setting. It is an account-level block on
-`travist6983`, and it appeared **after** PR #22 merged — that run, at 17:13Z on Aug 9, was
-green. Nothing in the sync-pull branch caused it and nothing in the branch can clear it.
+**`iOS` failed on `SyncScaleTests.fullPullAtArchiveScale()` — 47.5s against a 30s budget** — a
+test that passes locally. The cause is not the engine. All three tests in `Sync at scale` are
+`@MainActor` and all three apply 736 entries, and Swift Testing runs them in parallel by
+default, so they interleave onto the one main actor and the wall clock each one reads spans the
+other two's work. Measured directly:
 
-**What I need from you:** GitHub → Settings → Billing & plans. Either a failed payment method
-or a spending limit that needs raising.
+| | `fullPullAtArchiveScale` elapsed |
+|---|---|
+| alone, locally (`-only-testing`) | **2.7s** |
+| beside its two siblings, locally | **10.7s** |
+| beside its two siblings, on the CI runner | **47.5s** — fails |
 
-**What this does not block:** both suites were run locally on the branch head and are green —
-API 302 passed, iOS 273 passed in 34 suites with zero warnings, `make lint` clean. What is
-missing is the independent confirmation, and the `image` job, which is the only thing that
-builds the Docker image and would catch a Dockerfile-level break. That job has never had
-anything to do with the iOS lane.
+The budget was right and the apply was never slow; the timer was reading three archives and
+calling it one. Fixed by marking the suite `.serialized`, which changes no assertion and no
+budget — it makes `elapsed` measure the thing the assertion names.
+
+**The lesson worth keeping:** a wall-clock assertion inside a parallel suite measures the
+machine's contention, not the code. This one was invisible on a fast laptop for exactly as long
+as CI was down, and it is the kind of test that reports a number nobody should trust.
+
+**Still missing from the picture:** the `image` job, which builds the Docker image and is the
+only thing that would catch a Dockerfile-level break. It has never had anything to do with the
+iOS lane.
 
 ## 1. Apple Developer enrollment — blocks real Sign in with Apple
 
