@@ -316,19 +316,39 @@ struct OnboardingSessionTests {
     // MARK: Timezone
 
     /// The scheduler's entire definition of "today" is this string. An abbreviation or an offset
-    /// would be accepted by nothing and would silently mean the wrong day.
-    @Test("the default timezone is a resolvable IANA identifier, never an abbreviation or offset")
+    /// would silently mean the wrong day.
+    @Test("the default timezone is an IANA identifier zoneinfo knows")
     func defaultTimezoneIsIANA() {
         let identifier = OnboardingDraft().timezone
 
         #expect(identifier == TimeZone.current.identifier)
-        #expect(TimeZone(identifier: identifier) != nil, "zoneinfo knows it")
+        // **Membership, not resolvability.** See `offsetsAndAbbreviationsAreNotIdentifiers` —
+        // `TimeZone(identifier:)` happily returns a zone for "GMT-4" and "PST", so a non-nil
+        // check would pass for exactly the values this is supposed to exclude.
         #expect(TimeZone.knownTimeZoneIdentifiers.contains(identifier))
-        #expect(identifier.hasPrefix("GMT") == false)
-        #expect(identifier.contains("+") == false && identifier.contains("-") == false)
-        // "EDT" and friends are three or four letters with no region. Every IANA zone that is
-        // not one of the handful of legacy singletons carries a region and a slash.
-        #expect(identifier.count > 4)
+    }
+
+    /// What the check above is actually discriminating against, pinned so nobody "simplifies" it
+    /// back into a `TimeZone(identifier:) != nil` or a guess about the string's shape.
+    ///
+    /// This exists because an earlier version of it asserted three things that are all false:
+    /// that no identifier starts with "GMT" (CI runs in `GMT`, which is a real zone), that none
+    /// contains a hyphen (`America/Port-au-Prince`), and that all are longer than four characters.
+    @Test("an offset or an abbreviation is not an IANA identifier, even when it resolves")
+    func offsetsAndAbbreviationsAreNotIdentifiers() {
+        let known = Set(TimeZone.knownTimeZoneIdentifiers)
+
+        for wrong in ["EDT", "PST", "GMT-4", "UTC+1", "EST5EDT", "Etc/GMT+5", "-04:00"] {
+            #expect(known.contains(wrong) == false, "\(wrong) is not a zone the server would take")
+        }
+        // And the trap: most of those *do* resolve, so resolvability proves nothing.
+        #expect(TimeZone(identifier: "GMT-4") != nil)
+        #expect(TimeZone(identifier: "PST") != nil)
+
+        // Genuine identifiers, including the two shapes that broke the earlier assertions.
+        for right in ["GMT", "America/Detroit", "America/Port-au-Prince", "Pacific/Auckland"] {
+            #expect(known.contains(right), "\(right) is a zone the server would take")
+        }
     }
 
     @Test("the timezone chosen during setup is the one that is sent")
