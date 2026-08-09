@@ -57,6 +57,19 @@ class ChildWithRole(ChildOut):
     age_months: int
 
 
+class RecomputeAgesResult(ApiModel):
+    """What `POST /children/{id}/recompute-ages` reports back.
+
+    `birthdate` is echoed because the whole point of the call is that the caller has just
+    corrected it, and a client showing "412 entries updated" wants to say what they were
+    corrected *to*.
+    """
+
+    child_id: uuid.UUID
+    entries_updated: int
+    birthdate: dt.date
+
+
 class ChildSummary(ApiModel):
     """The compact form embedded in `/today` and `/moments`."""
 

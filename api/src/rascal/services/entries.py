@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -674,6 +674,51 @@ async def soft_delete_entry(session: AsyncSession, entry: Entry) -> None:
         # The wrong-photo-redo-it path. Without this the mission is stranded `done` with
         # nothing to show for it, and the slot is gone for the day.
         await release_assignment(session, entry.assignment_id)
+
+
+# --- Age correction ----------------------------------------------------------------------
+
+
+async def recompute_child_ages(session: AsyncSession, child: Child) -> int:
+    """Rewrite every stored `child_age_months` for a child. Returns how many actually moved.
+
+    `child_age_months` is computed at write and stored, so correcting a birthdate typo does
+    not silently reshape an archive of 500 entries. The cost of that is that the typo is
+    otherwise permanent, and this is the escape hatch: explicit, user-invoked, never a side
+    effect of editing the birthdate.
+
+    Soft-deleted entries are included. Nothing is ever really deleted here, and a restored
+    entry must not come back carrying an age computed against the wrong birthdate.
+
+    Only the rows whose value actually changes are written. `set_updated_at()` fires on
+    every UPDATE, so touching an unchanged row would push the whole archive back through
+    `GET /sync` on every invocation — the correction has to reach the other devices, the
+    other eighteen years of entries do not.
+    """
+    rows = (
+        await session.execute(
+            select(Entry.id, Entry.occurred_at, Entry.child_age_months).where(
+                Entry.child_id == child.id
+            )
+        )
+    ).all()
+
+    corrections = [
+        {"id": entry_id, "child_age_months": corrected}
+        for entry_id, occurred_at, stored in rows
+        # The same function the write path uses, not a second implementation of the
+        # arithmetic — two of those drift, and the drift shows up as an archive that
+        # disagrees with itself.
+        if (corrected := age_at_instant(child.birthdate, occurred_at, child.family_timezone))
+        != stored
+    ]
+    if not corrections:
+        return 0
+
+    # One statement, in the caller's transaction. A partially recomputed archive is worse
+    # than an uncorrected one.
+    await session.execute(update(Entry), corrections)
+    return len(corrections)
 
 
 # --- On This Day -------------------------------------------------------------------------

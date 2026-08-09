@@ -13,7 +13,14 @@ from sqlalchemy import select
 
 from rascal.deps import ChildAccess, CurrentUser, SessionDep, child_access
 from rascal.models import Child, Guardian
-from rascal.schemas.child import ChildCreate, ChildOut, ChildUpdate, ChildWithRole
+from rascal.schemas.child import (
+    ChildCreate,
+    ChildOut,
+    ChildUpdate,
+    ChildWithRole,
+    RecomputeAgesResult,
+)
+from rascal.services import entries as entries_service
 from rascal.services.dates import age_in_months, today_in
 
 router = APIRouter(prefix="/children", tags=["children"])
@@ -88,3 +95,29 @@ async def update_child(
     await session.flush()
     await session.refresh(child)
     return ChildOut.model_validate(child)
+
+
+@router.post(
+    "/{child_id}/recompute-ages",
+    response_model=RecomputeAgesResult,
+    summary="Correct every stored child_age_months from the current birthdate",
+    description=(
+        "`entries.child_age_months` is computed at write and stored, so fixing a birthdate "
+        "typo does not silently reshape the archive. This is the escape hatch that makes "
+        "the correction happen, deliberately and on request. Every entry is recomputed from "
+        "its own `occurred_at`, soft-deleted ones included, in a single transaction. Only "
+        "the rows that actually change are written, so `GET /sync` carries the correction "
+        "without carrying the whole archive with it. `entries_updated` counts rows changed, "
+        "not rows examined, and a second call immediately after returns `0`."
+    ),
+)
+async def recompute_ages(
+    session: SessionDep,
+    access: ChildAccess = Depends(child_access("parent")),
+) -> RecomputeAgesResult:
+    child = access.child
+    return RecomputeAgesResult(
+        child_id=child.id,
+        entries_updated=await entries_service.recompute_child_ages(session, child),
+        birthdate=child.birthdate,
+    )

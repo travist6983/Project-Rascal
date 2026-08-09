@@ -72,6 +72,7 @@ def _requests(world: dict) -> list[tuple[str, str, dict | None]]:
         ("PATCH", f"/v1/children/{child_id}", {"name": "Mine now"}),
         ("GET", f"/v1/children/{child_id}/today", None),
         ("GET", f"/v1/children/{child_id}/moments", None),
+        ("POST", f"/v1/children/{child_id}/recompute-ages", None),
         # Reached by a child id in the query string.
         ("GET", f"/v1/entries?child_id={child_id}", None),
         ("GET", f"/v1/sync?child_id={child_id}", None),
