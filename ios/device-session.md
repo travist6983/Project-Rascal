@@ -1,4 +1,67 @@
-# Device session — Phase 2 capture
+# Device session — Phase 2 capture, plus Phase 2.5
+
+**Step 4 remains the outstanding item from last time** — cold launch triggered by a background
+callback. Nothing about it changed in 2.5, and it is still the case a simulator cannot produce.
+
+New in 2.5, run these after the originals:
+
+## 8. A completion shows done immediately, offline
+
+The defect this phase exists to fix.
+
+1. Airplane mode **on**
+2. Complete a **photo** mission — pick one from the library, Save
+3. **It must move to Done Today the instant the sheet closes**, with a ring showing the upload
+   outstanding
+4. Force quit, relaunch, still in airplane mode
+
+**Expected:** still done. The card is drawn from SwiftData, not from the server's opinion.
+
+**What to watch for:** the card snapping back to Today on relaunch. That would mean the merge is
+reading memory rather than the store.
+
+## 9. The ring counts down, and failures list individually
+
+1. Airplane mode off, pick **three** photos, Save
+2. Watch the ring: **3 → 2 → 1**, filling as bytes land, finishing into the check
+
+Then the failure path:
+
+3. Pick three more, Save, and **turn airplane mode on immediately**
+4. Wait out the retries (about two minutes to exhaust the cap)
+
+**Expected:** each failed photo is its own row with its own **Upload it**, plus **Upload all**.
+Not "1 of 3 uploaded".
+
+**What to watch for:** anything that reads as data loss. Nothing is lost — the files are staged
+and the entry exists — and the copy must not suggest otherwise.
+
+## 10. Completion feels like something
+
+Complete anything and watch the check. It should **draw** rather than appear, the card should
+settle into Done Today rather than jump, and the haptic should be the warmer `.success` one.
+
+Then: Settings → Accessibility → Motion → **Reduce Motion on**, and do it again. The check should
+still fill, just without the spring.
+
+**Subjective, and that's the point.** If it still feels flat, say so — that's the whole item.
+
+## 11. The four composer fixes
+
+1. Attach a photo, tap the **+** tile → the picker opens (it did nothing before)
+2. Centre **+** in the tab bar → a freeform entry that **can attach a photo**
+3. Expand the date picker → **every date legible**, not just the selected one. Check it in
+   daylight, which is where it failed
+4. No **video** option anywhere
+
+## 12. Done cards
+
+1. A completed **question** card is **periwinkle**, a completed **mission** is **terracotta**,
+   a completed **did-it** is **sage**
+2. **Tap a done card** → it opens for editing. Change the date, save, reopen → the change stuck
+
+---
+
 
 One sitting, iPhone 15 Pro Max. Everything reachable in the simulator is already green;
 what's left is the three classes of behaviour a simulator cannot produce — a real camera, a
