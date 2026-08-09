@@ -1,5 +1,5 @@
 {
-  "date": "2026-08-08",
+  "date": "2026-08-09",
   "child": {
     "id": "ca5dda95-6712-4a1b-a818-f1c1f2e9b40b",
     "name": "Rascal",
@@ -7,48 +7,120 @@
   },
   "today": [
     {
-      "id": "1d404f92-d71c-4f2b-84da-a1a094f5d414",
+      "id": "525814e4-e814-4aaa-944c-0147fbcaad29",
       "slot": "mission",
-      "body": "Take a photo of him doing the thing he does every single day.",
+      "body": "Take a photo of him sleeping.",
       "kind": "photo",
       "completion_mode": "media",
-      "theme": "everyday-ordinary",
+      "theme": "sleep-routine",
       "status": "pending",
-      "assigned_on": "2026-08-08",
-      "expires_on": "2026-08-22",
-      "prompt_id": "80223d6b-d2cf-4437-b2a8-ab8409cf4490",
+      "assigned_on": "2026-08-09",
+      "expires_on": "2026-08-23",
+      "prompt_id": "07faa2bd-07ee-4154-aada-71dc0050f372",
       "is_custom": false,
       "unlock_at_age": null
     },
     {
-      "id": "b8636e84-bb11-4aa8-a097-ff058ef9b509",
+      "id": "c964cb18-71be-413a-b6fe-84cd0529bff2",
+      "slot": "monthly",
+      "body": "Let him win, and don't tell him you did.",
+      "kind": "activity",
+      "completion_mode": "did_it",
+      "theme": "humor",
+      "status": "pending",
+      "assigned_on": "2026-08-09",
+      "expires_on": "2026-08-23",
+      "prompt_id": "0f58e23a-9373-420e-b807-dc2ab3407632",
+      "is_custom": false,
+      "unlock_at_age": null
+    },
+    {
+      "id": "daa69e1e-f886-40ca-8398-9c16a2fd05b9",
+      "slot": "question",
+      "body": "What's the thing he does that nobody else would notice?",
+      "kind": "question",
+      "completion_mode": "text",
+      "theme": "everyday-ordinary",
+      "status": "pending",
+      "assigned_on": "2026-08-09",
+      "expires_on": "2026-08-23",
+      "prompt_id": "0323975c-e053-4258-8228-a6a406a4e4c2",
+      "is_custom": false,
+      "unlock_at_age": null
+    },
+    {
+      "id": "16352d4b-d510-4c4b-a6a8-3205947681c2",
+      "slot": "weekly",
+      "body": "Ask him what he'd say to himself at eighteen. Film it.",
+      "kind": "video",
+      "completion_mode": "media",
+      "theme": "letters-forward",
+      "status": "pending",
+      "assigned_on": "2026-08-09",
+      "expires_on": "2026-08-23",
+      "prompt_id": "583b6ed0-f453-4908-bd40-bc07fdf9c2ac",
+      "is_custom": false,
+      "unlock_at_age": null
+    }
+  ],
+  "waiting": [
+    {
+      "id": "ce345189-5fdb-40da-ad39-8e3eff119d24",
       "slot": "question",
       "body": "What did he say this week that you want to remember exactly?",
       "kind": "question",
       "completion_mode": "text",
       "theme": "his-words",
       "status": "pending",
-      "assigned_on": "2026-08-08",
-      "expires_on": "2026-08-22",
+      "assigned_on": "2026-08-07",
+      "expires_on": "2026-08-21",
       "prompt_id": "3732230c-6dd5-484b-83cf-dbec38cc7d5a",
       "is_custom": false,
       "unlock_at_age": null
     },
     {
-      "id": "640a43f7-c8d0-4238-8d55-d9bb044da74e",
-      "slot": "weekly",
-      "body": "Interview him with ten questions about his mom and film the whole thing.",
-      "kind": "video",
-      "completion_mode": "media",
-      "theme": "relationships",
+      "id": "52badd8d-b33e-459a-b997-9ba46c160b28",
+      "slot": "monthly",
+      "body": "Let him win, and don't tell him you did.",
+      "kind": "activity",
+      "completion_mode": "did_it",
+      "theme": "humor",
       "status": "pending",
       "assigned_on": "2026-08-08",
       "expires_on": "2026-08-22",
-      "prompt_id": "cf52ed20-d08e-4226-93e2-016c8fda9932",
+      "prompt_id": "0f58e23a-9373-420e-b807-dc2ab3407632",
+      "is_custom": false,
+      "unlock_at_age": null
+    },
+    {
+      "id": "d6c20c02-531c-4b07-9110-e38d0d8e498e",
+      "slot": "question",
+      "body": "What's the thing he does that nobody else would notice?",
+      "kind": "question",
+      "completion_mode": "text",
+      "theme": "everyday-ordinary",
+      "status": "pending",
+      "assigned_on": "2026-08-08",
+      "expires_on": "2026-08-22",
+      "prompt_id": "0323975c-e053-4258-8228-a6a406a4e4c2",
       "is_custom": false,
       "unlock_at_age": null
     }
   ],
-  "waiting": [],
-  "done_today": []
+  "done_today": [
+    {
+      "id": "dc3c848b-8c9e-4d78-97e4-dfec91dd0f0b",
+      "slot": "weekly",
+      "body": "Ask him what he'd say to himself at eighteen. Film it.",
+      "kind": "video",
+      "completion_mode": "media",
+      "theme": "letters-forward",
+      "status": "done",
+      "assigned_on": "2026-08-08",
+      "expires_on": "2026-08-22",
+      "prompt_id": "583b6ed0-f453-4908-bd40-bc07fdf9c2ac",
+      "is_custom": false,
+      "unlock_at_age": null
+    }
+  ]
 }

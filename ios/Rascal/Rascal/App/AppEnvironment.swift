@@ -93,6 +93,12 @@ final class AppSession {
         }
     }
 
+    /// Fold a `PATCH /me` result back in, so the name the parent just set is what every screen
+    /// shows without waiting for a relaunch. There is no `GET /me` to refetch from.
+    func apply(user updated: UserResponse) {
+        user = updated
+    }
+
     func signOutAndRetry() async {
         await api.signOut()
         phase = .launching

@@ -28,6 +28,10 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
     case uploadIncomplete
     case conflict
     case internalError
+    /// `PATCH /me` — blank after trimming, or over 100 characters. 400 rather than 422 because
+    /// the body parsed and the field is the right type; the value is just not a name, and a
+    /// client shows this one under the text field it came from.
+    case invalidDisplayName
     case unknown(String)
 
     init(rawValue: String) {
@@ -42,6 +46,7 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case "upload_incomplete": self = .uploadIncomplete
         case "conflict": self = .conflict
         case "internal_error": self = .internalError
+        case "invalid_display_name": self = .invalidDisplayName
         default: self = .unknown(rawValue)
         }
     }
@@ -58,6 +63,7 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case .uploadIncomplete: "upload_incomplete"
         case .conflict: "conflict"
         case .internalError: "internal_error"
+        case .invalidDisplayName: "invalid_display_name"
         case .unknown(let raw): raw
         }
     }
@@ -107,7 +113,9 @@ enum APIError: Error, Equatable {
                 "This archive isn't shared with you."
             case .notFound:
                 "That's no longer here."
-            case .validationFailed:
+            case .validationFailed, .invalidDisplayName:
+                // The server's own words. It says what is wrong with the value, and it says it
+                // better than a generic client-side string would.
                 message
             case .internalError:
                 "The server had trouble. Your work is saved on this phone."

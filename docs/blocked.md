@@ -9,6 +9,38 @@ Last reviewed: **Aug 8, 2026**, after the first run on a machine with a Docker d
 
 ---
 
+## iOS Settings — one gap, and one note about the preflight
+
+Neither blocks the Lane B Settings work, which shipped complete. Recorded because both were
+discovered by building against the merged API and neither is written down anywhere else.
+
+### There is no `GET /me`, so the app cannot show your own name after a relaunch
+
+`PATCH /me` exists and works. The user record arrives once, with the sign-in response, and
+`AppSession` holds it in memory — so after a force quit the app has a valid keychain token, a
+signed-in session, and no idea what the person is called.
+
+Settings handles it honestly: the **Your name** row renders no value at all rather than claiming
+"Not set", which would be a statement about the server it has not checked. The Email row falls
+back to the configured account. But the correct fix is a `GET /me` returning the same `UserOut`
+that `PATCH /me` and `POST /auth/apple` already return — a handful of lines in
+`api/src/rascal/routers/me.py`, using the `CurrentUser` dependency that is already there.
+
+Deliberately not built in this run: Lane B is the iOS lane, the endpoint is Lane A's to own, and
+the client degrades correctly without it. Item 6 of `docs/device-verification-settings.md` asks
+the human to judge how badly it reads on a real device.
+
+### `POST /v1/auth/dev-login` can never satisfy a preflight aimed at a deployed API
+
+Not a defect — the opposite. `main.py` registers `auth.dev_router` only `if settings.is_local`,
+and `config.py` says in as many words that nothing else may branch on environment. A deployed
+API answering `dev-login` with a usable session would be the bug.
+
+Worth writing down because a run instruction asked for exactly that as a preflight check, and
+the only way to satisfy it is against a local API (`make up && make dev`), which is what
+`make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
+anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
+
 ## 1. Apple Developer enrollment — blocks real Sign in with Apple
 
 `POST /v1/auth/apple` is fully implemented and tested: it fetches and caches Apple's JWKS,
