@@ -9,8 +9,17 @@ import Testing
 /// 736 is not an arbitrary number: it is how many entries are in the dev archive this engine will
 /// meet the first time it runs for real. A cold start against it is the single largest thing the
 /// pull ever does, and it happens on the screen a parent is looking at.
+///
+/// **`.serialized` is load bearing, and it is about the measurement rather than about safety.**
+/// All three tests here are `@MainActor` and all three apply 736 entries. Run in parallel — which
+/// is Swift Testing's default — they interleave onto the one main actor, so the wall clock
+/// `fullPullAtArchiveScale` reads spans its two siblings' work as well as its own. Measured: the
+/// same test takes **2.7s alone and 10.7s beside them** locally, and on a slower CI runner the
+/// three together pushed it to **47.5s**, failing a 30s budget that the apply itself is nowhere
+/// near. The budget was right and the engine was not slow; the timer was reading three archives
+/// and calling it one. Serialising makes `elapsed` mean what the assertion says it means.
 @MainActor
-@Suite("Sync at scale")
+@Suite("Sync at scale", .serialized)
 struct SyncScaleTests {
 
     /// The dev archive's size, from `docs/roadmap-status.md`.
