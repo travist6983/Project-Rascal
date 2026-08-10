@@ -12,7 +12,7 @@ Everything in this file was checked by running something — the test suites, th
 - `syncPullEnabled` still defaults to false and gates every write the pull performs. Verified against fixtures — including a 736-entry one — and **never against the real archive**. The morning sequence is unchanged: Settings → dry run → read the report → flip the flag → pull to refresh.
 - Transcription is **structurally verified and empirically unverified**. `SpeechAnalyzer` is iOS 26 and the app deploys to 18.6; `isAvailable` is false on every simulator and the model assets are a download no CI runner has. Everything below the protocol seam is asserted against a stub. **No real transcription has ever run**, so the one thing that matters most — how well it reads a four-year-old — is unknown rather than good. `docs/device-verification-transcription.md` is the way to find out.
 
-**And one scope gap that no phase ever owned.** Sealed letters can be *read* but not *written* — see "The sealed letter, half-built" below. It is the only item in this document that is missing rather than merely unverified.
+**The scope gap that no phase ever owned is closed.** Sealed letters can now be written as well as read — see "The sealed letter, whole" below. What is left of it is a four-line server change, not a feature.
 
 What is left is then the two things only you can unblock — Apple enrollment and Fly — and the exit test, which is you using it for fourteen days.
 
@@ -20,7 +20,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **27**, plus the follow-up that made `main` green again |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
-| iOS tests | **396 passing**, 44 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **411 passing**, 45 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
@@ -105,21 +105,28 @@ Merged as **PR #27**. What shipped: **welcome → Sign in with Apple → name �
 **Still unverifiable, and not by omission:** Sign in with Apple has never executed — not on a device, not once — because enrollment has not cleared (`blocked.md` §1). Everything below the credential seam is tested; the real `ASAuthorization` path is not. Separately, the avatar is captured, cropped and stored **on the device only** — there is no endpoint to upload it to, and nothing in the app renders it yet.
 
 * * *
-## The sealed letter, half-built
-`unlock_at_age` is in the schema, in the design system, and in the mission library — **8 active `letter` prompts are being served right now.** It went looking for the phase that shipped it and the answer is: half of one did.
+## The sealed letter, whole
 
-**The read half shipped in Phase 4 and is complete.**
+**Closed Aug 10.** `unlock_at_age` was in the schema, the design system and the mission library,
+and **8 active `letter` prompts were being served** against a client with no way to set it. Phase 4
+built the reader — `EntryDetailScreen.sealedCard`, the `EntryCard` sealed skin, the Sealed filter,
+five test files — and no phase owned the writer, because the roadmap's P0 **In scope** list names
+the composer as "text, photo, video, audio" and never names sealing.
 
-- `EntryDetailScreen.sealedCard` — lock glyph, the title, "Sealed until 18.", "Written on 9 August 2026, and waiting.", and an **Open it** button, because the author of a letter is the wrong person to lock out.
-- `EntryCard` draws the sealed skin: gradient wash over `sealedBorder`, terracotta envelope on the title, "Opens at 18." in place of the body, and **no preview** — `EntryCardModel.preview` is nil for a sealed row on purpose.
-- The **Sealed** filter chip works, including the ten-page client-side drain that `unlock_at_age`-as-not-an-`entry_type` forces.
-- Five test files assert it: `EntryDetailTests`, `TimelineDataTests`, `TimelineViewTests`, `TimelinePagingTests`, `TimelineSearchTests`.
+The writer is one control in `ComposerView`, shown when the assignment's `PromptKind` is `.letter`:
+sealed by default, an age stepper over 10–21 defaulting to the prompt's own `default_unlock_age`,
+and a toggle to turn it off. Verified end to end against the local API — a real letter assignment
+(`default_unlock_age` 13) written through the client's create path came back and rendered on the
+timeline as a wash-skinned card reading "Opens at 13." with no preview.
 
-**The write half does not exist.** Nothing in `Composer/` or `Today/` mentions `unlockAtAge` — grep returns zero hits in both directories. Every layer underneath is ready and unused: `EntryCreateRequest` carries `unlock_at_age` to `POST /entries`, `PATCH /entries/{id}` accepts it, `Entry` stores it, `SyncEngine` and `SyncWire` round-trip it.
+**One gap remains, and it is Lane A's.** `POST /entries` seals a letter whenever `unlock_at_age`
+arrives as `None`, and Pydantic cannot tell an omitted key from an explicit `null` — so turning
+sealing *off* cannot be expressed on create. The client sends an explicit null regardless and
+follows it with a `PATCH`, which *can* distinguish them because it dumps with `exclude_unset`. See
+`docs/blocked.md`; the fix is four lines and it deletes the workaround.
 
-**So it did not fall through Phase 4 — Phase 4 built the reader.** It fell through because the roadmap's P0 **In scope** list names the composer as "text, photo, video, audio" and never names sealing, so no phase ever owned it. The only way a sealed row exists today is if the API or a fixture made one.
-
-The gap is one control in `ComposerView` — an age stepper that sets `unlockAtAge` on the entry it is about to create, most naturally shown when the assignment's `PromptKind` is `.letter`. Small, and it is the emotional core of the letters.
+Still absent by choice: **editing the seal on an entry that already exists.** `PATCH` supports it,
+no UI calls it.
 
 * * *
 ## What P1 has already banked

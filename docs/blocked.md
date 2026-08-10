@@ -9,6 +9,44 @@ Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0.
 
 ---
 
+## iOS Seal control — `POST /entries` cannot hear "do not seal this"
+
+The seal control shipped and works. This is the one thing it cannot express through the create
+route, and it is **four lines to fix in Lane A**.
+
+`create_entry` seals a letter whenever `unlock_at_age` arrives as `None`:
+
+```python
+# api/src/rascal/services/entries.py
+if unlock_at_age is None and prompt is not None:
+    # Letters are sealed by default. The server owns this, not the client.
+    unlock_at_age = prompt.default_unlock_age
+```
+
+That default is right, and it is why a letter written by any client is sealed even if the client
+has never heard of sealing. The problem is that **Pydantic gives `None` for an omitted key and for
+an explicit `null` alike**, so the handler cannot tell "I have no opinion" from "the parent turned
+this off". A letter prompt the parent deliberately unsealed is created sealed at the prompt's
+default, whatever the client sends.
+
+**`PATCH /entries/{id}` does not have this problem** — `routers/entries.py` dumps with
+`model_dump(exclude_unset=True)`, so an explicit null reaches the service as a field that was set
+and clears it. The two routes disagree about what null means.
+
+**Worked around in the client, visibly and temporarily.** `EntryCreateRequest` now always writes
+`unlock_at_age`, including as an explicit null, so the client is already correct. Because the
+server currently collapses that, `ComposerView.unsealOnServerIfNeeded` follows an unsealed letter
+create with a `PATCH` that clears the field — one extra call, in the one case that needs it. If
+that call fails, the composer seals the local row to match what the archive actually holds and
+says so, rather than leaving the phone and the archive disagreeing about a permanent record.
+
+**What Lane A needs to do:** have `create_entry` take the field's *setness* rather than its value —
+`payload.model_fields_set` at the router, or pass a sentinel — so an explicit null means "not
+sealed" and an absent key keeps the prompt default. The day that lands,
+`unsealOnServerIfNeeded` deletes itself and the extra round trip goes with it.
+
+---
+
 ## iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live
 
 Found by building first-run setup against the merged API. Neither blocks onboarding, which ships

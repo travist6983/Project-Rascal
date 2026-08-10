@@ -230,6 +230,33 @@ nonisolated struct EntryCreateRequest: Encodable {
     let body: String?
     let unlockAtAge: Int?
     let tags: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, childId, assignmentId, occurredAt, title, body, unlockAtAge, tags
+    }
+
+    /// Written by hand for one field. **`unlock_at_age` is always sent, including as an explicit
+    /// null**, where the synthesized encoder would drop the key entirely.
+    ///
+    /// "Not sealed" is a decision the parent made on a letter prompt, and an absent key cannot
+    /// express a decision — it reads as "no opinion". The server does not currently tell the two
+    /// apart on create (see `ComposerView.unsealOnServerIfNeeded`, and `docs/blocked.md`), so
+    /// today this is the client being right ahead of the contract rather than a behaviour change.
+    /// The moment `create_entry` starts distinguishing them, this is already correct.
+    ///
+    /// Every other optional keeps `encodeIfPresent`: the server reads an absent `title` and an
+    /// absent `assignment_id` as "not supplied", which is exactly what they mean.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(childId, forKey: .childId)
+        try container.encodeIfPresent(assignmentId, forKey: .assignmentId)
+        try container.encode(occurredAt, forKey: .occurredAt)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(body, forKey: .body)
+        try container.encode(unlockAtAge, forKey: .unlockAtAge)
+        try container.encode(tags, forKey: .tags)
+    }
 }
 
 /// `EntryOut` from the contract, and `EntryDetail` too.

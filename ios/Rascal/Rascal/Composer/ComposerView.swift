@@ -20,6 +20,19 @@ struct ComposerView: View {
     let request: ComposerRequest
     let api: APIClient
 
+    /// Written by hand for one property. `seal` has to start from the assignment — sealed, at
+    /// the prompt's own age — and a `@State` default cannot see the request. Setting it in
+    /// `.task` instead would render the toggle off for a frame on the one screen where "on" is
+    /// the entire point.
+    init(request: ComposerRequest, api: APIClient) {
+        self.request = request
+        self.api = api
+        _seal = State(initialValue: .initial(for: request.assignment, isEditing: request.isEditing))
+    }
+
+    /// Whether this entry seals, and at what age. Only ever shown for a `letter` prompt.
+    @State private var seal: SealSetting
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -74,6 +87,12 @@ struct ComposerView: View {
                         // an affordance leading nowhere is worse than its absence.
                         if request.assignment == nil { freeformCapture }
                         writeIt
+                    }
+
+                    // After the writing, before the save. The letter is the thing; when it
+                    // opens is what you decide once it exists.
+                    if SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing) {
+                        SealControl(seal: $seal)
                     }
 
                     if let notice {
@@ -516,7 +535,9 @@ struct ComposerView: View {
             childId: request.childId,
             assignmentId: request.assignment?.id,
             occurredAt: occurredAt,
-            body: trimmed.isEmpty ? nil : trimmed
+            body: trimmed.isEmpty ? nil : trimmed,
+            // Nil for everything that is not a sealed letter, which is almost everything.
+            unlockAtAge: seal.unlockAtAge
         )
         // Cache the prompt at the moment it is answered.
         //
@@ -560,6 +581,7 @@ struct ComposerView: View {
             let response = try await api.createEntry(entry)
             entry.applyServerResponse(response)
             try? context.save()
+            if await unsealOnServerIfNeeded(entry) { return }
             dismiss()
         } catch let error as APIError {
             // The one real user-facing failure: the entry saves, it just no longer completes
@@ -594,6 +616,46 @@ struct ComposerView: View {
     /// An edit follows the same discipline as a creation: local first, then sync. The change
     /// is on screen before the request goes out, and a failure leaves it queued rather than
     /// lost.
+    /// Tell the server the parent turned sealing off, because **`POST /entries` cannot hear it.**
+    ///
+    /// `create_entry` seals a letter whenever `unlock_at_age` arrives as `None`, and Pydantic
+    /// produces `None` for an omitted key *and* for an explicit `null` — the two are
+    /// indistinguishable there. So a letter prompt the parent unsealed is created sealed at the
+    /// prompt's `default_unlock_age` no matter what this client sends.
+    ///
+    /// `PATCH` does not have that problem: it dumps with `exclude_unset`, so an explicit null
+    /// reaches the handler as a field that was set, and clears it. One extra call, in the one
+    /// case that needs it, and **it deletes itself** the day Lane A can tell null from absent on
+    /// create — `docs/blocked.md`.
+    ///
+    /// Returns true when it kept the sheet open to say something.
+    private func unsealOnServerIfNeeded(_ entry: Entry) async -> Bool {
+        guard SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing),
+              !seal.isSealed,
+              request.assignment?.unlockAtAge != nil
+        else { return false }
+
+        do {
+            let response = try await api.updateEntry(
+                id: entry.id,
+                changes: EntryChanges(unlockAtAge: .set(nil))
+            )
+            entry.applyServerResponse(response)
+            try? context.save()
+            return false
+        } catch {
+            // The archive has it sealed and could not be told otherwise. Match it locally rather
+            // than leave the phone and the archive disagreeing about a permanent record — a
+            // divergence nothing else in this app would ever reconcile, because editing a seal
+            // has no UI yet. Then say what happened, plainly.
+            let sealedAt = SealSetting.resolvedAge(request.assignment?.unlockAtAge)
+            entry.unlockAtAge = sealedAt
+            try? context.save()
+            notice = "Saved, and it sealed at \(sealedAt). Leaving it open didn't reach the archive."
+            return true
+        }
+    }
+
     private func saveEdit(_ entryId: UUID) async {
         guard let entry = try? context.fetch(
             FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryId })
