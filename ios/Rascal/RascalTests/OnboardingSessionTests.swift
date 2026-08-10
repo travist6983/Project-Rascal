@@ -80,6 +80,98 @@ struct OnboardingSessionTests {
         #expect(session.resolveFailed == false)
     }
 
+    // MARK: Getting back out
+
+    /// Signing in with the wrong Apple ID is easy and, before this existed, permanent: setup
+    /// cannot be completed for an account that isn't yours and there is no Settings to escape to.
+    @Test("signing out of setup returns to the welcome screen and forgets everything local")
+    func signOutFromSetupClearsEverything() async throws {
+        let drafts = InMemoryOnboardingDraftStore()
+        let appleIDs = InMemoryAppleUserIDStore("001.wrong.account")
+        let record = InMemoryUserRecordStore()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (Data("[]".utf8), 200) }
+
+        let session = onboardingSession(
+            performer, tokens: signedIn, record: record, drafts: drafts, appleIDs: appleIDs
+        )
+        await session.resume()
+        session.draft.name = "Milo"
+        session.persist()
+        #expect(session.state == .needsChild)
+        #expect(drafts.load() != nil)
+
+        await session.signOut()
+
+        #expect(session.state == .signedOut)
+        #expect(await session.account.api.hasSession() == false)
+        #expect(appleIDs.load() == nil)
+        #expect(record.load() == nil)
+        #expect(drafts.load() == nil, "a half-typed child's name does not outlive the account")
+        #expect(session.draft.name.isEmpty)
+    }
+
+    /// Settings signs out through the closure the gate hands it, so this is the same call the
+    /// button makes.
+    ///
+    /// The first attempt at this watched `AppSession.phase` from the gate instead, which is
+    /// wrong in a way worth keeping a test for: `onChange` fires on a *change*, so the second
+    /// sign-out of a launch would set a value that was already `.signedOut`, notify nobody, and
+    /// leave Today on screen behind a revoked token. Hence the loop below.
+    @Test("signing out from Settings returns to the welcome screen, every time")
+    func settingsSignOutReturnsToWelcome() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (meChildrenJSON(child), 200) }
+        performer.on("/auth/apple") { _ in (onboardingSessionJSON(displayName: "Ada"), 200) }
+
+        let session = onboardingSession(performer, tokens: signedIn)
+
+        for attempt in 1...2 {
+            await session.resume()
+            #expect(session.state.readyChild?.id == child, "attempt \(attempt)")
+
+            await session.signOut()
+            #expect(session.state == .signedOut, "sign-out \(attempt) must land")
+            #expect(await session.account.api.hasSession() == false, "attempt \(attempt)")
+
+            // Sign back in, so the second pass is a genuine second sign-out in one session.
+            await session.signIn(with: appleCredential(fullName: nil))
+        }
+    }
+
+    /// The gate resolves the session now, so the `/me` refresh that `AppSession.start()` used to
+    /// perform has to happen here or a relaunch shows an account with no name.
+    @Test("the account is re-read from /me once a child resolves")
+    func accountIsRefreshedOnResolve() async throws {
+        let child = UUID()
+        let record = InMemoryUserRecordStore()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (meChildrenJSON(child), 200) }
+        performer.on("/me") { _ in (meUserJSON(name: "Travis"), 200) }
+
+        let session = onboardingSession(performer, tokens: signedIn, record: record)
+        await session.resume()
+
+        #expect(session.state.readyChild?.id == child)
+        #expect(session.account.user?.displayName == "Travis")
+        #expect(record.load()?.displayName == "Travis", "and the cold-launch copy is corrected")
+        #expect(performer.count(for: "/me") == 1)
+    }
+
+    @Test("a failing /me does not fail the launch")
+    func failingMeDoesNotFailTheLaunch() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (meChildrenJSON(child), 200) }
+        performer.on("/me") { _ in (Data("{}".utf8), 500) }
+
+        let session = onboardingSession(performer, tokens: signedIn)
+        await session.resume()
+
+        #expect(session.state.readyChild?.id == child, "the archive does not depend on a name")
+    }
+
     // MARK: The returning user
 
     @Test("a returning account with a child skips child creation entirely")

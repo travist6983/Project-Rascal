@@ -77,8 +77,12 @@ nonisolated final class InMemoryAvatarStore: AvatarStoring, @unchecked Sendable 
         stored[childId] = nil
     }
 
+    /// A path nothing is ever written to. This store keeps its bytes in memory, and handing back
+    /// a plausible-looking real path would invite a caller to read from it and find nothing.
     func url(for childId: UUID) -> URL {
-        URL(fileURLWithPath: "/dev/null/\(childId.uuidString.lowercased()).jpg")
+        URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "in-memory-avatar-store")
+            .appending(path: "\(childId.uuidString.lowercased()).jpg")
     }
 }
 
@@ -96,37 +100,61 @@ enum AvatarCrop {
     /// an avatar could grow into without storing a full-resolution portrait per child.
     static let maxPixels = 512
 
-    /// Centre-crop to a square, then run the existing pipeline over it.
+    /// Centre-crop to a square at avatar size.
     ///
     /// Centre rather than face-aware: Vision would be a better crop and it would also be a new
     /// dependency on a framework this lane has never loaded, for a picture the parent can retake.
+    ///
+    /// **Downsampled before anything else touches it, and that is the whole design.** The obvious
+    /// version — run `ImagePipeline.process`, crop the result, then shrink it — decodes a
+    /// 24-megapixel photo at full size, JPEG-encodes it at full size, builds a thumbnail nobody
+    /// wants, decodes again, and encodes twice more, to produce 512 pixels. `ImagePipeline`'s own
+    /// comments are about exactly this cost ("doubling decode memory on a 24-megapixel photo is
+    /// not academic"), and this runs while a parent is waiting on the last screen of setup.
+    ///
+    /// So: one `CGImageSourceCreateThumbnailAtIndex` sized so the *short* edge lands on
+    /// `maxPixels`, which never decodes the full image, then one crop, then one encode. HEIC→JPEG
+    /// and the orientation bake are the same ImageIO mechanisms `ImagePipeline` uses, and the
+    /// encode is `ImagePipeline`'s own, so the alpha-stripping rule is not re-derived here.
     static func square(_ data: Data) throws -> Data {
-        let processed = try ImagePipeline.process(data: data)
-        guard let source = CGImageSourceCreateWithData(processed.data as CFData, nil),
-              let upright = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { throw ImagePipeline.Failure.notAnImage }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw ImagePipeline.Failure.unreadable
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+        guard width > 0, height > 0 else { throw ImagePipeline.Failure.notAnImage }
+
+        // `ThumbnailMaxPixelSize` constrains the *long* edge, and the crop below consumes the
+        // short one — so ask for a long edge that leaves `maxPixels` across the short. Capped at
+        // the original, because ImageIO will not upscale and asking it to is meaningless.
+        let longEdge = max(width, height)
+        let shortEdge = min(width, height)
+        let target = min(
+            longEdge,
+            Int((Double(maxPixels) * Double(longEdge) / Double(shortEdge)).rounded())
+        )
+
+        guard let upright = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            // Orientation baked into the pixels, never left as a tag — the same call and the
+            // same reason as `ImagePipeline`: a tag on top of baked rotation rotates it twice.
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: target,
+        ] as CFDictionary) else {
+            throw ImagePipeline.Failure.notAnImage
+        }
 
         let edge = min(upright.width, upright.height)
-        let rect = CGRect(
+        guard edge > 0, let cropped = upright.cropping(to: CGRect(
             x: (upright.width - edge) / 2,
             y: (upright.height - edge) / 2,
             width: edge,
             height: edge
-        )
-        guard let cropped = upright.cropping(to: rect) else {
+        )) else {
             throw ImagePipeline.Failure.encodingFailed
         }
 
-        // Back through ImageIO to downsample and re-encode, so the stored file is a modest
-        // square rather than a full-resolution photo with most of it thrown away.
-        let squareJPEG = try ImagePipeline.encodeJPEGForPoster(cropped)
-        guard let squareSource = CGImageSourceCreateWithData(squareJPEG as CFData, nil),
-              let reduced = CGImageSourceCreateThumbnailAtIndex(squareSource, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-              ] as CFDictionary)
-        else { return squareJPEG }
-
-        return try ImagePipeline.encodeJPEGForPoster(reduced)
+        return try ImagePipeline.encodeJPEGForPoster(cropped)
     }
 }

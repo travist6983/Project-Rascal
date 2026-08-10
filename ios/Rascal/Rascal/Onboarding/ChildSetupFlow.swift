@@ -22,6 +22,17 @@ struct ChildSetupFlow: View {
                     OnboardingBackButton { session.goBack() }
                         .padding(.leading, OnboardingLayout.margin - 12)
                         .padding(.top, 14)
+                } else {
+                    // **The way out of the first step.** Signing in with the wrong Apple ID is
+                    // easy to do and, without this, impossible to undo: back goes nowhere, there
+                    // is no Settings yet, and setup cannot be completed for an account that isn't
+                    // yours. A state with no exit is a defect however tidy it looks.
+                    Button("Not you?") { Task { await session.signOut() } }
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                        .padding(.leading, OnboardingLayout.margin)
+                        .padding(.top, 24)
+                        .accessibilityLabel("Sign out and use a different account")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

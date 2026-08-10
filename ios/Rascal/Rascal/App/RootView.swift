@@ -5,6 +5,17 @@ struct RootView: View {
     /// Owned by `OnboardingGate` and handed down, so the whole process shares one `APIClient`
     /// and one single-flight refresh. Two would race a rotating refresh token against itself.
     let session: AppSession
+    /// Resolved by the gate before this view exists.
+    ///
+    /// **This view no longer resolves session state, and that is the point.** It used to run
+    /// `AppSession.start()` itself, which re-fetched a child the gate had already fetched and —
+    /// on a network blip in that window — fell through to `dev-login`, so a signed-in parent in
+    /// production could be told "the API is not running with ENVIRONMENT=local". One owner of
+    /// session state, and it is the gate.
+    let childId: UUID
+    /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
+    /// put the app back on the welcome screen afterwards.
+    let onSignOut: () async -> Void
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
     @State private var sync: EntrySync?
@@ -24,22 +35,9 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Color.canvas.ignoresSafeArea()
-
-            switch session.phase {
-            case .launching:
-                LaunchView()
-            case .signedIn(let childId):
-                signedIn(childId: childId)
-            case .signedOut:
-                SignedOutView { Task { await session.signIn() } }
-            case .failed(let message):
-                SignInFailedView(message: message) {
-                    Task { await session.signOutAndRetry() }
-                }
-            }
+            signedIn(childId: childId)
         }
         .task {
-            await session.start()
             if thumbnails == nil {
                 thumbnails = ThumbnailStore(api: session.api)
             }
@@ -63,8 +61,8 @@ struct RootView: View {
             if sync == nil {
                 sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
             }
-            // The engine needs the child, so it cannot be built until the session resolves one.
-            if syncEngine == nil, case .signedIn(let childId) = session.phase {
+            // The engine needs the child, which the gate has already resolved.
+            if syncEngine == nil {
                 syncEngine = SyncEngine(
                     childId: childId,
                     api: session.api,
@@ -110,6 +108,7 @@ struct RootView: View {
                     SettingsScreen(
                         childId: childId,
                         session: session,
+                        onSignOut: onSignOut,
                         sync: sync,
                         syncEngine: syncEngine,
                         transcription: transcription
@@ -152,62 +151,3 @@ extension RootView {
     }
 }
 
-private struct LaunchView: View {
-    var body: some View {
-        VStack(spacing: 14) {
-            ProgressView().tint(.terracotta)
-            Text("Opening the archive")
-                .typeRole(.body)
-                .foregroundStyle(Color.inkMuted)
-        }
-    }
-}
-
-/// After a deliberate sign-out. Nothing went wrong, so nothing here says anything did — and
-/// nothing signs back in until someone asks it to.
-private struct SignedOutView: View {
-    let signIn: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(Color.inkMuted)
-            Text("Signed out")
-                .typeRole(.title)
-                .foregroundStyle(Color.ink)
-            Text("The archive is safe. Sign in to open it again.")
-                .typeRole(.body)
-                .foregroundStyle(Color.inkMuted)
-                .multilineTextAlignment(.center)
-            Button("Sign in", action: signIn)
-                .buttonStyle(PrimaryButtonStyle())
-        }
-        .padding(Layout.screenMargin * 2)
-    }
-}
-
-/// Says what happened and what to do, in the interface's voice. It does not apologise and it
-/// is not vague — `docs/design-system.md`, copy rules.
-private struct SignInFailedView: View {
-    let message: String
-    let retry: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "point.3.connected.trianglepath.dotted")
-                .font(.system(size: 30, weight: .light))
-                .foregroundStyle(Color.inkMuted)
-            Text("Can't open the archive")
-                .typeRole(.title)
-                .foregroundStyle(Color.ink)
-            Text(message)
-                .typeRole(.body)
-                .foregroundStyle(Color.inkMuted)
-                .multilineTextAlignment(.center)
-            Button("Try again", action: retry)
-                .buttonStyle(PrimaryButtonStyle())
-        }
-        .padding(Layout.screenMargin * 2)
-    }
-}

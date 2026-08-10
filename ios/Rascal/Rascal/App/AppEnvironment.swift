@@ -71,9 +71,20 @@ final class AppSession {
         )
     }
 
+    /// **No longer the app's launch path. Do not call this from a view.**
+    ///
+    /// `OnboardingGate` resolves the session now — it checks the Apple credential state, decides
+    /// between `signedOut`, `needsChild` and `ready`, and refreshes `/me` once a child is found.
+    /// Calling this as well would run a second, competing resolution that re-fetches the child and
+    /// falls back to `dev-login` when it cannot, which in production tells the parent "the API is
+    /// not running with ENVIRONMENT=local".
+    ///
+    /// Kept because `MeTests` drives the user-record rules through it and those rules are real.
+    /// Retiring it, and `signIn`/`signOutAndRetry` with it, is a cleanup of its own — see
+    /// `docs/reports/phase-5-onboarding.md`.
+    ///
     /// A stored token means we can go straight to Today. If it has expired, the first request
-    /// refreshes transparently; if refresh fails, that request surfaces `.sessionExpired` and
-    /// the view calls `signOutAndRetry()`.
+    /// refreshes transparently; if refresh fails, that request surfaces `.sessionExpired`.
     func start() async {
         if await api.hasSession(), let child = await resolveChild() {
             phase = .signedIn(childId: child)

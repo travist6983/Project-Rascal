@@ -387,7 +387,9 @@ struct TranscriptionTests {
         let entryId = UUID()
         let transcriber = StubTranscriber()
         transcriber.set(text: "words")
-        transcriber.set(delay: .milliseconds(80))
+        // 400ms, not 80: the cancel has to hop to the main actor while row two is parked in
+        // this delay, and 80ms is a thin margin on a contended runner.
+        transcriber.set(delay: .milliseconds(400))
         for _ in 0..<4 { _ = stagedVoiceNote(entryId: entryId, in: context, store: store) }
 
         let performer = StubPerformer()
@@ -396,14 +398,19 @@ struct TranscriptionTests {
         }
         let subject = queue(context: context, performer: performer, transcriber: transcriber, store: store)
 
-        let run = Task { await subject.runBacklog() }
-        // Long enough for the first to be under way and short enough that four cannot have run.
-        try await Task.sleep(for: .milliseconds(120))
-        subject.cancelBacklog()
-        let report = await run.value
+        // Stop the run from inside the run, once the *second* row starts — one finished, one
+        // interrupted, two never begun. `onEnter` fires on the transcriber's own thread, so
+        // there is no second task to schedule and nothing to race; the run is this test's own
+        // task, awaited directly below.
+        transcriber.onEnter { count in
+            guard count == 2 else { return }
+            Task { @MainActor in subject.cancelBacklog() }
+        }
+        let report = await subject.runBacklog()
 
         #expect(report.cancelled)
         #expect(report.transcribed < 4)
+        #expect(report.transcribed >= 1, "the first row finished before the stop landed")
         let remaining = TranscriptionQueue.backlogCount(in: context)
         #expect(remaining > 0)
         // **Resumable, not restartable.** What finished stays finished, so pressing the button
@@ -488,10 +495,14 @@ struct TranscriptionTests {
         let performer = StubPerformer()
         let subject = queue(context: context, performer: performer, transcriber: transcriber, store: store)
 
-        let run = Task { await subject.runBacklog() }
-        try await Task.sleep(for: .milliseconds(60))
-        subject.cancelBacklog()
-        _ = await run.value
+        // Cancelled from inside the transcriber, before its five-second delay begins — the exact
+        // moment cancellation has something to interrupt, on an idle laptop and a contended CI
+        // runner alike.
+        transcriber.onEnter { count in
+            guard count == 1 else { return }
+            Task { @MainActor in subject.cancelBacklog() }
+        }
+        _ = await subject.runBacklog()
 
         // The local write happens strictly after the transcriber returns, so a cancelled run has
         // no half-written state to clean up. Nothing was written, nothing was sent, and the row

@@ -16,6 +16,11 @@ import SwiftUI
 struct SettingsScreen: View {
     let childId: UUID
     let session: AppSession
+    /// Signing out belongs to `OnboardingGate`, which owns session state — it has to forget the
+    /// Apple subject and any half-finished setup draft, and put the app back on the welcome
+    /// screen. Calling `AppSession.signOut()` from here would revoke the token and leave this
+    /// screen exactly where it is.
+    let onSignOut: () async -> Void
     /// The app's one sync, so the status section reads the same numbers the sweep acts on rather
     /// than inventing a second source of truth for upload state.
     let sync: EntrySync?
@@ -127,7 +132,7 @@ struct SettingsScreen: View {
             isPresented: $confirmingSignOut,
             titleVisibility: .visible
         ) {
-            Button("Sign out", role: .destructive) { Task { await session.signOut() } }
+            Button("Sign out", role: .destructive) { Task { await onSignOut() } }
             Button("Stay signed in", role: .cancel) {}
         } message: {
             Text("The archive stays on the server. Anything still waiting to upload from this phone will finish after you sign back in.")

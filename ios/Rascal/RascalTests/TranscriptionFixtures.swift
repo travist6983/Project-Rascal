@@ -1,7 +1,26 @@
 import Foundation
 import SwiftData
+import Testing
 
 @testable import Rascal
+
+// **A wall clock cannot order two concurrent operations, and neither can a poll loop.**
+//
+// The cancellation tests used to sleep 60ms and assume the run was under way by then. That holds
+// on a fast, idle machine and stops holding on a loaded CI runner, which is how this suite went
+// red on a branch that changed nothing about transcription.
+//
+// Polling was tried as the replacement and was worse: waking the main actor every 2ms for ten
+// seconds starves the very MainActor task the test is waiting to start, so it timed out under a
+// full-suite run that the original sleep survived. The poll was competing with its own subject.
+//
+// A continuation handshake was tried next and hung outright: it still needed the detached
+// `Task { await runBacklog() }` to be scheduled, and under a full-suite run it was not.
+//
+// So the run is no longer detached at all. The test awaits `runBacklog()` directly — its own task
+// *is* the run — and `onEnter` fires from inside `transcribe` at the row the test names. The only
+// asynchrony left is a hop back to the main actor to call `cancelBacklog`, and that happens while
+// the stub is parked in a delay measured in whole seconds.
 
 /// The stub behind `SpeechTranscribing`, and the scaffolding the transcription suites share.
 ///
@@ -22,10 +41,45 @@ final class StubTranscriber: SpeechTranscribing, @unchecked Sendable {
     /// that two runs never overlap.
     private var delay: Duration = .zero
 
-    private(set) var requested: [URL] = []
-    /// The highest number of `transcribe` calls in flight at once. **One is the assertion.**
-    private(set) var peakConcurrency = 0
+    /// Read from the test while `transcribe` may be appending on another executor, so both sides
+    /// go through the lock. The stored properties are private and the readers are computed —
+    /// a `private(set)` array would have let a test read it unsynchronised, which is a data race
+    /// however unlikely it is to be caught.
+    private var requestedValues: [URL] = []
+    private var peakConcurrencyValue = 0
     private var inFlight = 0
+
+    var requested: [URL] {
+        lock.lock(); defer { lock.unlock() }
+        return requestedValues
+    }
+
+    /// The signal a test waits on to know a run is genuinely inside the transcriber. Recorded
+    /// before the stub's delay begins, so seeing it means the run is parked mid-inference and
+    /// cancellation has something real to interrupt.
+    var requestedCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return requestedValues.count
+    }
+
+    /// The highest number of `transcribe` calls in flight at once. **One is the assertion.**
+    var peakConcurrency: Int {
+        lock.lock(); defer { lock.unlock() }
+        return peakConcurrencyValue
+    }
+
+    /// Called from inside `transcribe`, before the delay, with the number of entries so far.
+    ///
+    /// **This is how the cancellation tests stop a run: from within the run.** Every other
+    /// approach tried here coordinated two tasks and depended on the scheduler to interleave
+    /// them, which is the thing that does not hold under load. The hook fires on the run's own
+    /// thread at a point the test chose, so there is nothing to race.
+    private var onEnterHook: (@Sendable (Int) -> Void)?
+
+    func onEnter(_ hook: @escaping @Sendable (Int) -> Void) {
+        lock.lock(); defer { lock.unlock() }
+        onEnterHook = hook
+    }
 
     init(
         readiness: TranscriptionReadiness = .ready(
@@ -59,9 +113,14 @@ final class StubTranscriber: SpeechTranscribing, @unchecked Sendable {
         self.delay = delay
     }
 
+    /// Reads the stored array, **not** the `requested` accessor.
+    ///
+    /// `requested` takes the same lock, and `NSLock` is not reentrant — going through it from
+    /// here deadlocks the moment anything asks for a call count. That is what happens when a
+    /// stored `private(set)` property is turned into a locked accessor and one caller is missed.
     var callCount: Int {
         lock.lock(); defer { lock.unlock() }
-        return requested.count
+        return requestedValues.count
     }
 
     // MARK: SpeechTranscribing
@@ -95,11 +154,20 @@ final class StubTranscriber: SpeechTranscribing, @unchecked Sendable {
     /// Synchronous on purpose: nothing is held across a suspension, and taking a lock directly
     /// in an `async` function is a shape the compiler objects to whether or not it is safe.
     private func enter(_ url: URL) -> Duration {
-        lock.lock(); defer { lock.unlock() }
-        requested.append(url)
+        lock.lock()
+        requestedValues.append(url)
         inFlight += 1
-        peakConcurrency = max(peakConcurrency, inFlight)
-        return delay
+        peakConcurrencyValue = max(peakConcurrencyValue, inFlight)
+        let reached = requestedValues.count
+        let hook = onEnterHook
+        let pause = delay
+        lock.unlock()
+
+        // Called outside the lock. The hook runs arbitrary test code, and doing that while
+        // holding a lock this class takes on every call is how a suite deadlocks instead of
+        // failing.
+        hook?(reached)
+        return pause
     }
 
     private func leave() {
