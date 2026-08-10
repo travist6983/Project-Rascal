@@ -58,6 +58,11 @@ final class OnboardingSession {
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
     private let avatars: AvatarStoring
+    /// Signing out has to reach the Home Screen too. The widget's snapshot holds a child's first
+    /// name and today's prompts, and it outlives the session unless something removes it — a
+    /// signed-out phone with the child's name still on its Lock Screen is the visible version of
+    /// that bug.
+    private let widget: WidgetSnapshotPublisher
 
     /// **The one payload in the app that cannot be recreated.**
     ///
@@ -73,13 +78,15 @@ final class OnboardingSession {
         drafts: OnboardingDraftStoring = UserDefaultsOnboardingDraftStore(),
         appleIDs: AppleUserIDStoring = UserDefaultsAppleUserIDStore(),
         credentials: AppleCredentialChecking = LiveAppleCredentialCheck(),
-        avatars: AvatarStoring = LocalAvatarStore()
+        avatars: AvatarStoring = LocalAvatarStore(),
+        widget: WidgetSnapshotPublisher = .live
     ) {
         self.account = account
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
         self.avatars = avatars
+        self.widget = widget
         self.draft = drafts.load() ?? OnboardingDraft()
     }
 
@@ -331,12 +338,19 @@ final class OnboardingSession {
         pendingExchange = nil
         notice = nil
         resolveFailed = false
+        widget.publish(nil)
     }
 
     /// Drop the session without revoking anything, for a credential Apple has already invalidated.
+    ///
+    /// **Both of the two ways out carry the widget with them**, and they are genuinely separate
+    /// paths: this one runs when Apple reports a revoked credential or the API answers 401, and
+    /// `forgetLocalIdentity` runs when the parent taps Sign out. Clearing in only one of them
+    /// leaves the other with a Home Screen the app no longer has an account for.
     private func forgetSession() async {
         await account.api.signOut()
         appleIDs.clear()
+        widget.publish(nil)
     }
 }
 
@@ -377,9 +391,15 @@ struct OnboardingGate: View {
                 // so a second sign-out in one launch — sign out, sign back in, sign out again —
                 // sets a value that is already `.signedOut`, fires nothing, and leaves Today on
                 // screen behind a revoked token.
+                // The timezone travels with the id because the widget snapshot needs it and
+                // `GET /today` does not carry one: the response states the child's local date but
+                // not the zone it was computed in, and the widget has to be able to ask whether
+                // that date is still today. The gate already holds the whole `ChildResponse`, so
+                // this costs a parameter rather than a second request.
                 RootView(
                     session: session.account,
                     childId: child.id,
+                    familyTimezone: child.familyTimezone,
                     onSignOut: { await session.signOut() }
                 )
                 .id(child.id)

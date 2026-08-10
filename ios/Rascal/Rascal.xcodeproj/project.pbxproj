@@ -7,7 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0F5A916C7F99C9BB46F875D2 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */; };
+		19B281DBCA50510CD77BF721 /* WidgetSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */; };
 		591765408DC2A815E86942F3 /* RascalWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6C14DE434859CCCBAD00DEE3 /* WidgetDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */; };
+		765B54D2406167A502CFAA68 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253349DE7E4D86E0CB862CF3 /* Palette.swift */; };
+		82178496EF5CAFA53F7D8ADB /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD48BFE63E69BE5E5420041 /* Typography.swift */; };
+		822006774D2EA9C90EDCA03B /* PromptText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E426110C2B8530FE4D94ED7 /* PromptText.swift */; };
+		C6D4E8482C0C3B0BBE00EA71 /* WidgetNarration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C660FB4997E4AB2392A35353 /* WidgetNarration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,31 +49,32 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshotStore.swift; path = Rascal/Widget/WidgetSnapshotStore.swift; sourceTree = "<group>"; };
+		06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetDeepLink.swift; path = Rascal/Widget/WidgetDeepLink.swift; sourceTree = "<group>"; };
+		1E426110C2B8530FE4D94ED7 /* PromptText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PromptText.swift; path = Rascal/Widget/PromptText.swift; sourceTree = "<group>"; };
 		1F1B64263027A5C000BFFE84 /* Rascal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rascal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64363027A6B400BFFE84 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		253349DE7E4D86E0CB862CF3 /* Palette.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Palette.swift; path = Rascal/DesignSystem/Palette.swift; sourceTree = "<group>"; };
 		5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RascalWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8DD48BFE63E69BE5E5420041 /* Typography.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = Rascal/DesignSystem/Typography.swift; sourceTree = "<group>"; };
 		AA0000000000000000000003 /* RascalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RascalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C660FB4997E4AB2392A35353 /* WidgetNarration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetNarration.swift; path = Rascal/Widget/WidgetNarration.swift; sourceTree = "<group>"; };
+		D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshot.swift; path = Rascal/Widget/WidgetSnapshot.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1F1B64283027A5C000BFFE84 /* Rascal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Rascal;
 			sourceTree = "<group>";
 		};
 		AA0000000000000000000001 /* RascalTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = RascalTests;
 			sourceTree = "<group>";
 		};
 		F0AE286D3A3A52317C96570F /* RascalWidget */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = RascalWidget;
 			sourceTree = "<group>";
 		};
@@ -105,6 +113,7 @@
 				AA0000000000000000000001 /* RascalTests */,
 				1F1B64273027A5C000BFFE84 /* Products */,
 				F0AE286D3A3A52317C96570F /* RascalWidget */,
+				EC587F2EF995B4D524FAC198 /* Shared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -116,6 +125,20 @@
 				5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		EC587F2EF995B4D524FAC198 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				253349DE7E4D86E0CB862CF3 /* Palette.swift */,
+				8DD48BFE63E69BE5E5420041 /* Typography.swift */,
+				D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */,
+				032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */,
+				06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */,
+				1E426110C2B8530FE4D94ED7 /* PromptText.swift */,
+				C660FB4997E4AB2392A35353 /* WidgetNarration.swift */,
+			);
+			name = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -260,6 +283,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				765B54D2406167A502CFAA68 /* Palette.swift in Sources */,
+				82178496EF5CAFA53F7D8ADB /* Typography.swift in Sources */,
+				0F5A916C7F99C9BB46F875D2 /* WidgetSnapshot.swift in Sources */,
+				19B281DBCA50510CD77BF721 /* WidgetSnapshotStore.swift in Sources */,
+				6C14DE434859CCCBAD00DEE3 /* WidgetDeepLink.swift in Sources */,
+				822006774D2EA9C90EDCA03B /* PromptText.swift in Sources */,
+				C6D4E8482C0C3B0BBE00EA71 /* WidgetNarration.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

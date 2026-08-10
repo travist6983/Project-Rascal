@@ -13,11 +13,18 @@ struct RootView: View {
     /// production could be told "the API is not running with ENVIRONMENT=local". One owner of
     /// session state, and it is the gate.
     let childId: UUID
+    /// The zone the server computes this child's schedule in. Passed straight through to Today,
+    /// which stamps it onto the widget snapshot so the widget can tell today's board from
+    /// yesterday's without asking anyone.
+    let familyTimezone: String
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
+    /// An assignment the widget asked for, waiting for Today to have a board to resolve it
+    /// against. Cleared whether or not it resolves — see `TodayScreen`.
+    @State private var requestedAssignment: UUID?
     @State private var sync: EntrySync?
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
@@ -78,6 +85,18 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await runSweep() } }
         }
+        // The widget's only way back into the app. Routing happens in two steps on purpose: this
+        // one knows the URL and nothing about assignments, and Today knows the board and nothing
+        // about URLs. Both destinations land on Today first, so a tap always arrives somewhere
+        // real even when the id turns out to be one the board has never heard of.
+        .onOpenURL { url in
+            guard let link = WidgetDeepLink.parse(url) else { return }
+            tab = .today
+            // A composer already open belongs to whatever the parent was doing before the tap.
+            // Replacing it would discard typed words, so the link takes them to Today instead.
+            guard composer == nil else { return }
+            if case .assignment(let id) = link { requestedAssignment = id }
+        }
         .sheet(item: $composer, onDismiss: { Task { await runSweep() } }) { request in
             ComposerView(request: request, api: session.api)
         }
@@ -91,6 +110,8 @@ struct RootView: View {
                     TodayScreen(
                         childId: childId,
                         api: session.api,
+                        familyTimezone: familyTimezone,
+                        requestedAssignment: $requestedAssignment,
                         onRetrySync: { Task { await runSweep() } },
                         onSync: { await runSweep() }
                     ) { composer = $0 }
@@ -117,7 +138,11 @@ struct RootView: View {
                     // The centre button opens the composer as a sheet and never selects a tab,
                     // so this is unreachable. Today is what the app falls back to rather than a
                     // blank screen, on the principle that a fallback should be somewhere real.
-                    TodayScreen(childId: childId, api: session.api) { composer = $0 }
+                    TodayScreen(
+                        childId: childId,
+                        api: session.api,
+                        familyTimezone: familyTimezone
+                    ) { composer = $0 }
                 }
             }
             .environment(\.thumbnails, thumbnails)

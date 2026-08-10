@@ -59,6 +59,17 @@ final class TodayModel {
 struct TodayScreen: View {
     let childId: UUID
     let api: APIClient
+    /// Stamped onto the widget snapshot. This screen never computes a date with it — the server
+    /// already named the day, and the zone travels alongside so the *widget* can ask later
+    /// whether that day is still the current one.
+    let familyTimezone: String
+    /// An assignment the widget asked to open. Resolved against the board below and cleared
+    /// either way, because an id this board does not hold must leave the parent on Today rather
+    /// than in a composer for nothing.
+    var requestedAssignment: Binding<UUID?> = .constant(nil)
+    /// Writes the snapshot the widget reads. Injected so a test can watch the reload without a
+    /// shared container.
+    var widget: WidgetSnapshotPublisher = .live
     var onRetrySync: () -> Void = {}
     /// Runs the push-then-pull sweep. One of the four triggers, and the boring one: opening the
     /// screen a parent opens most is a good moment to be up to date.
@@ -128,6 +139,23 @@ struct TodayScreen: View {
                 }
             }
             .padding(.bottom, 20)
+            // **All three of the snapshot's triggers are this one line.** A load, a completion and
+            // a dismissal each end with a different board, and the board is what the snapshot is
+            // derived from — so hooking the derived value catches all three without three call
+            // sites that can fall out of step. `initial: true` covers the first render, which is
+            // the load.
+            //
+            // Deliberately attached inside this branch rather than to the screen: a refetch that
+            // fails leaves the board it already has on screen and must not blank the widget, and a
+            // branch that is not rendered cannot fire. The snapshot is only ever cleared by
+            // signing out.
+            .onChange(of: WidgetSnapshotBuilder.snapshot(from: board, familyTimezone: familyTimezone),
+                      initial: true) { _, snapshot in
+                widget.publish(snapshot)
+            }
+            .onChange(of: requestedAssignment.wrappedValue, initial: true) { _, id in
+                openRequested(id, on: board)
+            }
         }
     }
 
@@ -228,6 +256,26 @@ struct TodayScreen: View {
         openComposer(
             ComposerRequest(childId: childId, assignment: assignment, mode: assignment.completion)
         )
+    }
+
+    /// Open what the widget was tapped on.
+    ///
+    /// **Cleared before anything else happens, and unconditionally.** The one outcome that has to
+    /// be impossible is a composer opened for an assignment this board does not hold, and the
+    /// second is a request that survives its own failure and re-fires on the next render. An id
+    /// that resolves to nothing leaves the parent on Today, which is where they already are.
+    ///
+    /// A finished item opens the entry it produced rather than a second composer for the same
+    /// assignment — cheap, because Today already edits a done card that way.
+    private func openRequested(_ id: UUID?, on board: TodayBoard) {
+        guard let id else { return }
+        requestedAssignment.wrappedValue = nil
+
+        switch board.route(forAssignment: id) {
+        case .composer(let assignment): open(assignment)
+        case .entry(let entryId): edit(entryId: entryId)
+        case .today: break
+        }
     }
 
     /// Tapping a done card edits the entry behind it.
