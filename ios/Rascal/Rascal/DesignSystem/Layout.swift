@@ -115,6 +115,10 @@ struct KindBadge: View {
 /// Capsule primary action. Terracotta for missions and primary, periwinkle for questions.
 struct PrimaryButtonStyle: ButtonStyle {
     var tint: Color = .terracotta
+    /// Full-bleed by default, which is what every sheet and form in the app wants. A `PromptCard`
+    /// sets this false: its action sits at the trailing end of a row beside the slot's name, and a
+    /// button stretched across the card there would swallow the line it is meant to sit next to.
+    var fullWidth: Bool = true
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -122,7 +126,7 @@ struct PrimaryButtonStyle: ButtonStyle {
             .foregroundStyle(Color.surface)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(configuration.isPressed ? Color.terracottaDeep : tint, in: Capsule())
             .contentShape(Capsule())
     }
