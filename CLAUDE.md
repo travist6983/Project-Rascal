@@ -8,6 +8,8 @@ specs and they are authoritative: `docs/data-model.md` (schema), `docs/api-contr
 
 If the code and `docs/data-model.md` disagree, the code is wrong.
 
+## DO NOT COMMIT ANYTHING WITHOUT ASKING FOR PERMISSIONS 
+
 ## Two lanes
 
 `api/` and `ios/` are separate lanes that share a repo, not a codebase. An agent working in
