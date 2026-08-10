@@ -108,11 +108,65 @@ Last updated: **Aug 9, 2026**
 | 7 | Second kid — when? | P2 | Model already supports it. UI cost is a switcher plus per-child scheduling. |
 | 8 | Does the printed book include did-it entries? | P4 | A page of behaviors with no photos may read beautifully or may read empty. |
 | 9 | Full export format | P2 | Folder of files + JSON manifest. Build it before you'd need it. |
-| 10 | **Pronouns, and where the child's name appears in prompts** | **With onboarding** | The library is written he/him and stays that way for now — see the changelog entry below, this is deliberate, not an oversight. Onboarding is the unlock: once it collects the child's pronouns, prompts should render with the right ones, and the name should appear where it reads warmer than "your child". Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
+| 10 | **Pronouns, and where the child's name appears in prompts** | **Blocked on a `children.pronouns` column** — onboarding shipped Aug 9 and could not close this; there is nowhere to store the answer, and the column is a Lane A change. See `docs/blocked.md`. | The library is written he/him and stays that way for now — see the changelog entry below, this is deliberate, not an oversight. Onboarding is the unlock: once it collects the child's pronouns, prompts should render with the right ones, and the name should appear where it reads warmer than "your child". Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
 
 ---
 
 ## Changelog
+
+**Aug 9, 2026** — Onboarding shipped, and the flow it shipped is not the one that was drawn.
+
+The Claude Design export at `docs/mobile-app-design-onboarding/` deferred the account wall until
+after the parent's first entry: name and birthdate, then a motive fork that picked tonight's
+prompt, a recorded answer, and only then Sign in with Apple with a "keep going without it" escape.
+It is better product instinct than what shipped, and it was **not** built, for reasons that are
+structural rather than aesthetic:
+
+- **The client cannot pick the prompt.** Standing rule 1 — the server owns assignment, expiry and
+  what day it is. The fork's whole purpose is choosing tonight's mission on device.
+- **The anonymous path needs a local-first entry with no `child_id` and no session**, then a way
+  to adopt it into an account later. Every write path takes a bearer token and resolves a child.
+  That is a phase, not a screen.
+- The notification permission screen and the in-onboarding audio capture are both out of scope for
+  the iOS lane by name.
+
+So: **auth first, then name → birthdate → timezone → avatar → Today**, wearing the export's visual
+language. The deferred-wall version is worth revisiting when there is an anonymous-entry story;
+it is recorded here so it is a deferral rather than a thing nobody noticed.
+
+Four decisions settled with it.
+
+**`SessionState` has four cases and no failure case.** `loading`, `signedOut`, `needsChild`,
+`ready(child)`. A failure during setup is never a *place* the app is in — it is something that
+just happened at the step the parent is already standing on, and the recovery is always "try that
+again". Modelling it as a fifth state would mean navigating away from a screen holding typed input
+in order to display an error about it. Failures ride alongside as `notice` and `resolveFailed`.
+
+**A revoked Apple credential signs out; an *unknown* one does not.** `getCredentialState` needs
+the network, and `.revoked`/`.notFound` are answers while `.unknown` is the absence of one.
+Treating the absence as revocation would sign a parent out of their own archive because a train
+went into a tunnel. Same reasoning as the offline-launch rule: a token we hold plus a server we
+cannot reach is not a signed-out parent, so that launch stays in `loading` with a retry rather
+than falling back to a sign-in screen there is no connection to complete.
+
+**The client computes an age exactly once, and never for the archive.** `AgeText` says nothing in
+it calculates an age, and that stands — every age *on an entry* is the server's stored
+`child_age_months`. But onboarding shows "4 years, 2 months" under the birthdate wheel before the
+child exists anywhere, so there is no server answer to render, and the echo catches a mistyped
+year far better than validation does. `DraftAge` is that one exception, it is never stored, and it
+is named so a future reader can see it was deliberate.
+
+**The duplicate-child guard is a lookup, not an idempotency key.** `POST /children` has no
+`Idempotency-Key` the way `POST /entries` does, so a create whose response is lost has still
+created a child. The client asks `GET /children` before offering a retry and adopts what it finds.
+Worth adding the key server-side eventually; the client-side guard is correct either way and does
+not depend on it.
+
+And the thing that did **not** happen: **open item 10 is still open.** Onboarding was supposed to
+be the unlock for pronouns and it could not be — `children` has no column to put them in, and that
+is a Lane A change. Asking and discarding would be worse than not asking, so it does not ask.
+Client copy is neutral, so nothing regressed; the library is still he/him and still waiting. See
+`docs/blocked.md`.
 
 **Aug 9, 2026** — On-device transcription shipped, and the sync rule it needed turned out not to
 cover it.
