@@ -1,7 +1,7 @@
 # Fly.io configuration for the RASCAL API.
 #
 # Deploy from api/:  fly deploy
-# Full runbook:      docs/DEPLOY.md
+# Full runbook:      docs/runbook-deploy.md
 
 app = "rascal-api"
 primary_region = "ord"          # Chicago — closest Fly region to Detroit.
@@ -17,8 +17,26 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 
 [env]
   ENVIRONMENT = "prod"
-  S3_REGION = "us-east-2"
-  # Everything secret is a Fly secret, never an env entry. See docs/DEPLOY.md.
+
+  # Tigris is globally distributed and has no AWS-style regions; `auto` is what it expects.
+  # A real region name here signs a scope the endpoint rejects, and the failure reads as bad
+  # credentials rather than bad configuration. This said `us-east-2` — the exact value
+  # docs/tigris-setup.md calls "the single most likely way to break this".
+  S3_REGION = "auto"
+
+  # Unset means real AWS. That is the dangerous default: presigning is an offline signature
+  # computation, so an unset endpoint does not fail at boot or fail the health check — it
+  # succeeds all the way to handing the phone an `amazonaws.com` URL that 403s. From inside
+  # Fly, Tigris is reached here; from a laptop or GitHub Actions it is https://t3.storage.dev.
+  S3_ENDPOINT_URL = "https://fly.storage.tigris.dev"
+
+  # Everything secret is a Fly secret, never an env entry. See docs/runbook-deploy.md.
+  #
+  # The two values above are deliberately *not* secrets, and must not also be set with
+  # `fly secrets set`: when a name appears in both, which one the machine sees is a detail
+  # of flyctl's version, and a config value that depends on that is a config value nobody
+  # can reason about at 11pm. S3_BUCKET stays a secret only because its name is generated
+  # at bucket-creation time and is not known to this file.
 
 [processes]
   app = "uvicorn rascal.main:app --host 0.0.0.0 --port 8080 --workers 1"
@@ -48,9 +66,32 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 
 # --- The scheduler ---------------------------------------------------------------------------
 #
+# Read this before changing anything above: **the archive does not depend on any of it.**
+#
+# `GET /v1/children/{id}/today` fills the day's empty slots itself, idempotently, on the
+# child's local date, using the scheduler's own selection code. So a scheduled machine that
+# never fires costs a few milliseconds on the first read of the day, not a lost day. That is
+# the durability guarantee; everything below is an optimisation on top of it. See
+# `ensure_day_filled` in src/rascal/services/scheduler.py and docs/decisions.md.
+#
+# What the scheduler is still needed for is **expiry** — the read path deliberately does not
+# expire lapsed work, so without a periodic run the `waiting` list grows without bound. That
+# is a slow product problem, not a data-loss one.
+#
+# `min_machines_running = 1` above matters for the same reason: it keeps the machine that
+# serves the read path awake, so the safety net is always reachable. Roughly $3/month for a
+# shared-cpu-1x/512mb machine at Fly's published rates — confirm against current pricing.
+#
 # fly.toml has no stanza for a scheduled machine — Fly creates them with `fly machine run`,
-# and a machine created that way is not managed by `fly deploy`. The exact command is in
-# docs/DEPLOY.md, and it is this:
+# and a machine created that way is not managed by `fly deploy`. Two consequences, both of
+# which are reasons not to let the archive rest on it:
+#
+#   1. A fresh app has no scheduler at all until someone runs the command by hand, and
+#      nothing fails if they forget.
+#   2. It pins the image it was created from. Later deploys do not update it, so it can
+#      quietly run months-old code. Recreate it when the job changes — see the runbook.
+#
+# The exact command is in docs/runbook-deploy.md, and it is this:
 #
 #   fly machine run . \
 #     --app rascal-api \

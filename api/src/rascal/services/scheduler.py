@@ -288,6 +288,73 @@ async def _fill_slot(
         run.created += 1
 
 
+async def _filled_slots(session: AsyncSession, child_id: uuid.UUID, day: dt.date) -> set[str]:
+    """Which slots already have a row for this child on that day. One indexed lookup."""
+    rows = await session.execute(
+        select(Assignment.slot).where(
+            Assignment.child_id == child_id, Assignment.assigned_on == day
+        )
+    )
+    return set(rows.scalars().all())
+
+
+async def ensure_day_filled(
+    session: AsyncSession,
+    child: Child,
+    day: dt.date,
+    *,
+    seed: int | None = None,
+) -> SchedulerRun:
+    """Fill whatever slots this child is missing for `day`. The read path's safety net.
+
+    ``GET /today`` calls this, which is what demotes the scheduler from a dependency to an
+    optimisation: if the machine that runs it never woke up, the first read of the day
+    creates what it should have created, and the archive has a gap of seconds rather than
+    of a day nobody can get back.
+
+    Deliberately narrower than :func:`run_scheduler`:
+
+    * One child, one day — and `day` is passed in, already computed in the child's
+      ``family_timezone`` by the caller. There is exactly one definition of "today" in this
+      codebase and it is :func:`rascal.services.dates.local_date`; this function does not
+      add a second one.
+    * **Nothing is expired.** A pending assignment past its ``expires_on`` stays expired.
+      This fills today's empty slots; it does not reach into the past and resurrect it.
+    * The common case — the scheduler already ran — is one indexed SELECT and no writes.
+
+    Selection is :func:`_fill_slot` unchanged, so the 180-day cooldown, the theme rotation,
+    the age window and the seasonal filter are the scheduler's, not a copy of them. A second
+    selection algorithm would diverge from this one invisibly and cost the archive years of
+    variety before anyone noticed.
+    """
+    run = SchedulerRun(as_of=day)
+    wanted = slots_for(day)
+    present = await _filled_slots(session, child.id, day)
+    missing = [slot for slot in wanted if slot not in present]
+    run.skipped_existing = len(wanted) - len(missing)
+    if not missing:
+        return run
+
+    rng = random.Random(seed)
+    for slot in missing:
+        # Slot order is deterministic, so two concurrent readers take the unique index's
+        # locks in the same order and one simply waits rather than deadlocking.
+        await _fill_slot(session, child, slot, day, rng, run)
+    await session.flush()
+
+    log.info(
+        "today filled on read",
+        extra={
+            "child_id": str(child.id),
+            "assigned_on": day.isoformat(),
+            "assignments_created": run.created,
+            "assignments_skipped": run.skipped_existing,
+            "slots_exhausted": len(run.exhausted),
+        },
+    )
+    return run
+
+
 async def run_scheduler(
     session: AsyncSession,
     *,

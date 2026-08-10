@@ -18,17 +18,19 @@ Everything in this file was checked by running something — the test suites, th
 
 What is left is then the two things only you can unblock — Apple enrollment and Fly — and the exit test, which is you using it for fourteen days.
 
+**Deploying is now one command plus a documented set of secrets**, and the archive no longer depends on the scheduler having woken up. `docs/runbook-deploy.md` is the ordered zero-to-verified procedure and `api/scripts/verify_deployment.py` is a program that proves a deployment works rather than a checklist that says it should. Nothing has been deployed — the agent that wrote this has no Fly token and must not have one — so every Fly command in that runbook is still unexecuted, and its §9 says so precisely.
+
 |     |     |
 | --- | --- |
 | Merged pull requests | **29** — including the follow-up that made `main` green again (#28) and the seal control (#29). Moments v2 is **open as #30** at this snapshot |
-| API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
+| API tests | **315 passing**, 24 files — up 13 this phase; `test_today_self_healing.py` is new and no existing test was modified |
 | iOS tests | **429 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot. **The pull-request and iOS-test counts moved** — the previous snapshot was written before the seal control, the green-main follow-up and Moments v2; the API figures did not, because no `api/` code was touched by any of the three. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved** — the previous snapshot was written before the seal control, the green-main follow-up and Moments v2, none of which touched `api/`; the API figures moved afterwards, when deploy readiness added `test_today_self_healing.py`. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -168,9 +170,12 @@ These gate the P0 exit test and nothing else can move them.
 
 * * *
 ## Recommended next phase
-> This section previously recommended building the client's half of sync — which the same document already reported as built, two sections above it. It had been stale for a branch and a half. Re-derived below from what is actually outstanding.
+> This section previously recommended building the client's half of sync — which the same document already reported as built, two sections above it. It had been stale for a branch and a half. Re-derived below from what is actually outstanding, and re-checked against `main` on Aug 10 after deploy readiness landed. **It is still the right recommendation, and it has moved by exactly one item: deploying is now first.**
 
-### Verify what is built before building more
+### Deploy, because everything else is waiting behind it
+Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and four of the five device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
+
+### Then verify what is built before building more
 **Nothing here is a coding task, and that is the point.** Three features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, and transcription has never produced a single word. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
 In the order they cost you least to discover something in:
@@ -196,8 +201,8 @@ In the order they cost you least to discover something in:
 * * *
 ## Facts, if you want to check any of this
 ```bash
-make test                                    # 302 API tests
-ls api/tests/test_*.py | wc -l               # 23 files
+make test                                    # 315 API tests
+ls api/tests/test_*.py | wc -l               # 24 files
 
 # Delete DerivedData first or the warning count is a lie: an incremental build does not
 # recompile an unchanged file, and a file that is not recompiled emits no warning. This is
