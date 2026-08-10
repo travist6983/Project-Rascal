@@ -22,6 +22,18 @@ final class MomentsModel {
         let cards: [EntryCardModel]
         /// The first picture in the section, for the throwback card behind its gradient.
         let cover: EntryCardModel.Thumbnail?
+        /// How many years back this band reaches. Nil for the warm redirect, which reaches
+        /// nowhere in particular — that is the whole point of it.
+        let yearsAgo: Int?
+        /// The calendar day these memories happened on, when they share one. **Nil for the
+        /// fallback**, whose five come from five different days: printing one of their dates
+        /// over all five would date four memories wrongly, permanently, in an archive.
+        let occurredOn: Date?
+        /// How old he was, when the whole band can answer that with one number. Nil for the
+        /// fallback for the same reason as `occurredOn`.
+        let ageMonths: Int?
+
+        var isFallback: Bool { yearsAgo == nil }
     }
 
     private(set) var sections: [Section] = []
@@ -36,11 +48,22 @@ final class MomentsModel {
     private let childId: UUID
     private let api: APIClient
     private let context: ModelContext
+    /// A specific day to *ask about*, `YYYY-MM-DD`, or nil for the server's own idea of today.
+    ///
+    /// Nil is the shipping path and the right default: the day is computed in the child's
+    /// `family_timezone`, and a client that decided what day it was would show the wrong
+    /// memories to anyone who travels. This exists so a caller can name a day — which is a
+    /// different thing from deciding which day today is.
+    ///
+    /// Distinct from `date`, which is the day the server *answered* for and is the only one the
+    /// screen ever prints.
+    private let requestedDate: String?
 
-    init(childId: UUID, api: APIClient, context: ModelContext) {
+    init(childId: UUID, api: APIClient, context: ModelContext, date: String? = nil) {
         self.childId = childId
         self.api = api
         self.context = context
+        self.requestedDate = date
     }
 
     func start() async {
@@ -58,7 +81,7 @@ final class MomentsModel {
         defer { isLoading = false }
 
         do {
-            let response = try await api.moments(childId: childId)
+            let response = try await api.moments(childId: childId, date: requestedDate)
             // Cached like any other entries, so a memory opened here and the same row in the
             // timeline are one row — and so this screen still has something to show offline.
             EntryCache.upsert(response.allEntries, into: context)
@@ -66,8 +89,11 @@ final class MomentsModel {
             date = response.date
             isFallback = response.isFallback
             sections = response.isFallback
-                ? [build(title: "From the archive", id: "random", entries: response.entries)].compactMap { $0 }
-                : response.groups.compactMap { build(title: $0.title, id: "y\($0.yearsAgo)", entries: $0.entries) }
+                ? [build(title: "From the archive", id: "random", yearsAgo: nil, entries: response.entries)]
+                    .compactMap { $0 }
+                : response.groups.compactMap {
+                    build(title: $0.title, id: "y\($0.yearsAgo)", yearsAgo: $0.yearsAgo, entries: $0.entries)
+                }
             hasLoaded = true
             notice = nil
         } catch let error as APIError {
@@ -82,19 +108,32 @@ final class MomentsModel {
     /// Cards are built from the cached rows rather than from the response, so a memory renders
     /// with whatever media this phone already has — including a thumbnail the composer wrote
     /// months ago and never had to fetch again.
-    private func build(title: String, id: String, entries: [EntryResponse]) -> Section? {
-        let cards = entries.compactMap { response -> EntryCardModel? in
-            guard let entry = EntryCache.entry(id: response.id, in: context), entry.deletedAt == nil
-            else { return nil }
-            return EntryCardModel(entry: entry, media: EntryCache.media(ofEntry: entry.id, in: context))
-        }
+    private func build(
+        title: String, id: String, yearsAgo: Int?, entries: [EntryResponse]
+    ) -> Section? {
+        let cards = entries
+            .compactMap { response -> EntryCardModel? in
+                guard let entry = EntryCache.entry(id: response.id, in: context), entry.deletedAt == nil
+                else { return nil }
+                return EntryCardModel(entry: entry, media: EntryCache.media(ofEntry: entry.id, in: context))
+            }
+            // **`occurredAt`, never `createdAt`.** A photo backfilled from the camera roll last
+            // night belongs to the year it happened, not to the night it was imported — and the
+            // fallback arrives in `random()` order, so this is the only thing giving those five
+            // an order at all.
+            .sorted { $0.occurredAt > $1.occurredAt }
         guard !cards.isEmpty else { return nil }
         return Section(
             id: id,
             title: title,
             cards: cards,
             // Video is a fine cover — the poster frame is local when the video was taken here.
-            cover: cards.compactMap { $0.thumbnails.first }.first
+            cover: cards.compactMap { $0.thumbnails.first }.first,
+            yearsAgo: yearsAgo,
+            // One day for a years-ago band, because every entry in it fell on the same month and
+            // day of the same year. The fallback gets neither, and the header prints neither.
+            occurredOn: yearsAgo == nil ? nil : cards.first?.occurredAt,
+            ageMonths: yearsAgo == nil ? nil : cards.first?.ageMonths
         )
     }
 }
