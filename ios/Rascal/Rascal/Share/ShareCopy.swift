@@ -71,8 +71,14 @@ nonisolated enum ShareCopy {
         case .captureMetadata:
             return plural ? "The earliest date on these \(noun)." : "Read from the \(noun)."
         case .shareTime:
-            let subject = plural ? "These \(noun) don't" : "This \(noun) doesn't"
-            return "\(subject) say when it was taken, so today is standing in. You can change it in Rascal."
+            // The number has to carry all the way through the sentence. The first version of this
+            // built a plural subject and then finished with a singular "when it was taken" —
+            // "These files don't say when it was taken" — which the tests passed over because they
+            // asserted a prefix and a substring rather than the sentence. A screenshot caught it.
+            let subject = plural
+                ? "These \(noun) don't say when they were taken"
+                : "This \(noun) doesn't say when it was taken"
+            return "\(subject), so today is standing in. You can change it in Rascal."
         }
     }
 

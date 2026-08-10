@@ -86,6 +86,11 @@ Last updated: **Aug 9, 2026**
 | Completion = circular terracotta checkmark + spring + haptic | Satisfying, quiet, repeatable. No stamp, no confetti. |
 | Light mode only for now — **except the widget, which has no choice** | Dark mode is P2 at the earliest for the app. A widget follows the system appearance and cannot opt out: there is no `preferredColorScheme` for a widget, and a cream card on a dark Home Screen is a bright rectangle in someone's evening. Scoped to the widget target, and it is an exception rather than a reversal — see the Aug 10 changelog entry. |
 | The widget reads a file the app writes; it never calls the API | A token refresh running inside an extension, concurrently with the app, can invalidate the app's own session, and the failure is intermittent and expensive to trace. Staleness is the price, and it is paid honestly: a snapshot whose day is not today renders neutral. |
+| **The share extension stages into the App Group and exits; the app drains it. No networking in any extension, ever** | Three separate reasons, each sufficient. A share extension runs under a hard memory ceiling and a 4K minute is ~250MB, so a transcode or an upload there is a crash waiting for a large file. A token refresh inside an extension can invalidate the app's own session — the same reason the widget has no network, and the failure is intermittent and very hard to attribute. And media may not upload until the server has acknowledged its entry, because `POST /media/upload-url` needs an `entry_id` it recognises; an extension uploading independently breaks that ordering and 404s. The cost is a delay between sharing and the archive holding it, which is invisible: the entry exists locally the moment the extension exits. |
+| **A shared photo's `occurred_at` is read from the file's capture metadata, and the fallback is recorded as one** | A photo shared from Photos is usually not from today. Defaulting to now files a 2023 photo under this week, and the mistake is invisible — the entry looks completely normal, on the wrong day, permanently, in a record whose whole claim is that it knows when things happened. So EXIF `DateTimeOriginal` for a photo and the asset's creation date for a video, the **earliest** among them for a multi-select, and `now` only when nothing carried a date at all. Which of the two it was is stored on the record, so the extension can say "today is standing in" rather than leaving a parent to infer it. `created_at` remains the moment Save was pressed; the two are never conflated. |
+| **One share is one entry, however many files it carried** | Three pictures of the same afternoon are one thing that happened, and the composer has treated a multi-select that way since phase 2. One entry per photo would fill a timeline with fragments of a single moment. |
+| **Sharing the same photo twice makes two entries. There is no deduplication** | Not an omission. An `NSItemProvider` carries no asset identifier, so the only reliable key is the content — and hashing a video inside the process with the memory ceiling is exactly what this design exists to avoid. It is also not clearly the wrong behaviour: the same photograph attached to two different days is a legitimate pair of entries, and a heuristic that silently dropped the second would destroy a real one. Within a single share duplication is impossible, because the entry's UUID is written into the record by the extension. |
+| Light mode applies to the share extension, unchanged | The widget's dark palette is an exception granted because a widget has no `preferredColorScheme` and cannot decline the system appearance. A share extension can, and does — `overrideUserInterfaceStyle = .light`. The exception was scoped to the widget on purpose and is not a precedent. |
 | No count of anything on the widget — no backlog, no streak, no ring, no percentage | "No streaks, no guilt copy" already applies everywhere; the widget is where it matters most, because a number of outstanding items is parked in the one place a parent cannot look away from. `waiting` is never read when building the snapshot. |
 | Lock Screen accessory widgets distinguish mission from question by SF Symbol and type hierarchy, never colour | Accessory families render as a monochrome mask, so terracotta-means-mission and periwinkle-means-question say nothing there. The symbol is the one the `PromptCard` already uses, so the Lock Screen inherits the app's vocabulary rather than inventing a second one. |
 | Floating pill tab bar with center + FAB | Straight from the references. |
@@ -120,6 +125,58 @@ Last updated: **Aug 9, 2026**
 ---
 
 ## Changelog
+
+**Aug 10, 2026** — The share sheet. A photo goes from Photos into an entry without opening the app,
+and the phase is mostly about a date rather than about a screen.
+
+**The extension stages; the app drains.** The extension copies the bytes into the App Group
+container the widget already opened, writes a versioned record, and exits. The app turns that into
+an `Entry` and its `Media` rows on the next launch or foreground, through `ImagePipeline`,
+`VideoPipeline`, `StagingStore` and the existing sweep. Three reasons, and each would have been
+enough on its own: a share extension runs under a hard memory ceiling and a 4K minute is ~250MB, so
+a transcode or an upload there is a crash waiting for a large file; a token refresh inside an
+extension can invalidate the app's own session, which is the reason the widget has no network
+either; and media may not upload until the server has acknowledged its entry, so an extension
+uploading on its own would break an ordering the whole sync design rests on and produce 404s.
+
+**`occurred_at` comes off the file, and the fallback says so.** This is the part that needed the
+most care and it is the part with no second chance. A photo shared from the camera roll is usually
+not from today, and defaulting to now would file a 2019 photo under this week — an error that
+produces an entry which looks completely normal, is on the wrong day, and stays there. So the date
+is read through the app's own `ImagePipeline.exifDate`, the **earliest** capture date wins on a
+multi-select, and `now` is used only when nothing carried a date at all. Which of the two happened
+is stored on the record, so the screen can say *"This photo doesn't say when it was taken, so today
+is standing in"* rather than presenting a guess as a fact. `MediaDraftBuilder.suggestedOccurredAt`
+now calls the same function, so the composer's rule and the share sheet's are one rule rather than
+two that agree today.
+
+The date is **shown and not editable**, which is a deliberate narrowing rather than an oversight. A
+graphical picker is most of a share sheet, the entry is editable in the app the moment the drain
+files it, and what this screen owes a parent is the chance to *notice*. Whether that is enough is
+§10 of the device checklist.
+
+**Idempotent by construction, and reaping is ordered behind the server.** The entry's UUID is
+client-generated in the extension and written into the record, so a second drain finds the row and
+writes nothing — no heuristic, no timestamp comparison. Ingest runs before the sync sweep and reap
+runs after it, because staged bytes may only be removed once `existsOnServer` is true. Reaping any
+earlier would mean a failed `POST /entries` had already thrown away the only copy of a photo, which
+does not exist anywhere else once Photos is closed.
+
+**No deduplication across shares**, recorded in the table above as a decision. It is the one thing
+in the phase that was specified as optional and it was left out rather than approximated.
+
+**Light mode holds here.** The widget's dark palette was an exception granted because a widget
+cannot opt out of the system appearance; a share extension can, so it does. The exception stays
+scoped to the widget.
+
+One thing worth recording about how this was checked, because it changed a test rather than a
+design: the memory assertion — the one thing a simulator genuinely cannot answer — was written as a
+before-and-after footprint reading, and **it passed a mutation it should have caught.**
+`Data(contentsOf:)` maps a file of that size and mapped pages are not charged to `phys_footprint`.
+It samples a peak on a second thread now, and reports 316MB against a 40MB ceiling when the copy is
+replaced with a read into memory. The mmap limit is written into the test. The real ceiling still
+cannot be measured anywhere but on a phone, and `docs/device-verification-share-extension.md` §3
+asks for the number.
 
 **Aug 10, 2026** — The Home Screen and Lock Screen widget. Four decisions, one of which is an
 explicit exception to a settled rule.

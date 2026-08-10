@@ -476,11 +476,22 @@ struct ShareCopyTests {
                 == "The earliest date on these files."
         )
 
-        let fallback = ShareCopy.dateExplanation(source: .shareTime, kinds: [.photo])
-        #expect(fallback.contains("today is standing in"))
-        #expect(fallback.contains("change it in Rascal"), "the fallback must say where to fix it")
-        #expect(ShareCopy.dateExplanation(source: .shareTime, kinds: [.video, .video])
-            .hasPrefix("These videos don't"))
+        // **Whole sentences, not prefixes.** The first version of these two asserted a prefix and
+        // a substring, and passed on "These files don't say when it *was* taken" — a plural
+        // subject with a singular verb, which a screenshot caught and this suite did not. A
+        // partial assertion on a sentence tests that the sentence exists, not that it reads.
+        #expect(
+            ShareCopy.dateExplanation(source: .shareTime, kinds: [.photo])
+                == "This photo doesn't say when it was taken, so today is standing in. You can change it in Rascal."
+        )
+        #expect(
+            ShareCopy.dateExplanation(source: .shareTime, kinds: [.video, .video])
+                == "These videos don't say when they were taken, so today is standing in. You can change it in Rascal."
+        )
+        #expect(
+            ShareCopy.dateExplanation(source: .shareTime, kinds: [.photo, .video])
+                == "These files don't say when they were taken, so today is standing in. You can change it in Rascal."
+        )
     }
 
     /// **The tone rule, asserted.** Nothing on this screen may scold, count down, or imply a
