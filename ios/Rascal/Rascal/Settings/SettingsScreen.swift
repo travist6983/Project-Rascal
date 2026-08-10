@@ -30,6 +30,15 @@ struct SettingsScreen: View {
     /// The backlog action. Optional too, and its row is absent rather than empty when there is
     /// no queue or nothing waiting.
     var transcription: TranscriptionQueue?
+    /// Reports the child's timezone whenever this screen learns it, because this is the only
+    /// screen that can change it.
+    ///
+    /// The widget snapshot is stamped with the zone its staleness is judged in, and the value
+    /// `RootView` was handed came from the gate at launch. Without this, moving the child to
+    /// another timezone leaves every snapshot written for the rest of the session stamped with
+    /// the old one — and a staleness check run against the wrong zone is exactly how yesterday's
+    /// mission ends up on the Home Screen presented as today's.
+    var onTimezoneResolved: (String) -> Void = { _ in }
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -447,6 +456,9 @@ struct SettingsScreen: View {
         do {
             let children = try await session.api.children()
             child = children.first { $0.id == childId } ?? children.first
+            // Also covers a change made on another device: this is the freshest the client ever
+            // sees the zone, whether or not it was edited here.
+            if let zone = child?.familyTimezone { onTimezoneResolved(zone) }
             notice = nil
         } catch let error as APIError {
             // The screen still shows the account, the version, and the sync state. Offline is
@@ -470,6 +482,7 @@ struct SettingsScreen: View {
             ageMonths: existing.ageMonths,
             role: existing.role
         )
+        onTimezoneResolved(updated.familyTimezone)
     }
 
     private func runRecompute() async {

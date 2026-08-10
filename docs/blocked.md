@@ -5,7 +5,7 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0.
+Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0. The widget adds one line to §1: the App Group has to be on the developer portal before a device build means anything.
 
 ---
 
@@ -311,6 +311,28 @@ fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.travisterry.childarchive"
 
 Registering the App ID with Sign in with Apple enabled is the other half. Adding the
 capability in Xcode under automatic signing does that registration for you.
+
+**There is now a file that registration has to land in, and it does not mention Sign in with
+Apple yet.** Before the widget there were no entitlements at all, so nothing was missing from
+anywhere. `ios/Rascal/Rascal.entitlements` exists as of PR #32 and declares one thing, the App
+Group. When you tick Sign in with Apple in Xcode it will add `com.apple.developer.applesignin`
+to that same file — **let it, and commit the result.** It was deliberately not added blind here:
+adding an entitlement changes device signing, this machine has no device to check it on, and a
+wrong guess would have failed the build for a capability that is blocked anyway. Worth knowing
+because the failure mode if it is missed is quiet — the button is there, the exchange just never
+succeeds.
+
+**The widget adds one more thing to that same registration, and it is worth knowing before you
+plug in a device.** The App Group `group.com.travisterry.childarchive` has to exist on the
+developer portal and be present in the provisioning profiles for **both** targets. On a simulator
+this is free — the build signs ad hoc and the entitlement simply works, which is how the widget was
+verified here. On a device, if the group is missing,
+`containerURL(forSecurityApplicationGroupIdentifier:)` returns nil, every read and write degrades
+to doing nothing by design, and **the widget shows its neutral state forever with no error
+anywhere.** That is a silent failure, not a crash, so it is the first section of
+`docs/device-verification-widget.md`. Xcode's automatic signing normally registers the group on
+first device build; this is not blocked, it is just the one thing to confirm before concluding the
+snapshot pipeline is broken.
 
 **Meanwhile:** `POST /v1/auth/dev-login` returns a real session with real tokens against a
 fixture account, and it works for curl and for the iOS client. It is registered only when

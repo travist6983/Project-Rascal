@@ -61,6 +61,26 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record your child's voice for the archive — the entries you will be most glad to have in twenty years.</string>
 
+	<!-- How the widget opens the app. `childarchive://assignment/<uuid>` and
+	     `childarchive://today`, parsed by WidgetDeepLink. Named from the bundle id rather than
+	     the product: the product's name is still open (decisions.md, open item 1) and a scheme a
+	     parent has already tapped is as permanent as a bundle id. Not written as a $() reference
+	     because it is not a build configuration — pointing the app at another host must not be
+	     able to change how the widget reaches it. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.travisterry.childarchive.widget-deeplink</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>childarchive</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
 	     so no base URL and no UUID appears in Swift source. -->
 	<key>API_BASE_URL</key>

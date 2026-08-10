@@ -6,6 +6,18 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0F5A916C7F99C9BB46F875D2 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */; };
+		19B281DBCA50510CD77BF721 /* WidgetSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */; };
+		591765408DC2A815E86942F3 /* RascalWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6C14DE434859CCCBAD00DEE3 /* WidgetDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */; };
+		765B54D2406167A502CFAA68 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253349DE7E4D86E0CB862CF3 /* Palette.swift */; };
+		82178496EF5CAFA53F7D8ADB /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD48BFE63E69BE5E5420041 /* Typography.swift */; };
+		822006774D2EA9C90EDCA03B /* PromptText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E426110C2B8530FE4D94ED7 /* PromptText.swift */; };
+		C6D4E8482C0C3B0BBE00EA71 /* WidgetNarration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C660FB4997E4AB2392A35353 /* WidgetNarration.swift */; };
+		C82A90A86B841E513FD5AACF /* WidgetTimelinePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188825FFFCDDA0A7102E6772 /* WidgetTimelinePlan.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		AA000000000000000000000B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -14,12 +26,42 @@
 			remoteGlobalIDString = 1F1B64253027A5C000BFFE84;
 			remoteInfo = Rascal;
 		};
+		D538CC50F02AF140E65FE853 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F1B641E3027A5C000BFFE84 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DA4E974A3CE9B9C57FB5F9D7;
+			remoteInfo = RascalWidget;
+		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		FC6ED5FFCC48F4EC62151642 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				591765408DC2A815E86942F3 /* RascalWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshotStore.swift; path = Rascal/Widget/WidgetSnapshotStore.swift; sourceTree = "<group>"; };
+		06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetDeepLink.swift; path = Rascal/Widget/WidgetDeepLink.swift; sourceTree = "<group>"; };
+		188825FFFCDDA0A7102E6772 /* WidgetTimelinePlan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetTimelinePlan.swift; path = Rascal/Widget/WidgetTimelinePlan.swift; sourceTree = "<group>"; };
+		1E426110C2B8530FE4D94ED7 /* PromptText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PromptText.swift; path = Rascal/Widget/PromptText.swift; sourceTree = "<group>"; };
 		1F1B64263027A5C000BFFE84 /* Rascal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rascal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64363027A6B400BFFE84 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
+		253349DE7E4D86E0CB862CF3 /* Palette.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Palette.swift; path = Rascal/DesignSystem/Palette.swift; sourceTree = "<group>"; };
+		5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RascalWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8DD48BFE63E69BE5E5420041 /* Typography.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = Rascal/DesignSystem/Typography.swift; sourceTree = "<group>"; };
 		AA0000000000000000000003 /* RascalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RascalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C660FB4997E4AB2392A35353 /* WidgetNarration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetNarration.swift; path = Rascal/Widget/WidgetNarration.swift; sourceTree = "<group>"; };
+		D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshot.swift; path = Rascal/Widget/WidgetSnapshot.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -33,10 +75,22 @@
 			path = RascalTests;
 			sourceTree = "<group>";
 		};
+		F0AE286D3A3A52317C96570F /* RascalWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RascalWidget;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		1F1B64233027A5C000BFFE84 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A06D8F363F933C15C9010640 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -60,6 +114,8 @@
 				1F1B64283027A5C000BFFE84 /* Rascal */,
 				AA0000000000000000000001 /* RascalTests */,
 				1F1B64273027A5C000BFFE84 /* Products */,
+				F0AE286D3A3A52317C96570F /* RascalWidget */,
+				EC587F2EF995B4D524FAC198 /* Shared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -68,8 +124,24 @@
 			children = (
 				1F1B64263027A5C000BFFE84 /* Rascal.app */,
 				AA0000000000000000000003 /* RascalTests.xctest */,
+				5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		EC587F2EF995B4D524FAC198 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				253349DE7E4D86E0CB862CF3 /* Palette.swift */,
+				8DD48BFE63E69BE5E5420041 /* Typography.swift */,
+				D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */,
+				032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */,
+				06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */,
+				1E426110C2B8530FE4D94ED7 /* PromptText.swift */,
+				C660FB4997E4AB2392A35353 /* WidgetNarration.swift */,
+				188825FFFCDDA0A7102E6772 /* WidgetTimelinePlan.swift */,
+			);
+			name = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -82,17 +154,17 @@
 				1F1B64223027A5C000BFFE84 /* Sources */,
 				1F1B64233027A5C000BFFE84 /* Frameworks */,
 				1F1B64243027A5C000BFFE84 /* Resources */,
+				FC6ED5FFCC48F4EC62151642 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				6836E37C3C4BD1B7880744E5 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1F1B64283027A5C000BFFE84 /* Rascal */,
 			);
 			name = Rascal;
-			packageProductDependencies = (
-			);
 			productName = Rascal;
 			productReference = 1F1B64263027A5C000BFFE84 /* Rascal.app */;
 			productType = "com.apple.product-type.application";
@@ -114,11 +186,29 @@
 				AA0000000000000000000001 /* RascalTests */,
 			);
 			name = RascalTests;
-			packageProductDependencies = (
-			);
 			productName = RascalTests;
 			productReference = AA0000000000000000000003 /* RascalTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		DA4E974A3CE9B9C57FB5F9D7 /* RascalWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B675753765882AD9C1C4602 /* Build configuration list for PBXNativeTarget "RascalWidget" */;
+			buildPhases = (
+				87EB84D0DF1C3245BC830FA8 /* Sources */,
+				A06D8F363F933C15C9010640 /* Frameworks */,
+				D10797EE064FAFF78A8A1F19 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F0AE286D3A3A52317C96570F /* RascalWidget */,
+			);
+			name = RascalWidget;
+			productName = RascalWidget;
+			productReference = 5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -155,6 +245,7 @@
 			targets = (
 				1F1B64253027A5C000BFFE84 /* Rascal */,
 				AA0000000000000000000002 /* RascalTests */,
+				DA4E974A3CE9B9C57FB5F9D7 /* RascalWidget */,
 			);
 		};
 /* End PBXProject section */
@@ -174,6 +265,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D10797EE064FAFF78A8A1F19 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -181,6 +279,21 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		87EB84D0DF1C3245BC830FA8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				765B54D2406167A502CFAA68 /* Palette.swift in Sources */,
+				82178496EF5CAFA53F7D8ADB /* Typography.swift in Sources */,
+				0F5A916C7F99C9BB46F875D2 /* WidgetSnapshot.swift in Sources */,
+				19B281DBCA50510CD77BF721 /* WidgetSnapshotStore.swift in Sources */,
+				6C14DE434859CCCBAD00DEE3 /* WidgetDeepLink.swift in Sources */,
+				822006774D2EA9C90EDCA03B /* PromptText.swift in Sources */,
+				C6D4E8482C0C3B0BBE00EA71 /* WidgetNarration.swift in Sources */,
+				C82A90A86B841E513FD5AACF /* WidgetTimelinePlan.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -194,6 +307,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		6836E37C3C4BD1B7880744E5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RascalWidget;
+			target = DA4E974A3CE9B9C57FB5F9D7 /* RascalWidget */;
+			targetProxy = D538CC50F02AF140E65FE853 /* PBXContainerItemProxy */;
+		};
 		AA000000000000000000000A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 1F1B64253027A5C000BFFE84 /* Rascal */;
@@ -202,6 +321,38 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		078717982C973F82B4DBF477 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RascalWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8976QYWNC2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RascalWidget-Info.plist";
+				"INFOPLIST_FILE[config=Debug]" = "RascalWidget-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.travisterry.childarchive.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		1F1B64313027A5C100BFFE84 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 1F1B64363027A6B400BFFE84 /* Config.xcconfig */;
@@ -330,6 +481,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Rascal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8976QYWNC2;
@@ -363,6 +515,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Rascal.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8976QYWNC2;
@@ -429,6 +582,38 @@
 			};
 			name = Release;
 		};
+		FBBC385EDB15D51FF09765E0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RascalWidget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8976QYWNC2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RascalWidget-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.travisterry.childarchive.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -446,6 +631,15 @@
 			buildConfigurations = (
 				1F1B64343027A5C100BFFE84 /* Debug */,
 				1F1B64353027A5C100BFFE84 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5B675753765882AD9C1C4602 /* Build configuration list for PBXNativeTarget "RascalWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FBBC385EDB15D51FF09765E0 /* Release */,
+				078717982C973F82B4DBF477 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

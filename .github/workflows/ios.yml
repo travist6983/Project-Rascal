@@ -147,13 +147,18 @@ jobs:
       # parsing breaks silently, whereas a compiler warning has said `path:line: warning:` for
       # twenty years. Scoped to this project's own sources so SDK and toolchain noise cannot
       # fail a build for something nobody here can fix.
+      #
+      # **Every source directory has to be named here.** The alternation requires a `/` straight
+      # after the branch, so `RascalWidget/` was invisible to `(Rascal|RascalTests)` rather than
+      # covered by its first branch — the widget target shipped with an ungated build for exactly
+      # as long as it took to notice. A new target means a new branch in this list.
       - name: No new warnings in our own sources
         if: success()
         run: |
           set -uo pipefail
-          grep -E "ios/Rascal/(Rascal|RascalTests)/.*: warning:" xcodebuild.log | sort -u > ours.txt || true
+          grep -E "ios/Rascal/(Rascal|RascalTests|RascalWidget)/.*: warning:" xcodebuild.log | sort -u > ours.txt || true
           count=$(wc -l < ours.txt | tr -d ' ')
-          echo "warnings in ios/Rascal/{Rascal,RascalTests}: ${count}"
+          echo "warnings in ios/Rascal/{Rascal,RascalTests,RascalWidget}: ${count}"
           if [ "$count" != "0" ]; then
             sed 's/^/::error::/' ours.txt
             exit 1

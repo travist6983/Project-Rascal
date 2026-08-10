@@ -1,11 +1,13 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 10, 2026**, written as Moments v2 went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 10, 2026**, written as the widget went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited.**
 
 * * *
 ## The headline
-**P0's scope list is complete, and P3's headline feature is now built.** On-device transcription merged as PR #26: `SpeechAnalyzer` over the recorder's m4a files, written back through `PATCH /media/{id}/derived`, with the minimal search surface needed to see that it worked. **One pull request is outstanding — Moments v2, #30.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31. **One pull request is outstanding — the widget, #32.** Every other branch that has ever been opened is merged into `main`.
+
+**The widget is the first extension target this project has had**, and it is deliberately the dumbest thing that could work: the app writes a few hundred bytes into a shared App Group container whenever the Today board changes, and the extension renders that file. No networking, no keychain, nothing to refresh. The cost is staleness, which is why the largest single piece of the phase is refusing to draw a snapshot whose day is not today in the child's `family_timezone`. See `docs/reports/phase-11-widget.md`.
 
 **Moments got its design pass, and the phase was mostly about a state the design could not have anticipated.** The archive is six days old, so `fallback: "random"` is what the screen returns on every date and will be for a year. The redirect was therefore built and tested as the primary state rather than the edge — same carousel, same section header, same cards, one eyebrow and one italic line different. See `docs/reports/phase-10-moments.md`.
 
@@ -22,15 +24,15 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **29** — including the follow-up that made `main` green again (#28) and the seal control (#29). Moments v2 is **open as #30** at this snapshot |
-| API tests | **315 passing**, 24 files — up 13 this phase; `test_today_self_healing.py` is new and no existing test was modified |
-| iOS tests | **429 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
+| Merged pull requests | **31** — Moments v2 (#30) and deploy readiness (#31) both merged since the last snapshot. The widget is **open as #32** at this snapshot |
+| API tests | **315 passing**, 24 files — up 13 with deploy readiness; `test_today_self_healing.py` is new and no existing test was modified |
+| iOS tests | **505 passing**, 51 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved** — the previous snapshot was written before the seal control, the green-main follow-up and Moments v2, none of which touched `api/`; the API figures moved afterwards, when deploy readiness added `test_today_self_healing.py`. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved**, and they moved in two different lanes: the API figures when deploy readiness added `test_today_self_healing.py`, and the iOS figures when the widget added five suites. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -96,7 +98,8 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **Settings rebuild** | Editable child, display name, export, sync status | #20 (API), #21 (client) | ✅ merged |
 | **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
 | **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
-| **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | **open at this snapshot** |
+| **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
+| **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -146,7 +149,7 @@ Work that landed early, mostly as a side effect of doing P0 properly. Worth know
 | Prompt library to ~200 | ⚠️ 113 authored, **79 candidates generated and waiting on your read** |
 | Transcode policy (a P1 _risk_, not an item) | ✅ settled in P0 — 1080p H.264/AAC video, AAC/m4a audio, originals preserved |
 | Full export before you need it (a standing risk, "P2 at the latest") | ✅ shipped in P0 — zip with manifest, entries, and media |
-| Home Screen / Lock Screen widget | ❌ no extension target exists |
+| Home Screen / Lock Screen widget | ✅ **built** — five families, five states, deep-linking into the composer. Reads a snapshot from a shared App Group container and never calls the API. **Never run by WidgetKit on a device**, which is where refresh budget and file protection are decided — `docs/device-verification-widget.md` |
 | Push notifications | ❌   |
 | Share sheet target | ❌   |
 | **A name** (open decision #3, needed by P1) | ❌ still `RASCAL`, bundle id deliberately neutral |
@@ -163,35 +166,42 @@ These gate the P0 exit test and nothing else can move them.
   
 4. **A restore drill** — the machinery is tested, the act never performed.
   
-5. **Device verification.** Four checklists are now outstanding: `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
+5. **Device verification.** Five checklists are now outstanding: `docs/device-verification-widget.md` from PR #32, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
 
 * * *
 ## Recommended next phase
-> This section previously recommended building the client's half of sync — which the same document already reported as built, two sections above it. It had been stale for a branch and a half. Re-derived below from what is actually outstanding, and re-checked against `main` on Aug 10 after deploy readiness landed. **It is still the right recommendation, and it has moved by exactly one item: deploying is now first.**
+> **This section has gone stale twice**, both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again from what is actually outstanding — re-checked against `main` after deploy readiness landed, and again after the widget did. **Deploying is still first, and the widget entry is gone from the build list because the widget now exists.**
+>
+> If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
 
 ### Deploy, because everything else is waiting behind it
 Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and four of the five device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
 
 ### Then verify what is built before building more
-**Nothing here is a coding task, and that is the point.** Three features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, and transcription has never produced a single word. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
+**Nothing here is a coding task, and that is the point.** Four features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, and the widget has never been rendered by WidgetKit. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
-In the order they cost you least to discover something in:
+**The list has grown by one, and the new one is now the top of it.** In the order they cost you least to discover something in:
 
-1. `docs/device-verification-transcription.md` — new, and the one with the most unknown in it.
-2. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
-3. `docs/device-verification-settings.md` from PR #21.
-4. The sync-pull sequence: dry run, read the report, then flip the flag.
-5. `docs/device-verification-moments.md` from PR #30 — the cheapest of the five, and the one with the sharpest single question: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass. Moments is otherwise the one feature here that *has* been rendered and read at two type sizes, so it is last by risk rather than by importance.
+1. `docs/device-verification-widget.md` — new, and it has displaced transcription at the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest of the six to run.
+2. `docs/device-verification-transcription.md` — the one with the most unknown in it.
+3. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
+4. `docs/device-verification-settings.md` from PR #21.
+5. The sync-pull sequence: dry run, read the report, then flip the flag.
+6. `docs/device-verification-moments.md` from PR #30 — the cheapest, and the one with the sharpest single question: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass.
 
 ### Then, in build terms
 - **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
   
 - ~~**The seal control in the composer**~~ — **shipped**, as PR #29. See "The sealed letter, whole" above; what remains of it is a four-line server change in `blocked.md`, not a feature.
   
-- **P1's retention levers** — the widget especially, which the roadmap calls the reason the loop survives week four. It is also the largest genuinely-unbuilt thing left: there is no extension target at all.
+- ~~**The widget**~~ — **built**, as PR #32, and with it the project's first extension target and its first deep-link handling. The roadmap calls it the reason the loop survives week four; whether it actually does cannot be known from a simulator, which is why its checklist is first on the list above.
+
+- **The remaining P1 retention levers are push notifications and the share sheet target**, and they are now the largest unbuilt things. Push is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. The share sheet target is not blocked on anything, and the extension target created this phase is the pattern for it.
+
+- **A name.** Open decision #1, and the widget has just made it slightly more expensive to defer: the widget gallery groups by app name, so whatever the app is called is what a parent reads when they add it. The bundle id and the URL scheme are both deliberately name-neutral, so this is still a rename and not a migration — but it is now visible in one more place.
   
 - **P3 item 2, structured extraction** (`@Generable` over the transcripts that now exist). Deliberately not done in this phase — it is a separate feature with its own schema question, and stacking it on an unverified transcriber would mean two unknowns in one branch.
   
@@ -210,7 +220,7 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 429 iOS tests, 46 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 505 iOS tests, 51 suites, zero warnings
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "

@@ -58,6 +58,11 @@ final class OnboardingSession {
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
     private let avatars: AvatarStoring
+    /// Signing out has to reach the Home Screen too. The widget's snapshot holds a child's first
+    /// name and today's prompts, and it outlives the session unless something removes it — a
+    /// signed-out phone with the child's name still on its Lock Screen is the visible version of
+    /// that bug.
+    private let widget: WidgetSnapshotPublisher
 
     /// **The one payload in the app that cannot be recreated.**
     ///
@@ -73,13 +78,15 @@ final class OnboardingSession {
         drafts: OnboardingDraftStoring = UserDefaultsOnboardingDraftStore(),
         appleIDs: AppleUserIDStoring = UserDefaultsAppleUserIDStore(),
         credentials: AppleCredentialChecking = LiveAppleCredentialCheck(),
-        avatars: AvatarStoring = LocalAvatarStore()
+        avatars: AvatarStoring = LocalAvatarStore(),
+        widget: WidgetSnapshotPublisher = .live
     ) {
         self.account = account
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
         self.avatars = avatars
+        self.widget = widget
         self.draft = drafts.load() ?? OnboardingDraft()
     }
 
@@ -96,6 +103,13 @@ final class OnboardingSession {
         resolveFailed = false
 
         guard await account.api.hasSession() else {
+            // **The third way a session ends, and the one that clears nothing on its way out.**
+            // `APIClient` drops the token pair itself when a refresh is rejected — a revoked
+            // device, an expired refresh token — without going through either sign-out path. This
+            // launch is the first moment anything notices, and if it only set the state, a phone
+            // that is now signed out would keep the child's first name and the day's prompts on
+            // its Lock Screen indefinitely.
+            widget.publish(nil)
             state = .signedOut
             return
         }
@@ -331,12 +345,19 @@ final class OnboardingSession {
         pendingExchange = nil
         notice = nil
         resolveFailed = false
+        widget.publish(nil)
     }
 
     /// Drop the session without revoking anything, for a credential Apple has already invalidated.
+    ///
+    /// **Both of the two ways out carry the widget with them**, and they are genuinely separate
+    /// paths: this one runs when Apple reports a revoked credential or the API answers 401, and
+    /// `forgetLocalIdentity` runs when the parent taps Sign out. Clearing in only one of them
+    /// leaves the other with a Home Screen the app no longer has an account for.
     private func forgetSession() async {
         await account.api.signOut()
         appleIDs.clear()
+        widget.publish(nil)
     }
 }
 
@@ -346,6 +367,14 @@ struct OnboardingGate: View {
     @State private var session = OnboardingSession.live()
     /// The spinner is deliberately late. See `.task`.
     @State private var showsLoadingChrome = false
+    /// A widget tap, held until there is something that can act on it.
+    ///
+    /// **The gate catches the URL because the gate is the only view that is always there.** iOS
+    /// delivers a launch URL as the scene connects, which on a cold launch is while this is still
+    /// `.loading` and `RootView` does not exist — an `onOpenURL` attached down there never runs,
+    /// and the tap does nothing. Since a widget is mostly tapped when the app is *not* already
+    /// running, that was the normal path, not the edge one.
+    @State private var pendingLink: WidgetDeepLink?
 
     var body: some View {
         ZStack {
@@ -377,13 +406,26 @@ struct OnboardingGate: View {
                 // so a second sign-out in one launch — sign out, sign back in, sign out again —
                 // sets a value that is already `.signedOut`, fires nothing, and leaves Today on
                 // screen behind a revoked token.
+                // The timezone travels with the id because the widget snapshot needs it and
+                // `GET /today` does not carry one: the response states the child's local date but
+                // not the zone it was computed in, and the widget has to be able to ask whether
+                // that date is still today. The gate already holds the whole `ChildResponse`, so
+                // this costs a parameter rather than a second request.
                 RootView(
                     session: session.account,
                     childId: child.id,
-                    onSignOut: { await session.signOut() }
+                    familyTimezone: child.familyTimezone,
+                    onSignOut: { await session.signOut() },
+                    pendingLink: $pendingLink
                 )
                 .id(child.id)
             }
+        }
+        // Held rather than acted on. A signed-out phone can be tapped through from a widget that
+        // has not caught up yet, and the honest response is to show the welcome screen and forget
+        // the link — which is what happens, because only `RootView` ever reads this.
+        .onOpenURL { url in
+            pendingLink = WidgetDeepLink.parse(url)
         }
         .task {
             // A warm launch resolves a stored session in well under 150ms. A spinner that

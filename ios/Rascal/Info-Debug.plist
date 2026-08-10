@@ -71,6 +71,22 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record your child's voice for the archive — the entries you will be most glad to have in twenty years.</string>
 
+	<!-- How the widget opens the app. Must stay identical to Info.plist: a plist cannot include
+	     another one, so a key added to either has to be added to both. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.travisterry.childarchive.widget-deeplink</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>childarchive</string>
+			</array>
+		</dict>
+	</array>
+
 	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
 	     so no base URL and no UUID appears in Swift source. -->
 	<key>API_BASE_URL</key>

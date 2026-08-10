@@ -13,11 +13,38 @@ struct RootView: View {
     /// production could be told "the API is not running with ENVIRONMENT=local". One owner of
     /// session state, and it is the gate.
     let childId: UUID
+    /// The zone the server computes this child's schedule in, as the gate resolved it at launch.
+    /// Passed through to Today, which stamps it onto the widget snapshot so the widget can tell
+    /// today's board from yesterday's without asking anyone.
+    let familyTimezone: String
+    /// The zone after Settings has seen a newer one.
+    ///
+    /// **The gate resolves the child once, at launch, and never again for the life of the
+    /// session** — so editing the child's timezone in Settings, or having it changed on another
+    /// device, would otherwise leave every snapshot written afterwards stamped with the old zone.
+    /// A staleness check run against the wrong zone is precisely how yesterday's mission reaches
+    /// the Home Screen dressed as today's, so the newer value wins here rather than waiting for
+    /// a relaunch.
+    @State private var resolvedTimezone: String?
+
+    private var timezone: String { resolvedTimezone ?? familyTimezone }
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
+    /// A widget tap the gate caught, possibly before this view existed. Consumed and cleared
+    /// below.
+    @Binding var pendingLink: WidgetDeepLink?
+    /// **Owned here rather than by `TodayScreen`, because the widget outlives the tab.** The tab
+    /// switch destroys Today, and with it every `@Query` that would notice the archive changing —
+    /// so an entry deleted from Entry Detail, two tabs away, left the Home Screen showing a
+    /// completion check on a prompt with nothing behind it. `WidgetSnapshotSync` reads this model
+    /// from the root, where nothing tears it down.
+    @State private var todayModel: TodayModel
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
+    /// An assignment the widget asked for, waiting for Today to have a board to resolve it
+    /// against. Cleared whether or not it resolves — see `TodayScreen`.
+    @State private var requestedAssignment: UUID?
     @State private var sync: EntrySync?
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
@@ -32,10 +59,30 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
 
+    init(
+        session: AppSession,
+        childId: UUID,
+        familyTimezone: String,
+        onSignOut: @escaping () async -> Void,
+        pendingLink: Binding<WidgetDeepLink?>
+    ) {
+        self.session = session
+        self.childId = childId
+        self.familyTimezone = familyTimezone
+        self.onSignOut = onSignOut
+        self._pendingLink = pendingLink
+        // Written by hand for one property, the same way `ComposerView` does: the model needs the
+        // child and the client, and a `@State` default cannot see either.
+        self._todayModel = State(initialValue: TodayModel(childId: childId, api: session.api))
+    }
+
     var body: some View {
         ZStack {
             Color.canvas.ignoresSafeArea()
             signedIn(childId: childId)
+            // Draws nothing. Holds the queries that keep the widget's snapshot in step with the
+            // archive whichever tab is showing.
+            WidgetSnapshotSync(model: todayModel, familyTimezone: timezone)
         }
         .task {
             if thumbnails == nil {
@@ -77,6 +124,47 @@ struct RootView: View {
         // that something: without it, local-first saving keeps the work and never delivers it.
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await runSweep() } }
+            // A tap the app never managed to act on — Today failed to load, so the board that
+            // would resolve it never appeared — does not survive the app being put away. It would
+            // otherwise sit there and open a composer on some later launch, for a prompt the
+            // parent tapped hours ago and has forgotten.
+            if phase == .background { requestedAssignment = nil }
+        }
+        // The widget's way back into the app, in the middle of a three-step route: the gate
+        // catches the URL, this turns it into a tab and a request, and Today resolves the request
+        // against the board. Each step knows exactly one thing — the gate knows URLs, this knows
+        // tabs, Today knows assignments.
+        //
+        // **`initial: true` is what makes a cold launch work.** iOS delivers the URL while the
+        // gate is still resolving the session, which is well before this view exists; the gate
+        // holds it, and this fires on the first render with the value already set. Catching the
+        // URL here instead — which is where it started — dropped every launch-from-widget tap,
+        // and a widget tapped on a phone where the app is not already running is the normal case,
+        // not the edge one.
+        .onChange(of: pendingLink, initial: true) { _, link in
+            guard let link else { return }
+            // Cleared first and unconditionally, so a request that resolves to nothing cannot
+            // re-fire on the next render.
+            pendingLink = nil
+            tab = .today
+            // **A tap supersedes any earlier one that never resolved.** Without this, tapping a
+            // Lock Screen widget that only asks for Today would leave an older, unresolved
+            // assignment request standing — and that one would fire as soon as the board loaded,
+            // opening a composer for a prompt the parent had moved on from.
+            requestedAssignment = nil
+            // A composer already open belongs to whatever the parent was doing before the tap.
+            // Replacing it would discard typed words, so the link takes them to Today instead.
+            guard composer == nil else { return }
+            if case .assignment(let id) = link { requestedAssignment = id }
+        }
+        // **The guard above is not enough on its own, because the request is deferred.** Today
+        // resolves it only once the board has loaded, and in that window the parent can open a
+        // composer themselves — the centre button, or a card on Today. When they do, the sheet is
+        // theirs; a widget tap still waiting for a board must not replace it and discard what they
+        // have typed. Checking at the moment the link arrives cannot see a composer that does not
+        // exist yet, so ownership is settled here instead.
+        .onChange(of: composer != nil) { _, isOpen in
+            if isOpen { requestedAssignment = nil }
         }
         .sheet(item: $composer, onDismiss: { Task { await runSweep() } }) { request in
             ComposerView(request: request, api: session.api)
@@ -91,9 +179,13 @@ struct RootView: View {
                     TodayScreen(
                         childId: childId,
                         api: session.api,
+                        familyTimezone: timezone,
+                        requestedAssignment: $requestedAssignment,
                         onRetrySync: { Task { await runSweep() } },
-                        onSync: { await runSweep() }
-                    ) { composer = $0 }
+                        onSync: { await runSweep() },
+                        openComposer: { composer = $0 },
+                        model: todayModel
+                    )
                 case .timeline:
                     // Pull to refresh is a sync trigger: the gesture means "show me what is
                     // actually there", and page one of `GET /entries` is only half of that.
@@ -111,13 +203,20 @@ struct RootView: View {
                         onSignOut: onSignOut,
                         sync: sync,
                         syncEngine: syncEngine,
-                        transcription: transcription
+                        transcription: transcription,
+                        onTimezoneResolved: { resolvedTimezone = $0 }
                     )
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,
                     // so this is unreachable. Today is what the app falls back to rather than a
                     // blank screen, on the principle that a fallback should be somewhere real.
-                    TodayScreen(childId: childId, api: session.api) { composer = $0 }
+                    TodayScreen(
+                        childId: childId,
+                        api: session.api,
+                        familyTimezone: timezone,
+                        openComposer: { composer = $0 },
+                        model: todayModel
+                    )
                 }
             }
             .environment(\.thumbnails, thumbnails)

@@ -59,13 +59,24 @@ final class TodayModel {
 struct TodayScreen: View {
     let childId: UUID
     let api: APIClient
+    /// Stamped onto the widget snapshot. This screen never computes a date with it — the server
+    /// already named the day, and the zone travels alongside so the *widget* can ask later
+    /// whether that day is still the current one.
+    let familyTimezone: String
+    /// An assignment the widget asked to open. Resolved against the board below and cleared
+    /// either way, because an id this board does not hold must leave the parent on Today rather
+    /// than in a composer for nothing.
+    var requestedAssignment: Binding<UUID?> = .constant(nil)
     var onRetrySync: () -> Void = {}
     /// Runs the push-then-pull sweep. One of the four triggers, and the boring one: opening the
     /// screen a parent opens most is a good moment to be up to date.
     var onSync: () async -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
-    @State private var model: TodayModel?
+    /// **Owned by `RootView`, not by this screen.** The tab switch destroys this view, and the
+    /// widget's snapshot has to keep up with the archive from two tabs away — so the model, and
+    /// the publishing that reads it, live above the tab. See `WidgetSnapshotSync`.
+    let model: TodayModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var context
 
@@ -82,22 +93,21 @@ struct TodayScreen: View {
                 .padding(.top, 8)
         }
         .background(Color.canvas)
-        .refreshable { await model?.load(showSpinner: false) }
+        .refreshable { await model.load(showSpinner: false) }
         .task {
-            if model == nil { model = TodayModel(childId: childId, api: api) }
-            await model?.load()
+            await model.load()
             await onSync()
         }
         // Refetch on foreground: the server owns what day it is, so a phone left open
         // overnight must not keep showing yesterday's board.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model?.load(showSpinner: false) } }
+            if phase == .active { Task { await model.load(showSpinner: false) } }
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch model?.state ?? .loading {
+        switch model.state {
         case .loading:
             ProgressView().tint(.terracotta).padding(.top, 60)
 
@@ -108,7 +118,7 @@ struct TodayScreen: View {
                 Text(message)
                     .typeRole(.body).foregroundStyle(Color.inkMuted)
                     .multilineTextAlignment(.center)
-                Button("Try again") { Task { await model?.load() } }
+                Button("Try again") { Task { await model.load() } }
                     .buttonStyle(PrimaryButtonStyle())
             }
             .padding(.top, 50)
@@ -119,7 +129,7 @@ struct TodayScreen: View {
             let board = TodayBoard.merge(response: response, entries: localEntries, media: localMedia)
             VStack(alignment: .leading, spacing: 22) {
                 greeting(board.child)
-                if let notice = model?.notice { noticeBanner(notice) }
+                if let notice = model.notice { noticeBanner(notice) }
                 section("Today", board.today)
                 section("Waiting", board.waiting, count: board.waiting.count)
                 section("Done today", board.doneToday)
@@ -128,6 +138,9 @@ struct TodayScreen: View {
                 }
             }
             .padding(.bottom, 20)
+            .onChange(of: requestedAssignment.wrappedValue, initial: true) { _, id in
+                openRequested(id, on: board)
+            }
         }
     }
 
@@ -179,7 +192,7 @@ struct TodayScreen: View {
                     PromptCard(
                         item: item,
                         onPrimary: { open(item.assignment) },
-                        onDismiss: { Task { await model?.dismiss(item.assignment) } },
+                        onDismiss: { Task { await model.dismiss(item.assignment) } },
                         onEdit: item.localEntryId.map { id in { edit(entryId: id) } },
                         failures: failures(for: item),
                         onRetry: { retry([$0]) },
@@ -209,7 +222,7 @@ struct TodayScreen: View {
             Image(systemName: "info.circle").foregroundStyle(Color.inkMuted)
             Text(text).typeRole(.metadata).foregroundStyle(Color.inkMuted)
             Spacer(minLength: 0)
-            Button("Dismiss") { model?.notice = nil }
+            Button("Dismiss") { model.notice = nil }
                 .typeRole(.metadata)
                 .foregroundStyle(Color.terracotta)
         }
@@ -228,6 +241,26 @@ struct TodayScreen: View {
         openComposer(
             ComposerRequest(childId: childId, assignment: assignment, mode: assignment.completion)
         )
+    }
+
+    /// Open what the widget was tapped on.
+    ///
+    /// **Cleared before anything else happens, and unconditionally.** The one outcome that has to
+    /// be impossible is a composer opened for an assignment this board does not hold, and the
+    /// second is a request that survives its own failure and re-fires on the next render. An id
+    /// that resolves to nothing leaves the parent on Today, which is where they already are.
+    ///
+    /// A finished item opens the entry it produced rather than a second composer for the same
+    /// assignment — cheap, because Today already edits a done card that way.
+    private func openRequested(_ id: UUID?, on board: TodayBoard) {
+        guard let id else { return }
+        requestedAssignment.wrappedValue = nil
+
+        switch board.route(forAssignment: id) {
+        case .composer(let assignment): open(assignment)
+        case .entry(let entryId): edit(entryId: entryId)
+        case .today: break
+        }
     }
 
     /// Tapping a done card edits the entry behind it.
@@ -254,14 +287,14 @@ struct TodayScreen: View {
     private func resetBoard() async {
         do {
             let result = try await api.resetBoard(childId: childId)
-            await model?.load(showSpinner: false)
+            await model.load(showSpinner: false)
             if !result.unavailable.isEmpty {
-                model?.notice = "No active prompt for: \(result.unavailable.joined(separator: ", "))"
+                model.notice = "No active prompt for: \(result.unavailable.joined(separator: ", "))"
             }
         } catch let error as APIError {
-            model?.notice = error.userMessage
+            model.notice = error.userMessage
         } catch {
-            model?.notice = error.localizedDescription
+            model.notice = error.localizedDescription
         }
         onRetrySync()
     }
