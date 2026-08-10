@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Must match Rascal.entitlements and RascalWidget.entitlements exactly. **The same App
+	     Group as the widget, deliberately not a second one** — one container is one place to
+	     reason about, and two would mean two things to get right at signing time and two to
+	     migrate if the group identifier ever changes.
+
+	     The direction of travel is the opposite of the widget's. The widget only ever reads what
+	     the app writes; this extension only ever *writes* what the app reads and then removes.
+	     The two live in different subdirectories of the container and neither touches the
+	     other's — see ShareInbox and WidgetSnapshotStore.
+
+	     Nothing else is granted. No keychain access group, no network entitlement, no background
+	     mode: this extension stages bytes and exits, and a token refresh running inside an
+	     extension concurrently with the app can invalidate the app's own session — see
+	     docs/decisions.md. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.travisterry.childarchive</string>
+	</array>
+</dict>
+</plist>

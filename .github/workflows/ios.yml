@@ -167,13 +167,14 @@ jobs:
       # after the branch, so `RascalWidget/` was invisible to `(Rascal|RascalTests)` rather than
       # covered by its first branch — the widget target shipped with an ungated build for exactly
       # as long as it took to notice. A new target means a new branch in this list.
+      # `RascalShare` joined it with the share extension in phase 12.
       - name: No new warnings in our own sources
         if: success()
         run: |
           set -uo pipefail
-          grep -E "ios/Rascal/(Rascal|RascalTests|RascalWidget)/.*: warning:" xcodebuild.log | sort -u > ours.txt || true
+          grep -E "ios/Rascal/(Rascal|RascalTests|RascalWidget|RascalShare)/.*: warning:" xcodebuild.log | sort -u > ours.txt || true
           count=$(wc -l < ours.txt | tr -d ' ')
-          echo "warnings in ios/Rascal/{Rascal,RascalTests,RascalWidget}: ${count}"
+          echo "warnings in ios/Rascal/{Rascal,RascalTests,RascalWidget,RascalShare}: ${count}"
           if [ "$count" != "0" ]; then
             sed 's/^/::error::/' ours.txt
             exit 1
