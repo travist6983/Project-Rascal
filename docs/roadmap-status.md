@@ -1,11 +1,17 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 10, 2026**, written as the widget went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 10, 2026**, written as Today v2 went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
-Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited.**
+Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message.
+
+**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`). **The API-side figures — API tests, live operations, prompt counts, entries in the dev archive — were carried forward unmeasured**, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as one revision stale rather than as freshly checked.
 
 * * *
 ## The headline
-**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31. **One pull request is outstanding — the widget, #32.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**, and the iOS CI cost fix as #33. **One pull request is outstanding — Today v2, #34.** Every other branch that has ever been opened is merged into `main`.
+
+**Today got its design pass, and the phase's most useful output was a stop rather than a screen.** The import tripped three of the four conditions the phase was told to halt on, so Phase 1 ended in `docs/today-v2-inventory.md` — a token reconciliation and eleven open questions — before any Swift existed. The finding that decided most of them: **the design prototype disagrees with its own design system.** It hardcodes a periwinkle, a sage ink and two hairlines that its own `tokens/colors.css` does not; that token file matches `Palette.swift` exactly. So one file disagreed with two, and the palette held — the same way the Moments export was resolved in Phase 10. Paper grain, the STORIES rail, the partner avatar and a second search affordance were all dropped rather than invented. See `docs/today-v2-inventory.md` §8 and the Aug 10 entry in `docs/decisions-log.md`.
+
+**Two defects in that phase were regressions its own author introduced and an adversarial re-read caught**, and both are the kind that pass CI. Moving finished items onto a compact done card left `FailedUploadList` on a branch that cannot execute — a failed upload is terminal for the automatic sweep, so those photos would have sat on the phone permanently behind a completion check. And the skip's undo window cancelled its own task and then made the network request on it; `URLSession` honours cancellation and a stub performer does not, so every elapsed skip would have failed on a phone and passed in CI. Both are fixed, the second with a cancellation-aware performer written specifically to cover it.
 
 **The widget is the first extension target this project has had**, and it is deliberately the dumbest thing that could work: the app writes a few hundred bytes into a shared App Group container whenever the Today board changes, and the extension renders that file. No networking, no keychain, nothing to refresh. The cost is staleness, which is why the largest single piece of the phase is refusing to draw a snapshot whose day is not today in the child's `family_timezone`. See `docs/reports/phase-11-widget.md`.
 
@@ -24,15 +30,17 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **31** — Moments v2 (#30) and deploy readiness (#31) both merged since the last snapshot. The widget is **open as #32** at this snapshot |
-| API tests | **315 passing**, 24 files — up 13 with deploy readiness; `test_today_self_healing.py` is new and no existing test was modified |
-| iOS tests | **505 passing**, 51 suites, zero warnings (verified from a deleted `DerivedData`) |
+| Merged pull requests | **33** — the widget (#32) and the iOS CI cost fix (#33) both merged since the last snapshot. Today v2 is **open as #34** at this snapshot |
+| API tests | **315 passing**, 24 files — unchanged; Today v2 is an iOS-lane change and touched nothing under `api/`. Carried forward, not re-measured |
+| iOS tests | **524 passing**, 53 suites, zero warnings (verified from a deleted `DerivedData`) — up 19 with Today v2, in two new suites |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved**, and they moved in two different lanes: the API figures when deploy readiness added `test_today_self_healing.py`, and the iOS figures when the widget added five suites. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+**The pull-request and iOS-test counts moved; nothing in the API lane did.** Today v2 added two suites and 19 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
+
+The iOS suite was also run **five times** for this snapshot rather than once. Today v2 introduced the project's first tests that wait on a timer, and the first version of them passed alone and failed inside the full suite, where fifty-odd parallel suites contend for the main actor. They poll for a condition now instead of sleeping a fixed interval.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -99,12 +107,15 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
 | **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
 | **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
-| **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | **open at this snapshot** |
+| **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | ✅ merged |
+| **CI cost** | The iOS workflow made dispatch-only after it spent an entire month's Actions allowance in two days and took the nightly backup down with it | #33 | ✅ merged |
+| **11 (the other one) — Today v2** | The Today board rebuilt against its own design export. New compact waiting and done cards, a child switcher, swipe-to-skip with a held-request undo, and the board extracted into a previewable `TodayBoardView` | #34 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
 - **"Phase 3" means two different things.** In the iOS build order it is the media *read* path, which landed inside PR #11. PR #18 is *titled* "Phase 3" and is video *capture*. Both shipped; only the label is ambiguous.
 - **The onboarding branch was misnamed and landed that way.** `ios/phase-5-onboarding` was the working branch for phase **8**; phase 5 was audio, three PRs earlier. It merged under the wrong name, so the history does now read as though audio were reopened. Nothing to undo — just do not trust the branch name in `git log`.
+- **"Phase 11" now means two different things too.** The widget is phase 11 and merged as #32; Today v2 was *also* specified as phase 11 and is open as #34. The two share nothing but the number. The build order is the table above, not the labels — and the next phase specified should be numbered 12.
 
 ### Phase 8, precisely
 Merged as **PR #27**. What shipped: **welcome → Sign in with Apple → name → birthdate → timezone → avatar → Today**, gated by an `OnboardingGate` that owns session state and hands the resolved child down to `RootView`. A returning account skips setup entirely. Two decisions worth not relitigating: the birthdate is carried as a `yyyy-MM-dd` **string** end to end so it cannot drift a day west of Greenwich, and `display_name` is **omitted rather than nulled** when Apple declines to supply one, because Apple returns `fullName` only on the first-ever authorization for an Apple ID and the server applies first-write-wins.
@@ -178,26 +189,31 @@ These gate the P0 exit test and nothing else can move them.
 > If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
 
 ### Deploy, because everything else is waiting behind it
-Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and four of the five device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
+Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and five of the seven device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
 
 ### Then verify what is built before building more
-**Nothing here is a coding task, and that is the point.** Four features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, and the widget has never been rendered by WidgetKit. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
+**Nothing here is a coding task, and that is the point.** Five features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, the widget has never been rendered by WidgetKit, and **Today's swipe-to-skip has never been swiped.** Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
-**The list has grown by one, and the new one is now the top of it.** In the order they cost you least to discover something in:
+**The list has grown by one again.** In the order they cost you least to discover something in:
 
-1. `docs/device-verification-widget.md` — new, and it has displaced transcription at the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest of the six to run.
-2. `docs/device-verification-transcription.md` — the one with the most unknown in it.
-3. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
-4. `docs/device-verification-settings.md` from PR #21.
-5. The sync-pull sequence: dry run, read the report, then flip the flag.
-6. `docs/device-verification-moments.md` from PR #30 — the cheapest, and the one with the sharpest single question: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass.
+1. `docs/device-verification-widget.md` — it has held the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest to run.
+2. `docs/device-verification-today-v2.md` — new. The screen a parent opens every day now has a **gesture** on it, and a gesture is the one interaction class a simulator answers dishonestly: a trackpad swipe is not a thumb, and the full-swipe threshold, the eight-second undo window and the VoiceOver rotor action were all verified by reading rather than by touch. Its §2 is the sharpest single question in the list — whether a skip can be lost or double-sent — because the undo is implemented by *not sending* a one-way request.
+3. `docs/device-verification-transcription.md` — the one with the most unknown in it.
+4. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
+5. `docs/device-verification-settings.md` from PR #21.
+6. The sync-pull sequence: dry run, read the report, then flip the flag.
+7. `docs/device-verification-moments.md` from PR #30 — the cheapest of the seven, and the one with the sharpest question about content rather than mechanics: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass.
 
 ### Then, in build terms
 - **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
   
 - ~~**The seal control in the composer**~~ — **shipped**, as PR #29. See "The sealed letter, whole" above; what remains of it is a four-line server change in `blocked.md`, not a feature.
   
-- ~~**The widget**~~ — **built**, as PR #32, and with it the project's first extension target and its first deep-link handling. The roadmap calls it the reason the loop survives week four; whether it actually does cannot be known from a simulator, which is why its checklist is first on the list above.
+- ~~**The widget**~~ — **merged**, as PR #32, and with it the project's first extension target and its first deep-link handling. The roadmap calls it the reason the loop survives week four; whether it actually does cannot be known from a simulator, which is why its checklist is first on the list above.
+
+- ~~**Today v2**~~ — **built**, open as PR #34. Three things in its design were dropped rather than built, and each is a decision waiting rather than a task: **paper grain** (the export calls it mandatory identity, `design-system.md` lists screen-print texture as an anti-pattern, and neither decisions file mentions grain at all), the **STORIES rail** (throwbacks on Today — the data exists behind `GET /children/{id}/moments` and `ThrowbackCard` already renders it, but it needs a second call from the screen the contract calls "the single call the home screen makes"), and the **96pt completion burst**. None is blocked on code. Also deferred with it: thumbnails on Today's cards and the per-tile upload strip, both of which reach into the media paths.
+
+- **A contrast defect the phase found and did not fix.** `KindBadge` draws tint-coloured text on a 12% wash of the same tint, which measures roughly 3.3–3.7:1 at 12pt semibold — below WCAG AA. It is pre-existing and shared, and fixing it needs either a `periwinkleDeep` token or a badge restyle, i.e. a design-system decision rather than a patch.
 
 - **The remaining P1 retention levers are push notifications and the share sheet target**, and they are now the largest unbuilt things. Push is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. The share sheet target is not blocked on anything, and the extension target created this phase is the pattern for it.
 
