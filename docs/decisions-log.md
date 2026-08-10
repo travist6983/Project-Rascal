@@ -1004,3 +1004,45 @@ The Aug 9 trims were real and still landed less than the problem needed. Across 
   written on, which is also the objection: the cache is warm, so the warning gate would go
   green for the reason it exists to catch, unless the workflow clears DerivedData first and
   gives back the speed that was the point.
+
+**Aug 10, 2026** — Today v2, built against the design export at `docs/mobile-app-design-today/`.
+The import tripped three of the phase's four stop conditions; the full reasoning is in
+`docs/today-v2-inventory.md`, and the judgment calls are these.
+
+- **The prototype disagrees with its own token file, and the token file wins.** `RASCAL Today -
+  Paper.dc.html` hardcodes `PERI #4B58D4`, `SAGE #5C7A56`, `PERI_B #DDE0F6`, `SAGE_B #DAE7D7`.
+  The same bundle's `tokens/colors.css` carries `#5566D6`, `#4B7A4F`, `#DADDF7` — matching
+  `Palette.swift` exactly. So the disagreement is one file's, not the design system's, and
+  `#4B58D4` sits against the Rejected bullet "electric cobalt as the secondary color". Palette held.
+- **Paper grain is out.** The bundle states three times that it is mandatory identity — "a RASCAL
+  screen without grain looks wrong" — but `docs/design-system.md` is the authority for writing
+  SwiftUI, defines no grain token, and lists "screen-print texture" first among its anti-patterns.
+  Neither decisions file mentions grain, paper or noise at all; the absence is unsettled rather
+  than permissive, so it needs a decision rather than an invented render path.
+- **Card radius stays 20.** The bundle deliberately specifies 24 for app prompt cards. But
+  `Layout.cardRadius` is shared by Timeline, Moments, Settings and the composer — 24 either
+  restyles every screen or makes Today the only one that differs.
+- **The STORIES rail was dropped, and the data exists.** `GET /children/{id}/moments` already
+  serves throwbacks and `Moments/ThrowbackCard.swift` already renders them. It was dropped because
+  it needs a second call from the screen the contract calls "the single call the home screen
+  makes", and because on an archive this young the rail would show the `fallback: "random"` branch
+  almost every day — which is the screen Moments was built to be.
+- **Skip is a swipe with an eight-second grace window, not an optimistic delete.** There is no
+  un-dismiss endpoint. `POST /assignments/{id}/custom` does resurrect a dismissed row, but only by
+  overwriting `custom_body` and flipping `is_custom` permanently, so building Undo on it would mean
+  corrupting a row to fake a retraction. Instead the row hides immediately and the `dismiss` request
+  is *held* for the toast's life. Undo means it was never sent. The failure mode is that a kill
+  inside the window loses the skip and the prompt stays — the safe direction, since nothing
+  disappears that the parent cannot see. Eight seconds rather than the usual five because VoiceOver
+  has to finish announcing the toast before anyone can act on it.
+- **The board became a `List`.** `swipeActions` exists only on `List`, and a hand-rolled drag would
+  fight the scroll view and be invisible to VoiceOver — which is the whole reason the skip is
+  allowed to be a gesture at all.
+- **`daysUntilExpiry` anchored on the device's day and now anchors on the server's.** It compared
+  a `family_timezone`-computed `expires_on` against `Calendar.current.startOfDay(for: Date())`,
+  so a parent in a different zone from their child saw the wrong number. Pre-existing and unrelated
+  to the import, fixed because this phase rewrote that exact function. Both DST boundaries are
+  covered by tests.
+- **The completion burst was not built.** A 96pt disc with an expanding ripple is compliant in kind
+  with "circular terracotta checkmark + spring + haptic … no stamp, no confetti" and louder in
+  degree. Judged not mine to escalate unilaterally.

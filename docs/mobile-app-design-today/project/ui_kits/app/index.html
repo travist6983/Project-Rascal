@@ -1,0 +1,93 @@
+<!-- @dsCard group="App" viewport="900x560" name="RASCAL app — click-through" -->
+<!-- @startingPoint section="App" subtitle="Four-screen RASCAL app recreation" viewport="900x900" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>RASCAL app — UI kit</title>
+<link rel="stylesheet" href="../../styles.css">
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;display:flex;justify-content:center;padding:40px 20px}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const NS = window.RASCAL || window.RASCALDesignSystem || window.Rascal || {};
+const { AppShell, Today, TimelineScreen, Capture, Settings, TabBar, Sheet, Button } = NS;
+
+const SEED = [{
+  label: 'Yesterday', date: 'AUG 7, 2026', age: '4 years, 2 months', kind: 'question',
+  prompt: 'Write one thing you want him to know you noticed today.',
+  artifact: '\u201cHe held the door for a stranger.\u201d'
+}];
+
+function App() {
+  const [tab, setTab] = React.useState('Today');
+  const [capture, setCapture] = React.useState(null);
+  const [rec, setRec] = React.useState(false);
+  const [elapsed, setElapsed] = React.useState(0);
+  const [take, setTake] = React.useState(false);
+  const [entries, setEntries] = React.useState(SEED);
+  const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!rec) return;
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [rec]);
+
+  const openCapture = (kind, prompt) => { setCapture({ kind, prompt }); setRec(false); setTake(false); setElapsed(0); };
+
+  const keep = () => {
+    setEntries(es => [{
+      label: 'Today', date: 'AUG 8, 2026', age: '4 years, 2 months',
+      kind: capture.kind, prompt: capture.prompt,
+      artifact: capture.kind === 'voice' ? '0:' + String(elapsed).padStart(2, '0') + ' \u00b7 his voice' : '1 photo saved',
+      settle: true
+    }, ...es]);
+    setCapture(null); setTab('Timeline'); setSaved(true);
+  };
+
+  let screen;
+  if (capture) {
+    screen = <Capture prompt={capture.prompt} recording={rec} elapsed={elapsed} hasTake={take}
+      onToggle={() => { const on = !rec; setRec(on); if (on) { setTake(true); setElapsed(0); } }}
+      onKeep={keep} onCancel={() => setCapture(null)} />;
+  } else if (tab === 'Timeline') {
+    screen = <TimelineScreen entries={entries} />;
+  } else if (tab === 'Settings') {
+    screen = <Settings />;
+  } else if (tab === 'Moments') {
+    screen = <TimelineScreen entries={entries.filter(e => e.kind !== 'question')} />;
+  } else {
+    screen = <Today entries={entries}
+      onCapture={() => openCapture('photo', 'Take a photo of him sleeping.')}
+      onWrite={() => openCapture('question', "What's the thing he does that nobody else would notice?")} />;
+  }
+
+  return (
+    <AppShell>
+      {screen}
+      {!capture ? <TabBar active={tab} onSelect={setTab}
+        onAdd={() => openCapture('voice', 'Ask Milo what the best part of today was. Hold the phone and let him talk.')} /> : null}
+      {saved ? (
+        <Sheet open onScrimClick={() => setSaved(false)}>
+          <h2 style={{ margin: '0 0 8px', fontFamily: 'var(--rascal-font-display)', fontWeight: 800, fontSize: 25, lineHeight: 1.15, letterSpacing: '-.02em', color: 'var(--rascal-ink)' }}>Saved to Milo's archive.</h2>
+          <p style={{ margin: '0 0 20px', fontFamily: 'var(--rascal-font-body)', fontSize: 15, lineHeight: 1.5, color: 'var(--rascal-muted)' }}>It's stamped with his age. Nothing else to do today.</p>
+          <Button onClick={() => setSaved(false)}>Good</Button>
+        </Sheet>
+      ) : null}
+    </AppShell>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+if (!NS.AppShell) {
+  document.getElementById('root').innerHTML =
+    '<p style="font:400 15px var(--rascal-font-body);color:var(--rascal-muted);max-width:34em">' +
+    'The component bundle has not been generated yet. Once this project is saved as a Design System, ' +
+    '<code>_ds_bundle.js</code> is produced automatically and this kit becomes interactive.</p>';
+} else {
+  root.render(<App />);
+}
+</script>
+</body></html>
