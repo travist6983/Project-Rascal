@@ -47,9 +47,6 @@ struct SmallTodayView: View {
                 layout(next, other: nil, budget: 14)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            // The lead prompt is what a tap opens. `widgetURL` covers the whole widget on the
-            // Home Screen, so this is the tap target rather than one of several.
-            .widgetURL(WidgetDeepLink.assignment(next.item.assignmentId).url)
         }
     }
 
@@ -152,6 +149,9 @@ struct MediumTodayView: View {
                     .foregroundStyle(palette.inkFaint)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    // A heading rather than a stray label, so VoiceOver announces whose day this
+                    // is before reading the two prompts under it.
+                    .accessibilityAddTraits(.isHeader)
             }
 
             if let mission = snapshot.missionFeatured {

@@ -131,6 +131,31 @@ struct WidgetSnapshotWriteTests {
         #expect(snapshot.isEmpty)
     }
 
+    /// **The assertion above passes for the wrong reason on its own**, and this is the one that
+    /// pins the rule. A backlog item is dated a previous day, so the `assignedOn == board.date`
+    /// filter excludes it whether or not `waiting` is consulted — the test would still pass if the
+    /// builder read the backlog. Dating a waiting item *today* removes the date filter from the
+    /// question and leaves only the rule: `waiting` is never read.
+    @Test("a waiting item dated today is still not carried, so the rule is the exclusion")
+    func waitingIsExcludedByRuleNotByDate() {
+        let sameDay = assignment(slot: "mission", assignedOn: today)
+        let snapshot = WidgetSnapshotBuilder.snapshot(
+            from: board(waiting: [sameDay]),
+            familyTimezone: "UTC"
+        )
+
+        #expect(snapshot.mission == nil, "the backlog reached the widget")
+        #expect(snapshot.isEmpty)
+
+        // And the same assignment on today's board *is* carried, so the fixture is not simply
+        // being rejected for some other reason.
+        let onToday = WidgetSnapshotBuilder.snapshot(
+            from: board(today: [sameDay]),
+            familyTimezone: "UTC"
+        )
+        #expect(onToday.mission?.assignmentId == sameDay.id)
+    }
+
     /// A prompt assigned on Tuesday and finished on Wednesday belongs to Tuesday. The server puts
     /// it in `done_today` because it was *completed* today, which is a different question.
     @Test("an older assignment completed today is not shown as today's")
@@ -159,7 +184,7 @@ struct WidgetSnapshotWriteTests {
     /// The mechanism the whole feature rests on: `TodayBoard.merge` folds a local entry over the
     /// server's board, so a completion is true on the widget before the upload has landed.
     @Test("completing an assignment updates the snapshot and requests a widget reload")
-    func completionUpdatesSnapshotAndReloads() {
+    func completionUpdatesSnapshotAndReloads() throws {
         let mission = assignment(slot: "mission")
         let store = temporaryStore()
 
@@ -188,21 +213,108 @@ struct WidgetSnapshotWriteTests {
         #expect(after.mission?.isDone == true, "the widget must agree with the screen, not the network")
         #expect(spy.count == 2)
 
-        // And the file on disk says so too.
-        let written = WidgetSnapshotState.resolve(
-            data: store.readData(),
-            now: .now
+        // And the file on disk says so too. Decoded directly rather than through `resolve`,
+        // because the fixture's day is a fixed date and would classify stale on every day except
+        // one — what this assertion is about is the bytes, not the calendar.
+        let data = try #require(store.readData(), "nothing was written to the store")
+        let onDisk = try JSONDecoder().decode(WidgetSnapshot.self, from: data)
+        #expect(onDisk.mission?.isDone == true)
+    }
+
+    /// The timeline needs a zone even when the snapshot it came from is stale, so that a stale
+    /// widget wakes at midnight rather than polling. What it must *not* get back is anything it
+    /// could render.
+    @Test("the refresh zone is readable, and is the only thing that comes back")
+    func refreshZoneIsAvailableWithoutTheSnapshot() {
+        let store = temporaryStore()
+        store.write(WidgetSnapshotBuilder.snapshot(
+            from: board(today: [assignment(slot: "mission")]),
+            familyTimezone: "Pacific/Auckland"
+        ))
+
+        #expect(store.refreshZone() == TimeZone(identifier: "Pacific/Auckland"))
+    }
+
+    @Test("no snapshot, an unreadable one, or a foreign version yields no refresh zone")
+    func refreshZoneDegrades() {
+        #expect(temporaryStore().refreshZone() == nil)
+        #expect(WidgetSnapshotStore(directory: nil).refreshZone() == nil)
+
+        let store = temporaryStore()
+        store.write(WidgetSnapshot(
+            version: WidgetSnapshot.currentVersion + 1,
+            assignedOn: "2026-08-10", familyTimezone: "UTC",
+            childFirstName: "Sam", mission: nil, question: nil
+        ))
+        #expect(store.refreshZone() == nil, "a version this build cannot read must not be trusted")
+    }
+
+    /// Today is destroyed and rebuilt on every tab switch, so `initial: true` re-publishes an
+    /// identical snapshot each time the parent comes back from Timeline. Widget refresh budget is
+    /// finite and out of the app's control; spending it on a redraw that cannot change a pixel is
+    /// how there is none left when a completion needs one.
+    @Test("republishing an unchanged snapshot neither writes nor asks for a redraw")
+    func unchangedSnapshotIsNotRepublished() throws {
+        let store = temporaryStore()
+        let spy = ReloadSpy()
+        let publisher = WidgetSnapshotPublisher(store: store, reload: { spy.record() })
+        let snapshot = WidgetSnapshotBuilder.snapshot(
+            from: board(today: [assignment(slot: "mission")]),
+            familyTimezone: "UTC"
         )
-        if case .current(let onDisk) = written {
-            #expect(onDisk.mission?.isDone == true)
-        } else if case .stale = written {
-            // The fixture's day is a fixed date, so a run on any other day resolves stale. The
-            // bytes are still what matters here.
-            let decoded = try? JSONDecoder().decode(WidgetSnapshot.self, from: store.readData() ?? Data())
-            #expect(decoded?.mission?.isDone == true)
-        } else {
-            Issue.record("nothing was written to the store")
-        }
+
+        publisher.publish(snapshot)
+        #expect(spy.count == 1)
+
+        let written = try #require(store.fileURL.map { try? Data(contentsOf: $0) })
+        let firstWrite = try #require(store.fileURL?.path)
+        let stamp = try FileManager.default.attributesOfItem(atPath: firstWrite)[.modificationDate] as? Date
+
+        publisher.publish(snapshot)
+        publisher.publish(snapshot)
+
+        #expect(spy.count == 1, "an identical snapshot asked WidgetKit to redraw")
+        #expect(store.readData() == written)
+        let after = try FileManager.default.attributesOfItem(atPath: firstWrite)[.modificationDate] as? Date
+        #expect(after == stamp, "an identical snapshot rewrote the file")
+    }
+
+    @Test("a real change is still published after an unchanged one")
+    func changeAfterNoChangeStillPublishes() {
+        let mission = assignment(slot: "mission")
+        let store = temporaryStore()
+        let spy = ReloadSpy()
+        let publisher = WidgetSnapshotPublisher(store: store, reload: { spy.record() })
+
+        let pending = WidgetSnapshotBuilder.snapshot(
+            from: board(today: [mission]), familyTimezone: "UTC"
+        )
+        publisher.publish(pending)
+        publisher.publish(pending)
+        #expect(spy.count == 1)
+
+        let entry = Entry(childId: UUID(), assignmentId: mission.id, occurredAt: Date())
+        let done = WidgetSnapshotBuilder.snapshot(
+            from: board(today: [mission], entries: [entry]), familyTimezone: "UTC"
+        )
+        publisher.publish(done)
+
+        #expect(spy.count == 2, "a completion must still reach the widget")
+    }
+
+    @Test("clearing an already-cleared snapshot does not ask for a redraw")
+    func clearingTwiceIsQuiet() {
+        let store = temporaryStore()
+        let spy = ReloadSpy()
+        let publisher = WidgetSnapshotPublisher(store: store, reload: { spy.record() })
+
+        publisher.publish(nil)
+        #expect(spy.count == 0, "there was nothing there to clear")
+
+        publisher.publish(WidgetSnapshotBuilder.snapshot(from: board(), familyTimezone: "UTC"))
+        publisher.publish(nil)
+        publisher.publish(nil)
+        #expect(spy.count == 2, "sign-out must clear exactly once, and not repeat")
     }
 
     @Test("a reload is requested even when the write cannot happen")

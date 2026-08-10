@@ -44,6 +44,13 @@ enum WidgetSnapshotBuilder {
                 && $0.assignment.status != .expired
         }) else { return nil }
 
+        // **`body` is the parent's own words when `is_custom` is true**, because the server serves
+        // `custom_body` in that field. That is deliberate and it stays: the widget's whole job is
+        // to show today's prompt, and silently showing nothing on the days a parent wrote their
+        // own would be a stranger failure than showing it. It is still a *prompt* — the question
+        // being asked, not the answer — which is the line the privacy rule actually draws, and
+        // nothing here can reach an entry. Worth knowing, though, that a custom prompt can be more
+        // personal than a library one, and this is the surface where it reaches a Lock Screen.
         return WidgetSnapshot.Item(
             assignmentId: found.assignment.id,
             body: found.assignment.body,

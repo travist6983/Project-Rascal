@@ -154,14 +154,36 @@ struct WidgetTextTests {
         #expect(!sentence.contains("Photograph his hands"))
     }
 
-    @Test("both finished is a single quiet fact, not a list")
-    func bothDoneIsOneClause() {
+    @Test("everything finished is a single quiet fact, not a list")
+    func everythingDoneIsOneClause() {
         let sentence = WidgetNarration.sentence(for: .current(snapshot(
             mission: item("Photograph his hands.", done: true),
             question: item("What made him laugh?", kind: "question", done: true)
         )))
 
-        #expect(sentence == "Today for Sam. Both done.")
+        #expect(sentence == "Today for Sam. All done.")
+    }
+
+    /// **"All", not "both".** A day does not always produce two prompts — a dismissed question, or
+    /// a day the scheduler had nothing active to serve, leaves one — and a finished single prompt
+    /// is just as complete as a finished pair. The reading said "Both done" there, naming a second
+    /// prompt that never existed.
+    @Test("a day with one prompt, finished, does not claim there were two")
+    func singlePromptDoneDoesNotSayBoth() {
+        let sentence = WidgetNarration.sentence(for: .current(snapshot(
+            mission: item("Photograph his hands.", done: true),
+            question: nil
+        )))
+
+        #expect(sentence == "Today for Sam. All done.")
+        #expect(!sentence.lowercased().contains("both"))
+
+        let inline = WidgetNarration.inline(for: .current(snapshot(
+            mission: item("Photograph his hands.", done: true),
+            question: nil
+        )))
+        #expect(inline == "All done")
+        #expect(!inline.lowercased().contains("both"))
     }
 
     @Test("a prompt with no full stop of its own gets one, so clauses do not run together")

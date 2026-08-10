@@ -94,6 +94,12 @@ struct PromptRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // One element per row, reading as a sentence. The row is a `Link` on `systemMedium`, so
+        // this is what a VoiceOver user activates to open that prompt specifically — the label,
+        // the symbol and the prompt announced separately would be a pile, and hiding the row
+        // entirely would be worse.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(WidgetNarration.line(for: featured))
     }
 }
 
@@ -156,8 +162,8 @@ struct CompleteView: View {
                 layout(headline: "\(name)'s day is written down", showsFooter: true)
                 layout(headline: "\(name)'s day is written down", showsFooter: false)
             }
-            layout(headline: "Both done", showsFooter: true)
-            layout(headline: "Both done", showsFooter: false)
+            layout(headline: "All done", showsFooter: true)
+            layout(headline: "All done", showsFooter: false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

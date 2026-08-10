@@ -260,15 +260,31 @@ struct WidgetSnapshotTests {
 
     @Test("the next refresh is the child's midnight, not the device's")
     func nextMidnightIsInTheChildsZone() throws {
-        let snapshot = snapshot(assignedOn: "2026-08-10", timezone: "America/New_York")
-        let midnight = try #require(snapshot.nextMidnight(after: instant("2026-08-10T16:00:00Z")))
+        let zone = try #require(TimeZone(identifier: "America/New_York"))
+        let midnight = try #require(
+            WidgetSnapshot.nextMidnight(after: instant("2026-08-10T16:00:00Z"), in: zone)
+        )
 
         // 00:00 on 11 August in New York is 04:00 UTC.
         #expect(midnight == instant("2026-08-11T04:00:00Z"))
     }
 
-    @Test("an unknown timezone has no midnight to aim at")
-    func unknownZoneHasNoMidnight() {
-        #expect(snapshot(timezone: "Mars/Olympus_Mons").nextMidnight(after: .now) == nil)
+    /// A DST day is 23 or 25 hours long. Adding 86,400 seconds fires an hour early or an hour late
+    /// twice a year, which on this widget means rolling the day over at 11pm or at 1am.
+    @Test("the midnight is a real midnight across a DST change")
+    func midnightSurvivesDST() throws {
+        let zone = try #require(TimeZone(identifier: "America/New_York"))
+
+        // The night the US springs forward in 2027: 14 March. 23 hours, not 24.
+        let springForward = try #require(
+            WidgetSnapshot.nextMidnight(after: instant("2027-03-13T16:00:00Z"), in: zone)
+        )
+        #expect(springForward == instant("2027-03-14T05:00:00Z"))
+
+        // And the night it falls back: 7 November 2027. 25 hours.
+        let fallBack = try #require(
+            WidgetSnapshot.nextMidnight(after: instant("2027-11-06T16:00:00Z"), in: zone)
+        )
+        #expect(fallBack == instant("2027-11-07T04:00:00Z"))
     }
 }

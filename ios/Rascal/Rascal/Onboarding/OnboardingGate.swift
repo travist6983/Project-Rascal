@@ -103,6 +103,13 @@ final class OnboardingSession {
         resolveFailed = false
 
         guard await account.api.hasSession() else {
+            // **The third way a session ends, and the one that clears nothing on its way out.**
+            // `APIClient` drops the token pair itself when a refresh is rejected — a revoked
+            // device, an expired refresh token — without going through either sign-out path. This
+            // launch is the first moment anything notices, and if it only set the state, a phone
+            // that is now signed out would keep the child's first name and the day's prompts on
+            // its Lock Screen indefinitely.
+            widget.publish(nil)
             state = .signedOut
             return
         }
@@ -360,6 +367,14 @@ struct OnboardingGate: View {
     @State private var session = OnboardingSession.live()
     /// The spinner is deliberately late. See `.task`.
     @State private var showsLoadingChrome = false
+    /// A widget tap, held until there is something that can act on it.
+    ///
+    /// **The gate catches the URL because the gate is the only view that is always there.** iOS
+    /// delivers a launch URL as the scene connects, which on a cold launch is while this is still
+    /// `.loading` and `RootView` does not exist — an `onOpenURL` attached down there never runs,
+    /// and the tap does nothing. Since a widget is mostly tapped when the app is *not* already
+    /// running, that was the normal path, not the edge one.
+    @State private var pendingLink: WidgetDeepLink?
 
     var body: some View {
         ZStack {
@@ -400,10 +415,17 @@ struct OnboardingGate: View {
                     session: session.account,
                     childId: child.id,
                     familyTimezone: child.familyTimezone,
-                    onSignOut: { await session.signOut() }
+                    onSignOut: { await session.signOut() },
+                    pendingLink: $pendingLink
                 )
                 .id(child.id)
             }
+        }
+        // Held rather than acted on. A signed-out phone can be tapped through from a widget that
+        // has not caught up yet, and the honest response is to show the welcome screen and forget
+        // the link — which is what happens, because only `RootView` ever reads this.
+        .onOpenURL { url in
+            pendingLink = WidgetDeepLink.parse(url)
         }
         .task {
             // A warm launch resolves a stored session in well under 150ms. A spinner that

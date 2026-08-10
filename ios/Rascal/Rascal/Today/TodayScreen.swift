@@ -67,16 +67,16 @@ struct TodayScreen: View {
     /// either way, because an id this board does not hold must leave the parent on Today rather
     /// than in a composer for nothing.
     var requestedAssignment: Binding<UUID?> = .constant(nil)
-    /// Writes the snapshot the widget reads. Injected so a test can watch the reload without a
-    /// shared container.
-    var widget: WidgetSnapshotPublisher = .live
     var onRetrySync: () -> Void = {}
     /// Runs the push-then-pull sweep. One of the four triggers, and the boring one: opening the
     /// screen a parent opens most is a good moment to be up to date.
     var onSync: () async -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
-    @State private var model: TodayModel?
+    /// **Owned by `RootView`, not by this screen.** The tab switch destroys this view, and the
+    /// widget's snapshot has to keep up with the archive from two tabs away — so the model, and
+    /// the publishing that reads it, live above the tab. See `WidgetSnapshotSync`.
+    let model: TodayModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var context
 
@@ -93,22 +93,21 @@ struct TodayScreen: View {
                 .padding(.top, 8)
         }
         .background(Color.canvas)
-        .refreshable { await model?.load(showSpinner: false) }
+        .refreshable { await model.load(showSpinner: false) }
         .task {
-            if model == nil { model = TodayModel(childId: childId, api: api) }
-            await model?.load()
+            await model.load()
             await onSync()
         }
         // Refetch on foreground: the server owns what day it is, so a phone left open
         // overnight must not keep showing yesterday's board.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await model?.load(showSpinner: false) } }
+            if phase == .active { Task { await model.load(showSpinner: false) } }
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch model?.state ?? .loading {
+        switch model.state {
         case .loading:
             ProgressView().tint(.terracotta).padding(.top, 60)
 
@@ -119,7 +118,7 @@ struct TodayScreen: View {
                 Text(message)
                     .typeRole(.body).foregroundStyle(Color.inkMuted)
                     .multilineTextAlignment(.center)
-                Button("Try again") { Task { await model?.load() } }
+                Button("Try again") { Task { await model.load() } }
                     .buttonStyle(PrimaryButtonStyle())
             }
             .padding(.top, 50)
@@ -130,7 +129,7 @@ struct TodayScreen: View {
             let board = TodayBoard.merge(response: response, entries: localEntries, media: localMedia)
             VStack(alignment: .leading, spacing: 22) {
                 greeting(board.child)
-                if let notice = model?.notice { noticeBanner(notice) }
+                if let notice = model.notice { noticeBanner(notice) }
                 section("Today", board.today)
                 section("Waiting", board.waiting, count: board.waiting.count)
                 section("Done today", board.doneToday)
@@ -139,20 +138,6 @@ struct TodayScreen: View {
                 }
             }
             .padding(.bottom, 20)
-            // **All three of the snapshot's triggers are this one line.** A load, a completion and
-            // a dismissal each end with a different board, and the board is what the snapshot is
-            // derived from — so hooking the derived value catches all three without three call
-            // sites that can fall out of step. `initial: true` covers the first render, which is
-            // the load.
-            //
-            // Deliberately attached inside this branch rather than to the screen: a refetch that
-            // fails leaves the board it already has on screen and must not blank the widget, and a
-            // branch that is not rendered cannot fire. The snapshot is only ever cleared by
-            // signing out.
-            .onChange(of: WidgetSnapshotBuilder.snapshot(from: board, familyTimezone: familyTimezone),
-                      initial: true) { _, snapshot in
-                widget.publish(snapshot)
-            }
             .onChange(of: requestedAssignment.wrappedValue, initial: true) { _, id in
                 openRequested(id, on: board)
             }
@@ -207,7 +192,7 @@ struct TodayScreen: View {
                     PromptCard(
                         item: item,
                         onPrimary: { open(item.assignment) },
-                        onDismiss: { Task { await model?.dismiss(item.assignment) } },
+                        onDismiss: { Task { await model.dismiss(item.assignment) } },
                         onEdit: item.localEntryId.map { id in { edit(entryId: id) } },
                         failures: failures(for: item),
                         onRetry: { retry([$0]) },
@@ -237,7 +222,7 @@ struct TodayScreen: View {
             Image(systemName: "info.circle").foregroundStyle(Color.inkMuted)
             Text(text).typeRole(.metadata).foregroundStyle(Color.inkMuted)
             Spacer(minLength: 0)
-            Button("Dismiss") { model?.notice = nil }
+            Button("Dismiss") { model.notice = nil }
                 .typeRole(.metadata)
                 .foregroundStyle(Color.terracotta)
         }
@@ -302,14 +287,14 @@ struct TodayScreen: View {
     private func resetBoard() async {
         do {
             let result = try await api.resetBoard(childId: childId)
-            await model?.load(showSpinner: false)
+            await model.load(showSpinner: false)
             if !result.unavailable.isEmpty {
-                model?.notice = "No active prompt for: \(result.unavailable.joined(separator: ", "))"
+                model.notice = "No active prompt for: \(result.unavailable.joined(separator: ", "))"
             }
         } catch let error as APIError {
-            model?.notice = error.userMessage
+            model.notice = error.userMessage
         } catch {
-            model?.notice = error.localizedDescription
+            model.notice = error.localizedDescription
         }
         onRetrySync()
     }

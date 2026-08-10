@@ -26,13 +26,13 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **31** — Moments v2 (#30) and deploy readiness (#31) both merged since the last snapshot. The widget is **open as #32** at this snapshot |
 | API tests | **315 passing**, 24 files — up 13 with deploy readiness; `test_today_self_healing.py` is new and no existing test was modified |
-| iOS tests | **490 passing**, 50 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **505 passing**, 51 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved**, and they moved in two different lanes: the API figures when deploy readiness added `test_today_self_healing.py`, and the iOS figures when the widget added four suites. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved**, and they moved in two different lanes: the API figures when deploy readiness added `test_today_self_healing.py`, and the iOS figures when the widget added five suites. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -220,7 +220,7 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 490 iOS tests, 50 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 505 iOS tests, 51 suites, zero warnings
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "

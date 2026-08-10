@@ -43,14 +43,13 @@ struct RectangularTodayView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .widgetURL(destination)
     }
 
     @ViewBuilder
     private func loaded(_ snapshot: WidgetSnapshot) -> some View {
         if snapshot.isComplete {
             label(symbol: "checkmark.circle", text: "Today")
-            Text("Both done")
+            Text("All done")
                 .font(.system(size: 13, weight: .medium))
         } else if let next = snapshot.nextUp {
             label(symbol: next.item.symbolName, text: next.label)
@@ -83,13 +82,6 @@ struct RectangularTodayView: View {
         }
         .opacity(0.75)
     }
-
-    private var destination: URL {
-        if case .current(let snapshot) = state, let next = snapshot.nextUp {
-            return WidgetDeepLink.assignment(next.item.assignmentId).url
-        }
-        return WidgetDeepLink.today.url
-    }
 }
 
 // MARK: - Circular
@@ -101,12 +93,10 @@ struct CircularTodayView: View {
 
     var body: some View {
         ZStack {
-            AccessoryWidgetBackground()
             Image(systemName: symbol)
                 .font(.system(size: 22, weight: .regular))
                 .widgetAccentable()
         }
-        .widgetURL(destination)
     }
 
     private var symbol: String {
@@ -118,13 +108,6 @@ struct CircularTodayView: View {
             guard let next = snapshot.nextUp else { return "book.closed" }
             return next.item.symbolName
         }
-    }
-
-    private var destination: URL {
-        if case .current(let snapshot) = state, let next = snapshot.nextUp {
-            return WidgetDeepLink.assignment(next.item.assignmentId).url
-        }
-        return WidgetDeepLink.today.url
     }
 }
 
@@ -141,19 +124,11 @@ struct InlineTodayView: View {
         } icon: {
             Image(systemName: symbol)
         }
-        .widgetURL(destination)
     }
 
     private var symbol: String {
         guard case .current(let snapshot) = state else { return "book.closed" }
         if snapshot.isComplete { return "checkmark" }
         return snapshot.nextUp?.item.symbolName ?? "book.closed"
-    }
-
-    private var destination: URL {
-        if case .current(let snapshot) = state, let next = snapshot.nextUp {
-            return WidgetDeepLink.assignment(next.item.assignmentId).url
-        }
-        return WidgetDeepLink.today.url
     }
 }

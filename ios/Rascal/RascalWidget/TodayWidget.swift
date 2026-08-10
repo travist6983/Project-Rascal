@@ -49,13 +49,20 @@ struct TodayWidgetEntry: TimelineEntry {
 /// widget agree with the screen the parent just left, within seconds. What a timeline adds is the
 /// day boundary — a phone nobody picks up overnight has to stop showing yesterday on its own.
 ///
-/// Refresh budget is limited and out of this code's control, so nothing here is designed as
-/// though frequent refreshes were available: one entry, one wake-up, and a staleness check that
-/// runs at render time rather than depending on having been refreshed recently.
+/// **Refresh budget is limited and out of this code's control, so the day boundary is not left
+/// to it.** A timeline entry's state is frozen when the timeline is built, so a widget built at
+/// 9pm would still say "today" at 1am if the only thing turning it over were a refresh the system
+/// is free to delay or drop. `WidgetTimelinePlan` therefore emits a *second* entry, dated the
+/// child's midnight and pre-computed as stale — a scheduled entry renders without the system
+/// having to grant anything. The refresh request on top of it is what brings new prompts in.
 struct TodayTimelineProvider: TimelineProvider {
 
-    /// Injected so the gallery previews below can supply their own state without an App Group.
-    var read: (Date) -> WidgetSnapshotState = { WidgetSnapshotStore.shared.state(now: $0) }
+    /// **No injection seams here, deliberately.** They were tried, and they were a lie: nothing
+    /// can construct a `TimelineProvider` except WidgetKit, so a closure nobody ever replaces is
+    /// dead weight that reads like a test hook. Everything worth asserting on moved into
+    /// `WidgetTimelinePlan`, which is a value type the suite can drive directly. What is left here
+    /// is two reads and a mapping.
+    private let store = WidgetSnapshotStore.shared
 
     /// The grey skeleton the system draws while it waits.
     ///
@@ -70,31 +77,25 @@ struct TodayTimelineProvider: TimelineProvider {
         completion(
             TodayWidgetEntry(
                 date: .now,
-                state: context.isPreview ? .current(.preview) : read(.now)
+                state: context.isPreview ? .current(.preview) : store.state(now: .now)
             )
         )
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<TodayWidgetEntry>) -> Void) {
         let now = Date.now
-        let state = read(now)
-        let entry = TodayWidgetEntry(date: now, state: state)
+        let plan = WidgetTimelinePlan.make(
+            state: store.state(now: now),
+            zone: store.refreshZone(),
+            now: now
+        )
 
-        completion(Timeline(entries: [entry], policy: .after(refreshDate(after: now, given: state))))
-    }
-
-    /// The child's next local midnight, when a current snapshot becomes a stale one.
-    ///
-    /// Falls back to an hour when there is no snapshot to take a zone from. An hour rather than a
-    /// minute because the budget is finite and there is nothing to see: the app writing anything
-    /// at all will reload this long before the fallback matters.
-    private func refreshDate(after now: Date, given state: WidgetSnapshotState) -> Date {
-        guard case .current(let snapshot) = state,
-              let midnight = snapshot.nextMidnight(after: now)
-        else {
-            return now.addingTimeInterval(60 * 60)
-        }
-        return midnight
+        completion(
+            Timeline(
+                entries: plan.entries.map { TodayWidgetEntry(date: $0.date, state: $0.state) },
+                policy: .after(plan.refresh)
+            )
+        )
     }
 }
 

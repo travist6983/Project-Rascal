@@ -119,8 +119,14 @@ reads as *one sentence*, not as a pile of labels:
 > "Today for Sam. Mission: Photograph his hands. Question: What made him laugh?"
 
 A finished prompt reads "Mission, done." and **does not read the prompt back** — the parent already
-answered it. Both finished collapses to "Both done." rather than two clauses, because that is a
-single quiet fact and not a list. The stale reading names no day and blames nobody; it is asserted
+answered it. Everything finished collapses to "All done." rather than two clauses, because that is
+a single quiet fact and not a list. It says "all" rather than "both" because a day does not always
+produce two prompts, and the earlier wording named a second prompt that had never existed.
+
+**`systemMedium` is the exception, and deliberately so.** It draws each prompt as its own `Link`;
+collapsing it to one element hid both from VoiceOver, so a sighted parent could open the question
+directly and a VoiceOver user could only open the app. Its rows carry a sentence each instead —
+two sentences, both actionable, which is still not a pile of labels. The stale reading names no day and blames nobody; it is asserted
 not to contain "yesterday" or "missed".
 
 **Assumed, not verified:** how any of it actually sounds. Nothing in this environment speaks. The
@@ -141,6 +147,7 @@ nothing here drives taps.** Everything below was reasoned about and is not obser
 | The extension compiles, links, embeds, and signs with the App Group | **Observed** — `.appex` present in `PlugIns/`, entitlement present in both `.xcent` files |
 | The snapshot round-trips, classifies staleness, and excludes entry content | **Observed** — 61 new tests, cold run |
 | **WidgetKit ever rendering any of this** | **Not observed.** No widget has been instantiated by the system. The views were driven directly by a harness |
+| **The midnight rollover entry actually rendering** | **Not observed.** The plan that produces it is asserted directly; whether WidgetKit renders a scheduled entry on time is a device question |
 | **Refresh budget** | **Not observed, and not observable here.** The simulator does not enforce one. Whether `reloadAllTimelines()` keeps up over a real day is section 3 of the checklist |
 | **File protection on a locked device** | **Not observed.** Simulator file protection is a no-op, so the correct and the incorrect protection class look identical. This is the failure that appears only after a reboot |
 | **The real monochrome accessory render** | **Not observed.** Approximated as light-on-dark. Real vibrancy, real wallpaper and a user's tint are all absent |
@@ -151,12 +158,47 @@ nothing here drives taps.** Everything below was reasoned about and is not obser
 
 ---
 
+## The review pass, and what it found
+
+The whole phase was then re-read adversarially — six independent reviewers over separate
+dimensions, each finding verified by a second agent whose job was to refute it. **22 claims, 11
+refuted, 11 confirmed.** Two were blockers, and neither was visible in any screenshot or test:
+
+- **The deep link was dropped on every cold launch.** `onOpenURL` was attached to `RootView`,
+  which the gate does not render until an async session resolve finishes — so at the moment iOS
+  delivered the widget's URL there was no handler in the hierarchy at all. A widget tapped on a
+  phone where the app is not already running is *the* case for a widget, and it silently did
+  nothing but open Today. The handler now sits on the gate, which is always mounted, and
+  `RootView` consumes it with `initial: true`.
+- **The day rollover depended on a favour.** A timeline entry's state is frozen when the timeline
+  is built, so the widget kept rendering `.current` until WidgetKit granted a reload — which it is
+  free to delay, and suspends outright in Low Power Mode. A phone left on a nightstand would show
+  yesterday's mission dressed as today's: the one defect this design exists to prevent, reachable
+  by the system simply being busy. `WidgetTimelinePlan` now emits a second entry, dated the
+  child's midnight and pre-computed as stale, so the rollover happens with no reload at all.
+
+The other nine, in short: the widget's timezone went stale the moment Settings edited it (a
+launch-time value, never refreshed — and the device checklist's own staleness test would have
+produced a wrong result); a third sign-out path left a signed-out phone's Lock Screen showing the
+child's name; `systemMedium` collapsed to one accessibility element and hid both of its `Link`s
+from VoiceOver; the snapshot stopped updating whenever the Today tab was unmounted, so deleting an
+entry from Entry Detail — the "wrong photo, redo it" flow `decisions.md` calls week one — left a
+completion check on a prompt with nothing behind it; a deferred widget request could replace a
+composer the parent was typing in; an unresolved request could survive for hours and fire on a
+later launch; identical snapshots were republished on every tab switch, spending refresh budget on
+a redraw that could not change a pixel; "Both done" was said on days that only produced one
+prompt; and two tests passed for the wrong reason.
+
+**Two of the confirmed findings were fixed by rewriting a test rather than the code**, and both
+are named in the commit — `waitingIsNotCarried` was excluded by a date filter rather than by the
+rule it claimed to pin, and one deep-link test was a duplicate of its neighbour.
+
 ## Numbers
 
 | | Before | After |
 | --- | --- | --- |
-| iOS tests | 429 | **490** |
-| Suites | 46 | **50** |
+| iOS tests | 429 | **505** |
+| Suites | 46 | **51** |
 | Warnings in our sources | 0 | **0** |
 
 Both measured from a deleted `DerivedData`. That is not ceremony: the first warm run of this branch

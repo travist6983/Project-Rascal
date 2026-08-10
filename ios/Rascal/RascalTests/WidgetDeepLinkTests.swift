@@ -113,9 +113,21 @@ struct WidgetDeepLinkTests {
         #expect(board(waiting: [old]).route(forAssignment: assignmentId) == .composer(old))
     }
 
+    /// A snapshot outliving the prompt it named: the widget still holds Tuesday's id, and the
+    /// board has moved on to a full day of other work. The busy board is the point — the earlier
+    /// test uses an almost-empty one, and an id can only be turned away if the search actually
+    /// covers everything the board holds.
     @Test("a stale id for a prompt that has since expired off the board lands on Today")
     func staleAndGoneLandsOnToday() {
-        #expect(board(today: [assignment(id: UUID())]).route(forAssignment: assignmentId) == .today)
+        let done = assignment(id: UUID(), status: .done)
+        let populated = board(
+            today: [assignment(id: UUID()), assignment(id: UUID(), slot: "question")],
+            waiting: [assignment(id: UUID(), assignedOn: "2026-08-02")],
+            done: [done],
+            entries: [Entry(childId: UUID(), assignmentId: done.id, occurredAt: Date())]
+        )
+
+        #expect(populated.route(forAssignment: assignmentId) == .today)
     }
 
     @Test("a finished assignment opens the entry it produced")

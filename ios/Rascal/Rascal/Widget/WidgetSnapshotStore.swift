@@ -26,13 +26,17 @@ nonisolated struct WidgetSnapshotStore: Sendable {
 
     /// The real container. Injectable above, so a test drives a temporary directory rather than
     /// depending on an entitlement the test runner does not have.
-    static var shared: WidgetSnapshotStore {
-        WidgetSnapshotStore(
-            directory: FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroupIdentifier
-            )
+    ///
+    /// **`let`, not a computed `var`.** `containerURL(forSecurityApplicationGroupIdentifier:)`
+    /// hits the filesystem, and this is read from `TodayScreen`'s default property value — which
+    /// SwiftUI re-evaluates every time it rebuilds the view, which is often. The container's
+    /// location cannot change while the process is alive, so looking it up more than once is pure
+    /// cost. A `static let` is initialised lazily and exactly once.
+    static let shared = WidgetSnapshotStore(
+        directory: FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
         )
-    }
+    )
 
     var fileURL: URL? {
         directory?.appending(path: Self.filename)
@@ -49,6 +53,22 @@ nonisolated struct WidgetSnapshotStore: Sendable {
 
     func state(now: Date) -> WidgetSnapshotState {
         WidgetSnapshotState.resolve(data: readData(), now: now)
+    }
+
+    /// The timezone the stored snapshot was written in, whatever day it is for.
+    ///
+    /// **Deliberately returns a `TimeZone` and not the snapshot.** The timeline provider needs to
+    /// aim its next wake-up at the child's midnight, and it needs that just as much when the
+    /// snapshot is *stale* — otherwise a stale widget has no better idea than to poll on a fixed
+    /// interval, which spends a refresh budget it cannot get back on a state only the app can
+    /// change. Handing back the zone alone keeps the guarantee that nothing renderable escapes a
+    /// stale snapshot: there is no path from a `TimeZone` to yesterday's prompt.
+    func refreshZone() -> TimeZone? {
+        guard let data = readData(),
+              let snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data),
+              snapshot.version == WidgetSnapshot.currentVersion
+        else { return nil }
+        return TimeZone(identifier: snapshot.familyTimezone)
     }
 
     // MARK: Writing

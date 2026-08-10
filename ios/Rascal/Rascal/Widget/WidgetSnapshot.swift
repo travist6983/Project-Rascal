@@ -205,13 +205,15 @@ nonisolated extension WidgetSnapshot {
         )
     }
 
-    /// The next midnight in `zone`, which is when a fresh snapshot becomes a stale one.
+    /// The next midnight in `zone`, which is the moment a fresh snapshot becomes a stale one and
+    /// the only thing this widget can change about itself without the app.
     ///
-    /// The timeline schedules its refresh here so a phone nobody picks up overnight rolls over on
-    /// its own. Nil when the identifier is unknown — there is no midnight to aim at, and the
-    /// caller falls back to a fixed interval rather than inventing one.
-    func nextMidnight(after date: Date) -> Date? {
-        guard let zone = TimeZone(identifier: familyTimezone) else { return nil }
+    /// Static, and taking the zone rather than reading it off a snapshot, because the timeline
+    /// needs this **whether or not the snapshot is current** — a stale widget that instead polls
+    /// on a fixed interval spends a limited refresh budget re-learning that it is still stale.
+    /// `WidgetSnapshotStore.refreshZone()` supplies the zone without handing back anything
+    /// renderable.
+    static func nextMidnight(after date: Date, in zone: TimeZone) -> Date? {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = zone
         // `matchNextTime` rather than adding 86,400 seconds: a DST day is 23 or 25 hours long,

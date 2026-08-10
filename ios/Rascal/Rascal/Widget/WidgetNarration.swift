@@ -45,17 +45,30 @@ nonisolated enum WidgetNarration {
             return "\(opening) Nothing waiting."
         }
 
-        // Both finished is its own reading rather than two "done" clauses, because two clauses
-        // is a list and this is a single, quiet fact.
-        let everythingDone = [snapshot.mission, snapshot.question]
-            .compactMap { $0 }
-            .allSatisfy(\.isDone)
-
-        if everythingDone {
-            return "\(opening) Both done."
+        // Everything finished is its own reading rather than two "done" clauses, because two
+        // clauses is a list and this is a single, quiet fact.
+        //
+        // **"All", not "both".** A day does not always produce two prompts — a dismissed question,
+        // or a day the scheduler had nothing active to serve, leaves one — and `isComplete` is
+        // true for a single finished prompt just as it is for a pair. Saying "both" there names a
+        // second prompt that never existed.
+        if snapshot.isComplete {
+            return "\(opening) All done."
         }
 
         return ([opening] + parts).joined(separator: " ")
+    }
+
+    /// One prompt, as a sentence of its own.
+    ///
+    /// **`systemMedium` reads two of these rather than one combined sentence, on purpose.** That
+    /// family draws each prompt as its own `Link`, and collapsing the widget into a single
+    /// accessibility element — which is right for every other family, because they have one tap
+    /// target — would hide both links from VoiceOver. A sighted parent could open the question
+    /// directly and a VoiceOver user could only open the app. Two sentences, both actionable, is
+    /// the better trade, and two sentences is still not a pile of labels.
+    static func line(for featured: WidgetSnapshot.Featured) -> String {
+        phrase(featured.item, called: featured.label) ?? featured.label
     }
 
     /// "Mission: take a photo of…" — or, when it is finished, "Mission, done."
@@ -84,7 +97,7 @@ nonisolated enum WidgetNarration {
             return "Today's prompts"
         case .current(let snapshot):
             if snapshot.isEmpty { return "Nothing waiting" }
-            guard let next = snapshot.nextUp else { return "Both done" }
+            guard let next = snapshot.nextUp else { return "All done" }
             return "\(next.label) waiting"
         }
     }
