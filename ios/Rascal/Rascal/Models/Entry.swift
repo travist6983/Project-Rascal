@@ -142,6 +142,13 @@ final class Entry {
         }
         tagNames = response.tags.map(\.name)
         serverMediaCount = response.mediaCount
+        // **The seal is whatever the archive ended up holding.** The server applies a letter
+        // prompt's `default_unlock_age` on create, so a row can come back sealed when this device
+        // sent nothing — and if the corrective `PATCH` in `createEntry` could not land, the phone
+        // showing "not sealed" over an archive that says "opens at 13" is a divergence nothing in
+        // this app would ever reconcile, because editing a seal has no UI. Copying it means the
+        // card tells the truth about the permanent record.
+        unlockAtAge = response.unlockAtAge
         // Only `GET /entries/{id}` carries the prompt. A list response must not blank a value
         // the detail fetch already cached.
         if let prompt = response.prompt {
@@ -230,6 +237,33 @@ nonisolated struct EntryCreateRequest: Encodable {
     let body: String?
     let unlockAtAge: Int?
     let tags: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, childId, assignmentId, occurredAt, title, body, unlockAtAge, tags
+    }
+
+    /// Written by hand for one field. **`unlock_at_age` is always sent, including as an explicit
+    /// null**, where the synthesized encoder would drop the key entirely.
+    ///
+    /// "Not sealed" is a decision the parent made on a letter prompt, and an absent key cannot
+    /// express a decision — it reads as "no opinion". The server does not currently tell the two
+    /// apart on create (see `ComposerView.unsealOnServerIfNeeded`, and `docs/blocked.md`), so
+    /// today this is the client being right ahead of the contract rather than a behaviour change.
+    /// The moment `create_entry` starts distinguishing them, this is already correct.
+    ///
+    /// Every other optional keeps `encodeIfPresent`: the server reads an absent `title` and an
+    /// absent `assignment_id` as "not supplied", which is exactly what they mean.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(childId, forKey: .childId)
+        try container.encodeIfPresent(assignmentId, forKey: .assignmentId)
+        try container.encode(occurredAt, forKey: .occurredAt)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(body, forKey: .body)
+        try container.encode(unlockAtAge, forKey: .unlockAtAge)
+        try container.encode(tags, forKey: .tags)
+    }
 }
 
 /// `EntryOut` from the contract, and `EntryDetail` too.

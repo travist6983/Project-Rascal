@@ -114,6 +114,47 @@ Last updated: **Aug 9, 2026**
 
 ## Changelog
 
+**Aug 10, 2026** — The seal control. The archive can now write the thing it has been able to read
+since Phase 4.
+
+`unlock_at_age` has been in the schema, the design system and the mission library the whole time,
+and **eight active `letter` prompts have been served against a client that had no way to set it** —
+so "write down the story of the day he was born" produced an ordinary entry his son could read the
+next morning. Phase 4 built the reader and no phase owned the writer. Four decisions settled with
+it.
+
+**Letters only, and nothing else.** The control appears when the assignment's `PromptKind` is
+`.letter`. Sealing a photo or a did-it is a different question — it is about hiding something
+rather than about addressing it to a future reader — and the answer is not obviously yes. Freeform
+entries have no prompt to be a letter, so they do not offer it either.
+
+**Sealed by default, with an obvious way off.** A letter prompt whose entry is readable tomorrow is
+not a letter, so the toggle starts on. It is a toggle rather than a fact because a parent who wants
+to write one they can read now should be able to, and because the reader has always agreed with
+that — `sealedCard` carries an **Open it** button, on the reasoning that a lock the author cannot
+pick is a lock on the wrong person.
+
+**The age comes from the prompt, not from a constant.** `GET /today` already carries the prompt's
+`default_unlock_age` on the assignment, so the control opens on the age whoever wrote the prompt
+intended — 13 for the birth-story letter, 18 for the money one. It falls back to 18 only when the
+prompt has no opinion. The stepper offers 10–21 and clamps a prompt default into that range; the
+server accepts 0–120 and the library is free to outgrow the stepper, and starting on a value the
+control cannot reach would be worse than starting on the nearest one it can.
+
+**Editing the seal on an existing entry is deferred, deliberately.** `PATCH /entries/{id}` supports
+it and nothing calls it. The gap is narrow — a seal is set once, at the moment of writing, by the
+person writing — and the surface it needs is not obviously the composer's. It is worth doing when
+there is a reason beyond completeness.
+
+And the thing that is **not** settled: `POST /entries` cannot hear "do not seal this". It seals a
+letter whenever `unlock_at_age` arrives as `None`, and Pydantic gives it `None` for an omitted key
+and an explicit `null` alike — so the off switch cannot be expressed on create. The client sends an
+explicit null anyway, because that is correct, and `APIClient.createEntry` notices when the server
+sealed a row that asked not to be and says it again through `PATCH`. That sits at the write rather
+than in the composer because `EntrySync` re-sends offline entries through the same call, and a
+letter written on a train would otherwise seal itself hours later. `docs/blocked.md` has the
+four-line server fix that deletes the workaround.
+
 **Aug 9, 2026** — Onboarding shipped, and the flow it shipped is not the one that was drawn.
 
 The Claude Design export at `docs/mobile-app-design-onboarding/` deferred the account wall until

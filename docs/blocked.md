@@ -9,6 +9,52 @@ Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0.
 
 ---
 
+## iOS Seal control — `POST /entries` cannot hear "do not seal this"
+
+The seal control shipped and works. This is the one thing it cannot express through the create
+route, and it is **four lines to fix in Lane A**.
+
+`create_entry` seals a letter whenever `unlock_at_age` arrives as `None`:
+
+```python
+# api/src/rascal/services/entries.py
+if unlock_at_age is None and prompt is not None:
+    # Letters are sealed by default. The server owns this, not the client.
+    unlock_at_age = prompt.default_unlock_age
+```
+
+That default is right, and it is why a letter written by any client is sealed even if the client
+has never heard of sealing. The problem is that **Pydantic gives `None` for an omitted key and for
+an explicit `null` alike**, so the handler cannot tell "I have no opinion" from "the parent turned
+this off". A letter prompt the parent deliberately unsealed is created sealed at the prompt's
+default, whatever the client sends.
+
+**`PATCH /entries/{id}` does not have this problem** — `routers/entries.py` dumps with
+`model_dump(exclude_unset=True)`, so an explicit null reaches the service as a field that was set
+and clears it. The two routes disagree about what null means.
+
+**Worked around in the client, visibly and temporarily.** `EntryCreateRequest` now always writes
+`unlock_at_age`, including as an explicit null, so the client is already correct. Because the
+server currently collapses that, `APIClient.createEntry` compares what it sent with what came back
+and, when the server sealed a row that asked not to be sealed, says it again through `PATCH`.
+
+**It lives in `createEntry` rather than in the composer on purpose.** The composer is not the only
+writer: `EntrySync` re-sends an entry saved while offline through the same call, so a letter
+written on a train with sealing turned off would otherwise arrive sealed hours later with nobody
+told. One place, every caller. It is also self-detecting — it fires only when the response
+disagrees with the request — so the day this is fixed it stops doing anything.
+
+If the corrective `PATCH` cannot land, `Entry.applyServerResponse` copies the archive's value back
+onto the row, so the phone shows what the permanent record actually holds rather than what was
+intended, and the composer says so.
+
+**What Lane A needs to do:** have `create_entry` take the field's *setness* rather than its value —
+`payload.model_fields_set` at the router, or pass a sentinel — so an explicit null means "not
+sealed" and an absent key keeps the prompt default. The day that lands,
+`unsealIfTheServerSealedItAnyway` stops firing, and can be deleted with its round trip.
+
+---
+
 ## iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live
 
 Found by building first-run setup against the merged API. Neither blocks onboarding, which ships
