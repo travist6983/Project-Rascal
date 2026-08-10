@@ -1,11 +1,13 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 9, 2026**, after transcription merged. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 10, 2026**, written as Moments v2 went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited.**
 
 * * *
 ## The headline
-**P0's scope list is complete, and P3's headline feature is now built.** On-device transcription merged as PR #26: `SpeechAnalyzer` over the recorder's m4a files, written back through `PATCH /media/{id}/derived`, with the minimal search surface needed to see that it worked. **Nothing is outstanding in review — every branch that has ever been opened is merged into `main`, and there are zero open pull requests.**
+**P0's scope list is complete, and P3's headline feature is now built.** On-device transcription merged as PR #26: `SpeechAnalyzer` over the recorder's m4a files, written back through `PATCH /media/{id}/derived`, with the minimal search surface needed to see that it worked. **One pull request is outstanding — Moments v2, #30.** Every other branch that has ever been opened is merged into `main`.
+
+**Moments got its design pass, and the phase was mostly about a state the design could not have anticipated.** The archive is six days old, so `fallback: "random"` is what the screen returns on every date and will be for a year. The redirect was therefore built and tested as the primary state rather than the edge — same carousel, same section header, same cards, one eyebrow and one italic line different. See `docs/reports/phase-10-moments.md`.
 
 **Two things ship switched off or unverified, and they are different kinds of unverified.**
 
@@ -18,15 +20,15 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **27**, plus the follow-up that made `main` green again |
+| Merged pull requests | **29** — including the follow-up that made `main` green again (#28) and the seal control (#29). Moments v2 is **open as #30** at this snapshot |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
-| iOS tests | **411 passing**, 45 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **429 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot and **only the pull-request count moved** — the previous snapshot was written with transcription still open. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request and iOS-test counts moved** — the previous snapshot was written before the seal control, the green-main follow-up and Moments v2; the API figures did not, because no `api/` code was touched by any of the three. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -58,7 +60,7 @@ Against the roadmap's own **In scope** list in §3.
 | Backdating | ✅   | First-class; `occurred_at` never conflated with `created_at` |
 | Auto-computed child age | ✅   | Server-computed and stored, with an explicit recompute escape hatch |
 | Timeline: reverse-chron, year dividers, type filter | ✅   | PR #19 |
-| "On this day" | ✅   | Moments, incl. the warm random fallback |
+| "On this day" | ✅   | Moments, incl. the warm random fallback — re-skinned against its own design in #30, with the fallback built as the primary state |
 | TestFlight to yourself | ❌ **blocked** | Apple Developer enrollment — `blocked.md` §1 |
 ### The build-order item that was outstanding — now built
 **Days 3–4 called for a sync engine: "pull-since-**`updated_at`**, push queue".** The push queue was already solid. **The pull now exists**, in `ios/Rascal/Rascal/Sync/`, and all three documented defects have a test that fails without it:
@@ -85,12 +87,14 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **2.5 — Device polish** | Local-state-first Today, upload progress ring, completion motion, Done cards tappable and tinted | #13 | ✅ merged |
 | **3 — Media read path** | Presigned GET, thumbnails render | #11 | ✅ merged |
 | **3 (the other one) — Video** | Video capture, multipart upload, and the slowness it caused | #18 | ✅ merged |
-| **4 — Archive** | Timeline, Entry Detail, Moments | #19 | ✅ merged, re-skinned by #25 |
+| **4 — Archive** | Timeline, Entry Detail, Moments | #19 | ✅ merged; Timeline re-skinned by #25, Moments by #30 |
 | **5 — Audio** | `AVAudioRecorder`, AAC/m4a, audio back on the debug board | #22, #23 | ✅ merged |
 | **6 — Sync pull** | Built, tested, dry-run mode, shipped with `syncPullEnabled` **off** | #24 | ✅ merged, flag off |
 | **7 — Transcription** | On-device `SpeechAnalyzer` + the search surface on Timeline | #26 | ✅ merged |
 | **Settings rebuild** | Editable child, display name, export, sync status | #20 (API), #21 (client) | ✅ merged |
 | **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
+| **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
+| **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -157,7 +161,7 @@ These gate the P0 exit test and nothing else can move them.
   
 4. **A restore drill** — the machinery is tested, the act never performed.
   
-5. **Device verification.** Three checklists are now outstanding: `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, and `docs/device-verification-settings.md` from PR #21. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.**
+5. **Device verification.** Four checklists are now outstanding: `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
@@ -175,11 +179,12 @@ In the order they cost you least to discover something in:
 2. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
 3. `docs/device-verification-settings.md` from PR #21.
 4. The sync-pull sequence: dry run, read the report, then flip the flag.
+5. `docs/device-verification-moments.md` from PR #30 — the cheapest of the five, and the one with the sharpest single question: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass. Moments is otherwise the one feature here that *has* been rendered and read at two type sizes, so it is last by risk rather than by importance.
 
 ### Then, in build terms
 - **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
   
-- **The seal control in the composer** — the smallest genuinely-missing feature in the app, and the one with the most feeling attached to it. See "The sealed letter, half-built". It is one stepper wired to a field every layer below the view already carries.
+- ~~**The seal control in the composer**~~ — **shipped**, as PR #29. See "The sealed letter, whole" above; what remains of it is a four-line server change in `blocked.md`, not a feature.
   
 - **P1's retention levers** — the widget especially, which the roadmap calls the reason the loop survives week four. It is also the largest genuinely-unbuilt thing left: there is no extension target at all.
   
@@ -200,7 +205,7 @@ ls api/tests/test_*.py | wc -l               # 23 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 354 iOS tests, 42 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 429 iOS tests, 46 suites, zero warnings
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "

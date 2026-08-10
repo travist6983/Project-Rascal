@@ -50,6 +50,24 @@ nonisolated enum AgeText {
     }
 }
 
+/// Small counts, spelled out, for copy that is a sentence rather than a statistic.
+nonisolated enum CountText {
+
+    /// "Six", for Moments' closing line. A numeral there reads as a score, and this app keeps
+    /// score of nothing.
+    ///
+    /// **Pinned to English on purpose.** The sentence it lands in is hard-coded English — the app
+    /// is not localized — so following the device's locale would spell the numeral in one language
+    /// inside a sentence written in another: "Seis years of 9 August."
+    static func spelled(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .spellOut
+        formatter.locale = Locale(identifier: "en_US")
+        guard let words = formatter.string(from: NSNumber(value: value)) else { return "\(value)" }
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+}
+
 /// Durations, for a voice chip or a video badge. `1:04`, `12:30`.
 nonisolated enum DurationText {
     static func clock(_ seconds: Int) -> String {
@@ -92,5 +110,49 @@ nonisolated enum DayHeaderText {
     /// Short enough for a navigation bar: "8 Aug 2026".
     static func compact(_ date: Date) -> String {
         date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
+}
+
+/// A calendar day the server named — `YYYY-MM-DD`, computed in the child's `family_timezone`.
+///
+/// It is a **day, not an instant**, and this enum never lets it become one. Both readers below
+/// build the day at noon UTC and then format it *back* in UTC, so the day number printed is
+/// always the day the server said, on a phone set to Kiribati as much as on one set to Nome.
+/// Formatting it in the device's zone is the bug this exists to prevent: noon UTC read at UTC+14
+/// is the following morning, and Moments would head a section with tomorrow.
+///
+/// The client still does not decide what day it is. It only chooses words for the day the server
+/// already decided.
+nonisolated enum CalendarDay {
+
+    private static let zone = TimeZone(identifier: "UTC") ?? .gmt
+
+    static func parse(_ iso: String) -> Date? {
+        let parts = iso.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        var components = DateComponents()
+        components.year = parts[0]
+        components.month = parts[1]
+        components.day = parts[2]
+        components.hour = 12
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        return calendar.date(from: components)
+    }
+
+    /// "Sunday 9 August" — the day, with no year on it, because in Moments the year is the thing
+    /// each section supplies and the subtitle would otherwise say it twice.
+    static func weekdayDayMonth(_ iso: String) -> String? {
+        parse(iso).map {
+            $0.formatted(Date.FormatStyle(timeZone: zone).weekday(.wide).day().month(.wide))
+        }
+    }
+
+    /// "9 August". The same day, mid-sentence.
+    static func dayMonth(_ iso: String) -> String? {
+        parse(iso).map {
+            $0.formatted(Date.FormatStyle(timeZone: zone).day().month(.wide))
+        }
     }
 }

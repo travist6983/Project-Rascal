@@ -114,6 +114,64 @@ Last updated: **Aug 9, 2026**
 
 ## Changelog
 
+**Aug 10, 2026** — Moments v2, built against the design export at
+`docs/mobile-app-design-moments/`. **The screen was designed for a state it will almost never be
+in**, and the phase is mostly about that.
+
+The archive is six days old. "1 year ago" is empty on nearly every date and will be for a year,
+and on many dates for years after — so `fallback: "random"` is not the miss case, it is **the
+screen**. Five decisions settled with it.
+
+**The redirect wears the hit's clothes.** Same carousel, same section header, same `EntryCard`s.
+What differs is one eyebrow ("From the archive" for "1 year ago") and one italic line naming the
+day. A miss given its own visual language would be a language the app spoke most days, and every
+one of them would read as a fault. The design file says this in its own sheet — "the miss state
+never gets its own visual language" — and it is right.
+
+**The carousel is one card per throwback, and a throwback is a year on a hit and a memory on a
+miss.** Three years back give three cards, each standing for the band beneath it. The redirect has
+only ever one section, so one-card-per-section left a rail holding a single card beside a screen of
+five memories. Per-memory on that branch, per-year on the other.
+
+**No date and no age chip on the redirect's header.** The design draws both, with `4y 2m` beside
+"Five at random". Five random memories come from five days and five ages; one of each printed over
+all of them is wrong four times, permanently, in an archive whose whole claim is that it knows when
+things happened. The header prints neither and the section reads fine without them.
+
+**Dates render in the device's locale, not the design file's.** The export writes "Sunday 9
+August" throughout; on an `en_US` phone this app renders "Sunday, August 9", as the timeline's day
+headers and Entry Detail have since Phase 4. Pinning Moments alone to the export's British order
+would have put one order directly above the other on the same screen. What *is* pinned is the day
+itself: `CalendarDay` reads the server's `YYYY-MM-DD` at noon UTC and formats it back in UTC, so a
+phone at UTC+14 — where that instant is already tomorrow — still prints the day the server computed
+in the child's timezone.
+
+**The closing line says only what one response can support.** The design's redirect ends "Come back
+tomorrow — 12 August has three", which is a fact about a day the client did not ask about;
+`GET /children/{id}/moments` answers for one date. Inventing it was not available and a second
+request for a day nobody is looking at was not worth it, so the redirect carries no closing line
+and the hit carries one derived from its own sections.
+
+**"The archive is empty" and "I could not reach the server" are different screens.** Found while
+hardening this phase, and it predates it: both leave `sections` empty, and the screen branched on
+emptiness alone — so a parent holding 755 entries who opened Moments in a tunnel was told "Nothing
+to look back on yet. A year from now this screen is where today ends up." A false statement about
+someone's archive, caused by a signal drop, on the one screen whose entire job is to say the
+archive is worth having. `MomentsModel` now carries `failed` separately from an empty `sections`,
+the invitation renders only when the server actually answered, and a failure shows the quiet notice
+alone with pull-to-refresh to retry. It has a test and a screenshot.
+
+Two conflicts between the export and `docs/design-system.md`, both resolved toward the design
+system and both worth recording. The export hairlines the gradient-wash throwback card at
+`#F2DFE4`, which is in no palette; the design system already names the hairline for that wash —
+`sealedBorder` — and that is what is used. And the export renders a sealed letter's body as real
+text under `filter: blur(3.5px)`. **The shipped card never reads the body at all**, which is
+stronger than blurring one: a blur is an obfuscation of bytes that were still delivered to the
+device. `EntryCardModel` sets `preview` to nil, drops the tiles and drops the tags when
+`unlock_at_age` is set, and Moments now has its own test that a letter surfaced by the random
+fallback keeps all of that — the highest-consequence defect this screen could have shipped, since
+Moments is the one surface that puts a sealed letter in front of someone who did not navigate to it.
+
 **Aug 10, 2026** — The seal control. The archive can now write the thing it has been able to read
 since Phase 4.
 
