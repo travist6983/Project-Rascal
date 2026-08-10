@@ -1,5 +1,5 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 10, 2026**, after Moments v2 merged. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 10, 2026**, written as Moments v2 went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited.**
 
@@ -20,7 +20,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **30** — including the seal control (#29), the follow-up that made `main` green again (#28), and Moments v2 (#30) |
+| Merged pull requests | **29** — including the follow-up that made `main` green again (#28) and the seal control (#29). Moments v2 is **open as #30** at this snapshot |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
 | iOS tests | **429 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
@@ -94,7 +94,7 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **Settings rebuild** | Editable child, display name, export, sync status | #20 (API), #21 (client) | ✅ merged |
 | **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
 | **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
-| **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
+| **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -179,6 +179,7 @@ In the order they cost you least to discover something in:
 2. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
 3. `docs/device-verification-settings.md` from PR #21.
 4. The sync-pull sequence: dry run, read the report, then flip the flag.
+5. `docs/device-verification-moments.md` from PR #30 — the cheapest of the five, and the one with the sharpest single question: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass. Moments is otherwise the one feature here that *has* been rendered and read at two type sizes, so it is last by risk rather than by importance.
 
 ### Then, in build terms
 - **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
