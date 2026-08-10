@@ -971,3 +971,36 @@ ambiguity by matching existing code and keep going.
   expires lapsed assignments — the read path deliberately does not — so without it the
   `waiting` list grows without bound. That is a slow product problem, not data loss, which
   is exactly the demotion this work was for.
+
+## Aug 10, 2026 — `ios.yml` is dispatch-only until launch
+
+The Aug 9 trims were real and still landed less than the problem needed. Across the first 53
+`ios.yml` runs that got a runner: 270 minutes of wall clock, **2,701 billed** — the whole
+2,000-minute private-repo allowance, gone in two days.
+
+- **It stopped being an iOS problem the moment the allowance ran out.** Actions is metered per
+  account, not per workflow, so exhausting it hard-stops *everything*: `ci.yml` on Linux died
+  at 11:19 UTC and `backup.yml` at 09:44, both in about four seconds, both with no runner
+  assigned and the same annotation about payments or the spending limit. The last good backup
+  is Aug 9 08:58, and every daily after it fails until billing is settled. A gate that takes
+  the archive's insurance down with it has inverted its own purpose. The Aug 9 note reasoned
+  about `ios.yml`'s share of the budget; the thing that actually mattered was that its share
+  was not ring-fenced from anyone else's.
+- **The `push`-on-main leg cost the most and proved the least.** 29 runs, 1,320 billed minutes
+  — 49% of the total — re-testing merge commits whose pull request had passed minutes before.
+  Aug 9 kept it "so a direct push to main is still gated"; no such push exists in this repo's
+  history. It was insurance against something nobody does.
+- **Dispatch-only rather than deleted.** The file, not the runs, is where the value
+  accumulated: runtime simulator discovery by UDID, `/usr/lib/postgresql`-style PATH ordering
+  for the toolchain, the warning gate's explicit directory list. Each was learned from a red
+  run. `workflow_dispatch` keeps all of it one tap away before a release and costs nothing in
+  the meantime.
+- **What is actually lost, stated plainly.** Cold-build warning detection is the one benefit a
+  local run does not reproduce — a warm `xcodebuild` reports zero warnings on code that has
+  plenty, which is exactly how nine real ones stayed hidden. Until this comes back, `rm -rf`
+  the DerivedData path before trusting a local zero. The other two — building the merge result,
+  and `Config.xcconfig.example` being provably complete — degrade to convention.
+- **Not deferred to a self-hosted runner.** It would be free and it is the same Mac the code is
+  written on, which is also the objection: the cache is warm, so the warning gate would go
+  green for the reason it exists to catch, unless the workflow clears DerivedData first and
+  gives back the speed that was the point.

@@ -12,29 +12,44 @@ name: iOS
 # Measured, not guessed: a run here takes 3–7 minutes of wall clock, which bills as 30–70. That
 # is 1.5–3.5% of a Free plan's entire monthly allowance **per run**, so what triggers this is a
 # budget decision rather than a style one.
+# **Automatic runs are OFF until launch — deliberately, on cost.** Measured over the first 53
+# runs that got a runner: 270 minutes of wall clock, which bills as **2,701** — more than a
+# private repo's entire 2,000-minute monthly allowance, spent in two days. It did not just
+# overspend its own budget; it exhausted the account's, and every other workflow in this repo
+# stopped with it, the daily `backup.yml` included. A gate that takes the backups down is not
+# paying for itself.
+#
+# Roughly half of that (1,320 billed minutes across 29 runs) went to the `push`-on-main leg
+# re-testing merge commits whose pull request had passed minutes earlier — so the leg that cost
+# the most was the one proving the least.
+#
+# Dispatch-only, not deleted: the file is the expensive part. Runtime simulator discovery, the
+# PATH ordering, the warning gate's directory list — each cost a red run to learn. Tap "Run
+# workflow" before a release and it all still works.
+#
+# To turn automatic runs back on, delete this line and uncomment the block below it.
 on:
-  # **`main` only, not `["**"]`.** A push to a branch with an open pull request used to fire
-  # this twice — once for the push and once for the pull request — on different concurrency
-  # groups, so neither cancelled the other and every push cost double. `pull_request` already
-  # tests the *merge result*, which is the thing that matters; this leg is here so a direct
-  # push to main is still gated.
-  push:
-    branches: [main]
-    paths:
-      - 'ios/**'
-      # Markdown under ios/ — reports, the device session — cannot change a build. Excluded so
-      # editing a document does not spend a macOS runner. Negations must come after the pattern
-      # they narrow; GitHub applies these in order.
-      - '!ios/**.md'
-      - '.github/workflows/ios.yml'
-  pull_request:
-    # `ready_for_review` is in the list because of the `draft` guard on the job below: without
-    # it, marking a draft ready would never trigger the run the guard deferred.
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'ios/**'
-      - '!ios/**.md'
-      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'ios/**'
+  #     # Markdown under ios/ — reports, the device session — cannot change a build. Excluded so
+  #     # editing a document does not spend a macOS runner. Negations must come after the pattern
+  #     # they narrow; GitHub applies these in order.
+  #     - '!ios/**.md'
+  #     - '.github/workflows/ios.yml'
+  # pull_request:
+  #   # `ready_for_review` is in the list because of the `draft` guard on the job below: without
+  #   # it, marking a draft ready would never trigger the run the guard deferred.
+  #   types: [opened, synchronize, reopened, ready_for_review]
+  #   paths:
+  #     - 'ios/**'
+  #     - '!ios/**.md'
+  #     - '.github/workflows/ios.yml'
+  #
+  # When it comes back: consider leaving the `push` leg commented out permanently. `pull_request`
+  # already tests the merge result, and nothing in this repo's history is a direct push to main.
 
 concurrency:
   # Cancel superseded runs. Unlike deploy there is nothing half-applied to protect, and a queued
