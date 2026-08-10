@@ -94,7 +94,11 @@ struct MomentsScreen: View {
     private var content: some View {
         if let model, model.hasLoaded {
             if model.sections.isEmpty {
-                empty
+                // **Only when the server actually answered and had nothing.** A load that failed
+                // also leaves `sections` empty, and the invitation would then tell a parent
+                // holding an archive that they have nothing to look back on. The notice above
+                // has already said what really happened; pull to refresh retries.
+                if !model.failed { empty }
             } else {
                 carousel(model.sections)
                 sections(model.sections)
@@ -282,8 +286,7 @@ struct MomentsScreen: View {
         guard let oldest = model.sections.compactMap(\.yearsAgo).max() else { return nil }
         if oldest == 1 { return "One year down. This gets fuller." }
         guard let date = model.date, let day = CalendarDay.dayMonth(date) else { return nil }
-        let spelled = NumberFormatter.spelled(oldest)
-        return "\(spelled) years of \(day). Nothing else today."
+        return "\(CountText.spelled(oldest)) years of \(day). Nothing else today."
     }
 
     private func footerLine(_ text: String) -> some View {
@@ -352,16 +355,5 @@ struct MomentsScreen: View {
                 .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
         )
         .padding(.horizontal, Layout.screenMargin)
-    }
-}
-
-extension NumberFormatter {
-    /// "Six", for the closing line. A numeral there reads as a statistic, and this screen is not
-    /// keeping score of anything.
-    static func spelled(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .spellOut
-        guard let words = formatter.string(from: NSNumber(value: value)) else { return "\(value)" }
-        return words.prefix(1).uppercased() + words.dropFirst()
     }
 }

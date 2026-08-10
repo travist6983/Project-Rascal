@@ -41,6 +41,14 @@ final class MomentsModel {
     private(set) var hasLoaded = false
     /// True when the server had nothing for this day and sent memories instead.
     private(set) var isFallback = false
+    /// The last load did not get an answer.
+    ///
+    /// **Distinct from having no sections, and the distinction is the whole point.** "The archive
+    /// is empty" and "I could not reach the server" both leave `sections` empty, and the screen
+    /// must never answer the second with the first — telling a parent holding 755 entries that
+    /// there is nothing to look back on because a train went into a tunnel is exactly the
+    /// accusation this app does not make.
+    private(set) var failed = false
     /// The day the server looked at, `YYYY-MM-DD`, in the child's timezone.
     private(set) var date: String?
     var notice: String?
@@ -96,12 +104,15 @@ final class MomentsModel {
                 }
             hasLoaded = true
             notice = nil
+            failed = false
         } catch let error as APIError {
             notice = error.userMessage
             hasLoaded = true
+            failed = true
         } catch {
             notice = error.localizedDescription
             hasLoaded = true
+            failed = true
         }
     }
 

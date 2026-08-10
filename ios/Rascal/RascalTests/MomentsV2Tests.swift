@@ -142,6 +142,75 @@ struct MomentsV2Tests {
         #expect(model.sections.isEmpty)
         #expect(model.notice == nil, "nothing failed, so nothing is reported as a failure")
         #expect(model.isFallback, "the server did answer — it just had nothing to answer with")
+        #expect(model.failed == false, "and because it answered, the invitation is the right screen")
+    }
+
+    /// A parent holding 755 entries opens Moments on a train. The request fails, `sections` is
+    /// empty — and the invitation must not appear, because "nothing to look back on yet" would be
+    /// a false statement about their archive caused by a tunnel.
+    @Test("a load that failed is not an empty archive, and never says it is")
+    func failureIsNotAnEmptyArchive() async throws {
+        let context = try makeContext()
+        let performer = StubPerformer()
+        let boom = Data(#"{"error":{"code":"internal_error","message":"nope","field":null}}"#.utf8)
+        performer.on("/moments") { _ in (boom, 500) }
+
+        let model = MomentsModel(childId: UUID(), api: client(performer), context: context)
+        await model.start()
+
+        #expect(model.hasLoaded)
+        #expect(model.sections.isEmpty)
+        #expect(model.failed, "this is the flag the screen branches on")
+        #expect(model.notice != nil, "and the quiet note says what actually happened")
+
+        // The distinction, stated as the screen states it: same empty `sections`, opposite answer.
+        let (answered, _) = try await loaded(
+            #"{"date":"2026-08-11","fallback":"random","groups":[],"entries":[]}"#
+        )
+        #expect(answered.sections.isEmpty && answered.failed == false)
+        #expect(model.sections.isEmpty && model.failed)
+    }
+
+    @Test("a recovered load stops reporting a failure it is no longer having")
+    func recoveryClearsTheFailure() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let performer = StubPerformer()
+        let entry = entryJSON(
+            id: UUID(), childId: child, occurredAt: day("2025-08-09 10:00"), type: "text"
+        )
+        let good = Data(
+            #"{"date":"2026-08-09","fallback":null,"groups":[{"years_ago":1,"entries":[\#(entry)]}],"entries":[]}"#.utf8
+        )
+        let boom = Data(#"{"error":{"code":"internal_error","message":"nope","field":null}}"#.utf8)
+        // The two loads below are awaited one after the other, so this is read and written on one
+        // task at a time — no interleaving to protect against beyond `Mutex`'s own accessor.
+        let failFirst = Mutex(true)
+        performer.on("/moments") { _ in
+            if failFirst.value {
+                failFirst.value = false
+                return (boom, 500)
+            }
+            return (good, 200)
+        }
+
+        let model = MomentsModel(childId: child, api: client(performer), context: context)
+        await model.start()
+        #expect(model.failed)
+
+        await model.load()
+        #expect(model.failed == false)
+        #expect(model.notice == nil)
+        #expect(model.sections.count == 1)
+    }
+
+    @Test("the closing line spells its number in the language the rest of the sentence is in")
+    func spelledCountIsEnglish() {
+        // The sentence around it is hard-coded English. Following the device locale would produce
+        // "Seis years of 9 August."
+        #expect(CountText.spelled(6) == "Six")
+        #expect(CountText.spelled(1) == "One")
+        #expect(CountText.spelled(12) == "Twelve")
     }
 
     // MARK: Grouping

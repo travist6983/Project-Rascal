@@ -50,6 +50,24 @@ nonisolated enum AgeText {
     }
 }
 
+/// Small counts, spelled out, for copy that is a sentence rather than a statistic.
+nonisolated enum CountText {
+
+    /// "Six", for Moments' closing line. A numeral there reads as a score, and this app keeps
+    /// score of nothing.
+    ///
+    /// **Pinned to English on purpose.** The sentence it lands in is hard-coded English — the app
+    /// is not localized — so following the device's locale would spell the numeral in one language
+    /// inside a sentence written in another: "Seis years of 9 August."
+    static func spelled(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .spellOut
+        formatter.locale = Locale(identifier: "en_US")
+        guard let words = formatter.string(from: NSNumber(value: value)) else { return "\(value)" }
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+}
+
 /// Durations, for a voice chip or a video badge. `1:04`, `12:30`.
 nonisolated enum DurationText {
     static func clock(_ seconds: Int) -> String {

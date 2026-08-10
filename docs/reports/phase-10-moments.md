@@ -23,7 +23,7 @@ most mornings, and it would read as a fault on every one of them.
 
 ## The three states, photographed
 
-All six screenshots are real renders of the real `MomentsScreen`, through the real `MomentsModel`,
+Every screenshot is a real render of the real `MomentsScreen`, through the real `MomentsModel`,
 `EntryCache` and JSON decoding, with only the HTTP seam stubbed.
 
 | State | Default type | Dynamic Type XXL |
@@ -32,6 +32,7 @@ All six screenshots are real renders of the real `MomentsScreen`, through the re
 | Redirect — the archive stands in | `default-fallback.png` | `xxl-fallback.png` |
 | Empty — nothing at all | `default-empty.png` | `xxl-empty.png` |
 | **A sealed letter leading the redirect** | `default-sealed.png` | `xxl-sealed.png` |
+| A load that failed | `default-failed.png` | — |
 
 **No clipped or truncated text at XXL in any of the four.** The empty state's heading wraps to two
 lines and its body to three, and the layout absorbs both. The throwback cards hold their 232×148
@@ -44,6 +45,19 @@ photograph attached**, leading the random fallback. If the seal leaked anywhere 
 would be visible in that frame — as a cover behind the throwback's scrim, a mosaic on the card, a
 body line, or a tag. The frame shows the gradient wash with a **LETTER** badge and no cover, and a
 card reading "A letter" / "Opens at 18." with no mosaic and no body.
+
+### A defect this phase found rather than introduced
+
+**"The archive is empty" and "I could not reach the server" were the same screen.** Both leave
+`sections` empty, and the screen branched on emptiness alone — so a parent holding 755 entries who
+opened Moments with no signal was told *"Nothing to look back on yet. A year from now this screen
+is where today ends up."* A false statement about their archive, caused by a tunnel, on the one
+screen whose whole job is to say the archive is worth keeping. It predates this phase.
+
+`MomentsModel` now carries `failed` separately from an empty `sections`; the invitation renders
+only when the server actually answered. `default-failed.png` is the corrected state: the quiet
+notice, and nothing pretending to be an answer. It is deliberately bare — pull-to-refresh retries,
+and bare-and-true beats full-and-false.
 
 ---
 
@@ -92,7 +106,7 @@ straight to "1 year ago".
 
 **Ran, cold, against a deleted derived-data path:**
 
-- The full iOS suite. **426 tests in 46 suites, zero warnings** in `ios/Rascal/{Rascal,RascalTests}`.
+- The full iOS suite. **429 tests in 46 suites, zero warnings** in `ios/Rascal/{Rascal,RascalTests}`.
   Baseline before this phase, measured the same way on `b348ff7`: **416 tests in 45 suites**.
 - All four screen states, rendered on a booted simulator at two type sizes.
 

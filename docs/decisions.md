@@ -152,6 +152,15 @@ tomorrow — 12 August has three", which is a fact about a day the client did no
 request for a day nobody is looking at was not worth it, so the redirect carries no closing line
 and the hit carries one derived from its own sections.
 
+**"The archive is empty" and "I could not reach the server" are different screens.** Found while
+hardening this phase, and it predates it: both leave `sections` empty, and the screen branched on
+emptiness alone — so a parent holding 755 entries who opened Moments in a tunnel was told "Nothing
+to look back on yet. A year from now this screen is where today ends up." A false statement about
+someone's archive, caused by a signal drop, on the one screen whose entire job is to say the
+archive is worth having. `MomentsModel` now carries `failed` separately from an empty `sections`,
+the invitation renders only when the server actually answered, and a failure shows the quiet notice
+alone with pull-to-refresh to retry. It has a test and a screenshot.
+
 Two conflicts between the export and `docs/design-system.md`, both resolved toward the design
 system and both worth recording. The export hairlines the gradient-wash throwback card at
 `#F2DFE4`, which is in no palette; the design system already names the hairline for that wash —

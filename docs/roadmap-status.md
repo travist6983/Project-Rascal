@@ -22,13 +22,13 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **30** — including the seal control (#29), the follow-up that made `main` green again (#28), and Moments v2 (#30) |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
-| iOS tests | **426 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **429 passing**, 46 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot and **only the pull-request count moved** — the previous snapshot was written with transcription still open. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request and iOS-test counts moved** — the previous snapshot was written before the seal control, the green-main follow-up and Moments v2; the API figures did not, because no `api/` code was touched by any of the three. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -204,7 +204,7 @@ ls api/tests/test_*.py | wc -l               # 23 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 426 iOS tests, 46 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 429 iOS tests, 46 suites, zero warnings
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "
