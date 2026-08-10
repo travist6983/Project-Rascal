@@ -5,7 +5,7 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 9, 2026**, after onboarding was built against the merged API.
+Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0.
 
 ---
 
@@ -177,7 +177,37 @@ the only way to satisfy it is against a local API (`make up && make dev`), which
 `make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
 anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
 
-## 0. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
+## 0. GitHub Actions is not running — account billing. **Recurred Aug 10.**
+
+**Blocked again, and only you can clear it.** Every macOS run since roughly **Aug 10, 00:08Z** has
+been rejected before executing a single step. The annotation on the job is explicit:
+
+> The job was not started because recent account payments have failed or your spending limit needs
+> to be increased. Please check the 'Billing & plans' section in your settings.
+
+The shape is identical to the first outage: a run that should take 7–9 minutes completes in **3–4
+seconds** with zero steps recorded and no uploaded log. Compare `31340226713` (Aug 9 22:46, the
+last real run, **7m25s**, green) with `31345406168`, `31346334620` and the re-run of
+`31343122733` — 4s, 3s, 4s.
+
+**What this does and does not mean.**
+
+- It does **not** mean `main`'s red is fake. PR #27's run at Aug 9 23:56 genuinely executed and
+  genuinely failed on `TranscriptionTests`; that content is what merged. The billing block started
+  afterwards, so the *merge* run and everything since never got to say anything.
+- It does mean **no branch can currently be verified by CI**, including the fix for that failure.
+  PR #28 is red for this reason and this reason only.
+- Anything downstream that requires "`main` green" as a precondition is blocked on your billing
+  settings, not on code. iOS Phase 9 stopped here.
+
+Local runs are the only verification available meanwhile, and the section below is the standing
+reminder of exactly how far that goes: **not far enough.** The last outage ended with CI
+immediately catching a wall-clock test that passed on a fast laptop, and this outage began the same
+way — two cancellation tests that pass locally and failed on the runner.
+
+---
+
+## 0a. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
 
 **Cleared between 18:36Z and 18:53Z on Aug 9.** The 18:36 runs on PR #24 still died in 3 and 12
 seconds with the billing annotation; the 18:53 runs executed properly — `CI` green in 1m50s,
