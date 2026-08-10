@@ -13,7 +13,8 @@ from rascal.errors import not_found
 from rascal.models import Assignment
 from rascal.schemas.child import ChildSummary
 from rascal.schemas.today import AssignmentOut, CustomAssignmentRequest, TodayResponse
-from rascal.services.dates import age_in_months, today_in
+from rascal.services.dates import age_in_months, local_date
+from rascal.services.scheduler import ensure_day_filled
 from rascal.services.today import assignments_for, to_assignment_out
 
 router = APIRouter(tags=["today"])
@@ -52,7 +53,21 @@ async def today(
     access: ChildAccess = Depends(child_access("viewer")),
 ) -> TodayResponse:
     child = access.child
-    on = date or today_in(child.family_timezone)
+    # The one definition of "today": the date in this child's own family_timezone, which is
+    # the same instant read the scheduler takes.
+    local_today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    on = date or local_today
+
+    # The scheduler is an optimisation, not a dependency. A missed run — a stopped machine,
+    # a Fly outage, a database that was asleep at 5am — costs a few milliseconds here
+    # instead of a whole day of the archive.
+    #
+    # Only for the real local date. `?date=` is a debugging override, and a read endpoint
+    # that can be made to write assignments into an arbitrary past or future is a different
+    # and much worse thing than a read endpoint.
+    if on == local_today:
+        await ensure_day_filled(session, child, local_today)
+
     today_items, waiting, done_today = await assignments_for(session, child, on)
 
     return TodayResponse(

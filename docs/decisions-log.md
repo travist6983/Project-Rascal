@@ -927,3 +927,47 @@ execute failed, and it was right to.
   there — so the common path stops tearing the whole list down. What that does to scroll
   position is still SwiftUI's decision, and the device checklist now says so instead of
   promising the scroll is preserved.
+
+---
+
+## Aug 10, 2026 — Lane A: deploy readiness and scheduler durability
+
+Judgment calls made without asking, each recorded because the brief said to resolve
+ambiguity by matching existing code and keep going.
+
+- **The brief's premise was wrong and I did not build to it.** It described assignment
+  creation as running in-process on APScheduler. There is no APScheduler in this repo and
+  never has been: the job is `python -m rascal.jobs.scheduler` on a Fly scheduled machine,
+  and `min_machines_running = 1` was already set. The durability problem it named is real,
+  one layer out — a scheduled machine is invisible to `fly deploy` — so the prescribed fix
+  was right for a reason the brief did not give.
+- **`ensure_day_filled` lives in `services/scheduler.py`, not in `services/today.py`.** It
+  reuses `slots_for` and `_fill_slot` directly, which is what "do not write a second
+  selection algorithm" requires; putting it in the today service would have meant reaching
+  across for two private functions or duplicating them.
+- **`?date=` does not trigger creation.** The brief did not say either way. A read endpoint
+  a viewer can use to write assignments into an arbitrary past or future is a worse thing
+  than an empty screen, so creation is gated on the resolved date equalling the child's real
+  local today. The Saturday, monthly, cooldown and expiry cases are therefore tested at the
+  service layer, where the day is an argument.
+- **The cheap pre-check is one `SELECT slot` for the whole day**, not one per slot. Missing
+  slots are computed in Python and only those are passed to `_fill_slot`, whose own
+  per-slot check stays as the concurrency belt.
+- **`docs/runbook-deploy.md` is the procedure; `docs/DEPLOY.md` becomes the reference.** Two
+  runbooks that can disagree is how §5 came to instruct a Tigris-breaking `S3_REGION`. The
+  wrong values were corrected in place rather than left for the new file to contradict.
+- **`S3_REGION` and `S3_ENDPOINT_URL` went into `fly.toml` `[env]` rather than the secret
+  list.** Neither is sensitive, and `[env]` is reviewable in a diff. The runbook says
+  explicitly not to set them twice.
+- **The verification script requires `DATABASE_URL` and `JWT_SECRET`.** Two of its six
+  checks cannot be done over HTTP — no route reports the schema revision, and `dev-login` is
+  compiled out of a production build, which `blocked.md` already recorded as unsolvable for
+  a deployed preflight. It uses a narrow `DatabaseSettings` subclass rather than the app's
+  full `Settings`, so verifying a deployment does not require inventing a bundle id.
+- **The Deploy workflow's `api/**` path filter was left alone**, even though it now fires on
+  changes to `api/scripts/`, which `.dockerignore` keeps out of the image. Narrowing a
+  filter risks skipping a deploy that was needed; an occasional redundant one does not.
+- **The scheduler was not removed, and should not be.** It is still the only thing that
+  expires lapsed assignments — the read path deliberately does not — so without it the
+  `waiting` list grows without bound. That is a slow product problem, not data loss, which
+  is exactly the demotion this work was for.
