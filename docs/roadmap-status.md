@@ -5,7 +5,7 @@ Everything in this file was checked by running something — the test suites, th
 
 * * *
 ## The headline
-**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26. Moments v2 merged as #30. **One pull request is outstanding — the widget, #31.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26. Moments v2 merged as #30. **One pull request is outstanding — the widget, #32.** Every other branch that has ever been opened is merged into `main`.
 
 **The widget is the first extension target this project has had**, and it is deliberately the dumbest thing that could work: the app writes a few hundred bytes into a shared App Group container whenever the Today board changes, and the extension renders that file. No networking, no keychain, nothing to refresh. The cost is staleness, which is why the largest single piece of the phase is refusing to draw a snapshot whose day is not today in the child's `family_timezone`. See `docs/reports/phase-11-widget.md`.
 
@@ -22,7 +22,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **30** — Moments v2 (#30) merged since the last snapshot. The widget is **open as #31** at this snapshot |
+| Merged pull requests | **30** — Moments v2 (#30) merged since the last snapshot. The widget is **open as #32** at this snapshot |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
 | iOS tests | **490 passing**, 50 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
@@ -97,7 +97,7 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
 | **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
 | **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
-| **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #31 | **open at this snapshot** |
+| **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -164,7 +164,7 @@ These gate the P0 exit test and nothing else can move them.
   
 4. **A restore drill** — the machinery is tested, the act never performed.
   
-5. **Device verification.** Five checklists are now outstanding: `docs/device-verification-widget.md` from PR #31, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
+5. **Device verification.** Five checklists are now outstanding: `docs/device-verification-widget.md` from PR #32, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
@@ -192,7 +192,7 @@ These gate the P0 exit test and nothing else can move them.
   
 - ~~**The seal control in the composer**~~ — **shipped**, as PR #29. See "The sealed letter, whole" above; what remains of it is a four-line server change in `blocked.md`, not a feature.
   
-- ~~**The widget**~~ — **built**, as PR #31, and with it the project's first extension target and its first deep-link handling. The roadmap calls it the reason the loop survives week four; whether it actually does cannot be known from a simulator, which is why its checklist is first on the list above.
+- ~~**The widget**~~ — **built**, as PR #32, and with it the project's first extension target and its first deep-link handling. The roadmap calls it the reason the loop survives week four; whether it actually does cannot be known from a simulator, which is why its checklist is first on the list above.
 
 - **The remaining P1 retention levers are push notifications and the share sheet target**, and they are now the largest unbuilt things. Push is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. The share sheet target is not blocked on anything, and the extension target created this phase is the pattern for it.
 
