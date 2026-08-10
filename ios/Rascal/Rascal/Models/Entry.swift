@@ -142,6 +142,13 @@ final class Entry {
         }
         tagNames = response.tags.map(\.name)
         serverMediaCount = response.mediaCount
+        // **The seal is whatever the archive ended up holding.** The server applies a letter
+        // prompt's `default_unlock_age` on create, so a row can come back sealed when this device
+        // sent nothing — and if the corrective `PATCH` in `createEntry` could not land, the phone
+        // showing "not sealed" over an archive that says "opens at 13" is a divergence nothing in
+        // this app would ever reconcile, because editing a seal has no UI. Copying it means the
+        // card tells the truth about the permanent record.
+        unlockAtAge = response.unlockAtAge
         // Only `GET /entries/{id}` carries the prompt. A list response must not blank a value
         // the detail fetch already cached.
         if let prompt = response.prompt {

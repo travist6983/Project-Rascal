@@ -139,6 +139,104 @@ struct SealControlTests {
         #expect(SealSetting(isSealed: false, age: 18).unlockAtAge == nil, "not 0, and not 18")
     }
 
+    // MARK: Undoing a seal the server applied anyway
+
+    private func client(_ performer: StubPerformer) -> APIClient {
+        APIClient(
+            baseURL: URL(string: "http://localhost:8000/")!,
+            performer: performer,
+            tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+        )
+    }
+
+    /// `create_entry` seals a letter whenever `unlock_at_age` arrives as `None`, and cannot tell an
+    /// explicit null from an absent key. So the client has to notice it was overruled and say it
+    /// again through `PATCH`, which can tell them apart.
+    @Test("a create that comes back sealed against our wishes is corrected with a PATCH")
+    func serverSealIsUndone() async throws {
+        let entryId = UUID()
+        let performer = StubPerformer()
+        // Keyed by path shape, not by call order: `POST /v1/entries` and
+        // `PATCH /v1/entries/{id}` are different paths, and the stub counts hits per path.
+        // The later rule wins where both match, which is the PATCH.
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
+        performer.on("/entries/") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 200) }
+
+        let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
+        let response = try await client(performer).createEntry(entry)
+
+        #expect(response.unlockAtAge == nil, "the corrected row is what the caller gets")
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST", "PATCH"])
+        let patch = try #require(performer.bodies(forPathContaining: "/entries").last)
+        #expect(patch["unlock_at_age"] is NSNull, "and the PATCH says null explicitly")
+    }
+
+    @Test("a create we asked to seal is left alone")
+    func requestedSealIsNotUndone() async throws {
+        let entryId = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
+
+        let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later", unlockAtAge: 13)
+        let response = try await client(performer).createEntry(entry)
+
+        #expect(response.unlockAtAge == 13)
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST"], "no second call")
+    }
+
+    @Test("an ordinary entry the server did not seal costs no extra call")
+    func ordinaryEntryIsUntouched() async throws {
+        let entryId = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 201) }
+
+        let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "flour on the ceiling")
+        _ = try await client(performer).createEntry(entry)
+
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST"])
+    }
+
+    /// **The offline case, and the reason this lives in `APIClient` rather than the composer.**
+    /// A letter written on a train with sealing off is saved locally and re-sent by `EntrySync`
+    /// hours later through the same call. Without the correction there, it would arrive sealed
+    /// and nobody would be told.
+    @Test("the correction also covers the sync re-send, not just the composer")
+    func syncResendIsAlsoCorrected() async throws {
+        let entryId = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
+        performer.on("/entries/") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 200) }
+
+        // Exactly what `EntrySync.sweepEntries` does for a row that never reached the server.
+        let queued = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
+        queued.sync = .pending
+        let response = try await client(performer).createEntry(queued)
+        queued.applyServerResponse(response)
+
+        #expect(queued.unlockAtAge == nil, "the letter stays open, hours later and offline-first")
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST", "PATCH"])
+    }
+
+    /// If the correction cannot land, the phone must show what the archive actually holds. A card
+    /// reading "not sealed" over a row that says "opens at 13" is a divergence nothing in this app
+    /// reconciles, because editing a seal has no UI.
+    @Test("a correction that fails leaves the row matching the archive, not the intent")
+    func failedCorrectionMatchesTheArchive() async throws {
+        let entryId = UUID()
+        let performer = StubPerformer()
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
+        performer.on("/entries/") { _ in
+            (Data(#"{"error":{"code":"internal_error","message":"no"}}"#.utf8), 500)
+        }
+
+        let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
+        let response = try await client(performer).createEntry(entry)
+        entry.applyServerResponse(response)
+
+        #expect(entry.unlockAtAge == 13, "the phone tells the truth about the permanent record")
+        #expect(EntryCardModel(entry: entry, media: []).isSealed)
+    }
+
     // MARK: The reader and the writer meeting
 
     /// **The test this phase exists for.** An entry written with a seal has to come back out of
@@ -259,6 +357,16 @@ struct SealControlTests {
 
 /// Local to this suite. `SyncEngineTests` keeps equivalents private, and one shared helper across
 /// two suites is a thing to keep in step for no benefit.
+
+/// One `EntryOut`, which is what both `POST /entries` and `PATCH /entries/{id}` answer with.
+func entryOutJSON(id: UUID, unlockAtAge: Int?) -> Data {
+    Data(entryJSON(
+        id: id,
+        childId: UUID(),
+        occurredAt: Date(timeIntervalSince1970: 1_786_000_000),
+        unlockAtAge: unlockAtAge
+    ).utf8)
+}
 
 /// Answers every `/sync` poll with the same page.
 func sealPerformer(_ page: Data) -> StubPerformer {

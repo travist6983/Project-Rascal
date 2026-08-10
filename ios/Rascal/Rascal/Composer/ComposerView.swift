@@ -44,6 +44,14 @@ struct ComposerView: View {
     @State private var didIt = false
     @State private var saving = false
     @State private var notice: String?
+    /// Set once this sheet has committed an entry to the local store.
+    ///
+    /// **Save must not be able to write a second one.** The sheet deliberately stays open after a
+    /// save that has something to report — an expired assignment, a seal the archive kept — and
+    /// every tap of Save builds a *new* `Entry` with a new id, so the idempotency key that makes a
+    /// network retry safe would not catch it. Two rows in a permanent archive from one act of
+    /// writing is the kind of thing nobody notices until it is old.
+    @State private var committed = false
     @FocusState private var writing: Bool
 
     // Capture
@@ -111,8 +119,8 @@ struct ComposerView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving" : "Save") { Task { await save() } }
-                        .foregroundStyle(canSave ? Color.terracotta : Color.inkMuted)
-                        .disabled(!canSave || saving)
+                        .foregroundStyle(canSave && !committed ? Color.terracotta : Color.inkMuted)
+                        .disabled(!canSave || saving || committed)
                 }
             }
         }
@@ -554,6 +562,9 @@ struct ComposerView: View {
             entry.promptKind = assignment.kind
         }
         context.insert(entry)
+        // From here the entry exists locally whatever the network does, so this sheet has had
+        // its one save. `EntrySync` owns every retry from now on.
+        committed = true
 
         // Media rows are created alongside the entry, before any request. The files are
         // already staged, so a force quit right here loses nothing: the sweep finds both.
@@ -581,7 +592,7 @@ struct ComposerView: View {
             let response = try await api.createEntry(entry)
             entry.applyServerResponse(response)
             try? context.save()
-            if await unsealOnServerIfNeeded(entry) { return }
+            if reportSealMismatch(entry) { return }
             dismiss()
         } catch let error as APIError {
             // The one real user-facing failure: the entry saves, it just no longer completes
@@ -616,44 +627,23 @@ struct ComposerView: View {
     /// An edit follows the same discipline as a creation: local first, then sync. The change
     /// is on screen before the request goes out, and a failure leaves it queued rather than
     /// lost.
-    /// Tell the server the parent turned sealing off, because **`POST /entries` cannot hear it.**
+    /// Say so if the archive kept a seal the parent turned off.
     ///
-    /// `create_entry` seals a letter whenever `unlock_at_age` arrives as `None`, and Pydantic
-    /// produces `None` for an omitted key *and* for an explicit `null` — the two are
-    /// indistinguishable there. So a letter prompt the parent unsealed is created sealed at the
-    /// prompt's `default_unlock_age` no matter what this client sends.
-    ///
-    /// `PATCH` does not have that problem: it dumps with `exclude_unset`, so an explicit null
-    /// reaches the handler as a field that was set, and clears it. One extra call, in the one
-    /// case that needs it, and **it deletes itself** the day Lane A can tell null from absent on
-    /// create — `docs/blocked.md`.
+    /// `APIClient.createEntry` already tries to undo it — and does so for `EntrySync`'s offline
+    /// re-send too, which is why that lives there and not here. This is only the part that needs
+    /// a screen: if the correction did not land, `applyServerResponse` has copied the archive's
+    /// value back onto the row, so the phone and the archive agree, and the only thing missing is
+    /// telling the person who asked.
     ///
     /// Returns true when it kept the sheet open to say something.
-    private func unsealOnServerIfNeeded(_ entry: Entry) async -> Bool {
+    private func reportSealMismatch(_ entry: Entry) -> Bool {
         guard SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing),
               !seal.isSealed,
-              request.assignment?.unlockAtAge != nil
+              let sealedAt = entry.unlockAtAge
         else { return false }
 
-        do {
-            let response = try await api.updateEntry(
-                id: entry.id,
-                changes: EntryChanges(unlockAtAge: .set(nil))
-            )
-            entry.applyServerResponse(response)
-            try? context.save()
-            return false
-        } catch {
-            // The archive has it sealed and could not be told otherwise. Match it locally rather
-            // than leave the phone and the archive disagreeing about a permanent record — a
-            // divergence nothing else in this app would ever reconcile, because editing a seal
-            // has no UI yet. Then say what happened, plainly.
-            let sealedAt = SealSetting.resolvedAge(request.assignment?.unlockAtAge)
-            entry.unlockAtAge = sealedAt
-            try? context.save()
-            notice = "Saved, and it sealed at \(sealedAt). Leaving it open didn't reach the archive."
-            return true
-        }
+        notice = "Saved, and it sealed at \(sealedAt). Leaving it open didn't reach the archive."
+        return true
     }
 
     private func saveEdit(_ entryId: UUID) async {

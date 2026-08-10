@@ -149,8 +149,11 @@ there is a reason beyond completeness.
 And the thing that is **not** settled: `POST /entries` cannot hear "do not seal this". It seals a
 letter whenever `unlock_at_age` arrives as `None`, and Pydantic gives it `None` for an omitted key
 and an explicit `null` alike — so the off switch cannot be expressed on create. The client sends an
-explicit null anyway, because that is correct, and follows an unsealed letter with a `PATCH` that
-clears the field. `docs/blocked.md` has the four-line server fix that deletes the workaround.
+explicit null anyway, because that is correct, and `APIClient.createEntry` notices when the server
+sealed a row that asked not to be and says it again through `PATCH`. That sits at the write rather
+than in the composer because `EntrySync` re-sends offline entries through the same call, and a
+letter written on a train would otherwise seal itself hours later. `docs/blocked.md` has the
+four-line server fix that deletes the workaround.
 
 **Aug 9, 2026** — Onboarding shipped, and the flow it shipped is not the one that was drawn.
 
