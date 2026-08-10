@@ -5,7 +5,53 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 9, 2026**, after onboarding was built against the merged API.
+Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0.
+
+---
+
+## iOS Seal control — `POST /entries` cannot hear "do not seal this"
+
+The seal control shipped and works. This is the one thing it cannot express through the create
+route, and it is **four lines to fix in Lane A**.
+
+`create_entry` seals a letter whenever `unlock_at_age` arrives as `None`:
+
+```python
+# api/src/rascal/services/entries.py
+if unlock_at_age is None and prompt is not None:
+    # Letters are sealed by default. The server owns this, not the client.
+    unlock_at_age = prompt.default_unlock_age
+```
+
+That default is right, and it is why a letter written by any client is sealed even if the client
+has never heard of sealing. The problem is that **Pydantic gives `None` for an omitted key and for
+an explicit `null` alike**, so the handler cannot tell "I have no opinion" from "the parent turned
+this off". A letter prompt the parent deliberately unsealed is created sealed at the prompt's
+default, whatever the client sends.
+
+**`PATCH /entries/{id}` does not have this problem** — `routers/entries.py` dumps with
+`model_dump(exclude_unset=True)`, so an explicit null reaches the service as a field that was set
+and clears it. The two routes disagree about what null means.
+
+**Worked around in the client, visibly and temporarily.** `EntryCreateRequest` now always writes
+`unlock_at_age`, including as an explicit null, so the client is already correct. Because the
+server currently collapses that, `APIClient.createEntry` compares what it sent with what came back
+and, when the server sealed a row that asked not to be sealed, says it again through `PATCH`.
+
+**It lives in `createEntry` rather than in the composer on purpose.** The composer is not the only
+writer: `EntrySync` re-sends an entry saved while offline through the same call, so a letter
+written on a train with sealing turned off would otherwise arrive sealed hours later with nobody
+told. One place, every caller. It is also self-detecting — it fires only when the response
+disagrees with the request — so the day this is fixed it stops doing anything.
+
+If the corrective `PATCH` cannot land, `Entry.applyServerResponse` copies the archive's value back
+onto the row, so the phone shows what the permanent record actually holds rather than what was
+intended, and the composer says so.
+
+**What Lane A needs to do:** have `create_entry` take the field's *setness* rather than its value —
+`payload.model_fields_set` at the router, or pass a sentinel — so an explicit null means "not
+sealed" and an absent key keeps the prompt default. The day that lands,
+`unsealIfTheServerSealedItAnyway` stops firing, and can be deleted with its round trip.
 
 ---
 
@@ -177,7 +223,37 @@ the only way to satisfy it is against a local API (`make up && make dev`), which
 `make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
 anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
 
-## 0. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
+## 0. GitHub Actions is not running — account billing. **Recurred Aug 10.**
+
+**Blocked again, and only you can clear it.** Every macOS run since roughly **Aug 10, 00:08Z** has
+been rejected before executing a single step. The annotation on the job is explicit:
+
+> The job was not started because recent account payments have failed or your spending limit needs
+> to be increased. Please check the 'Billing & plans' section in your settings.
+
+The shape is identical to the first outage: a run that should take 7–9 minutes completes in **3–4
+seconds** with zero steps recorded and no uploaded log. Compare `31340226713` (Aug 9 22:46, the
+last real run, **7m25s**, green) with `31345406168`, `31346334620` and the re-run of
+`31343122733` — 4s, 3s, 4s.
+
+**What this does and does not mean.**
+
+- It does **not** mean `main`'s red is fake. PR #27's run at Aug 9 23:56 genuinely executed and
+  genuinely failed on `TranscriptionTests`; that content is what merged. The billing block started
+  afterwards, so the *merge* run and everything since never got to say anything.
+- It does mean **no branch can currently be verified by CI**, including the fix for that failure.
+  PR #28 is red for this reason and this reason only.
+- Anything downstream that requires "`main` green" as a precondition is blocked on your billing
+  settings, not on code. iOS Phase 9 stopped here.
+
+Local runs are the only verification available meanwhile, and the section below is the standing
+reminder of exactly how far that goes: **not far enough.** The last outage ended with CI
+immediately catching a wall-clock test that passed on a fast laptop, and this outage began the same
+way — two cancellation tests that pass locally and failed on the runner.
+
+---
+
+## 0a. ~~GitHub Actions is not running — account billing~~ — RESOLVED Aug 9, and it found a real bug
 
 **Cleared between 18:36Z and 18:53Z on Aug 9.** The 18:36 runs on PR #24 still died in 3 and 12
 seconds with the billing annotation; the 18:53 runs executed properly — `CI` green in 1m50s,

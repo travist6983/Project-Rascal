@@ -124,6 +124,14 @@ final class OnboardingSession {
             // Multi-kid is out of scope: take the first and build no picker.
             if let child = children.first {
                 finish(with: child)
+                // Re-read the account, exactly as `AppSession.start()` used to before the gate
+                // took over resolving. Deliberately best effort and deliberately after the state
+                // is set: the archive does not depend on knowing the parent's name, and failing
+                // a launch over it would trade something that matters for something that does
+                // not. Offline, the stored copy stands.
+                if let fetched = try? await account.api.me() {
+                    account.apply(user: fetched)
+                }
             } else {
                 draft = drafts.load() ?? OnboardingDraft()
                 state = .needsChild
@@ -275,7 +283,12 @@ final class OnboardingSession {
             )
             finish(with: child)
         } catch {
-            if let existing = try? await account.api.children().first {
+            // **A refusal is not a lost response.** The server rejects a bad birthdate or a blank
+            // name before it writes anything, so there is no row to adopt — and consulting the
+            // guard anyway would replace the message telling the parent what to fix with a child
+            // that came from somewhere else entirely.
+            let refused = (error as? APIError)?.code == .validationFailed
+            if !refused, let existing = try? await account.api.children().first {
                 finish(with: existing)
                 return
             }
@@ -298,6 +311,29 @@ final class OnboardingSession {
 
     // MARK: Signing out
 
+    /// A deliberate sign-out, from Settings or from the way out of setup.
+    ///
+    /// Everything about the account goes: the refresh token is revoked server-side, the stored
+    /// user record and Apple subject are forgotten, and a half-finished setup draft goes with
+    /// them. Leaving a child's name in UserDefaults after someone asked to leave is the sort of
+    /// thing "signed out" is supposed to mean.
+    func signOut() async {
+        await account.signOut()
+        forgetLocalIdentity()
+        state = .signedOut
+    }
+
+    private func forgetLocalIdentity() {
+        appleIDs.clear()
+        drafts.clear()
+        draft = OnboardingDraft()
+        avatar = nil
+        pendingExchange = nil
+        notice = nil
+        resolveFailed = false
+    }
+
+    /// Drop the session without revoking anything, for a credential Apple has already invalidated.
     private func forgetSession() async {
         await account.api.signOut()
         appleIDs.clear()
@@ -334,10 +370,19 @@ struct OnboardingGate: View {
 
             case .ready(let child):
                 // The same `AppSession` instance, so the whole app shares one client and one
-                // refresh. `RootView` resolves the child again on its own `.task`; that is one
-                // extra `GET /children` at the handoff and it keeps `RootView` unchanged.
-                RootView(session: session.account)
-                    .id(child.id)
+                // refresh — and the child it already resolved, so `RootView` does not go and
+                // fetch it a second time.
+                // Sign-out is handed down as a closure rather than left for the gate to notice.
+                // Watching `account.phase` was tried and is wrong: `onChange` fires on a *change*,
+                // so a second sign-out in one launch — sign out, sign back in, sign out again —
+                // sets a value that is already `.signedOut`, fires nothing, and leaves Today on
+                // screen behind a revoked token.
+                RootView(
+                    session: session.account,
+                    childId: child.id,
+                    onSignOut: { await session.signOut() }
+                )
+                .id(child.id)
             }
         }
         .task {

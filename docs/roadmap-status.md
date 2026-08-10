@@ -1,36 +1,40 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 9, 2026**, after the transcription branch. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 9, 2026**, after transcription merged. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
-Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited**; several of them had drifted.
+Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message. **Every number below was re-derived for this snapshot rather than edited.**
 
 * * *
 ## The headline
-**P0's scope list is complete, and P3's headline feature is now built.** On-device transcription landed on `ios/phase-7-transcription`: `SpeechAnalyzer` over the recorder's m4a files, written back through `PATCH /media/{id}/derived`, with the minimal search surface needed to see that it worked.
+**P0's scope list is complete, and P3's headline feature is now built.** On-device transcription merged as PR #26: `SpeechAnalyzer` over the recorder's m4a files, written back through `PATCH /media/{id}/derived`, with the minimal search surface needed to see that it worked. **Nothing is outstanding in review — every branch that has ever been opened is merged into `main`, and there are zero open pull requests.**
 
 **Two things ship switched off or unverified, and they are different kinds of unverified.**
 
 - `syncPullEnabled` still defaults to false and gates every write the pull performs. Verified against fixtures — including a 736-entry one — and **never against the real archive**. The morning sequence is unchanged: Settings → dry run → read the report → flip the flag → pull to refresh.
 - Transcription is **structurally verified and empirically unverified**. `SpeechAnalyzer` is iOS 26 and the app deploys to 18.6; `isAvailable` is false on every simulator and the model assets are a download no CI runner has. Everything below the protocol seam is asserted against a stub. **No real transcription has ever run**, so the one thing that matters most — how well it reads a four-year-old — is unknown rather than good. `docs/device-verification-transcription.md` is the way to find out.
 
+**The scope gap that no phase ever owned is closed.** Sealed letters can now be written as well as read — see "The sealed letter, whole" below. What is left of it is a four-line server change, not a feature.
+
 What is left is then the two things only you can unblock — Apple enrollment and Fly — and the exit test, which is you using it for fourteen days.
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **25** (+1 open: transcription) |
+| Merged pull requests | **27**, plus the follow-up that made `main` green again |
 | API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
-| iOS tests | **354 passing**, 42 suites, zero warnings (verified from a deleted `DerivedData`) |
+| iOS tests | **411 passing**, 45 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-The previous snapshot claimed 275 iOS tests in 34 suites and 26 API test files. The iOS figure was two branches stale — `main` was already at **295 in 37 suites** before this phase began — and the file count was simply wrong. Both are re-measured above.
+Every figure above was re-measured for this snapshot and **only the pull-request count moved** — the previous snapshot was written with transcription still open. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+
+An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
 * * *
 ## Phases at a glance
 | Phase | Roadmap window | Status |
 | --- | --- | --- |
-| **P0 — POC** | Aug 3–14 | **Scope complete, client sync built but unverified on device.** TestFlight blocked; exit test not started |
+| **P0 — POC** | Aug 3–14 | **Scope complete, client sync built but unverified on device.** TestFlight blocked; exit test not started. Onboarding shipped |
 | **P1 — Daily driver** | Aug 17 – Sep 11 | **Partly pre-banked** — search now has a client surface, plus moments, backups, transcode policy all done early |
 | **P2 — Family** | Sep 14 – Oct 9 | Not started. Authorization and the `guardians` table are built and tested; only the invite flow is missing |
 | **P3 — Intelligence** | Oct 12 – Nov 6 | **Item 1 built, unverified on device.** Transcription runs, persists, and survives sync. Items 2–5 not started |
@@ -71,6 +75,60 @@ Against the roadmap's own **In scope** list in §3.
 Single-device, single-parent, none of this bites. **It becomes correctness-critical the moment P2 puts a second parent on the same child.**
 
 * * *
+## The iOS build, phase by phase
+The client was built in numbered phases that are **not** the roadmap's phases, and the two numbering schemes have been confused more than once. This is the ledger, checked against `gh pr list` and against the files on `main`.
+
+| Phase | What it was | PR | State |
+| --- | --- | --- | --- |
+| **1 — Spine** | Design system, networking with single-flight refresh, SwiftData models, app shell, Today, composer (wrote-it + did-it) | #10 | ✅ merged |
+| **2 — Capture** | Staging store, HEIC→JPEG, background uploader, photo entries | #11, #12 | ✅ merged |
+| **2.5 — Device polish** | Local-state-first Today, upload progress ring, completion motion, Done cards tappable and tinted | #13 | ✅ merged |
+| **3 — Media read path** | Presigned GET, thumbnails render | #11 | ✅ merged |
+| **3 (the other one) — Video** | Video capture, multipart upload, and the slowness it caused | #18 | ✅ merged |
+| **4 — Archive** | Timeline, Entry Detail, Moments | #19 | ✅ merged, re-skinned by #25 |
+| **5 — Audio** | `AVAudioRecorder`, AAC/m4a, audio back on the debug board | #22, #23 | ✅ merged |
+| **6 — Sync pull** | Built, tested, dry-run mode, shipped with `syncPullEnabled` **off** | #24 | ✅ merged, flag off |
+| **7 — Transcription** | On-device `SpeechAnalyzer` + the search surface on Timeline | #26 | ✅ merged |
+| **Settings rebuild** | Editable child, display name, export, sync status | #20 (API), #21 (client) | ✅ merged |
+| **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
+
+**Two numbering hazards worth naming, because both have already caused a wrong assumption.**
+
+- **"Phase 3" means two different things.** In the iOS build order it is the media *read* path, which landed inside PR #11. PR #18 is *titled* "Phase 3" and is video *capture*. Both shipped; only the label is ambiguous.
+- **The onboarding branch was misnamed and landed that way.** `ios/phase-5-onboarding` was the working branch for phase **8**; phase 5 was audio, three PRs earlier. It merged under the wrong name, so the history does now read as though audio were reopened. Nothing to undo — just do not trust the branch name in `git log`.
+
+### Phase 8, precisely
+Merged as **PR #27**. What shipped: **welcome → Sign in with Apple → name → birthdate → timezone → avatar → Today**, gated by an `OnboardingGate` that owns session state and hands the resolved child down to `RootView`. A returning account skips setup entirely. Two decisions worth not relitigating: the birthdate is carried as a `yyyy-MM-dd` **string** end to end so it cannot drift a day west of Greenwich, and `display_name` is **omitted rather than nulled** when Apple declines to supply one, because Apple returns `fullName` only on the first-ever authorization for an Apple ID and the server applies first-write-wins.
+
+**It merged with red CI, and that is the thing to know.** Two transcription cancellation tests ordered a race against a wall clock — `sleep(60ms)`, then assume the run is under way — and broke under the extra parallelism the onboarding suites added. The follow-up PR fixes that and five production defects found afterwards in the merged code: `RootView` re-resolving session state (which could show a production parent "the API is not running with ENVIRONMENT=local"), a sign-out that landed on a screen offering only `dev-login`, a second sign-out in one launch silently doing nothing, no way out of setup after signing in with the wrong Apple ID, and `AvatarCrop` decoding a full-resolution photo to produce 512 pixels. `docs/reports/phase-5-onboarding.md` is the full account.
+
+**Still unverifiable, and not by omission:** Sign in with Apple has never executed — not on a device, not once — because enrollment has not cleared (`blocked.md` §1). Everything below the credential seam is tested; the real `ASAuthorization` path is not. Separately, the avatar is captured, cropped and stored **on the device only** — there is no endpoint to upload it to, and nothing in the app renders it yet.
+
+* * *
+## The sealed letter, whole
+
+**Closed Aug 10.** `unlock_at_age` was in the schema, the design system and the mission library,
+and **8 active `letter` prompts were being served** against a client with no way to set it. Phase 4
+built the reader — `EntryDetailScreen.sealedCard`, the `EntryCard` sealed skin, the Sealed filter,
+five test files — and no phase owned the writer, because the roadmap's P0 **In scope** list names
+the composer as "text, photo, video, audio" and never names sealing.
+
+The writer is one control in `ComposerView`, shown when the assignment's `PromptKind` is `.letter`:
+sealed by default, an age stepper over 10–21 defaulting to the prompt's own `default_unlock_age`,
+and a toggle to turn it off. Verified end to end against the local API — a real letter assignment
+(`default_unlock_age` 13) written through the client's create path came back and rendered on the
+timeline as a wash-skinned card reading "Opens at 13." with no preview.
+
+**One gap remains, and it is Lane A's.** `POST /entries` seals a letter whenever `unlock_at_age`
+arrives as `None`, and Pydantic cannot tell an omitted key from an explicit `null` — so turning
+sealing *off* cannot be expressed on create. The client sends an explicit null regardless and
+follows it with a `PATCH`, which *can* distinguish them because it dumps with `exclude_unset`. See
+`docs/blocked.md`; the fix is four lines and it deletes the workaround.
+
+Still absent by choice: **editing the seal on an entry that already exists.** `PATCH` supports it,
+no UI calls it.
+
+* * *
 ## What P1 has already banked
 Work that landed early, mostly as a side effect of doing P0 properly. Worth knowing so P1 is not re-scoped from scratch.
 
@@ -99,7 +157,7 @@ These gate the P0 exit test and nothing else can move them.
   
 4. **A restore drill** — the machinery is tested, the act never performed.
   
-5. **Device verification.** Three checklists are now outstanding: `docs/device-verification-transcription.md` from this branch, the audio list in PR #22, and `docs/device-verification-settings.md` from PR #21. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.**
+5. **Device verification.** Three checklists are now outstanding: `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, and `docs/device-verification-settings.md` from PR #21. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.**
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
@@ -119,6 +177,10 @@ In the order they cost you least to discover something in:
 4. The sync-pull sequence: dry run, read the report, then flip the flag.
 
 ### Then, in build terms
+- **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
+  
+- **The seal control in the composer** — the smallest genuinely-missing feature in the app, and the one with the most feeling attached to it. See "The sealed letter, half-built". It is one stepper wired to a field every layer below the view already carries.
+  
 - **P1's retention levers** — the widget especially, which the roadmap calls the reason the loop survives week four. It is also the largest genuinely-unbuilt thing left: there is no extension target at all.
   
 - **P3 item 2, structured extraction** (`@Generable` over the transcripts that now exist). Deliberately not done in this phase — it is a separate feature with its own schema question, and stacking it on an unverified transcriber would mean two unknowns in one branch.
@@ -150,4 +212,12 @@ docker exec rascal-postgres psql -U rascal -d rascal \
   -c "select kind, active, count(*) from prompts group by 1,2 order by 1;"
 docker exec rascal-postgres psql -U rascal -d rascal \
   -tAc "select count(*) from entries where deleted_at is null;"   # 755
+
+# Nothing is in review, and no branch is stranded. Both come back empty.
+gh pr list --state open
+git branch -r --no-merged origin/main
+
+# The sealed letter has a reader and no writer. First returns hits, second returns nothing.
+grep -rn "unlockAtAge" ios/Rascal/Rascal/Timeline --include="*.swift"
+grep -rn "unlockAtAge" ios/Rascal/Rascal/Composer ios/Rascal/Rascal/Today --include="*.swift"
 ```

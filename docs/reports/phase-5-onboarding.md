@@ -136,9 +136,9 @@ is the only copy in existence. Same conventions, reverse backup flag.
 
 ## Verified by running it
 
-### Tests — 392 passing in 44 suites, zero warnings
+### Tests — 396 passing in 44 suites, zero warnings
 
-354 before, **38 added**. Run cold from a deleted `DerivedData`; the log contains **zero**
+354 before, **42 added**. Run cold from a deleted `DerivedData`; the log contains **zero**
 occurrences of `: warning:` from any source.
 
 Three of the new tests failed on first run and all three were real:
@@ -245,6 +245,85 @@ follow-up and it is not in this branch.
 
 ---
 
+## The production-readiness pass, and the five defects it found
+
+Done after the first PR was open, on the brief "fix anything you are not a hundred percent sure
+about". Four of the five were mine and none were caught by a test — they were found by asking what
+happens on the second attempt, on a bad network, and with the wrong Apple ID.
+
+**1. `RootView` was resolving session state the gate had already resolved.** It ran
+`AppSession.start()` on appear, which re-fetched the child and — on a network blip in that window —
+fell through to `dev-login`, so a signed-in parent in production could be told *"the API is not
+running with ENVIRONMENT=local"*. `RootView` now takes the child the gate resolved and resolves
+nothing itself. The `/me` refresh that `start()` used to perform moved into the gate, which is what
+keeps the account's name on Settings after a relaunch.
+
+**2. Signing out landed on a screen that could not sign you back in.** `RootView`'s `SignedOutView`
+offered a "Sign in" button wired to `dev-login`, which is a 404 anywhere that is not a local API.
+Sign-out now belongs to the gate and returns to the real welcome screen. `RootView`'s three
+session-state views are deleted rather than left as a second, competing source of truth.
+
+**3. The first fix for #2 was itself broken, and the test for it is the interesting one.** The gate
+watched `AppSession.phase` via `onChange`. `onChange` fires on a *change* — so the second sign-out
+of a launch (sign out, sign back in, sign out again) sets a value that is already `.signedOut`,
+notifies nobody, and leaves Today on screen behind a revoked token. Sign-out is now an explicit
+closure handed down through `RootView` to Settings, and `settingsSignOutReturnsToWelcome` loops
+twice specifically to pin that.
+
+**4. Setup had no exit.** Signing in with the wrong Apple ID left the parent in `needsChild`
+permanently: back goes nowhere from the first step, there is no Settings yet, and setup cannot be
+completed for an account that isn't theirs. There is now a "Not you?" affordance on the first step.
+
+**5. `AvatarCrop` decoded and re-encoded the full photo to produce 512 pixels.** It ran
+`ImagePipeline.process` (full-size decode, full-size JPEG encode, plus a thumbnail nobody wanted),
+then decoded again, cropped, and encoded twice more. On a 24-megapixel photo that is exactly the
+memory spike `ImagePipeline`'s own comments warn about — during the last screen of setup, on
+whatever phone the parent owns. It is now one `CGImageSourceCreateThumbnailAtIndex` sized so the
+short edge lands on 512, one crop, one encode, and it never decodes the full image.
+
+Smaller: the duplicate-child guard no longer runs on a *validation* failure (the server refuses
+those before writing, so there is no row to adopt and consulting the guard would replace the
+message telling the parent what to fix); `AppSession.start()` is documented as no longer the launch
+path, because it is now called only by `MeTests` and a future caller would get a second resolution
+path fighting the gate.
+
+**Left for a change of its own:** `AppSession.start()`, `signIn()` and `signOutAndRetry()` are now
+dead in the app. Retiring them means rewriting the `MeTests` cases that drive the user-record rules
+through `start()`, and deleting another phase's tests is not a rider to bolt onto this one.
+
+### The CI failure, and why polling was the wrong fix
+
+`TranscriptionTests` went red on CI on a branch that touches no transcription file. Two tests
+ordered a cancellation against a wall clock — `Task.sleep(for: .milliseconds(60))`, then "so by now
+the run must be under way". That holds on a fast idle machine and stops holding on a contended
+runner; adding 38 parallel tests was enough to break the assumption.
+
+Two replacements were tried before the one that worked, and **the reason both failed was a bug I
+had just introduced, not the one I was diagnosing.** Making `StubTranscriber`'s accessors
+lock-protected — a real fix for a real data race, since a test reading `requested` while
+`transcribe` appended to it was unsynchronised — turned `requested` from a stored property into a
+locked one and missed a caller. `callCount` already held the lock before reading it, and `NSLock`
+is not reentrant, so **any test asking for a call count deadlocked forever.**
+
+That poisoned both attempts and both diagnoses. A poll loop timed out; a continuation handshake
+hung outright. I attributed each to main-actor contention starving the detached
+`Task { await runBacklog() }`, and wrote that down confidently. It was wrong. The isolated suite
+run that "passed" in between did not exonerate anything — it simply did not reach the deadlocked
+path in the order that triggers it. **The full-suite run is the one that told the truth, and it is
+the one I should have trusted first.**
+
+The fix is therefore two things. The deadlock is gone — `callCount` reads the stored array. And the
+tests no longer coordinate two tasks at all: `onEnter` fires from inside `transcribe` at the row the
+test names, and the test awaits `runBacklog()` directly, so its own task *is* the run. The only
+asynchrony left is a hop back to the main actor to call `cancelBacklog`, and that happens while the
+stub is parked in a delay measured in hundreds of milliseconds or whole seconds. **Every assertion
+in both tests is unchanged**; one was added (`transcribed >= 1`) now that the mid-run state is
+deterministic enough to assert.
+
+Production was checked before any of this and is **not** affected: `cancelBacklog` is only reachable
+from a button that renders when `progress != nil`, which is set inside the run — so a real user
+cannot hit the window the tests were guessing at.
+
 ## Deviations from the design export
 
 `docs/design-system.md` says in its own second paragraph that it wins over a mockup, and
@@ -309,14 +388,20 @@ and layout/copy/sequencing/motion came from the export. Every substitution:
 
 ## Files touched outside `Onboarding/`
 
-Four files, **31 insertions and 3 deletions**, of which 20 lines are comments.
+The first version of this branch touched four files for 31 lines. The production pass above grew
+that, and deliberately: keeping `RootView` at a one-line diff was costing a redundant fetch, a
+wrong production error message, and a sign-out that could not sign you back in.
 
 | File | Change |
 |---|---|
 | `RascalApp.swift` | `RootView()` → `OnboardingGate()`. One line |
-| `App/RootView.swift` | `@State private var session = AppSession.live()` → `let session: AppSession`, so the gate owns the one session. One line |
+| `App/RootView.swift` | Takes `session`, `childId` and `onSignOut` from the gate instead of resolving state itself. The three session-state views it used to own — launching, signed out, sign-in failed — are deleted; the gate owns all three states now |
+| `App/AppEnvironment.swift` | Doc only. `start()` is marked as no longer the launch path, so nobody wires up a second resolver |
+| `Settings/SettingsScreen.swift` | Takes `onSignOut` and calls it instead of `AppSession.signOut()`, so signing out actually leaves the screen. Two lines |
 | `Networking/APIClient.swift` | Added `signInWithApple`. It lives here rather than in an extension because `tokens` is file-private and this is where `devLogin` saves a pair |
 | `Networking/RascalAPI.swift` | `ChildResponse` gains `Equatable, Sendable`, so `SessionState` can be compared. One line |
+| `RascalTests/TranscriptionTests.swift` | Two cancellation tests wait on a handshake instead of a sleep. Assertions unchanged, one added |
+| `RascalTests/TranscriptionFixtures.swift` | `StubTranscriber` gains the handshake and lock-protected accessors |
 
 `docs/roadmap-status.md` is modified in the working tree by something other than this run and was
 deliberately left alone and out of the commit.

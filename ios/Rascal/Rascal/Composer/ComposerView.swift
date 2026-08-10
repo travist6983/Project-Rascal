@@ -20,6 +20,19 @@ struct ComposerView: View {
     let request: ComposerRequest
     let api: APIClient
 
+    /// Written by hand for one property. `seal` has to start from the assignment — sealed, at
+    /// the prompt's own age — and a `@State` default cannot see the request. Setting it in
+    /// `.task` instead would render the toggle off for a frame on the one screen where "on" is
+    /// the entire point.
+    init(request: ComposerRequest, api: APIClient) {
+        self.request = request
+        self.api = api
+        _seal = State(initialValue: .initial(for: request.assignment, isEditing: request.isEditing))
+    }
+
+    /// Whether this entry seals, and at what age. Only ever shown for a `letter` prompt.
+    @State private var seal: SealSetting
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -31,6 +44,14 @@ struct ComposerView: View {
     @State private var didIt = false
     @State private var saving = false
     @State private var notice: String?
+    /// Set once this sheet has committed an entry to the local store.
+    ///
+    /// **Save must not be able to write a second one.** The sheet deliberately stays open after a
+    /// save that has something to report — an expired assignment, a seal the archive kept — and
+    /// every tap of Save builds a *new* `Entry` with a new id, so the idempotency key that makes a
+    /// network retry safe would not catch it. Two rows in a permanent archive from one act of
+    /// writing is the kind of thing nobody notices until it is old.
+    @State private var committed = false
     @FocusState private var writing: Bool
 
     // Capture
@@ -76,6 +97,12 @@ struct ComposerView: View {
                         writeIt
                     }
 
+                    // After the writing, before the save. The letter is the thing; when it
+                    // opens is what you decide once it exists.
+                    if SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing) {
+                        SealControl(seal: $seal)
+                    }
+
                     if let notice {
                         Text(notice)
                             .typeRole(.metadata)
@@ -92,8 +119,8 @@ struct ComposerView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(saving ? "Saving" : "Save") { Task { await save() } }
-                        .foregroundStyle(canSave ? Color.terracotta : Color.inkMuted)
-                        .disabled(!canSave || saving)
+                        .foregroundStyle(canSave && !committed ? Color.terracotta : Color.inkMuted)
+                        .disabled(!canSave || saving || committed)
                 }
             }
         }
@@ -516,7 +543,9 @@ struct ComposerView: View {
             childId: request.childId,
             assignmentId: request.assignment?.id,
             occurredAt: occurredAt,
-            body: trimmed.isEmpty ? nil : trimmed
+            body: trimmed.isEmpty ? nil : trimmed,
+            // Nil for everything that is not a sealed letter, which is almost everything.
+            unlockAtAge: seal.unlockAtAge
         )
         // Cache the prompt at the moment it is answered.
         //
@@ -533,6 +562,9 @@ struct ComposerView: View {
             entry.promptKind = assignment.kind
         }
         context.insert(entry)
+        // From here the entry exists locally whatever the network does, so this sheet has had
+        // its one save. `EntrySync` owns every retry from now on.
+        committed = true
 
         // Media rows are created alongside the entry, before any request. The files are
         // already staged, so a force quit right here loses nothing: the sweep finds both.
@@ -560,6 +592,7 @@ struct ComposerView: View {
             let response = try await api.createEntry(entry)
             entry.applyServerResponse(response)
             try? context.save()
+            if reportSealMismatch(entry) { return }
             dismiss()
         } catch let error as APIError {
             // The one real user-facing failure: the entry saves, it just no longer completes
@@ -594,6 +627,25 @@ struct ComposerView: View {
     /// An edit follows the same discipline as a creation: local first, then sync. The change
     /// is on screen before the request goes out, and a failure leaves it queued rather than
     /// lost.
+    /// Say so if the archive kept a seal the parent turned off.
+    ///
+    /// `APIClient.createEntry` already tries to undo it — and does so for `EntrySync`'s offline
+    /// re-send too, which is why that lives there and not here. This is only the part that needs
+    /// a screen: if the correction did not land, `applyServerResponse` has copied the archive's
+    /// value back onto the row, so the phone and the archive agree, and the only thing missing is
+    /// telling the person who asked.
+    ///
+    /// Returns true when it kept the sheet open to say something.
+    private func reportSealMismatch(_ entry: Entry) -> Bool {
+        guard SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing),
+              !seal.isSealed,
+              let sealedAt = entry.unlockAtAge
+        else { return false }
+
+        notice = "Saved, and it sealed at \(sealedAt). Leaving it open didn't reach the archive."
+        return true
+    }
+
     private func saveEdit(_ entryId: UUID) async {
         guard let entry = try? context.fetch(
             FetchDescriptor<Entry>(predicate: #Predicate { $0.id == entryId })
