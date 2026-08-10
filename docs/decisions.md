@@ -80,7 +80,10 @@ Last updated: **Aug 9, 2026**
 | Color carries meaning: orange = missions/photos, blue = questions/voice | Not decoration. |
 | Timeline is a scannable date-grouped card list with thumbnails | Not a full-bleed story feed. Every reference app does it this way. |
 | Completion = circular terracotta checkmark + spring + haptic | Satisfying, quiet, repeatable. No stamp, no confetti. |
-| Light mode only for now | Dark mode is P2 at the earliest. |
+| Light mode only for now — **except the widget, which has no choice** | Dark mode is P2 at the earliest for the app. A widget follows the system appearance and cannot opt out: there is no `preferredColorScheme` for a widget, and a cream card on a dark Home Screen is a bright rectangle in someone's evening. Scoped to the widget target, and it is an exception rather than a reversal — see the Aug 10 changelog entry. |
+| The widget reads a file the app writes; it never calls the API | A token refresh running inside an extension, concurrently with the app, can invalidate the app's own session, and the failure is intermittent and expensive to trace. Staleness is the price, and it is paid honestly: a snapshot whose day is not today renders neutral. |
+| No count of anything on the widget — no backlog, no streak, no ring, no percentage | "No streaks, no guilt copy" already applies everywhere; the widget is where it matters most, because a number of outstanding items is parked in the one place a parent cannot look away from. `waiting` is never read when building the snapshot. |
+| Lock Screen accessory widgets distinguish mission from question by SF Symbol and type hierarchy, never colour | Accessory families render as a monochrome mask, so terracotta-means-mission and periwinkle-means-question say nothing there. The symbol is the one the `PromptCard` already uses, so the Lock Screen inherits the app's vocabulary rather than inventing a second one. |
 | Floating pill tab bar with center + FAB | Straight from the references. |
 | Destructive and irreversible actions are isolated in a separate bottom card, never adjacent to ordinary edit rows | A divider between two rows says "these belong together"; a gap says "these do not". Recomputing every stored age in an archive is not a neighbour of changing a name, and a mis-tap between the two is not recoverable by tapping again. |
 
@@ -113,6 +116,51 @@ Last updated: **Aug 9, 2026**
 ---
 
 ## Changelog
+
+**Aug 10, 2026** — The Home Screen and Lock Screen widget. Four decisions, one of which is an
+explicit exception to a settled rule.
+
+**The widget reads a snapshot; it never calls the API.** The app writes a small versioned file
+into a shared App Group container whenever the Today board changes, and the extension renders
+whatever is there. This is not a shortcut taken to save work — an extension refreshing a rotating
+token concurrently with the app can invalidate the app's own session, and the resulting logout
+happens rarely and is very hard to attribute. The extension is given no networking, no keychain
+access group, and nothing to refresh.
+
+The cost is staleness, and staleness is handled rather than tolerated. A snapshot whose day is
+not today — computed in the child's `family_timezone`, never the device's and never UTC — renders
+a neutral state. The state a stale snapshot resolves to carries only the child's first name, so
+yesterday's mission is not merely undrawn, it is unreachable. Showing nothing is correct; showing
+the wrong day is a defect, and this makes the defect structurally impossible rather than a rule a
+view has to remember.
+
+This is the one place a client asks what day it is, and it is worth being precise about why that
+is not a violation of "the server owns the schedule": the computation can only *withhold*. It
+cannot assign a prompt, extend one, or invent a day. Getting it wrong shows a parent less than
+they should see. Not doing it at all shows them the wrong day.
+
+**Dark mode for the widget, and only the widget.** "Light mode only for now" is settled and stays
+settled for the app; a widget has no way to honour it. `WidgetPalette` adds a warm dark rendering
+that keeps both rules the design system actually cares about: never pure black and never pure
+white, so the ground is a charcoal drawn *down* from the cream canvas rather than up from `#000`
+and the ink is a warm off-white; and colour still carries meaning, so terracotta and periwinkle
+are lifted in luminance rather than replaced. Inverting to black-and-white was the obvious move
+and it reads as a different product. **This does not open dark mode for the app.**
+
+**The Lock Screen has no colour at all**, which is a harder version of the same problem: accessory
+families render as a monochrome mask, so the terracotta/periwinkle distinction that carries
+meaning everywhere else conveys nothing. It is replaced by the SF Symbol each prompt kind already
+carries on its `PromptCard` — a walking figure, a camera, a speech bubble — plus weight and size
+hierarchy. The Lock Screen therefore inherits the app's existing vocabulary instead of inventing a
+second one, and `accessoryCircular`, which has room for exactly one glyph, is still able to say
+which *kind* of thing is waiting.
+
+**No counts on the widget, as a product rule.** No backlog number, no streak, no ring, no
+percentage, in any family. The tone rules already forbid these everywhere; the widget is where
+they matter most, because a Home Screen is the one surface a parent cannot choose not to open.
+`waiting` — the backlog of previous days — is deliberately never consulted when the snapshot is
+built, so there is nothing to count even by accident. `accessoryInline` says "Mission waiting",
+never "2 waiting".
 
 **Aug 10, 2026** — Moments v2, built against the design export at
 `docs/mobile-app-design-moments/`. **The screen was designed for a state it will almost never be

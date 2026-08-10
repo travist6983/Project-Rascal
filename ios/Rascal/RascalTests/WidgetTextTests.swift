@@ -206,16 +206,47 @@ struct WidgetTextTests {
 
     // MARK: The inline family
 
-    @Test("the inline reading is one short clause, cut on a word")
-    func inlineIsAClause() {
-        let inline = WidgetNarration.inline(for: .current(snapshot(
+    /// **The inline family says what is waiting, never what it asks.**
+    ///
+    /// It began as the prompt itself, shortened. The XXL screenshots showed iOS truncating that
+    /// to "What did y…" — the inline slot is a single system-laid-out run beside the clock, so
+    /// nothing can measure it and no fallback can fire. A half-asked question is unusable *and*
+    /// puts a fragment of the archive in front of whoever is holding the phone. The rectangular
+    /// family is where the Lock Screen carries the words.
+    @Test("the inline reading is a status, and never a piece of a prompt")
+    func inlineIsAStatus() {
+        let pending = WidgetNarration.inline(for: .current(snapshot(
             mission: item(longest), question: nil
         )))
+        #expect(pending == "Mission waiting")
 
-        let kept = String(inline.dropLast())
-        #expect(inline.count <= 44)
-        #expect(inline.hasSuffix("…"))
-        #expect(longest.hasPrefix(kept), "the inline clause is not the prompt's own opening")
+        let missionDone = WidgetNarration.inline(for: .current(snapshot(
+            mission: item("Photograph his hands.", done: true),
+            question: item(longest, kind: "question")
+        )))
+        #expect(missionDone == "Question waiting")
+
+        // Nothing that could be mistaken for the prompt's own words.
+        for reading in [pending, missionDone] {
+            #expect(!longest.hasPrefix(String(reading.prefix(6))))
+            #expect(!reading.hasSuffix("…"))
+        }
+    }
+
+    @Test("the inline reading is short enough that the system does not cut it")
+    func inlineIsShort() {
+        let readings = [
+            WidgetNarration.inline(for: .absent),
+            WidgetNarration.inline(for: .stale(childFirstName: "Sam")),
+            WidgetNarration.inline(for: .current(snapshot(mission: nil, question: nil))),
+            WidgetNarration.inline(for: .current(snapshot(
+                mission: item("A", done: true), question: item("B", kind: "question", done: true)
+            ))),
+            WidgetNarration.inline(for: .current(snapshot(mission: item(longest), question: nil))),
+        ]
+        for reading in readings {
+            #expect(reading.count <= 16, "'\(reading)' is long enough for iOS to truncate")
+        }
     }
 
     @Test("the inline reading never counts anything")

@@ -14,14 +14,16 @@ struct WidgetSnapshotTests {
 
     // MARK: Fixtures
 
-    private static let mission = WidgetSnapshot.Item(
+    // `nonisolated` because they are read from default-argument expressions, which are evaluated
+    // outside the suite's main-actor isolation. Both are `Sendable` value types.
+    private nonisolated static let mission = WidgetSnapshot.Item(
         assignmentId: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
         body: "Photograph the thing he carries everywhere right now.",
         kind: "photo",
         isDone: false
     )
 
-    private static let question = WidgetSnapshot.Item(
+    private nonisolated static let question = WidgetSnapshot.Item(
         assignmentId: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
         body: "What did he say today that you want to remember?",
         kind: "question",

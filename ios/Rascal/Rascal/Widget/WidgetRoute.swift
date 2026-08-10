@@ -16,7 +16,11 @@ nonisolated enum WidgetRoute: Equatable {
     case today
 }
 
-nonisolated extension TodayBoard {
+/// Deliberately **not** `nonisolated`, unlike everything else in this folder. `TodayBoard` and its
+/// items are main-actor isolated like the rest of the app's view layer, and the only caller is
+/// `TodayScreen`. The shared files are nonisolated because the extension compiles them; this one
+/// is app-only and has no reason to be.
+extension TodayBoard {
 
     /// Resolve a widget's assignment id against the board actually on screen.
     ///

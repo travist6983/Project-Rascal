@@ -54,9 +54,15 @@ struct RectangularTodayView: View {
                 .font(.system(size: 13, weight: .medium))
         } else if let next = snapshot.nextUp {
             label(symbol: next.item.symbolName, text: next.label)
-            // Two lines of the prompt itself. This is the only accessory family that can carry
-            // the words, and it is the reason the Lock Screen is worth supporting at all.
-            WordSafePrompt(text: next.item.body, role: .metadata, lineLimit: 2)
+            // The prompt's own words. This is the only accessory family that can carry them, and
+            // it is the reason the Lock Screen is worth supporting at all. Two candidates rather
+            // than one: the rectangular slot is about three lines tall, and at accessibility type
+            // it is closer to one.
+            ViewThatFits(in: .vertical) {
+                PromptLine(text: next.item.body, budget: 52)
+                PromptLine(text: next.item.body, budget: 34)
+                PromptLine(text: next.item.body, budget: 20)
+            }
         } else {
             label(symbol: "book.closed", text: "Today")
             Text("Nothing waiting")

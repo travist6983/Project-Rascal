@@ -68,23 +68,24 @@ nonisolated enum WidgetNarration {
         return "\(label): \(sentenceEnded(item.body))"
     }
 
-    /// One line, for `accessoryInline` — which is a single run of text beside the clock and has
-    /// room for a clause, not a sentence.
+    /// One line, for `accessoryInline`.
+    ///
+    /// **A status, not a prompt, and the XXL screenshots are why.** The inline slot is a single
+    /// system-laid-out run of text beside the clock; nothing can measure it, `ViewThatFits` has no
+    /// second dimension to work in, and at accessibility type iOS truncated the prompt to "What
+    /// did y…". A half-asked question on a Lock Screen is worse than no question — it is unusable
+    /// *and* it puts a fragment of the archive's words in front of whoever is holding the phone.
+    ///
+    /// So this family says which kind of thing is waiting and stops. The rectangular family is
+    /// where the Lock Screen carries the actual words, and it has the room to do it properly.
     static func inline(for state: WidgetSnapshotState) -> String {
         switch state {
         case .absent, .stale:
             return "Today's prompts"
         case .current(let snapshot):
-            let mission = snapshot.mission
-            let question = snapshot.question
-            let pending = [mission, question].compactMap { $0 }.filter { !$0.isDone }
-
-            guard let next = pending.first else {
-                return [mission, question].compactMap { $0 }.isEmpty
-                    ? "Nothing waiting"
-                    : "Today: both done"
-            }
-            return PromptText.wordSafe(next.body, within: 44)
+            if snapshot.isEmpty { return "Nothing waiting" }
+            guard let next = snapshot.nextUp else { return "Both done" }
+            return "\(next.label) waiting"
         }
     }
 

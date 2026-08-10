@@ -62,6 +62,24 @@ struct WidgetSnapshotWriteTests {
         return WidgetSnapshotStore(directory: directory)
     }
 
+    /// Counts reload requests. A reference type with a lock rather than a captured `var`, because
+    /// the publisher's reload closure is `@Sendable` and mutating a local from inside one is an
+    /// error under the Swift 6 language mode.
+    private final class ReloadSpy: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+
+        func record() {
+            lock.lock(); defer { lock.unlock() }
+            value += 1
+        }
+
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return value
+        }
+    }
+
     // MARK: Selection
 
     @Test("today's mission and question become the two lines")
@@ -145,8 +163,8 @@ struct WidgetSnapshotWriteTests {
         let mission = assignment(slot: "mission")
         let store = temporaryStore()
 
-        var reloads = 0
-        let publisher = WidgetSnapshotPublisher(store: store, reload: { reloads += 1 })
+        let spy = ReloadSpy()
+        let publisher = WidgetSnapshotPublisher(store: store, reload: { spy.record() })
 
         // Before: the server says pending and nothing local disagrees.
         let before = WidgetSnapshotBuilder.snapshot(
@@ -156,7 +174,7 @@ struct WidgetSnapshotWriteTests {
         publisher.publish(before)
 
         #expect(before.mission?.isDone == false)
-        #expect(reloads == 1)
+        #expect(spy.count == 1)
 
         // After: an entry completes it, and has not synced.
         let entry = Entry(childId: UUID(), assignmentId: mission.id, occurredAt: Date())
@@ -168,7 +186,7 @@ struct WidgetSnapshotWriteTests {
         publisher.publish(after)
 
         #expect(after.mission?.isDone == true, "the widget must agree with the screen, not the network")
-        #expect(reloads == 2)
+        #expect(spy.count == 2)
 
         // And the file on disk says so too.
         let written = WidgetSnapshotState.resolve(
@@ -189,18 +207,18 @@ struct WidgetSnapshotWriteTests {
 
     @Test("a reload is requested even when the write cannot happen")
     func reloadHappensWithoutAContainer() {
-        var reloads = 0
+        let spy = ReloadSpy()
         // No container: what a build with entitlements stripped looks like.
         let publisher = WidgetSnapshotPublisher(
             store: WidgetSnapshotStore(directory: nil),
-            reload: { reloads += 1 }
+            reload: { spy.record() }
         )
 
         publisher.publish(WidgetSnapshotBuilder.snapshot(from: board(), familyTimezone: "UTC"))
 
         // Asking for a redraw lets the widget re-run its own staleness check and fall back to the
         // neutral state. Staying quiet would leave the previous day on the glass.
-        #expect(reloads == 1)
+        #expect(spy.count == 1)
     }
 
     @Test("publishing nothing clears the file")
