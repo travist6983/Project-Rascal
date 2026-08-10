@@ -438,10 +438,36 @@ Two things that only surfaced once a real machine ran this, both fixed:
   because Debian's `pg_dump` is a wrapper that otherwise dispatches to the newest installed
   version. A backup taken by a 17 client would not restore into Neon.
 
-**What I need:** for Fly, sections 1 and 4 of `docs/DEPLOY.md` — create the app, generate a
-deploy token, add `FLY_API_TOKEN`, and set the `FLY_DEPLOY_ENABLED` repository variable to
-`true`. Until that variable is set the Deploy workflow skips rather than failing, so a push
-to `main` is grey instead of red.
+**What I need — human actions, and only these.** Every one requires a Fly account this agent
+has no token for and must not obtain. `docs/runbook-deploy.md` is the ordered version with
+exact commands; this is the short list of what is genuinely yours to do:
+
+1. `fly apps create rascal-api` (runbook §1).
+2. Neon: copy out **both** the pooled and the direct connection strings (§2).
+3. `fly storage create`, then assign the new access key an `Editor` role on the bucket — a
+   fresh Tigris key has no permissions at all until you do (§3).
+4. `fly secrets set` for the seven secrets in §4. Not `S3_REGION` or `S3_ENDPOINT_URL`;
+   those are `fly.toml` `[env]` values now, and setting them twice is how precedence
+   becomes a thing you have to reason about.
+5. `fly tokens create deploy --app rascal-api`, paste as the `FLY_API_TOKEN` repository
+   secret, and set the `FLY_DEPLOY_ENABLED` repository **variable** to `true`. Until that
+   variable is set the Deploy workflow skips rather than failing, so a push to `main` is
+   grey instead of red.
+6. `fly deploy`, then seed the library, then create the scheduled machine (§5).
+7. Run `scripts/verify_deployment.py` (§7).
+
+**What is no longer a human action.** Migrations run themselves, as Fly's `release_command`,
+before new machines take traffic. Verification is a program rather than a checklist —
+`api/scripts/verify_deployment.py`, six checks, exit code 0 or a named failure. And the
+thing this section used to imply was a deployment prerequisite is not one any more: **a
+missed scheduler run no longer costs a day.** `GET /today` creates the day's assignments
+itself, so step 6's `fly machine run` can be skipped or fumbled and the product still works.
+Skipping it costs expiry, not assignments.
+
+**What remains true and unfixable from here:** none of the seven steps above has ever been
+executed, by anyone. Everything in the runbook's Fly sections is written from documentation.
+`docs/runbook-deploy.md` §9 is the honest inventory of what has and has not run against real
+infrastructure — read it before trusting the rest of that file.
 
 ## 4. `ANTHROPIC_API_KEY` — resolved. Four batches generated, awaiting your review
 

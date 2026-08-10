@@ -1,5 +1,11 @@
 # RASCAL — deploying the API
 
+> **The ordered procedure is `docs/runbook-deploy.md`.** Follow that one to get from zero to
+> a verified deployment. This file is the reference behind it: why Neon is split into two
+> URLs, how backups and rollback work, what to do when a specific thing is broken. Where the
+> two disagree, the runbook wins — §5 of this file has already been wrong once, and it was
+> wrong in the direction of a deployment that boots green and cannot accept an upload.
+
 **You never need a laptop to deploy.** GitHub Actions builds and ships; you tap a button.
 
 There is a one-time setup — four accounts to click through and four secrets to paste — and
@@ -143,11 +149,18 @@ section per app where you can add these from a phone:
 | `DATABASE_URL` | Neon **pooled**, `postgresql+psycopg://…?sslmode=require` |
 | `DIRECT_DATABASE_URL` | Neon **direct**, `postgresql+psycopg://…?sslmode=require` |
 | `JWT_SECRET` | 32+ random bytes — see below |
-| `S3_BUCKET` | `rascal-media-prod` |
-| `S3_REGION` | `us-east-2` |
+| `S3_BUCKET` | The bucket name from section 3 |
 | `AWS_ACCESS_KEY_ID` | From section 3 |
 | `AWS_SECRET_ACCESS_KEY` | From section 3 |
 | `APPLE_BUNDLE_ID` | Your bundle id, e.g. `com.yourname.rascal` |
+
+**`S3_REGION` and `S3_ENDPOINT_URL` are deliberately not in that table.** They live in
+`api/fly.toml` under `[env]`, as `auto` and `https://fly.storage.tigris.dev`. This table
+used to say `S3_REGION = us-east-2`, which is the exact value `docs/tigris-setup.md` calls
+the single most likely way to break Tigris, and it said nothing about the endpoint at all —
+so following it produced an app that boots green, passes every health check, and 403s on
+every upload. Do not set either as a secret: when a name is in both `[env]` and the secret
+store, which one the machine sees depends on flyctl's version.
 
 `ENVIRONMENT=prod` is already in `api/fly.toml` under `[env]`. It is not sensitive, and
 having it visible there is what makes "dev-login cannot exist in production" auditable at a
@@ -164,10 +177,9 @@ fly secrets set --app rascal-api \
   DATABASE_URL="postgresql+psycopg://…-pooler….neon.tech/rascal?sslmode=require" \
   DIRECT_DATABASE_URL="postgresql+psycopg://….neon.tech/rascal?sslmode=require" \
   JWT_SECRET="$(openssl rand -hex 32)" \
-  S3_BUCKET="rascal-media-prod" \
-  S3_REGION="us-east-2" \
-  AWS_ACCESS_KEY_ID="AKIA…" \
-  AWS_SECRET_ACCESS_KEY="…" \
+  S3_BUCKET="<the bucket name from section 3>" \
+  AWS_ACCESS_KEY_ID="tid_…" \
+  AWS_SECRET_ACCESS_KEY="tsec_…" \
   APPLE_BUNDLE_ID="com.yourname.rascal"
 ```
 

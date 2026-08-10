@@ -5,7 +5,7 @@ Everything in this file was checked by running something — the test suites, th
 
 * * *
 ## The headline
-**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26. Moments v2 merged as #30. **One pull request is outstanding — the widget, #32.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31. **One pull request is outstanding — the widget, #32.** Every other branch that has ever been opened is merged into `main`.
 
 **The widget is the first extension target this project has had**, and it is deliberately the dumbest thing that could work: the app writes a few hundred bytes into a shared App Group container whenever the Today board changes, and the extension renders that file. No networking, no keychain, nothing to refresh. The cost is staleness, which is why the largest single piece of the phase is refusing to draw a snapshot whose day is not today in the child's `family_timezone`. See `docs/reports/phase-11-widget.md`.
 
@@ -20,17 +20,19 @@ Everything in this file was checked by running something — the test suites, th
 
 What is left is then the two things only you can unblock — Apple enrollment and Fly — and the exit test, which is you using it for fourteen days.
 
+**Deploying is now one command plus a documented set of secrets**, and the archive no longer depends on the scheduler having woken up. `docs/runbook-deploy.md` is the ordered zero-to-verified procedure and `api/scripts/verify_deployment.py` is a program that proves a deployment works rather than a checklist that says it should. Nothing has been deployed — the agent that wrote this has no Fly token and must not have one — so every Fly command in that runbook is still unexecuted, and its §9 says so precisely.
+
 |     |     |
 | --- | --- |
-| Merged pull requests | **30** — Moments v2 (#30) merged since the last snapshot. The widget is **open as #32** at this snapshot |
-| API tests | **302 passing**, 23 files — unchanged this phase, no `api/` code was touched |
+| Merged pull requests | **31** — Moments v2 (#30) and deploy readiness (#31) both merged since the last snapshot. The widget is **open as #32** at this snapshot |
+| API tests | **315 passing**, 24 files — up 13 with deploy readiness; `test_today_self_healing.py` is new and no existing test was modified |
 | iOS tests | **490 passing**, 50 suites, zero warnings (verified from a deleted `DerivedData`) |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-Every figure above was re-measured for this snapshot. **The pull-request and iOS-test counts moved** — the previous snapshot was written before Moments v2 merged and before the widget existed; the API figures did not, because no `api/` code has been touched since PR #20. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
+Every figure above was re-measured for this snapshot. **The pull-request, iOS-test and API-test counts have all moved**, and they moved in two different lanes: the API figures when deploy readiness added `test_today_self_healing.py`, and the iOS figures when the widget added four suites. The iOS suite was run cold, from a deleted `DerivedData`, and the sole warning in the log is `Metadata extraction skipped. No AppIntents.framework dependency found.`, which is a build note and not a warning in any of our code.
 
 An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. All three were wrong; they were corrected last time and have held.
 
@@ -171,16 +173,19 @@ These gate the P0 exit test and nothing else can move them.
 
 * * *
 ## Recommended next phase
-> **This section has gone stale twice**, and both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again below from what is actually outstanding, and the widget entry has been removed because the widget now exists.
+> **This section has gone stale twice**, both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again from what is actually outstanding — re-checked against `main` after deploy readiness landed, and again after the widget did. **Deploying is still first, and the widget entry is gone from the build list because the widget now exists.**
 >
 > If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
 
-### Verify what is built before building more
-**Nothing here is a coding task, and that is the point.** Three features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, and transcription has never produced a single word. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
+### Deploy, because everything else is waiting behind it
+Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and four of the five device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
+
+### Then verify what is built before building more
+**Nothing here is a coding task, and that is the point.** Four features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, and the widget has never been rendered by WidgetKit. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
 **The list has grown by one, and the new one is now the top of it.** In the order they cost you least to discover something in:
 
-1. `docs/device-verification-widget.md` — new, and it has displaced transcription at the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest of the five to run.
+1. `docs/device-verification-widget.md` — new, and it has displaced transcription at the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest of the six to run.
 2. `docs/device-verification-transcription.md` — the one with the most unknown in it.
 3. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
 4. `docs/device-verification-settings.md` from PR #21.
@@ -206,8 +211,8 @@ These gate the P0 exit test and nothing else can move them.
 * * *
 ## Facts, if you want to check any of this
 ```bash
-make test                                    # 302 API tests
-ls api/tests/test_*.py | wc -l               # 23 files
+make test                                    # 315 API tests
+ls api/tests/test_*.py | wc -l               # 24 files
 
 # Delete DerivedData first or the warning count is a lie: an incremental build does not
 # recompile an unchanged file, and a file that is not recompiled emits no warning. This is
