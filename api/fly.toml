@@ -93,13 +93,31 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 #
 # The exact command is in docs/runbook-deploy.md, and it is this:
 #
-#   fly machine run . \
+#   fly machine run registry.fly.io/rascal-api:deployment-<id> \
 #     --app rascal-api \
 #     --schedule hourly \
 #     --region ord \
 #     --vm-size shared-cpu-1x \
 #     --vm-memory 512 \
-#     --command "python -m rascal.jobs.scheduler"
+#     --restart no \
+#     --env ENVIRONMENT=prod \
+#     --env S3_REGION=auto \
+#     --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+#     -- python -m rascal.jobs.scheduler
+#
+# Three things in that command are not decoration, and the version without them was run on
+# Aug 10, 2026 and produced a machine that did the wrong thing quietly:
+#
+#   * **`fly machine run` does not read this file.** Nothing in `[env]` above reaches a
+#     machine created this way — only `fly deploy` applies it — so the three `--env` flags
+#     restate it by hand. Without them the job dies on `s3_region Field required`, which is
+#     a startup crash rather than a wrong answer, so at least it is loud.
+#   * **The command goes after `--`, not in `--command`.** `--command` is for `--shell` and
+#     is otherwise ignored *silently*: the machine falls back to this image's default CMD
+#     and runs a second copy of uvicorn, hourly, forever. The `--` matters too — `-m` is
+#     flyctl's shorthand for `--metadata` and it swallows the module name.
+#   * **`--restart no`.** The job runs to completion and exits 0; the default `on-failure`
+#     policy turns a bad config into three reboots instead of one clean failure.
 #
 # Hourly, not daily. A single daily cron fires at one UTC hour, which is 5am in exactly one
 # timezone and drifts an hour against DST twice a year. Firing hourly and letting the job

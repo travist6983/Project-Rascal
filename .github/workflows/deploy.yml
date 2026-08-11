@@ -77,12 +77,19 @@ jobs:
           version=$(echo "$releases" | jq -r '.[0].Version // "unknown"')
           echo "latest release: v$version, status=$status"
 
-          if [ "$status" != "succeeded" ]; then
-            echo "::error::Release v$version finished with status '$status', not 'succeeded'."
-            echo "::error::That usually means 'alembic upgrade head' failed. Logs follow."
-            flyctl logs --app "$FLY_APP" --no-tail | tail -80 || true
-            exit 1
-          fi
+          # flyctl calls a healthy release "complete"; it reported "succeeded" when this was
+          # written. Matching one spelling failed the first real deploy — v1 was `complete`,
+          # the app was serving, the migration had run, and this step still went red. Accept
+          # both rather than tracking whichever word flyctl prefers this month.
+          case "$status" in
+            succeeded|complete) ;;
+            *)
+              echo "::error::Release v$version finished with status '$status'."
+              echo "::error::That usually means 'alembic upgrade head' failed. Logs follow."
+              flyctl logs --app "$FLY_APP" --no-tail | tail -80 || true
+              exit 1
+              ;;
+          esac
 
       # A green workflow has to mean the app is actually serving. /health touches the
       # database, so ok/ok proves the migration landed and the pool is alive.

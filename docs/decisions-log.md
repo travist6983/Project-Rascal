@@ -1147,3 +1147,49 @@ those is acceptable.
   staged, inbox copy held until `existsOnServer`. Not committed: it can only exist while the
   extension's UI is compiled into the app, and leaving it there would ship the share sheet inside the
   app. Removed the way the screenshot harness was.
+
+## Aug 10, 2026 — the first real deployment
+
+The API is live at `https://rascal-api.fly.dev`. `verify_deployment.py` passes 6/6, Smoke is
+green, and an hourly scheduler machine sits beside two app machines in `ord`. What follows is
+only what the run decided, or got wrong — the procedure itself is `docs/runbook-deploy.md`.
+
+- **Actions was blocked by a $0 budget, not a failed payment.** The annotation names both, and
+  the payment clause reads first. Five product budgets sat at $0 with "stop usage" on; raising
+  Actions to $10 cleared it. Recorded in `docs/blocked.md` §0 because it has now happened twice
+  and been misread as a card problem twice.
+- **The existing Neon database was reused rather than a fresh one created.** It was already at
+  `0004_full_text_search` with 113 prompts from the *Migrate Neon* workflow, so the release
+  command's `alembic upgrade head` was a no-op on the first deploy — which is the right shape:
+  deploy day should not be the first time the real database sees the schema. The database is
+  named `neondb`, not `rascal`; the runbook's `rascal` was always an example.
+- **Both Neon URLs were verified before being set, not after.** Sync engine on the direct
+  endpoint (Alembic's path) and async engine on the pooled one (the app's path), each executing
+  a real query. The two-URL split has exactly one failure mode and it is silent until a
+  migration; paying thirty seconds to rule it out beat reading a mid-migration lock error.
+- **`channel_binding=require` was left in both URLs** rather than trimmed to match the
+  documented form. psycopg 3 passes it through and both engines connected with it present.
+  Editing a working connection string to match a document is the wrong direction.
+- **The Tigris credential was round-tripped before it became a Fly secret.** A fresh key has no
+  permissions until `access-keys assign`, and the resulting failure reads as bad credentials
+  rather than a missing grant — so a real PUT/GET/DELETE plus a presign host check ran first.
+- **`deploy.yml` failed a healthy deploy over a status string.** It required `succeeded`;
+  flyctl 0.4.81 says `complete`. The app was serving and migrated while the workflow went red.
+  Now accepts both, because the alternative is tracking whichever word flyctl prefers, and a
+  red X over a working deploy is the failure that teaches you to ignore red Xs.
+- **The runbook's `fly machine run` built the wrong machine, silently.** Two causes, both worth
+  keeping: `fly machine run` does not read `fly.toml`, so `[env]` never reached it; and
+  `--command` is for `--shell` and is otherwise dropped without a warning, so the machine ran
+  the image's default CMD — a second uvicorn, hourly. Fixed in all three places the command was
+  copy-pasted. `fly machine status --display-config` is the check: `"init": {}` means dropped.
+- **The scheduler machine pins the deployed image rather than rebuilding from `.`.** Same
+  result, no second build, and the image it runs is provably the one serving traffic. It still
+  does not follow later deploys — that was already true and is still the reason not to let the
+  archive depend on it.
+- **`--restart no` on the scheduled machine.** It runs to completion and exits 0. The default
+  `on-failure` turned the misconfigured first attempt into three reboots instead of one clean
+  failure, which is noise in exactly the logs you are reading to find the problem.
+- **Two app machines were left running, not scaled to one.** `fly deploy` creates an HA pair by
+  default and `min_machines_running = 1` is a floor rather than a count. Roughly $6/month
+  instead of $3. Flagged rather than silently halved: the redundancy is real, and the call is
+  the account holder's.
