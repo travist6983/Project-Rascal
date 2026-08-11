@@ -8,11 +8,23 @@ Run as its own pass after the suite was green. Every file was re-read top to bot
 **Aug 11, 2026 — the surface is now built, and the earlier headline is withdrawn.** The engine
 findings below stand unchanged. What follows them is the pass over the UI.
 
-**662 tests / 79 suites**, from a baseline of 639 / 74. **Zero warnings**, measured from a deleted
-`DerivedData` — a warm build reports zero on code that has plenty, which is how the engine pass
-recorded a clean baseline that was not one. Fourteen warnings remain in
-`RascalTests/PushPermissionTests.swift`, which this phase does not touch; they are Phase 14's and
-are named here rather than absorbed into a "0 warnings" claim.
+**678 tests / 81 suites** after merging `main`, from a baseline of 639 / 74 — the surface added
+23 in five suites, and phase 17's extraction arrived with 16 in two.
+
+**Zero warnings in any file this phase touches**, measured from a deleted `DerivedData` — a warm
+build reports zero on code that has plenty, which is how the engine pass recorded a clean baseline
+that was not one. Twenty-one remain, all inherited and none of them fixed here: 14 in
+`RascalTests/PushPermissionTests.swift` (phase 14), 4 in `RascalTests/ExtractionTests.swift` and
+**3 in `Rascal/Extraction/ExtractedDetails.swift`** (phase 17 — that last set is in the *app*
+target, not a test one). Named rather than absorbed into a "0 warnings" claim, and left to their
+own lanes rather than fixed inside a backfill change.
+
+**One conflict on the merge, and it was the one the phase brief warned about.** The composer
+sheet's `onDismiss` already had two callers; phase 17 added `extractLatest()` and this phase added
+a backfill rescan. Both are additive and both are kept, with the rescan first — it is
+non-blocking, where extraction awaits an on-device model and can take seconds. Ordered the other
+way, the **+** sheet would go on offering a month the parent has just written in for as long as
+inference ran.
 
 ---
 

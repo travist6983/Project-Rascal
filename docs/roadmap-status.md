@@ -46,7 +46,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **43** — nine merged since the last snapshot: the share sheet (#35), the deploy fixes (#36), Settings v2 (#37), push notifications (#39, #40), the prompt pool (#41), video audio tracks (#42, blocked on arrival), structured extraction (#43) and the tag-source unblock (#45). **One is open: #44, the camera-roll backfill** |
 | API tests | **413 passing**, 29 files — re-measured, not carried forward. The stale **315** this row used to claim was two revisions old and wrong even for `main`, which measures **339 in 25 files** from a clean worktree; push notifications add the other 74 |
-| iOS tests | **662 passing**, 79 suites (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 23 with the backfill surface, in five new suites. No existing test was modified. **Zero warnings in the app target and in every file phase 18 touched**; fourteen remain in `RascalTests/PushPermissionTests.swift`, which is phase 14's and is named rather than absorbed into a clean claim |
+| iOS tests | **678 passing**, 81 suites (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — the backfill surface added 23 in five suites and phase 17's extraction 16 in two, measured after merging `main`. No existing test was modified. **Zero warnings in any file phase 18 touches**; 21 remain, all inherited: 14 in `RascalTests/PushPermissionTests.swift` (phase 14), 4 in `RascalTests/ExtractionTests.swift` and **3 in `Rascal/Extraction/ExtractedDetails.swift`** (phase 17, and that last set is in the *app* target). Named rather than absorbed into a clean claim |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
@@ -289,9 +289,10 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 662 iOS tests, 79 suites
-# Warnings: zero in the app target. Fourteen in RascalTests/PushPermissionTests.swift, phase 14's,
-# unfixed and deliberately not counted as clean. Note `build` alone does NOT compile the test
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 678 iOS tests, 81 suites
+# Warnings: 21, none of them in a file phase 18 touches. 14 in PushPermissionTests.swift (phase
+# 14), 4 in ExtractionTests.swift and 3 in Extraction/ExtractedDetails.swift (phase 17 — those
+# three are in the app target). Unfixed and deliberately not counted as clean. Note `build` alone does NOT compile the test
 # target, so a build-only run reports a warning count that omits every test file.
 
 # Three targets now, and all three must carry the same App Group or the widget goes
