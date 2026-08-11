@@ -17,8 +17,8 @@ There is no ladder rung that can resurrect one.
 Soft delete via `revoked_at`, like every other user-data table, so a permanent decision is one a
 parent can undo and the change syncs as a row rather than as an absence.
 
-Revision ID: 0006_prompt_suppressions
-Revises: 0005_child_pronouns
+Revision ID: 0007_prompt_suppressions
+Revises: 0006_devices_and_notifications
 Create Date: 2026-08-10
 """
 
@@ -28,8 +28,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 
-revision = "0006_prompt_suppressions"
-down_revision = "0005_child_pronouns"
+revision = "0007_prompt_suppressions"
+down_revision = "0006_devices_and_notifications"
 branch_labels = None
 depends_on = None
 

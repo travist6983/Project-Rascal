@@ -1293,3 +1293,103 @@ a patch to the backend". The workarounds were the specification.
   green run: dropping the setness guard fails both sealing tests, and reverting `/sync` to its
   hand-written eager loads fails the sync serialization test with a lazy-load error. All 24 new
   tests passed on first run, which is exactly when they are least trustworthy.
+
+## Push notifications (server side)
+
+- **Branched off the Phase 12 branch, not `main`.** The brief said "off `main`", but
+  `ensure_day_filled` — the shared path this job is required to reuse — is not on `main`; it
+  lives only on the unmerged `claude/deploy-readiness-scheduler-5pr0uh` and has no open PR.
+  Branching off `main` would have meant writing a second copy of the selection logic, which
+  the brief forbids in stronger terms than it asks for the base branch. The PR therefore
+  carries Phase 12's commit as well as this one.
+- **One child per user, the oldest they are a `parent` of.** The rule is one notification a
+  day *per user*, and sending per child would quietly turn that into N. `viewer` guardians
+  are excluded entirely — a grandparent with read access did not sign up for a nightly
+  reminder to do somebody else's mission. Second-kid handling is roadmap open item 7.
+- **The mission slot wins the one notification**, then weekly, monthly, letter, question. A
+  nudge is for the thing you go and do; a question is answered in conversation and needs no
+  reminder to be answerable.
+- **A user with no registered device is not recorded as sent.** Nothing was attempted, so
+  nothing is claimed, and a phone that registers an hour later still gets today's — as long
+  as the window has not gone stale.
+- **A failed send still burns the day.** The `notification_sends` row is written before the
+  push, so a delivery failure is logged and dropped rather than retried on the next hourly
+  run. "Never queued into tomorrow" is in the brief; this is the same rule applied within
+  the day.
+- **`DELETE /devices/{token}` revokes both environments.** The path carries a token and no
+  environment, sign-out means this phone stops receiving on this account, and a phone that
+  has run both a development and a TestFlight build holds a row for each.
+- **A token that re-registers under a different account moves to it.** The phone reports the
+  same token either way, and the alternative is the previous account's notifications landing
+  on the new account's lock screen.
+- **No `/debug/notifications/run` route.** The scheduler has one, but this job is reachable
+  as `python -m rascal.jobs.notify --as-of`, and a new debug route is new surface for
+  something a CLI already covers.
+- **`notification_sends` has no `updated_at` and no soft delete.** It is a system ledger, not
+  user data: it never syncs and there is nothing to restore, the same reasoning that leaves
+  `refresh_tokens` and `idempotency_keys` without them. `devices` gets both, because it is a
+  thing a user owns and revokes.
+- **`platform` is `ios` only.** APNs is the only transport implemented; a browser would need
+  WebPush, a different protocol and a different credential. `text` + CHECK, so that day is an
+  `ALTER`.
+- **Added `httpx[http2]`.** APNs speaks HTTP/2 and nothing else, so the `h2` extra is what
+  makes the real client able to open a connection at all. No new top-level dependency.
+- **Froze migration `0001`'s trigger list as a literal.** It imported the live
+  `TABLES_WITH_UPDATED_AT`, so adding any later table with an `updated_at` would have made
+  `0001` attach a trigger to a table that did not exist yet, breaking `upgrade head` from
+  empty. Unrelated to push, but it blocked it.
+- **Extended `EXPECTED_TABLES` / `EXPECTED_INDEXES` / `EXPECTED_CHECKS` in both
+  `test_migrations.py` and `.github/scripts/verify_schema.py`.** Both are subset checks, so
+  leaving them alone would have passed — and left two new tables unverified on Neon, which is
+  the one place it matters. A test enforces that the two lists agree.
+- **Changed one existing assertion.** `test_me.py` pinned the `/me` response to an exact set
+  of five keys; the preference fields are required to be on `/me` by the brief, so the set
+  grew to seven. It is the only existing test touched.
+
+---
+
+## Aug 11, 2026 — Lane A: production audit of the notification feature, before the PR
+
+Asked to be certain this belonged in production rather than merely finished. Four things
+were not right. Recorded here because three of them were invisible from the diff alone.
+
+- **The migration chain had two heads.** `0005_devices_and_notifications` was cut against
+  `0004_full_text_search`, but `0005_child_pronouns` landed on `main` first from the same
+  parent. Rebasing produced a fork, and `alembic upgrade head` refuses to run with two
+  heads — the deploy's release command would have failed. Renamed to
+  `0006_devices_and_notifications` and re-pointed at `0005_child_pronouns`. Verified by
+  walking the exact path production will take: `0005_child_pronouns` → head → back down.
+- **The once-a-day guarantee did not survive a crash, though the docstring said it did.**
+  The claim row was inserted before the push but committed only at the end of the whole
+  run, so a process that died part-way through rolled back every claim it had made while
+  the notifications those claims covered had already been delivered. The next hourly run
+  would have sent them again — the one thing this feature must never do. Now committed per
+  user, immediately after the claim. Two tests cover it, and both fail on the old code.
+- **A malformed `.p8` was a permanent silent miss, and the fix above made it worse.** An
+  unreadable key raises out of `send()` as a bare `ValueError`, uncaught by the
+  `except httpx.HTTPError` around it. With the claim now committed first, that meant the
+  user was recorded as notified, heard nothing, and was skipped the next run. Validated at
+  `build_push_client` instead, which claims nobody and exits with an actionable message;
+  `send` also degrades a signing failure to a result rather than an exception, so one bad
+  key cannot cost the *remaining* users their notification too.
+- **Runbook §4b told you to build the wrong machine.** It carried the short
+  `fly machine run . --command …` form verbatim — the exact command `c5e06ad` records as
+  having silently produced an hourly second copy of uvicorn, because `--command` belongs to
+  `--shell` and is otherwise dropped without a warning, and because `fly machine run` never
+  reads `[env]`. Rewritten to match §5's corrected form, including why each flag is there.
+
+Smaller calls:
+
+- **`_deliver` now takes plain values, not ORM objects.** A commit sits between loading the
+  devices and pushing to them, and `resolved_body` reaches through a `lazy="raise"`
+  relationship. Reading everything off the ORM before the commit means the delivery path
+  cannot be broken by whatever a commit does to the identity map, rather than being correct
+  only because `expire_on_commit=False` happens to be set.
+- **Device revocation is a Core `UPDATE` by id** rather than an ORM attribute write, for the
+  same reason, and `WHERE revoked_at IS NULL` keeps the count honest under a concurrent run.
+- **`DELETE /v1/devices/{token}` keeps the token in the path.** It lands in Fly's proxy logs
+  and uvicorn's access log, which is not nothing — but an APNs token is an address, not a
+  credential, and is useless without the provider key. Changing it would be a contract change
+  for a privacy gain that does not exist. Noted rather than acted on.
+- **`main`'s roadmap figure of 315 API tests was stale** and its own note said so. Re-measured
+  from a clean worktree at `origin/main`: 339 in 25 files. This branch is 413 in 29.

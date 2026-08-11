@@ -109,21 +109,113 @@ user: both routes act on the row behind the bearer token and nothing else.
   "email": "travis@example.com",
   "display_name": "Travis",
   "is_admin": false,
+  "notify_enabled": false,
+  "notify_local_time": "19:00:00",
   "created_at": "2026-08-08T00:00:00Z"
 }
 ```
 
-- **`display_name` is the only writable field.** `email` comes from the credential provider.
-  Sending one is ignored — Apple's relay address is not the user's to retype, and letting
-  them set it would decouple the row from the credential that produced it.
-- The value is **trimmed**. Blank after trimming, or longer than **100 characters**, is
-  `400` with code `invalid_display_name` and `field: "display_name"`.
+- **Every field in the body is optional**, and an omitted field is left alone. A Settings
+  screen toggling notifications does not have to resend a name it is not changing, and
+  `{}` is a valid no-op. An explicit `null` for any writable field is a rejection, not a
+  clear — none of them is nullable.
+- **`email` is not writable.** It comes from the credential provider. Sending one is
+  ignored — Apple's relay address is not the user's to retype, and letting them set it
+  would decouple the row from the credential that produced it.
+- `display_name` is **trimmed**. Blank after trimming, or longer than **100 characters**,
+  is `400` with code `invalid_display_name` and `field: "display_name"`.
 - `users.updated_at` moves, written by the `set_updated_at()` trigger like every other row.
 
 Why it exists: Apple sends a display name exactly once, at first authorization, and the
 relay email is unreliable enough that `users.email` is nullable. `display_name` is the only
 human-readable identity in the product, so an account that cannot fix it is labelled with
 whatever Apple sent that one time, forever.
+
+#### The notification preference
+
+`notify_enabled` and `notify_local_time` are the whole of it. **There is no preferences
+endpoint** — the preference is part of the user object, so a client that already reads
+`GET /me` on launch learns it without a second call.
+
+- The preference is on the **user**, not the child. One human decides when their own phone
+  buzzes; a second guardian on the same child is a second phone with a second opinion.
+- `notify_enabled` **defaults to `false`**. The client sets it true only *after* the parent
+  grants OS notification permission, never before.
+- `notify_local_time` is a **wall-clock time**, e.g. `"19:00"`, read in the **child's
+  `family_timezone`** — never the device's timezone and never UTC. A value carrying a UTC
+  offset (`"19:00:00-04:00"`) is `422` with `field: "notify_local_time"`; it is a different
+  and unanswerable request, not a more precise one. Seconds are dropped.
+- The default is **19:00**, and it is a default rather than an answer: `docs/decisions.md`
+  open item 6 — what time actually works — is still open.
+
+---
+
+## Devices
+
+Where a notification is delivered. Both routes act on the account behind the bearer token;
+there is no path parameter naming a user, the same shape as `/me`.
+
+**`POST /v1/devices`**
+Body: `{ "token": "…", "platform": "ios", "environment": "production" }` → the device row.
+
+```json
+{
+  "id": "uuid",
+  "token": "a1b2…",
+  "platform": "ios",
+  "environment": "production",
+  "last_seen_at": "2026-08-14T23:01:00Z",
+  "created_at": "2026-08-14T23:01:00Z",
+  "updated_at": "2026-08-14T23:01:00Z",
+  "revoked_at": null
+}
+```
+
+- **Idempotent.** Call it on every launch that holds a token. The same
+  `(token, environment)` pair updates the existing row and refreshes `last_seen_at` rather
+  than creating a second one — a client that grew a row per launch would, within a month,
+  send one parent thirty copies of the same notification.
+- **`environment` is required and has no default.** `sandbox` for a development or
+  TestFlight build, `production` for the App Store. A sandbox token and a production token
+  are different tokens addressed to different APNs hosts, and sending to the wrong one
+  **fails silently** — this is the single most common way push works in development and not
+  in TestFlight. The same token string may legitimately exist as both a sandbox and a
+  production row, and they do not collide.
+- **One user, many devices.** Phone today, iPad later. Every live token receives the day's
+  one notification, collapsed by APNs so it is one row on each lock screen.
+- A token that was revoked at sign-out comes back live when it re-registers, on the row it
+  already had. A token registering under a different account **moves** to that account.
+- Registering does **not** turn notifications on. That is `notify_enabled` on `PATCH /me`.
+- `platform` is `ios` only. A browser client would need WebPush, which is a different
+  protocol and a different credential; the column is `text` + `CHECK` so adding it later is
+  an `ALTER`.
+
+**`DELETE /v1/devices/{token}`** → `204`, no body. Called on sign-out.
+
+- A **soft delete**: `revoked_at` is set and the row stays, so the same phone signing back
+  in updates it rather than growing a duplicate.
+- Revokes the token across **both environments** — sign-out means this phone stops
+  receiving on this account, and a phone that has run both a development and a TestFlight
+  build holds a row for each.
+- **Idempotent**: revoking twice is still `204`. A token this account never registered is
+  `404`, including one that belongs to somebody else — answering "it exists, but not for
+  you" would make this route a way to probe tokens.
+
+### What a notification contains
+
+Not a route, but part of the contract, because a client deep-links on it:
+
+```json
+{
+  "aps": { "alert": { "title": "Miles", "body": "<today's mission>" }, "sound": "default" },
+  "assignment_id": "uuid"
+}
+```
+
+The mission body, optionally the child's first name, and the assignment id. **Never entry
+content, never anything from a sealed entry, and never a count of waiting or missed items.**
+This renders on a lock screen other people can see. The body is not truncated server-side —
+prompts run long and the OS lays them out.
 
 ### Authorization
 
@@ -432,6 +524,28 @@ URL on a 403. `viewer` is sufficient — reading is not a write.
 `409 upload_incomplete` if the upload has not finished: a pending row has no bytes at the key,
 and a signed URL for it would 404 from storage, which reads like data loss rather than an
 unfinished upload.
+
+### Tags on an entry
+
+`POST /entries` and `PATCH /entries/{id}` both take `tags`, and each element is either a bare
+string or an object naming its source:
+
+```json
+"tags": ["beach", { "name": "seaside", "source": "device_ai" }]
+```
+
+**`source` defaults to `user`, so a bare string means exactly what it always meant** — every
+client written before this existed is unaffected.
+
+`source` is why re-running on-device extraction is safe: `device_ai` writes never overwrite or
+delete a row with `source = 'user'`, and a parent retyping a tag the model found promotes it to
+`user`. A source **absent** from the payload is left alone, so an extraction write carrying only
+`device_ai` tags does not touch the parent's own, and a plain `user` write behaves as before.
+
+Sources are applied `user` first, then `device_ai`. The protection only runs one way, so the
+reverse order would have the `user` pass delete what the model just wrote.
+
+---
 
 **`PATCH /media/{id}/derived`**
 Body: `{ transcript?, caption?, tags? }`
