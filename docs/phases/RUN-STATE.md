@@ -21,30 +21,20 @@ Read this file first if you are resuming mid-run.
 
 ## Current status
 
-**Current phase:** 18 — Camera-Roll Backfill
-**Branch:** `phase-18/backfill` (created, off `phase-17/extraction`)
-**Status:** in-progress
-**PR:** —
-**Updated:** 2026-08-10, phases 14–17 complete
+**Run complete.** All five phases attempted, five PRs open, nothing merged.
 
-### If you are resuming: read this
+**Finished:** 2026-08-10. The morning report is `docs/phases/OVERNIGHT-REPORT.md` — read that
+first; it is ordered by what gets expensive if left alone.
 
-Phases 14–17 are done and pushed. **Only phase 18 remains.** Its preflight has no external
-gate — it was checked at run start and is clear.
+| Phase | PR | Status |
+|---|---|---|
+| 14 | #40 | Complete — but **cannot merge before PR #38** |
+| 15 | #41 | Complete |
+| 16 | #42 | Blocked at preflight — draft, docs only, no code |
+| 17 | #43 | Blocked at preflight — draft, docs only, no code |
+| 18 | #44 | Incomplete — engine built and tested, UI not — draft |
 
-Commands that work here:
-- iOS suite: `xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal
-  -destination 'platform=iOS Simulator,id=3C43C533-A9A8-40D1-AFA5-B266F720F061'
-  CODE_SIGNING_ALLOWED=NO` — **619 tests / 70 suites** is the phase-18 baseline (phase 14's
-  result), 0 Swift warnings.
-- If the simulator returns `Busy — Application failed preflight checks`, it is a flake:
-  `xcrun simctl shutdown all` then `xcrun simctl erase <id>`. It cost two wasted runs.
-- API suite needs a PG16 client first on PATH or 2 restore tests fail on `transaction_timeout`:
-  `PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH" uv run pytest -q` in `api/`.
-
-Phase 18 still owes: plan, implementation, tests, certainty pass, verification doc, two
-break-the-code checks (one must be `occurred_at`), adversarial re-read, docs, PR against
-`phase-17/extraction`, and `docs/phases/OVERNIGHT-REPORT.md`.
+Branches are stacked, so **review and merge bottom-up**: 14 → 15 → 16 → 17 → 18.
 
 ---
 
