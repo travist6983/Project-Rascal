@@ -36,11 +36,31 @@ extension APIClient {
     /// `PATCH /v1/me`. No path parameter by design — it updates the row behind the bearer
     /// token and there is no way to name another user.
     ///
-    /// `display_name` is the only writable field. Email comes from the credential provider;
-    /// Apple's relay address is not the user's to retype.
+    /// **Every field is optional and an absent key means "no opinion".** The server reads
+    /// `model_fields_set`, so a Settings screen toggling notifications must not resend a display
+    /// name it is not changing, and a screen renaming the parent must not resend a notification
+    /// preference. Swift's synthesized encoder uses `encodeIfPresent` for optionals, which is
+    /// exactly that behaviour — a nil property is omitted rather than sent as `null`.
+    ///
+    /// **Sending an explicit `null` would be a rejection, not a clear.** None of the three
+    /// columns is nullable, so there is no "unset" to express and nothing here tries to.
+    ///
+    /// Email is absent entirely. It comes from the credential provider; Apple's relay address is
+    /// not the user's to retype.
     @discardableResult
-    func updateMe(displayName: String) async throws -> UserResponse {
-        try await send(.patch, "v1/me", body: MeUpdateRequest(displayName: displayName))
+    func updateMe(
+        displayName: String? = nil,
+        notifyEnabled: Bool? = nil,
+        notifyLocalTime: NotifyTime? = nil
+    ) async throws -> UserResponse {
+        try await send(
+            .patch, "v1/me",
+            body: MeUpdateRequest(
+                displayName: displayName,
+                notifyEnabled: notifyEnabled,
+                notifyLocalTime: notifyLocalTime
+            )
+        )
     }
 
     /// `POST /v1/children/{id}/recompute-ages` — parent only, no body.
@@ -69,8 +89,14 @@ private nonisolated struct ChildUpdateRequest: Encodable {
     let familyTimezone: String
 }
 
+/// All three optional, so the encoder omits whatever the caller had no opinion about. See
+/// `updateMe` for why that distinction is load-bearing.
 private nonisolated struct MeUpdateRequest: Encodable {
-    let displayName: String
+    let displayName: String?
+    let notifyEnabled: Bool?
+    /// `"HH:mm:ss"`. A wall-clock time read in the child's `family_timezone` — see `NotifyTime`,
+    /// which is why this is not a `Date`.
+    let notifyLocalTime: NotifyTime?
 }
 
 /// `ChildOut` — what `PATCH /children/{id}` returns.

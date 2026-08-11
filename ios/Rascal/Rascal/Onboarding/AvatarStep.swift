@@ -5,15 +5,16 @@ import SwiftUI
 import UIKit
 #endif
 
-/// The last step, and the only optional one.
+/// The fourth step, and the only optional one.
 ///
-/// **A skipped avatar is a complete onboarding, not a deficient one.** Both buttons finish setup;
-/// the only difference is whether a picture comes with it. Nothing here nags, and there is no
-/// second ask later.
+/// **A skipped avatar is a complete onboarding, not a deficient one.** Both buttons move on; the
+/// only difference is whether a picture comes with it. Nothing here nags, and there is no second
+/// ask later.
 ///
-/// This is also where the child is created — see `OnboardingSession.createChild`. Doing it at the
-/// end rather than after the timezone step means `needsChild` never briefly means "one child,
-/// still on the avatar screen", and a failure has everything it needs to retry in one place.
+/// The child used to be created here. It is now created at the end of `NotificationStep`, which
+/// became the last step — see `OnboardingSession.finishSetup`. The reason it moved rather than
+/// staying put is that `finish(with:)` sets `.ready` and lands the parent on Today immediately,
+/// so a step after the create would never have been shown.
 struct AvatarStep: View {
     @Bindable var session: OnboardingSession
 
@@ -63,20 +64,20 @@ struct AvatarStep: View {
             VStack(spacing: 6) {
                 if let notice = session.notice {
                     OnboardingNotice(message: notice) {
-                        Task { await session.createChild() }
+                        session.advance()
                     }
                     .padding(.bottom, 6)
                 }
 
-                Button(session.avatar == nil ? "Finish setup" : "Save and finish") {
-                    Task { await session.createChild() }
+                Button(session.avatar == nil ? "Continue" : "Save and continue") {
+                    session.advance()
                 }
                 .buttonStyle(OnboardingPrimaryButtonStyle())
                 .disabled(session.isWorking)
 
                 if session.avatar == nil {
                     OnboardingSecondaryButton(title: "Skip for now") {
-                        Task { await session.createChild() }
+                        session.advance()
                     }
                     .disabled(session.isWorking)
                 } else {

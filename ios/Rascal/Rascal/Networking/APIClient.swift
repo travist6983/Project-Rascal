@@ -401,6 +401,48 @@ nonisolated struct UserResponse: Codable, Identifiable, Equatable {
     let displayName: String?
     let isAdmin: Bool
     let createdAt: Date
+    /// The daily notification preference. On the **user**, not the child: one human decides when
+    /// their own phone buzzes.
+    let notifyEnabled: Bool
+    /// A wall-clock time resolved in the child's `family_timezone`, never the device's. See
+    /// `NotifyTime`.
+    let notifyLocalTime: NotifyTime
+
+    init(
+        id: UUID,
+        email: String?,
+        displayName: String?,
+        isAdmin: Bool,
+        createdAt: Date,
+        notifyEnabled: Bool = false,
+        notifyLocalTime: NotifyTime = .default
+    ) {
+        self.id = id
+        self.email = email
+        self.displayName = displayName
+        self.isAdmin = isAdmin
+        self.createdAt = createdAt
+        self.notifyEnabled = notifyEnabled
+        self.notifyLocalTime = notifyLocalTime
+    }
+
+    /// **Written by hand for the two new keys, and only for them.**
+    ///
+    /// This record is persisted between launches, so the store on a phone upgrading from the
+    /// previous build has no `notify_*` keys in it. Synthesized decoding would throw on that,
+    /// `UserRecordStore` would read the account as absent, and Settings would show a nameless
+    /// parent on the first cold start after the update. `decodeIfPresent` with the server's own
+    /// defaults makes an old record decode to exactly what the server would have said anyway.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        email = try c.decodeIfPresent(String.self, forKey: .email)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        isAdmin = try c.decodeIfPresent(Bool.self, forKey: .isAdmin) ?? false
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        notifyEnabled = try c.decodeIfPresent(Bool.self, forKey: .notifyEnabled) ?? false
+        notifyLocalTime = try c.decodeIfPresent(NotifyTime.self, forKey: .notifyLocalTime) ?? .default
+    }
 }
 
 /// Timestamps arrive with fractional seconds and occasionally without. Both parse.

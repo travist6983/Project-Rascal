@@ -671,3 +671,31 @@ Everything below was on this list on Aug 3 and is now closed.
 - Stale `updated_at` in media write responses — refreshed after the trigger fires.
 - A single daily scheduler cron that could only be 5am in one timezone — hourly, filtered on
   each child's local hour.
+
+---
+
+## Push notifications — signing now needs the Push capability (Phase 14, Aug 10 2026)
+
+**What changed.** `ios/Rascal/Rascal.entitlements` gained `aps-environment`. Without it
+`registerForRemoteNotifications()` fails on a real device with "no valid aps-environment
+entitlement string found for application", no token is minted, and — because registration
+failure is deliberately silent — nothing anywhere says why. Neither the simulator nor the test
+suite can catch its absence, so it had to be added on the strength of reading rather than of a
+failing test.
+
+**What it blocks.** Signing a build now requires a provisioning profile whose App ID has the
+**Push Notifications** capability enabled. That needs the Apple Developer Program enrollment that
+has not yet cleared. Unsigned simulator runs — which is how the suite runs,
+`CODE_SIGNING_ALLOWED=NO` — are unaffected, so nothing that works today stops working.
+
+**Also blocked on this.** `docs/device-verification-push.md` cannot be started at all: it needs
+enrollment *and* a deployed API, because APNs pushes come from Apple to a server rather than from
+a local machine. It is the first checklist in the project gated on both.
+
+**Not blocked.** The client code is complete and its suite is green. Nothing here is waiting on a
+decision — only on a credential.
+
+**One thing for Lane A.** `api/src/rascal/schemas/device.py` describes `sandbox` as covering "a
+development or TestFlight build". That is wrong: TestFlight is signed with a distribution profile
+and addresses the production APNs host. It is a description string with no behaviour attached, so
+it is recorded here rather than fixed across lanes.

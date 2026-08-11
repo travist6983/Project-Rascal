@@ -31,6 +31,10 @@ struct RootView: View {
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
+    /// The one `NotificationPreference` in the process, owned by `OnboardingGate`. Handed down
+    /// rather than rebuilt: a second instance would keep its own copy of whether the single
+    /// post-entry re-offer had been spent, and would offer it again.
+    let notifications: NotificationPreference
     /// A widget tap the gate caught, possibly before this view existed. Consumed and cleared
     /// below.
     @Binding var pendingLink: WidgetDeepLink?
@@ -62,6 +66,8 @@ struct RootView: View {
     /// One picture cache for the whole app, so the timeline, Moments, and a detail screen all
     /// draw from the same fetches rather than each pulling the same photo down again.
     @State private var thumbnails: ThumbnailStore?
+    /// The one post-entry notification re-offer. See `considerNotificationReoffer`.
+    @State private var showingNotificationReoffer = false
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -71,12 +77,14 @@ struct RootView: View {
         childId: UUID,
         familyTimezone: String,
         onSignOut: @escaping () async -> Void,
+        notifications: NotificationPreference,
         pendingLink: Binding<WidgetDeepLink?>
     ) {
         self.session = session
         self.childId = childId
         self.familyTimezone = familyTimezone
         self.onSignOut = onSignOut
+        self.notifications = notifications
         self._pendingLink = pendingLink
         // Written by hand for one property, the same way `ComposerView` does: the model needs the
         // child and the client, and a `@State` default cannot see either.
@@ -176,9 +184,34 @@ struct RootView: View {
         .onChange(of: composer != nil) { _, isOpen in
             if isOpen { requestedAssignment = nil }
         }
-        .sheet(item: $composer, onDismiss: { Task { await runSweep() } }) { request in
+        .sheet(item: $composer, onDismiss: {
+            Task {
+                await runSweep()
+                considerNotificationReoffer()
+            }
+        }) { request in
             ComposerView(request: request, api: session.api)
         }
+        .sheet(isPresented: $showingNotificationReoffer) {
+            NotificationReofferSheet(preference: notifications, familyTimezone: timezone)
+        }
+    }
+
+    /// The single permitted re-offer, after the first completed entry.
+    ///
+    /// Gated on there actually being an entry rather than on the composer having been dismissed:
+    /// a parent who opened the composer, thought better of it, and swiped it away has completed
+    /// nothing, and offering here would spend the one re-offer on a moment that has not earned
+    /// it. `shouldReofferAfterFirstEntry` carries the rest of the rule — it is false unless the
+    /// parent chose "Not now", false once the offer has been spent, and false forever after a
+    /// system-level denial.
+    private func considerNotificationReoffer() {
+        guard notifications.shouldReofferAfterFirstEntry else { return }
+        var descriptor = FetchDescriptor<Entry>()
+        descriptor.fetchLimit = 1
+        guard let count = try? context.fetchCount(descriptor), count > 0 else { return }
+        notifications.markReofferShown()
+        showingNotificationReoffer = true
     }
 
     private func signedIn(childId: UUID) -> some View {
@@ -214,6 +247,7 @@ struct RootView: View {
                         sync: sync,
                         syncEngine: syncEngine,
                         transcription: transcription,
+                        notifications: notifications,
                         onTimezoneResolved: { resolvedTimezone = $0 }
                     )
                 case .create:

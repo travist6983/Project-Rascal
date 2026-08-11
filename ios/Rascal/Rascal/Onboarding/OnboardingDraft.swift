@@ -8,13 +8,19 @@ import Foundation
 
 // MARK: - Steps
 
-/// The four screens between "signed in" and "has a child". Ordered, and the order is the
+/// The five screens between "signed in" and "has a child". Ordered, and the order is the
 /// progress bar's denominator.
+///
+/// `notifications` is last on purpose. It is the only step that spends something irreversible —
+/// iOS shows the system permission prompt once, ever — and putting it after the parent has
+/// already named their kid and picked a photo means the ask arrives to someone who has decided
+/// to use this, not to someone still deciding.
 nonisolated enum OnboardingStep: String, CaseIterable, Codable, Equatable, Sendable {
     case name
     case birthdate
     case timezone
     case avatar
+    case notifications
 
     /// 1-based, for "step 2 of 4" and for the progress fill.
     var ordinal: Int { (Self.allCases.firstIndex(of: self) ?? 0) + 1 }
@@ -44,6 +50,12 @@ nonisolated struct OnboardingDraft: Codable, Equatable, Sendable {
     /// Defaults to the device zone at the point the draft is created, not at the point it is
     /// read, so a parent who starts setup on a plane does not get a different answer on landing.
     var timezone: String = TimeZoneCatalog.deviceZone
+    /// What the parent set on the notification step before answering it. **Optional so a draft
+    /// written by the previous build still decodes** — a non-optional property with a default is
+    /// still decoded with `decode` rather than `decodeIfPresent`, and would throw on every draft
+    /// already on disk. Nil means "has not touched the picker", which reads as `NotifyTime`'s
+    /// default and is the same time the server would have used.
+    var notifyTime: NotifyTime?
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 

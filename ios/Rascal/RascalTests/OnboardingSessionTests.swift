@@ -343,11 +343,16 @@ struct OnboardingSessionTests {
         #expect(session.draft.step == .timezone)
         session.advance()
         #expect(session.draft.step == .avatar)
+        // Phase 14 added `notifications` after `avatar` — the permission ask is the last thing
+        // setup does, so that a parent has already committed to the app before iOS spends its
+        // one and only permission prompt.
         session.advance()
-        #expect(session.draft.step == .avatar, "and nothing after the last")
+        #expect(session.draft.step == .notifications)
+        session.advance()
+        #expect(session.draft.step == .notifications, "and nothing after the last")
 
         session.goBack()
-        #expect(session.draft.step == .timezone)
+        #expect(session.draft.step == .avatar)
     }
 
     @Test("a kill mid-setup resumes on the same step with the same input")
