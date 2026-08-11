@@ -21,11 +21,11 @@ Read this file first if you are resuming mid-run.
 
 ## Current status
 
-**Current phase:** 14 — preflight
-**Branch:** not yet cut
+**Current phase:** 15 — Prompt Pool Durability
+**Branch:** `phase-15/pool-durability`
 **Status:** in-progress
 **PR:** —
-**Updated:** 2026-08-10, run start
+**Updated:** 2026-08-10, after phase 14 shipped
 
 ---
 
@@ -47,12 +47,15 @@ hard preflight gates whose answers change what the run can deliver.
 ## Phase log
 
 ### Phase 14 — Push Notifications (client)
-- Status: in-progress (preflight complete)
-- Branch: `phase-14/push-notifications`
-- PR: —
+- Status: **PR open** — https://github.com/travist6983/Project-Rascal/pull/40
+- Branch: `phase-14/push-notifications` (off `main`)
+- Tests: 588/60 → **619 tests / 70 suites**, green, 0 Swift warnings
+- Certainty pass found 4 issues, incl. a missing `aps-environment` entitlement and a
+  vacuously-passing "Not now" assertion. Both fixed.
+- **Not mergeable before PR #38** (the server half) — see DECISIONS D-002.
 
 ### Phase 15 — Prompt Pool Durability
-- Status: not started
+- Status: in-progress
 
 ### Phase 16 — Video Audio Tracks
 - Status: not started — gate expected to fail
