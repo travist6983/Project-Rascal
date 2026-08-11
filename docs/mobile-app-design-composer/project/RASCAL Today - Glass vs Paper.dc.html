@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:'Nunito';font-style:normal;font-weight:600 800;font-display:swap;src:url('fonts/nunito-var-latin.woff2') format('woff2');}
+@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:400 600;font-display:swap;src:url('fonts/source-sans-3-var-latin.woff2') format('woff2');}
+body{margin:0;background:#EFE9DF;font-family:'Source Sans 3',system-ui,sans-serif}
+a{color:#C05A2B;text-decoration:none}a:hover{color:#23253C;text-decoration:underline}
+@keyframes drift1{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(18%,-12%,0) scale(1.2)}}
+@keyframes drift2{0%,100%{transform:translate3d(0,0,0) scale(1.05)}50%{transform:translate3d(-20%,14%,0) scale(.86)}}
+@keyframes drift3{0%,100%{transform:translate3d(0,0,0) scale(.95)}50%{transform:translate3d(12%,16%,0) scale(1.22)}}
+@keyframes shimmer{0%{transform:translateX(-140%)}100%{transform:translateX(320%)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fillUp{0%{width:6%}70%{width:78%}100%{width:94%}}
+@keyframes pulseDot{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes popIn{0%{transform:scale(.3);opacity:0}12%{transform:scale(1.16);opacity:1}20%{transform:scale(.95)}27%{transform:scale(1)}93%{transform:scale(1);opacity:1}99%,100%{transform:scale(1);opacity:0}}
+@keyframes ripple{0%{transform:scale(.55);opacity:.5}55%{transform:scale(2);opacity:0}100%{transform:scale(2);opacity:0}}
+@keyframes tickIn{0%,9%{transform:rotate(45deg) scale(0)}22%{transform:rotate(45deg) scale(1.15)}30%,100%{transform:rotate(45deg) scale(1)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes settle{0%{transform:translateY(14px);opacity:0}18%,100%{transform:translateY(0);opacity:1}}
+</style>
+</helmet>
+
+<div style="background-color:#EFE9DF;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E&quot;);padding:0 0 120px">
+<div style="max-width:1200px;margin:0 auto;padding:0 48px">
+
+<div style="padding:88px 0 40px;border-bottom:1px solid #E3DACB">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:20px;letter-spacing:.16em;color:#23253C">RASCAL</span>
+<h1 style="margin:30px 0 0;font-family:'Nunito',sans-serif;font-weight:800;font-size:66px;line-height:1.03;letter-spacing:-.035em;color:#23253C;max-width:16ch;text-wrap:pretty">Today, twice</h1>
+<p style="margin:20px 0 0;max-width:60ch;font-size:19px;line-height:1.5;color:#6E6A63;text-wrap:pretty">The same six screens in both skins — paper on the left, liquid glass on the right. Every loader and the completion animation are running live; nothing here is a still.</p>
+<div style="display:flex;flex-wrap:wrap;gap:22px;margin-top:26px">
+<sc-for list="{{ legend }}" as="l" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:10px;padding:9px 16px 9px 12px;border-radius:99px;background:#FDFAF4;border:1px solid #E3DACB">
+<span style="{{ l.dotStyle }}"></span>
+<span style="font-size:14px;color:#6E6A63">{{ l.text }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+
+<sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+<div style="padding:60px 0 0">
+<div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;max-width:80ch">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#B4ADA3">{{ r.n }}</span>
+<h2 style="margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:30px;letter-spacing:-.025em;color:#23253C">{{ r.label }}</h2>
+</div>
+<sc-if value="{{ r.showNote }}" hint-placeholder-val="{{ true }}">
+<p style="margin:10px 0 0;max-width:74ch;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty">{{ r.note }}</p>
+</sc-if>
+<div style="display:flex;gap:30px;flex-wrap:wrap;margin-top:26px">
+<sc-for list="{{ r.frames }}" as="f" hint-placeholder-count="2">
+<div style="display:flex;flex-direction:column;gap:11px;flex:none">
+<span style="{{ f.capStyle }}">{{ f.caption }}</span>
+<div style="{{ f.shellStyle }}">
+<div style="{{ f.screenStyle }}">
+
+<sc-if value="{{ f.hasOrbs }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;inset:0;overflow:hidden;pointer-events:none;filter:blur(64px);opacity:.42;z-index:0">
+<sc-for list="{{ f.orbs }}" as="o" hint-placeholder-count="3">
+<div style="{{ o }}"></div>
+</sc-for>
+</div>
+</sc-if>
+
+<div style="{{ f.statusStyle }}">
+<span style="font-weight:600;font-size:15px">9:41</span>
+<span style="display:flex;align-items:flex-end;gap:2px;height:10px">
+<sc-for list="{{ f.bars }}" as="bb" hint-placeholder-count="4">
+<span style="{{ bb }}"></span>
+</sc-for>
+</span>
+</div>
+
+<div style="{{ f.bodyStyle }}">
+<sc-if value="{{ f.isSheet }}" hint-placeholder-val="{{ false }}">
+<span style="{{ f.grabberStyle }}"></span>
+</sc-if>
+
+<sc-for list="{{ f.blocks }}" as="b" hint-placeholder-count="4">
+<div style="{{ b.style }}">
+
+<sc-if value="{{ b.isHeader }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+<div>
+<p style="{{ b.titleStyle }}">{{ b.title }}</p>
+<p style="{{ b.subStyle }}">{{ b.sub }}</p>
+</div>
+<span style="{{ b.iconBtnStyle }}">&#8635;</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isLabel }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="{{ b.labelStyle }}">{{ b.label }}</span>
+<sc-if value="{{ b.hasPill }}" hint-placeholder-val="{{ false }}">
+<span style="{{ b.pillStyle }}">{{ b.pill }}</span>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isCard }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+<span style="{{ b.badgeStyle }}">{{ b.badge }}</span>
+<sc-if value="{{ b.hasCheck }}" hint-placeholder-val="{{ false }}">
+<span style="{{ b.checkStyle }}"><span style="{{ b.tickStyle }}"></span></span>
+</sc-if>
+</div>
+<p style="{{ b.textStyle }}">{{ b.text }}</p>
+<sc-if value="{{ b.hasThumbs }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;gap:8px;margin-top:13px">
+<sc-for list="{{ b.thumbs }}" as="t" hint-placeholder-count="3">
+<div style="{{ t.style }}">
+<sc-if value="{{ t.hasRing }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.ringStyle }}"></span>
+</sc-if>
+<sc-if value="{{ t.hasDone }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.doneStyle }}"><span style="{{ t.doneTickStyle }}"></span></span>
+</sc-if>
+<sc-if value="{{ t.hasWait }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.waitStyle }}"></span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ b.hasProgress }}" hint-placeholder-val="{{ false }}">
+<div style="{{ b.trackStyle }}"><div style="{{ b.fillStyle }}"><span style="{{ b.shimmerStyle }}"></span></div></div>
+<p style="{{ b.statusTextStyle }}">{{ b.statusText }}</p>
+</sc-if>
+<sc-if value="{{ b.hasButton }}" hint-placeholder-val="{{ false }}">
+<div style="{{ b.btnStyle }}">{{ b.btn }}</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ b.isSheetTop }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;justify-content:space-between">
+<span style="{{ b.cancelStyle }}">Cancel</span>
+<span style="{{ b.saveStyle }}">Save</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isDate }}" hint-placeholder-val="{{ false }}">
+<span style="{{ b.dateStyle }}">Today &#8964;</span>
+</sc-if>
+
+<sc-if value="{{ b.isQuote }}" hint-placeholder-val="{{ false }}">
+<div style="{{ b.quoteStyle }}"><p style="{{ b.quoteTextStyle }}">{{ b.text }}</p></div>
+</sc-if>
+
+<sc-if value="{{ b.isTiles }}" hint-placeholder-val="{{ false }}">
+<div style="{{ b.tilesStyle }}">
+<sc-for list="{{ b.tiles }}" as="t" hint-placeholder-count="3">
+<div style="{{ t.style }}">
+<span style="{{ t.icoA }}"><span style="{{ t.icoB }}"></span></span>
+<span style="{{ t.labelStyle }}">{{ t.label }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isMedia }}" hint-placeholder-val="{{ false }}">
+<p style="{{ b.mediaLabelStyle }}">{{ b.mediaLabel }}</p>
+<div style="display:flex;gap:10px;align-items:flex-start">
+<sc-for list="{{ b.thumbs }}" as="t" hint-placeholder-count="1">
+<div style="{{ t.style }}">
+<sc-if value="{{ t.hasRing }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.ringStyle }}"></span>
+</sc-if>
+<sc-if value="{{ t.hasDone }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.doneStyle }}"><span style="{{ t.doneTickStyle }}"></span></span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+<sc-if value="{{ b.hasProgress }}" hint-placeholder-val="{{ false }}">
+<div style="{{ b.trackStyle }}"><div style="{{ b.fillStyle }}"><span style="{{ b.shimmerStyle }}"></span></div></div>
+<p style="{{ b.statusTextStyle }}">{{ b.statusText }}</p>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ b.isTap }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;align-items:center;gap:16px;padding:26px 0 6px">
+<span style="{{ b.circleStyle }}"></span>
+<p style="{{ b.capStyle }}">{{ b.caption }}</p>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isBurst }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:22px 0 4px">
+<span style="{{ b.burstWrapStyle }}">
+<span style="{{ b.rippleStyle }}"></span>
+<span style="{{ b.discStyle }}"><span style="{{ b.tickStyle }}"></span></span>
+</span>
+<p style="{{ b.capStyle }}">{{ b.caption }}</p>
+</div>
+</sc-if>
+
+<sc-if value="{{ b.isField }}" hint-placeholder-val="{{ false }}">
+<p style="{{ b.fieldLabelStyle }}">{{ b.fieldLabel }}</p>
+<div style="{{ b.boxStyle }}"><span style="{{ b.phStyle }}">{{ b.placeholder }}</span></div>
+</sc-if>
+
+</div>
+</sc-for>
+</div>
+
+<sc-if value="{{ f.hasTabs }}" hint-placeholder-val="{{ false }}">
+<div style="{{ f.tabBarStyle }}">
+<sc-for list="{{ f.tabs }}" as="t" hint-placeholder-count="5">
+<span style="{{ t.style }}">{{ t.label }}</span>
+</sc-for>
+</div>
+<div style="{{ f.fabStyle }}">+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+
+<p style="margin:74px 0 0;padding-top:26px;border-top:1px solid #E3DACB;font-size:14px;line-height:1.6;color:#B4ADA3;max-width:80ch;text-wrap:pretty">Thumbnails are flat warm placeholders at shipped geometry. Glass panes need something real behind them — on a text-only day the wallpaper falls back to the warm paper gradient rather than inventing an image.</p>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1296,&quot;height&quot;:1000},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#C05A2B&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#C05A2B&quot;,&quot;#B4472E&quot;,&quot;#A85A3F&quot;,&quot;#4B58D4&quot;],&quot;section&quot;:&quot;Skin&quot;},&quot;glassBlur&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:24,&quot;min&quot;:8,&quot;max&quot;:40,&quot;step&quot;:2,&quot;unit&quot;:&quot;px&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Skin&quot;},&quot;showNotes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Page&quot;}}">
+const EASE="cubic-bezier(.32,.72,0,1)";
+const TINTS=["#E0D2C0","#D5C6B4","#E8DAC8"];
+
+class Component extends DCLogic {
+  renderVals(){
+    const accent=this.props.accent ?? "#C05A2B";
+    const blurK=(this.props.glassBlur ?? 24)/24;
+    const showNote=this.props.showNotes ?? true;
+
+    const glass=(k,fill)=>{
+      const b=(22*k*blurK).toFixed(0);
+      return "background:"+fill+";backdrop-filter:blur("+b+"px) saturate(170%);-webkit-backdrop-filter:blur("+b+"px) saturate(170%);"
+        +"border:1px solid rgba(255,255,255,"+(0.13+0.09*k).toFixed(2)+");"
+        +"box-shadow:0 "+(9*k).toFixed(0)+"px "+(28*k).toFixed(0)+"px rgba(0,0,0,.30),inset 0 1px 0 rgba(255,255,255,.32);";
+    };
+
+    const K=(g)=>({g,glass,
+      ink:g?"#fff":"#23253C",
+      muted:g?"rgba(255,255,255,.70)":"#6E6A63",
+      faint:g?"rgba(255,255,255,.50)":"#B4ADA3",
+      terra:g?"rgba(255,154,92,.95)":accent,
+      peri:g?"rgba(152,162,255,.96)":"#4B58D4",
+      surf:g?glass(.6,"rgba(255,255,255,.10)"):"background:#FFFDF9;border:1px solid #EDE5DA;",
+      hair:g?"rgba(255,255,255,.16)":"#EDE5DA"});
+
+    const cardFill=(k,kind)=>k.g
+      ? glass(1,kind==="q"?"rgba(146,158,255,.16)":kind==="done"?"rgba(255,255,255,.07)":"rgba(255,154,92,.15)")
+      : "background:"+(kind==="q"?"#E4E7FA":kind==="done"?"#F6EAE0":"#FAE8DC")+";";
+
+    const tick=(size,color,anim)=>"display:block;width:"+(size*0.34).toFixed(1)+"px;height:"+(size*0.62).toFixed(1)+"px;"
+      +"border-right:"+(size*0.11).toFixed(1)+"px solid "+color+";border-bottom:"+(size*0.11).toFixed(1)+"px solid "+color+";"
+      +"transform:rotate(45deg);margin-top:-"+(size*0.1).toFixed(1)+"px;"+(anim?"animation:tickIn 3.6s "+EASE+" infinite;":"");
+
+    /* ---------- blocks ---------- */
+    const header=(k)=>({isHeader:true,style:"flex:none;padding:2px 2px 4px",title:"Hendrix",sub:"4y 1m",
+      titleStyle:"margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:34px;letter-spacing:-.03em;color:"+k.ink+(k.g?";text-shadow:0 2px 18px rgba(0,0,0,.4)":""),
+      subStyle:"margin:5px 0 0;font-size:15px;color:"+k.muted,
+      iconBtnStyle:"flex:none;width:42px;height:42px;border-radius:99px;display:grid;place-items:center;font-size:18px;color:"+k.muted+";"+k.surf});
+
+    const label=(k,text,pill)=>({isLabel:true,style:"flex:none;padding:8px 2px 2px",label:text,hasPill:!!pill,pill,
+      labelStyle:"font-size:12.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:"+k.muted,
+      pillStyle:"padding:5px 12px;border-radius:99px;font-size:13px;color:"+k.muted+";"+(k.g?glass(.4,"rgba(255,255,255,.12)"):"background:#FFFDF9;")});
+
+    const thumb=(k,i,state)=>{
+      const t={style:"position:relative;flex:none;width:62px;height:62px;border-radius:14px;overflow:hidden;"
+        +(k.g?"background:linear-gradient(140deg,rgba(255,255,255,.22),rgba(255,255,255,.08));border:1px solid rgba(255,255,255,.22);"
+             :"background:"+TINTS[i%3]+";")
+        +(state==="wait"?"opacity:.5;":""),
+        hasRing:state==="up",hasDone:state==="done",hasWait:state==="wait"};
+      if(state==="up"){
+        t.ringStyle="position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:99px;"
+          +"border:3px solid "+(k.g?"rgba(255,255,255,.30)":"rgba(255,255,255,.55)")+";border-top-color:"+k.terra+";animation:spin .9s linear infinite;"
+          +"box-shadow:0 2px 10px rgba(0,0,0,.18)";
+      }
+      if(state==="done"){
+        t.doneStyle="position:absolute;right:5px;bottom:5px;width:20px;height:20px;border-radius:99px;background:"+k.terra+";display:grid;place-items:center";
+        t.doneTickStyle=tick(13,k.g?"#231A12":"#FDFAF4",false);
+      }
+      if(state==="wait"){
+        t.waitStyle="position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:99px;background:"+(k.g?"rgba(255,255,255,.8)":"#FFFDF9")+";animation:pulseDot 1.4s ease-in-out infinite";
+      }
+      return t;
+    };
+
+    const progress=(k,o)=>({
+      hasProgress:true,statusText:o.status,
+      trackStyle:"position:relative;height:6px;border-radius:99px;overflow:hidden;margin-top:14px;background:"+(k.g?"rgba(0,0,0,.26)":"rgba(192,90,43,.12)"),
+      fillStyle:"position:relative;height:100%;border-radius:99px;overflow:hidden;background:"+k.terra+";animation:fillUp 5.4s cubic-bezier(.35,0,.2,1) infinite",
+      shimmerStyle:"position:absolute;top:0;bottom:0;width:44%;background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.55),rgba(255,255,255,0));animation:shimmer 1.5s linear infinite",
+      statusTextStyle:"margin:9px 0 0;font-size:13.5px;letter-spacing:.01em;color:"+(k.g?"rgba(255,255,255,.72)":"#8C8279")});
+
+    const card=(k,o)=>{
+      const kind=o.kind;
+      const c=Object.assign({isCard:true,badge:o.badge,text:o.text,
+        style:"position:relative;flex:none;padding:18px 18px 20px;border-radius:28px;"+cardFill(k,kind)+(o.anim?"animation:settle 3.6s "+EASE+" infinite;":""),
+        badgeStyle:"display:inline-block;padding:6px 13px;border-radius:99px;font-size:12.5px;font-weight:600;letter-spacing:.06em;"
+          +"background:"+(k.g?"rgba(255,255,255,.16)":kind==="q"?"#D9DDF7":"#F3D9C7")+";"
+          +"color:"+(k.g?(kind==="q"?"rgba(196,203,255,1)":"rgba(255,190,150,1)"):kind==="q"?"#4C5BD1":"#C0522A"),
+        textStyle:"margin:14px 0 0;font-size:19px;line-height:1.35;color:"+(kind==="done"?k.muted:k.ink)+";text-wrap:pretty",
+        hasThumbs:!!o.thumbs,hasButton:!!o.btn,hasCheck:!!o.check,btn:o.btn},o.prog?progress(k,o.prog):{});
+      if(o.thumbs) c.thumbs=o.thumbs.map((s,i)=>thumb(k,i,s));
+      if(o.check){
+        c.checkStyle="flex:none;width:32px;height:32px;border-radius:99px;display:grid;place-items:center;background:"+k.terra;
+        c.tickStyle=tick(19,k.g?"#231A12":"#FDFAF4",false);
+      }
+      if(o.btn){
+        const dim=o.btnDim;
+        const fill=kind==="q"?k.peri:k.terra;
+        c.btnStyle="margin-top:16px;height:54px;border-radius:99px;display:grid;place-items:center;"
+          +"font-family:'Nunito',sans-serif;font-weight:700;font-size:18px;"
+          +(dim?"background:"+(k.g?"rgba(255,255,255,.10)":"rgba(192,90,43,.14)")+";color:"+(k.g?"rgba(255,255,255,.62)":"#B07A5E")+";"
+               :"background:"+fill+";color:"+(k.g?"#1B1420":"#FDFAF4")+";box-shadow:0 6px 18px "+(k.g?"rgba(0,0,0,.28)":"rgba(35,37,60,.14)")+";");
+      }
+      return c;
+    };
+
+    const sheetTop=(k,active)=>({isSheetTop:true,style:"flex:none;padding:4px 0 2px",
+      cancelStyle:"padding:13px 26px;border-radius:99px;font-size:19px;color:"+k.muted+";"+(k.g?glass(.6,"rgba(255,255,255,.12)"):"background:#FFFDF9;box-shadow:0 4px 16px rgba(35,37,60,.07);"),
+      saveStyle:"padding:13px 26px;border-radius:99px;font-family:'Nunito',sans-serif;font-weight:700;font-size:19px;color:"+(active?k.terra:k.muted)+";"+(k.g?glass(.6,"rgba(255,255,255,.12)"):"background:#FFFDF9;box-shadow:0 4px 16px rgba(35,37,60,.07);")});
+
+    const datePill=(k)=>({isDate:true,style:"flex:none;padding:6px 0 0",
+      dateStyle:"display:inline-block;padding:9px 18px;border-radius:99px;font-size:16px;color:"+k.ink+";"+(k.g?glass(.45,"rgba(255,255,255,.10)"):"background:#FDFAF4;border:1px solid #E9E0D3;")});
+
+    const quote=(k,text)=>({isQuote:true,style:"flex:none",text,
+      quoteStyle:"padding:18px 20px;border-radius:22px;"+(k.g?glass(.7,"rgba(255,255,255,.09)"):"background:#FFFDF9;"),
+      quoteTextStyle:"margin:0;padding-left:14px;border-left:3px solid "+(k.g?"rgba(255,154,92,.75)":"#E6B49A")+";font-size:18px;line-height:1.4;color:"+(k.g?"rgba(255,255,255,.88)":"#4A463F")+";text-wrap:pretty"});
+
+    const tiles=(k,list)=>({isTiles:true,style:"flex:none",
+      tilesStyle:"display:grid;grid-template-columns:repeat("+list.length+",1fr);gap:11px",
+      tiles:list.map(t=>({label:t.label,
+        style:"display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;height:104px;border-radius:22px;"
+          +(k.g?glass(.8,"rgba(255,154,92,.16)"):"background:#F8E4D7;"),
+        icoA:"position:relative;display:grid;place-items:center;"+(t.mic
+          ? "width:13px;height:22px;border-radius:99px;border:2.2px solid "+k.terra
+          : "width:28px;height:22px;border-radius:6px;border:2.2px solid "+k.terra),
+        icoB:t.mic?"display:none":"display:block;width:9px;height:9px;border-radius:99px;background:"+k.terra,
+        labelStyle:"font-family:'Nunito',sans-serif;font-weight:700;font-size:16px;color:"+k.terra}))});
+
+    const media=(k,o)=>Object.assign({isMedia:true,style:"flex:none",mediaLabel:o.label,
+      mediaLabelStyle:"margin:0 0 12px;font-size:12.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:"+k.muted,
+      thumbs:o.thumbs.map((s,i)=>{const t=thumb(k,i,s);t.style=t.style.replace("width:62px;height:62px","width:96px;height:96px").replace("border-radius:14px","border-radius:18px");return t;})},
+      o.prog?progress(k,o.prog):{});
+
+    const tap=(k)=>({isTap:true,style:"flex:none",caption:"Tap when you've done it.",
+      circleStyle:"display:block;width:126px;height:126px;border-radius:99px;border:1.5px solid "+(k.g?"rgba(255,255,255,.34)":"#E6DFD2")+";"+(k.g?"background:rgba(255,255,255,.05);":""),
+      capStyle:"margin:0;font-size:18px;color:"+k.muted});
+
+    const burst=(k,caption)=>({isBurst:true,style:"flex:none",caption,
+      burstWrapStyle:"position:relative;display:grid;place-items:center;width:104px;height:104px",
+      rippleStyle:"position:absolute;inset:0;border-radius:99px;background:"+k.terra+";animation:ripple 3.6s "+EASE+" infinite",
+      discStyle:"position:relative;width:96px;height:96px;border-radius:99px;display:grid;place-items:center;background:"+k.terra
+        +";box-shadow:0 10px 30px "+(k.g?"rgba(255,120,60,.42)":"rgba(192,90,43,.30)")+";animation:popIn 3.6s "+EASE+" infinite",
+      tickStyle:tick(46,k.g?"#231A12":"#FDFAF4",true),
+      capStyle:"margin:0;font-family:'Nunito',sans-serif;font-weight:700;font-size:20px;color:"+k.ink});
+
+    const field=(k,l,ph,h)=>({isField:true,style:"flex:none",fieldLabel:l,placeholder:ph||"",
+      fieldLabelStyle:"margin:0 0 12px;font-size:12.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:"+k.muted,
+      boxStyle:"height:"+(h||150)+"px;border-radius:20px;padding:16px 18px;"+(k.g?glass(.55,"rgba(255,255,255,.08)"):"background:#FFFDF9;border:1px solid #EDE5DA;"),
+      phStyle:"font-size:17px;color:"+k.faint});
+
+    const spacer=()=>({style:"flex:none;height:118px"});
+
+    /* ---------- screens ---------- */
+    const SCREENS={
+      today:(k)=>({tabs:true,blocks:[
+        header(k),label(k,"Waiting","8 waiting"),
+        card(k,{kind:"q",badge:"QUESTION",text:"What did he cry about today?",btn:"Write it"}),
+        card(k,{kind:"a",badge:"PHOTO",text:"Take a photo of what summer looks like for him this year.",btn:"Capture it"}),
+        card(k,{kind:"q",badge:"QUESTION",text:"What did he say this week that you want to remember exactly?"}),
+        spacer()
+      ]}),
+      uploading:(k)=>({tabs:true,blocks:[
+        header(k),
+        card(k,{kind:"a",badge:"PHOTO",text:"Take a photo of what summer looks like.",
+          thumbs:["done","up","wait"],prog:{status:"Uploading 2 of 3 \u2014 you can leave this screen."},btn:"Uploading\u2026",btnDim:true}),
+        card(k,{kind:"a",badge:"VIDEO",text:"Ask him what he'd say at eighteen.",
+          thumbs:["up"],prog:{status:"1:24 \u00b7 42 MB \u00b7 sending"}}),
+        spacer()
+      ]}),
+      complete:(k)=>({tabs:true,blocks:[
+        header(k),
+        Object.assign(burst(k,"Saved to 11 August"),{style:"flex:none;padding:10px 0 6px"}),
+        label(k,"Done today"),
+        card(k,{kind:"done",badge:"PHOTO",text:"Take a photo of what summer looks like for him this year.",thumbs:["done","done","done"],check:true,anim:true}),
+        card(k,{kind:"done",badge:"ACTIVITY",text:"Let him win, and don't tell him you did.",check:true}),
+        spacer()
+      ]}),
+      sheetQ:(k)=>({sheet:true,blocks:[
+        sheetTop(k,false),datePill(k),
+        quote(k,"What's the thing he does that nobody else would notice?"),
+        field(k,"Your answer","",190)
+      ]}),
+      sheetPhoto:(k)=>({sheet:true,blocks:[
+        sheetTop(k,false),datePill(k),
+        quote(k,"Take a photo of him sleeping."),
+        tiles(k,[{label:"Choose"},{label:"Take a photo"},{label:"Voice",mic:true}]),
+        media(k,{label:"1 photo",thumbs:["up"],prog:{status:"Uploading \u2014 4.2 MB of 6.1 MB"}}),
+        field(k,"Your answer","",120)
+      ]}),
+      sheetDone:(k)=>({sheet:true,blocks:[
+        sheetTop(k,true),datePill(k),
+        media(k,{label:"1 photo",thumbs:["done"]}),
+        burst(k,"Done."),
+        field(k,"Add a note \u2014 optional","Anything worth remembering",110)
+      ]})
+    };
+
+    const ORBS=[
+      "position:absolute;left:-24%;top:-8%;width:90%;height:58%;border-radius:50%;background:radial-gradient(circle at 40% 38%,#FF8A4C,#FF8A4C00 70%);animation:drift1 26s ease-in-out infinite",
+      "position:absolute;right:-30%;top:26%;width:96%;height:62%;border-radius:50%;background:radial-gradient(circle at 55% 42%,#6B7BFF,#6B7BFF00 70%);animation:drift2 34s ease-in-out infinite",
+      "position:absolute;left:4%;bottom:-26%;width:88%;height:58%;border-radius:50%;background:radial-gradient(circle at 50% 50%,#54C79A,#54C79A00 70%);animation:drift3 30s ease-in-out infinite"
+    ];
+
+    const GRAIN="background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E\");";
+
+    const frame=(id,g)=>{
+      const k=K(g);
+      const sc=SCREENS[id](k);
+      const sheet=!!sc.sheet;
+      const bodyTop=sheet?86:62;
+      return {
+        caption:g?"Liquid glass":"Paper",
+        capStyle:"font-family:'Nunito',sans-serif;font-weight:700;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:"+(g?"#7B6BA8":"#B4ADA3"),
+        shellStyle:"position:relative;width:413px;height:872px;padding:10px;border-radius:56px;flex:none;"
+          +(g?"background:#0E0B16;box-shadow:0 30px 70px rgba(0,0,0,.42),inset 0 0 0 1px rgba(255,255,255,.12);"
+              :"background:#23253C;box-shadow:0 24px 60px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.12);"),
+        screenStyle:"position:relative;width:393px;height:852px;border-radius:47px;overflow:hidden;"
+          +(g?"background:#131020;":"background-color:"+(sheet?"#8E8880":"#FDFAF4")+";"+GRAIN),
+        hasOrbs:g,orbs:ORBS,
+        statusStyle:"position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px;z-index:40;color:"+(g||sheet?"#fff":"#23253C"),
+        bars:[4,6,8,11].map(h=>"width:3px;height:"+h+"px;border-radius:1px;background:"+(g||sheet?"#fff":"#23253C")),
+        isSheet:sheet,
+        grabberStyle:"align-self:center;width:56px;height:5px;border-radius:99px;flex:none;margin-bottom:4px;background:"+(g?"rgba(255,255,255,.34)":"#D6CDC0"),
+        bodyStyle:"position:absolute;left:0;right:0;top:"+bodyTop+"px;bottom:0;z-index:10;display:flex;flex-direction:column;gap:16px;overflow:hidden;padding:"+(sheet?"14px 18px 0":"0 16px 108px")
+          +";"+(sheet?(g?"border-radius:34px 34px 0 0;"+glass(1.6,"rgba(24,20,38,.86)"):"border-radius:34px 34px 0 0;background-color:#FDFAF4;"+GRAIN):""),
+        blocks:sc.blocks,
+        hasTabs:!!sc.tabs,
+        tabBarStyle:"position:absolute;left:14px;right:14px;bottom:14px;height:70px;border-radius:35px;z-index:50;display:flex;align-items:center;justify-content:space-around;padding:0 8px;"
+          +(g?glass(1.6,"rgba(255,255,255,.12)"):"background:#FFFDF9;box-shadow:0 4px 20px rgba(0,0,0,.10);"),
+        tabs:[["Today",true],["Timeline",false],["",false],["Moments",false],["Settings",false]].map(t=>({label:t[0],
+          style:"font-family:'Nunito',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;min-width:50px;text-align:center;color:"
+            +(t[1]?k.terra:k.muted)})),
+        fabStyle:"position:absolute;left:50%;bottom:56px;margin-left:-31px;width:62px;height:62px;border-radius:99px;z-index:52;display:grid;place-items:center;font-size:32px;font-weight:300;"
+          +"background:"+k.terra+";color:"+(g?"#1B1420":"#FDFAF4")+";box-shadow:0 8px 22px "+(g?"rgba(255,120,60,.45)":"rgba(192,90,43,.34)")
+          +(g?";border:1px solid rgba(255,255,255,.45)":"")+";animation:bob 5s ease-in-out infinite"
+      };
+    };
+
+    const ROWS=[
+      ["01","Today — waiting","Eight prompts queued. One filled button per card, and the card's fill carries the kind: periwinkle asks for words, peach asks for an action."],
+      ["02","Today — uploading","Three loaders at once. A ring on the tile that is currently sending, a dimmed dot on the one still queued, a check on the one that landed — and a single shimmering bar per card with a plain-language line under it. The button holds its place and dims rather than disappearing."],
+      ["03","Today — it landed","The completion animation: a ripple leaves the disc, the check pops at 1.16 and settles, and the card drops into Done today. It runs once, 700ms, and never asks to be dismissed."],
+      ["04","Capture — a question","The sheet is the whole screen. Prompt on paper above the field, date pill top left, Save stays grey until there is something to save."],
+      ["05","Capture — photo, mid-upload","Choose, take, or record, then the media strip appears with the same ring and bar. The answer field stays live the whole time — uploading never blocks writing."],
+      ["06","Capture — complete","Thumbnail resolves, the check lands in the same animation as the list, and Save turns terracotta. That colour change is the only thing that tells you it is now safe to leave."]
+    ];
+    const ids=["today","uploading","complete","sheetQ","sheetPhoto","sheetDone"];
+
+    return {
+      rows:ROWS.map((r,i)=>({n:r[0],label:r[1],note:r[2],showNote:showNote,
+        frames:[frame(ids[i],false),frame(ids[i],true)]})),
+      legend:[
+        {text:"Ring spinner \u2014 the item currently sending",dotStyle:"width:16px;height:16px;border-radius:99px;border:3px solid rgba(192,90,43,.22);border-top-color:"+accent+";animation:spin .9s linear infinite"},
+        {text:"Shimmer bar \u2014 progress for the whole card",dotStyle:"position:relative;width:34px;height:6px;border-radius:99px;overflow:hidden;background:"+accent},
+        {text:"Ripple + pop \u2014 the completion animation",dotStyle:"width:16px;height:16px;border-radius:99px;background:"+accent+";animation:popIn 3.6s "+EASE+" infinite"}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

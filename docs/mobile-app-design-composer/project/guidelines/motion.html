@@ -1,0 +1,10 @@
+<!-- @dsCard group="Brand" viewport="700x195" subtitle="Entrances arrive and stop. Two easings, no bounce, never linear." name="Motion" -->
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>body{margin:0;padding:16px;display:flex;align-items:center}@keyframes demo{0%{transform:translateX(0)}50%{transform:translateX(calc(100% + 340px))}100%{transform:translateX(0)}}</style>
+</head><body>
+<div style="display:flex;flex-direction:column;gap:14px;width:100%">
+<div style="display:flex;align-items:center;gap:14px"><span style="width:120px;font:600 11.5px var(--rascal-font-body);color:var(--rascal-ink)">Enter</span><div style="flex:1;height:26px;background:var(--rascal-border);border-radius:999px;overflow:hidden"><div style="width:34px;height:26px;border-radius:999px;background:var(--rascal-terracotta);animation:demo 2.4s var(--rascal-ease-enter) infinite"></div></div></div>
+<div style="display:flex;align-items:center;gap:14px"><span style="width:120px;font:600 11.5px var(--rascal-font-body);color:var(--rascal-ink)">Scrub</span><div style="flex:1;height:26px;background:var(--rascal-border);border-radius:999px;overflow:hidden"><div style="width:34px;height:26px;border-radius:999px;background:var(--rascal-peri);animation:demo 2.4s var(--rascal-ease-scrub) infinite"></div></div></div>
+<div style="font:400 11px var(--rascal-font-mono);color:var(--rascal-muted)">enter cubic-bezier(.16,1,.3,1) · scrub cubic-bezier(.65,0,.35,1) · press 150 · enter 320 · settle 620 · reveal 900</div></div>
+</body></html>
