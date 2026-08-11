@@ -720,3 +720,31 @@ Its own prerequisite is also unrun: the audio checklist from PR #22 needs a real
 **To unblock:** run the PR #22 audio checklist, then the transcription checklist on a signed build
 on iOS 26+, and record the results — especially §0, the per-recording word accuracy against three
 ordinary voice notes.
+
+---
+
+## Phase 17 (structured extraction) — the API cannot record a tag's source (Aug 10 2026)
+
+**Not started. No code was written.** This is the phase's own Phase A gate, and it is a hard one.
+
+`PATCH /v1/entries/{id}` cannot write a tag with `source = 'device_ai'`. `EntryUpdate.tags` is a
+bare `list[str]`, and `services/entries.py` hardcodes `apply_tags(session, entry, tags, "user")`
+at both entry write paths. The `entry_tags.source` column exists and `apply_tags` honours it
+correctly — the gap is only that no entry endpoint lets a caller name the source.
+
+`PATCH /media/{id}/derived` does write `device_ai`, but it is keyed on a media row, and phase 17
+is scoped to entry *bodies*. A text-only entry has no media to address.
+
+**Why this stops the phase rather than being worked around:** writing model tags as `user` is
+unrecoverable. Once the two are indistinguishable no re-run can safely touch them, a hand-deleted
+model tag must resurrect, and a parent cannot tell which tags are theirs. The information needed
+to undo it is never stored.
+
+**The API change needed (Lane A):** let a tag write carry its source — `EntryCreate.tags` and
+`EntryUpdate.tags` accepting `{ name, source }` alongside a bare string, with `source` defaulting
+to `"user"` so existing clients are unaffected, and `update_entry` grouping by source and calling
+the existing `apply_tags` once per group. `apply_tags` already refuses to let a `device_ai` write
+clobber a `user` row, so no new merge logic is required. A dedicated
+`PATCH /v1/entries/{id}/derived` mirroring the media one is the narrower alternative.
+
+Full detail, including the exact source lines: `docs/phases/phase-17-BLOCKED.md`.
