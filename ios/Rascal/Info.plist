@@ -27,6 +27,16 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- The app's only cryptography is HTTPS to its own API, which is the standard exemption.
+	     Declared here rather than answered in the browser because App Store Connect asks on
+	     every single upload otherwise, and a build sits unavailable to testers until someone
+	     notices the question. The answer does not change between builds, so it belongs in the
+	     bundle. If a future version ever ships its own encryption — not TLS, its own — this
+	     becomes true and export paperwork follows. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
