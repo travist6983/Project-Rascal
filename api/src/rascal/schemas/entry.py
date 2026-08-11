@@ -11,6 +11,27 @@ from rascal.constants import EntryType, MediaKind, TagSource
 from rascal.schemas.common import ApiModel
 
 
+class TagWrite(ApiModel):
+    """A tag, with who decided it.
+
+    `entry_tags.source` exists so a tag a parent typed can be told apart from one the on-device
+    model extracted, and so extraction can be re-run without eating the parent's own. Until now
+    nothing on the wire could express it: every tag written through `POST /entries` or
+    `PATCH /entries/{id}` was recorded as `user`, which made on-device extraction impossible to
+    build without destroying that distinction permanently.
+
+    **`source` defaults to `user`, so a bare string still means exactly what it meant before.**
+    Every existing client is unaffected.
+    """
+
+    name: str = Field(min_length=1, max_length=100)
+    source: TagSource = "user"
+
+
+#: A tag on the wire: `"beach"` or `{"name": "beach", "source": "device_ai"}`.
+TagInput = str | TagWrite
+
+
 class EntryCreate(ApiModel):
     """`id` is minted on the phone so the record exists offline before the server sees it."""
 
@@ -26,7 +47,7 @@ class EntryCreate(ApiModel):
         default=None, deprecated=True, description="Ignored. Derived server-side."
     )
     unlock_at_age: int | None = Field(default=None, ge=0, le=120)
-    tags: list[str] = Field(default_factory=list)
+    tags: list[TagInput] = Field(default_factory=list)
 
 
 class EntryUpdate(ApiModel):
@@ -34,7 +55,7 @@ class EntryUpdate(ApiModel):
     body: str | None = None
     occurred_at: dt.datetime | None = None
     unlock_at_age: int | None = Field(default=None, ge=0, le=120)
-    tags: list[str] | None = None
+    tags: list[TagInput] | None = None
 
 
 class TagOut(ApiModel):
