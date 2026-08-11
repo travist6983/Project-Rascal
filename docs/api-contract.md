@@ -525,6 +525,28 @@ URL on a 403. `viewer` is sufficient — reading is not a write.
 and a signed URL for it would 404 from storage, which reads like data loss rather than an
 unfinished upload.
 
+### Tags on an entry
+
+`POST /entries` and `PATCH /entries/{id}` both take `tags`, and each element is either a bare
+string or an object naming its source:
+
+```json
+"tags": ["beach", { "name": "seaside", "source": "device_ai" }]
+```
+
+**`source` defaults to `user`, so a bare string means exactly what it always meant** — every
+client written before this existed is unaffected.
+
+`source` is why re-running on-device extraction is safe: `device_ai` writes never overwrite or
+delete a row with `source = 'user'`, and a parent retyping a tag the model found promotes it to
+`user`. A source **absent** from the payload is left alone, so an extraction write carrying only
+`device_ai` tags does not touch the parent's own, and a plain `user` write behaves as before.
+
+Sources are applied `user` first, then `device_ai`. The protection only runs one way, so the
+reverse order would have the `user` pass delete what the model just wrote.
+
+---
+
 **`PATCH /media/{id}/derived`**
 Body: `{ transcript?, caption?, tags? }`
 **This is the on-device AI write-back endpoint.** The phone transcribes locally, then persists the text here so search works everywhere — including from a browser that will never have an on-device model.
