@@ -1527,3 +1527,37 @@ rather than assume.
 - **Preview fixtures were re-pointed at the slot each kind now belongs to.** They are DEBUG
   only and nothing asserts on them, but a preview showing an audio prompt in `mission` would
   teach the next reader the wrong model.
+
+### The audit pass, and the four things a second read found
+
+Asked to re-read the phase-19 diff as though reviewing someone else's work. It found more
+than the §9 hunt had, and the pattern is worth keeping.
+
+- **The §9 hunt for duplicated slot names found three registries and missed a fourth**, because
+  I looked where registries live rather than where slot names are *used*. `/debug/board` held
+  `spare_slots = ["mission", "weekly", "monthly"]` — a list that predated `letter` as well as
+  `mission_b`, so the route whose whole job is "one assignment of every kind" could not place
+  five kinds. It is derived from `SLOTS` now. **A guard test for the registries would not have
+  caught this**, which is the lesson: the guard covers the places I thought to enumerate.
+- **A test can be stale without failing, and those are the dangerous ones.**
+  `test_daily_question_and_mission_pools_each_cover_a_fortnight` pooled photo, video, audio and
+  activity and asked whether *that* cleared fourteen. It did, and it would have kept saying so
+  forever, because the number only grows as prompts are added. Rewritten to ask per slot, which
+  is the only version that can fail — and it immediately surfaced that video and audio do not
+  clear fourteen on their own.
+- **The widget's fallback was tested and the notification's identical fallback was not.** Two
+  surfaces, same rule, one covered. Both now, because the two agreeing about which item is "the"
+  mission is the actual requirement.
+- **`assert len(slots) == 4` was right for a reason the test did not state** — both fixture
+  dates are Tuesdays. On a Saturday it is five, and the test would have looked broken when it
+  was only badly dated. The precondition is asserted rather than assumed.
+
+Two documentation defects the same pass found, both of the kind this project treats as real:
+
+- **`docs/decisions.md`'s first Settled row still read "One question + one mission per day"**,
+  three rows above the row that supersedes it. Marked superseded rather than deleted, because
+  the two-item rule is still the reason the letter sits on the 15th.
+- **`docs/roadmap-status.md` said `main`'s CI was red on one line.** It was six files; the line
+  was simply the one the job reached first. Corrected there as well as fixed in the code,
+  because the interesting part is the step ordering — a lint job that stops at its first
+  failing step reports its first problem, not its problems.

@@ -12,7 +12,7 @@ Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one
 
 | Decision | Rationale |
 |---|---|
-| One question + one mission per day | Borrowed from Paired. Two items is the most that survives a bad Tuesday. |
+| ~~One question + one mission per day~~ — **superseded Aug 11, 2026** | Borrowed from Paired. Two items is the most that survives a bad Tuesday. **The day is three items now** — see "Three daily assignments" below, which supersedes this and says what it cost. Left in place rather than deleted because the two-item rule is the reason the letter sits on the 15th and not the 1st, and that split still stands on its own. |
 | Weekly bigger mission, Saturday | Room for the things that need an afternoon. |
 | Monthly measurement mission | Height, weight, same-wall photo. Cheap, and the payoff compounds. |
 | Items stack; expire at 14 days | Backlog is fine. Infinite backlog is guilt. |
