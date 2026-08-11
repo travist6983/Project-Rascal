@@ -3,7 +3,7 @@ Snapshot: **Aug 10, 2026**, written as the share sheet went up for review. Measu
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message.
 
-**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API-side figures — API tests, live operations, prompt counts, entries in the dev archive — were carried forward unmeasured**, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
+**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API test count has since been re-measured** — see the row below; it was wrong. The other API-side figures — live operations, prompt counts, entries in the dev archive — were carried forward unmeasured, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
 
 * * *
 ## The headline
@@ -35,7 +35,7 @@ What is left is then the two things only you can unblock — Apple enrollment an
 |     |     |
 | --- | --- |
 | Merged pull requests | **34** — Today v2 (#34) merged since the last snapshot. The share sheet is **open** at this snapshot |
-| API tests | **315 passing**, 24 files — unchanged; the share sheet is an iOS-lane change and touched nothing under `api/`. Carried forward, not re-measured |
+| API tests | **413 passing**, 29 files — re-measured, not carried forward. The stale **315** this row used to claim was two revisions old and wrong even for `main`, which measures **339 in 25 files** from a clean worktree; push notifications add the other 74 |
 | iOS tests | **571 passing**, 56 suites, zero warnings (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 47 with the share sheet, in three new suites. No existing test was modified |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
@@ -263,7 +263,7 @@ Nothing else on this list can be finished without a deployed API. TestFlight nee
 * * *
 ## Facts, if you want to check any of this
 ```bash
-make test                                    # 315 API tests
+make test                                    # 413 API tests (339 on main)
 ls api/tests/test_*.py | wc -l               # 24 files
 
 # Delete DerivedData first or the warning count is a lie: an incremental build does not

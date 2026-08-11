@@ -12,14 +12,49 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import GuardianRole
-from rascal.models import Assignment, Child, Guardian, Prompt, User
+from rascal.models import Assignment, Child, Device, Guardian, Prompt, User
 
 
-async def make_user(session: AsyncSession, *, display_name: str = "Travis") -> User:
+async def make_user(
+    session: AsyncSession,
+    *,
+    display_name: str = "Travis",
+    notify_enabled: bool = False,
+    notify_local_time: dt.time | None = None,
+) -> User:
     user = User(display_name=display_name, email=f"{uuid.uuid4().hex[:8]}@example.com")
+    # Left at the column defaults unless a test says otherwise, so the twenty tests that do
+    # not care about notifications keep exercising the shipped defaults rather than a
+    # fixture's opinion of them.
+    user.notify_enabled = notify_enabled
+    if notify_local_time is not None:
+        user.notify_local_time = notify_local_time
     session.add(user)
     await session.flush()
     return user
+
+
+async def make_device(
+    session: AsyncSession,
+    user: User,
+    *,
+    token: str | None = None,
+    platform: str = "ios",
+    environment: str = "production",
+    revoked: bool = False,
+) -> Device:
+    now = dt.datetime.now(tz=dt.UTC)
+    device = Device(
+        user_id=user.id,
+        token=token or uuid.uuid4().hex * 2,
+        platform=platform,
+        environment=environment,
+        last_seen_at=now,
+        revoked_at=now if revoked else None,
+    )
+    session.add(device)
+    await session.flush()
+    return device
 
 
 async def make_child(
