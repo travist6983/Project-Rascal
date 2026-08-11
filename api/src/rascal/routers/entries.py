@@ -63,6 +63,12 @@ async def create_entry(
         title=payload.title,
         body=payload.body,
         unlock_at_age=payload.unlock_at_age,
+        # Setness, not value. `"unlock_at_age": null` means "the parent turned sealing off";
+        # omitting the key means "no opinion, use the prompt's default". Pydantic collapses
+        # both to None, so the distinction has to come from model_fields_set — the same thing
+        # PATCH gets for free from exclude_unset, which is why the two routes used to disagree
+        # about what null meant.
+        unlock_at_age_provided="unlock_at_age" in payload.model_fields_set,
         tags=payload.tags,
     )
     result = service.to_entry_out(entry)
@@ -100,6 +106,14 @@ async def list_entries(
     after: dt.datetime | None = Query(default=None, description="occurred_at strictly after"),
     type: EntryType | None = Query(default=None, description="Filter by entry_type"),
     tag: str | None = Query(default=None),
+    sealed: bool | None = Query(
+        default=None,
+        description=(
+            "`true` returns only sealed entries (`unlock_at_age` set), `false` only unsealed. "
+            "Omit for both. Sealing is not an `entry_type` — a sealed letter is a `text` "
+            "entry — so `type` cannot express this."
+        ),
+    ),
     q: str | None = Query(
         default=None,
         description=(
@@ -118,6 +132,7 @@ async def list_entries(
         after=after,
         entry_type=type,
         tag=tag,
+        sealed=sealed,
         query=q,
         limit=limit,
         cursor=cursor,

@@ -11,15 +11,19 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 
-from rascal.deps import ChildAccess, CurrentUser, SessionDep, child_access
+from rascal.deps import ChildAccess, CurrentUser, SessionDep, SettingsDep, child_access
 from rascal.models import Child, Guardian
 from rascal.schemas.child import (
+    AvatarUploadUrlRequest,
+    AvatarUploadUrlResponse,
+    AvatarUrlResponse,
     ChildCreate,
     ChildOut,
     ChildUpdate,
     ChildWithRole,
     RecomputeAgesResult,
 )
+from rascal.services import avatars
 from rascal.services import entries as entries_service
 from rascal.services.dates import age_in_months, today_in
 
@@ -62,6 +66,7 @@ async def create_child(
     child = Child(
         name=payload.name,
         birthdate=payload.birthdate,
+        pronouns=payload.pronouns,
         family_timezone=payload.family_timezone,
     )
     session.add(child)
@@ -95,6 +100,62 @@ async def update_child(
     await session.flush()
     await session.refresh(child)
     return ChildOut.model_validate(child)
+
+
+@router.post(
+    "/{child_id}/avatar-upload-url",
+    response_model=AvatarUploadUrlResponse,
+    summary="Presign a single PUT for the child's avatar",
+    description=(
+        "One presigned PUT — never multipart, because an avatar is a small square and the "
+        "multipart machinery exists for video. Accepts JPEG, PNG, or HEIC.\n\n"
+        "**This stores nothing.** It returns a key; `PATCH /children/{child_id}` with "
+        "`avatar_key` is what commits it, and only after the PUT succeeds. An upload the "
+        "client abandons therefore leaves an orphaned object rather than a child record "
+        "pointing at bytes that never arrived — of the two, only the second is visible to a "
+        "parent.\n\n"
+        "Read it back with `GET /children/{child_id}/avatar-url`; the bucket is private, so "
+        "the key alone is not fetchable."
+    ),
+)
+async def avatar_upload_url(
+    payload: AvatarUploadUrlRequest,
+    settings: SettingsDep,
+    access: ChildAccess = Depends(child_access("parent")),
+) -> AvatarUploadUrlResponse:
+    upload_url, avatar_key = avatars.plan_avatar_upload(
+        access.child_id,
+        content_type=payload.content_type,
+        size=payload.bytes,
+        settings=settings,
+    )
+    return AvatarUploadUrlResponse(
+        upload_url=upload_url,
+        avatar_key=avatar_key,
+        expires_in=settings.presign_ttl_seconds,
+    )
+
+
+@router.get(
+    "/{child_id}/avatar-url",
+    response_model=AvatarUrlResponse,
+    summary="A short-lived read URL for the child's avatar",
+    description=(
+        "`viewer` is enough: anyone who can see the child can see their face.\n\n"
+        '404 when the child has no avatar. That is deliberately not a null URL — "this '
+        'child has no avatar" and "here is a URL that will not resolve" are different '
+        "answers, and only the first lets a client fall back to initials without a round "
+        "trip that fails."
+    ),
+)
+async def avatar_url(
+    settings: SettingsDep,
+    access: ChildAccess = Depends(child_access("viewer")),
+) -> AvatarUrlResponse:
+    return AvatarUrlResponse(
+        url=avatars.presign_avatar_read(access.child, settings),
+        expires_in=settings.presign_ttl_seconds,
+    )
 
 
 @router.post(

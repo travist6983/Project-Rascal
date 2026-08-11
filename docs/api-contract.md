@@ -142,9 +142,56 @@ and a wrong 404 sends me debugging the wrong thing.
 **`GET /children`** → children the caller can see, with `role` on each.
 
 **`POST /children`**
-Body: `{ name, birthdate, family_timezone }` → creates the child and a `parent` guardian row for the caller.
+Body: `{ name, birthdate, family_timezone, pronouns? }` → creates the child and a `parent` guardian row for the caller.
 
-**`PATCH /children/{id}`** — name, birthdate, timezone, avatar.
+**`PATCH /children/{id}`** — name, birthdate, timezone, pronouns, avatar.
+
+### `pronouns`
+
+`he/him`, `she/her`, `they/them`, or **null**, and null is not a synonym for `they/them` — it
+means the question was not answered. Onboarding is allowed to skip it, and prompt rendering
+has to be able to fall back to the library's existing wording rather than assert something
+the parent never said. An explicit `null` on `PATCH` clears it back to unanswered.
+
+A closed set with a named `CHECK`, per the constrained-value convention. The consumer is
+pronoun substitution in prompt bodies, which has to enumerate the forms it writes; widening
+the set later is a migration, whereas storing text nothing can render is not something a
+migration can undo. See `docs/decisions.md` open item 10.
+
+### The avatar
+
+The bucket is private, so a key is not a URL. Two calls, mirroring media minus the entry.
+
+**`POST /children/{id}/avatar-upload-url`** — parent only.
+Body: `{ content_type, bytes }` → `{ upload_url, avatar_key, expires_in }`
+
+```json
+{ "content_type": "image/jpeg", "bytes": 41234 }
+```
+
+- **A single PUT, never multipart.** An avatar is a ~512px square; the multipart machinery
+  exists for video.
+- `image/jpeg`, `image/png`, `image/heic`. Anything else is `422` on `content_type` — the
+  key's extension has to be derived from something, and a type nothing can decode is better
+  refused here than discovered when the archive tries to render it in 2044.
+- **This stores nothing.** `PATCH /children/{id}` with the returned `avatar_key` is what
+  commits it, and only after the PUT succeeds. An abandoned upload therefore leaves an
+  orphaned object rather than a child pointing at bytes that never arrived; only the second
+  is visible to a parent.
+- A fresh key per presign, never a stable `avatar.jpg`. Overwriting one key would make a
+  replaced avatar indistinguishable from a corrupted one, because every cached copy and every
+  URL already in flight would follow the overwrite.
+
+**`GET /children/{id}/avatar-url`** — `viewer` is enough; anyone who can see the child can see
+their face.
+
+```json
+{ "url": "https://…", "expires_in": 3600 }
+```
+
+**`404` when the child has no avatar**, deliberately rather than a null URL. "This child has
+no avatar" and "here is a URL that will not resolve" are different answers, and only the
+first lets a client fall back to initials without a round trip that fails.
 
 **`POST /children/{id}/recompute-ages`** — parent only. No body.
 
@@ -267,18 +314,46 @@ freeform entry has no assignment and so falls through to (3)/(4). What was asked
 reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
 `text`, `did_it`.
 
+#### `unlock_at_age`: omitting the key and sending `null` are different
+
+| What you send | What happens |
+|---|---|
+| key absent | Sealed at the prompt's `default_unlock_age`, if it has one |
+| `"unlock_at_age": null` | **Not sealed.** The parent turned sealing off |
+| `"unlock_at_age": 21` | Sealed at 21 |
+
+Letters are sealed by default and the server owns that, so a client that has never heard of
+sealing still writes a sealed letter. The *explicit* null is the only thing that overrides it,
+and only because a parent said so on a screen.
+
+This is setness, not value — the same distinction `PATCH` gets for free from `exclude_unset`.
+`POST /sync/push` follows the identical rule, and it is the more important of the two: a
+letter written offline with sealing deliberately off arrives hours later with nobody watching.
+
 Deleting an entry releases its assignment back to `pending` unless another live entry still
 completes it, so "wrong photo, redo it" puts the mission back on the Today screen. If the assignment is already `done`, `dismissed`, or `expired`, the entry
 still saves — the archive matters more than the bookkeeping — and the assignment is left
 alone.
 
 **`GET /entries`**
-Query: `child_id`, `before`, `after`, `type`, `tag`, `q`, `limit`, `cursor`.
+Query: `child_id`, `before`, `after`, `type`, `tag`, `sealed`, `q`, `limit`, `cursor`.
 Returns entries newest-first by `occurred_at`, with media summaries inline (thumb keys, counts, durations) so the timeline renders without N+1 calls.
 
 Cursor is opaque and encodes `(occurred_at, id)` — keyset pagination, not `OFFSET`.
 Backdating inserts rows into the middle of the order, and offset paging would skip them.
 `limit` defaults to 50, caps at 200. Soft-deleted entries are excluded here.
+
+**`sealed`** — `true` for sealed entries only, `false` for unsealed only, omitted for both.
+Sealed means `unlock_at_age IS NOT NULL`. It is deliberately **not** a seventh `entry_type`:
+a sealed letter is a `text` entry, and a sealed photo is possible and has to stay findable as
+a photo. The two axes are orthogonal, so `type` cannot express this and they compose. It
+narrows `q` searches too.
+
+**`prompt_body`** is on every row: the sentence the entry answered, or `null` for a freeform
+entry. A parent-authored `custom_body` wins over the library prompt it replaced, because that
+is what was actually on screen. `EntryDetail` still carries the whole `prompt` object; this is
+the one field a list row needs, and inlining it is what keeps a timeline card from fetching
+per entry to quote its own prompt.
 
 ### `q` — full-text search
 

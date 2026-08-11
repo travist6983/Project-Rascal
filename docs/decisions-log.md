@@ -1248,3 +1248,48 @@ only what the run decided, or got wrong — the procedure itself is `docs/runboo
 - **Paper grain: still out, still unresolved.** Third phase to drop it and decline to settle it.
   The bundle calls it mandatory identity, `design-system.md` opens its anti-patterns with
   screen-print texture, and neither decisions file mentions grain at all.
+
+## Aug 10, 2026 — closing the five gaps the iOS lane was working around
+
+Everything here was open in `docs/blocked.md` as "the client shipped a workaround rather than
+a patch to the backend". The workarounds were the specification.
+
+- **`unlock_at_age` now distinguishes an absent key from an explicit null**, via
+  `model_fields_set` rather than a sentinel value. A sentinel would have had to travel through
+  the service signature and the sync schema as a third state nothing else in the codebase uses;
+  setness is what `PATCH` already gets free from `exclude_unset`, and the two routes disagreeing
+  about what null meant was the actual defect.
+- **The same fix went into `/sync/push`, which nobody asked for.** The blocked entry only named
+  `POST /entries`. But `_apply_entry` creates entries through the same service, and that is the
+  path a letter written offline takes — arriving hours later, with the parent long gone from the
+  screen where they turned sealing off. It is the worse of the two to get wrong.
+- **`prompt_body` is the assignment's `resolved_body`, not `prompts.body`.** A parent-authored
+  `custom_body` wins, because the point is to quote what was on screen. Using the raw prompt
+  would have quoted the sentence the parent replaced.
+- **`sealed` is its own query parameter, not a seventh `entry_type`.** Sealing and artifact kind
+  are orthogonal — a sealed photo is possible and has to stay findable as a photo — so folding
+  them into one enum would have made the two mutually exclusive.
+- **`_loaded` became public `loaded`, and `/sync` now uses it.** Sync selected entries itself and
+  restated the eager-load list by hand, so every field `to_entry_out` learned to read had to be
+  remembered in two places. `Entry.assignment` is `lazy="raise"`, which turns that miss into a
+  500 on the sync path alone — invisible to every timeline test. There is now a test that pulls
+  `/sync` and asserts `prompt_body`, and it fails if the shared helper is bypassed.
+- **`Entry.assignment` is `viewonly=True`.** Deleting an entry must not touch its assignment —
+  `release_assignment` puts it back to `pending`, which is the opposite of a cascade.
+- **The avatar presign stores nothing.** It returns a key; `PATCH /children/{id}` commits it
+  after the PUT succeeds. The alternative — writing `avatar_key` at presign time — makes an
+  abandoned upload into a child record pointing at bytes that never arrived, and only that
+  failure is visible to a parent. A fresh UUID per presign rather than a stable `avatar.jpg`,
+  so a replaced avatar is never indistinguishable from a corrupted one.
+- **`GET /avatar-url` 404s rather than returning a null URL.** "No avatar" and "a URL that will
+  not resolve" are different answers, and only the first lets a client draw initials without a
+  round trip that fails.
+- **`children.pronouns` is a closed set of three, and null means unanswered.** Free text would
+  not survive its only consumer: pronoun substitution has to enumerate the forms it writes.
+  Widening the set is a migration; storing text nothing can render is not undoable by one.
+  Null deliberately does not mean `they/them` — a parent who skipped the question said nothing,
+  and `decisions.md` open item 10 is about prompts reading correctly rather than confidently.
+- **The three assertions that mattered were checked by breaking the code**, not by trusting a
+  green run: dropping the setness guard fails both sealing tests, and reverting `/sync` to its
+  hand-written eager loads fails the sync serialization test with a lazy-load error. All 24 new
+  tests passed on first run, which is exactly when they are least trustworthy.

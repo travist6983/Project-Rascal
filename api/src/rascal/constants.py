@@ -57,6 +57,18 @@ UPLOAD_STATUSES: Final = ("pending", "complete", "failed")
 TagSource = Literal["user", "device_ai"]
 TAG_SOURCES: Final = ("user", "device_ai")
 
+# How the child is referred to. Nullable on `children`: a parent who skips the question in
+# onboarding has not said "they/them", they have said nothing, and rendering has to be able to
+# tell those apart — `docs/decisions.md` open item 10 is about prompts reading correctly, and
+# a guess dressed up as an answer is the failure it is trying to avoid.
+#
+# A closed set with a CHECK, per the constrained-value convention, rather than free text: the
+# consumer is pronoun substitution in prompt bodies, which has to enumerate the forms it
+# writes. Widening it later is a one-line migration; storing text nothing can render is not
+# recoverable by one.
+Pronouns = Literal["he/him", "she/her", "they/them"]
+PRONOUNS: Final = ("he/him", "she/her", "they/them")
+
 # Not a CHECK constraint. The scheduler rotates on these, but the library will grow themes
 # and a prompt with an unrecognised theme should be seedable without a migration.
 THEMES: Final = (

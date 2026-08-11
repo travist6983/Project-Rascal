@@ -28,6 +28,7 @@ from rascal.services.dates import age_at_instant
 from rascal.services.entries import (
     apply_tags,
     create_entry,
+    loaded,
     refresh_entry_type,
     to_entry_out,
 )
@@ -60,12 +61,12 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
     entries = list(
         (
             await session.execute(
-                select(Entry)
+                # `loaded` rather than a hand-written options list. This used to restate the
+                # eager loads, which meant every field `to_entry_out` learned to read had to
+                # be remembered in two places — and `prompt_body` was the one that proved it,
+                # because the miss is a lazy-load raise on the sync path only.
+                loaded(select(Entry))
                 .where(Entry.child_id == child.id, _after(Entry.updated_at))
-                .options(
-                    selectinload(Entry.media),
-                    selectinload(Entry.entry_tags).selectinload(EntryTag.tag),
-                )
                 .order_by(Entry.updated_at.asc())
             )
         )
@@ -165,6 +166,11 @@ async def _apply_entry(
             title=incoming.title,
             body=incoming.body,
             unlock_at_age=incoming.unlock_at_age,
+            # Same setness rule as POST /entries. A letter written on a plane with sealing
+            # deliberately off arrives here hours later, and it must not be sealed on the way
+            # in — the parent is not present to notice, which makes this the worse of the two
+            # routes to get wrong.
+            unlock_at_age_provided="unlock_at_age" in incoming.model_fields_set,
             tags=incoming.tags or [],
         )
         if incoming.deleted_at is not None:

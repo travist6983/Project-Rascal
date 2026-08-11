@@ -88,6 +88,14 @@ class EntryOut(ApiModel):
     entry_type: EntryType
     unlock_at_age: int | None
     deleted_at: dt.datetime | None
+    # The sentence this entry answered, so a timeline card can quote it without a per-row
+    # fetch. Null for a freeform entry, which has no prompt behind it. A parent-authored
+    # `custom_body` wins over the library prompt it replaced — this is the assignment's
+    # resolved body, not `prompts.body`, because that is what was actually on screen.
+    #
+    # `EntryDetail.prompt` still carries the whole PromptRef; this is the one field a list
+    # row needs, and inlining it is what keeps the timeline free of N+1 calls.
+    prompt_body: str | None = None
     tags: list[TagOut] = Field(default_factory=list)
     media: list[MediaSummary] = Field(default_factory=list)
     media_count: int = 0

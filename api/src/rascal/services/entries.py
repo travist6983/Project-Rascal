@@ -141,6 +141,7 @@ def to_entry_out(entry: Entry) -> EntryOut:
         entry_type=entry.entry_type,
         unlock_at_age=entry.unlock_at_age,
         deleted_at=entry.deleted_at,
+        prompt_body=entry.assignment.resolved_body if entry.assignment is not None else None,
         tags=_tags_of(entry),
         media=[MediaSummary.model_validate(item) for item in media],
         media_count=len(media),
@@ -154,8 +155,11 @@ def to_entry_detail(entry: Entry, prompt: Prompt | None) -> EntryDetail:
     return EntryDetail(**base)
 
 
-def _loaded(statement: Select) -> Select:
-    """One query, everything the timeline renders. No N+1.
+def loaded(statement: Select) -> Select:
+    """One query, everything `to_entry_out` reads. No N+1.
+
+    Public because `services/sync.py` selects entries too and serializes them with the same
+    function, so the two have to agree about what is eagerly loaded. They did not, once.
 
     `populate_existing` because a handler that just wrote tags or media would otherwise get
     the collection SQLAlchemy loaded earlier in the same session, not the one it just built.
@@ -164,13 +168,17 @@ def _loaded(statement: Select) -> Select:
     return statement.options(
         selectinload(Entry.media),
         selectinload(Entry.entry_tags).selectinload(EntryTag.tag),
+        # For `prompt_body`. Two more statements per page, not two more per row — and the
+        # prompt leg is needed because `resolved_body` falls through to it whenever the
+        # assignment has no parent-authored `custom_body`, which is the common case.
+        selectinload(Entry.assignment).selectinload(Assignment.prompt),
     ).execution_options(populate_existing=True)
 
 
 async def load_entry(
     session: AsyncSession, entry_id: uuid.UUID, *, include_deleted: bool = False
 ) -> Entry:
-    statement = _loaded(select(Entry).where(Entry.id == entry_id))
+    statement = loaded(select(Entry).where(Entry.id == entry_id))
     if not include_deleted:
         statement = statement.where(Entry.deleted_at.is_(None))
     entry = await session.scalar(statement)
@@ -356,12 +364,21 @@ async def create_entry(
     title: str | None = None,
     body: str | None = None,
     unlock_at_age: int | None = None,
+    unlock_at_age_provided: bool = False,
     tags: list[str] | None = None,
 ) -> Entry:
     """Create an entry and, if it completes a pending assignment, close that out too.
 
     Nothing here assumes the entry has media. "Get on the floor for ten minutes" is a
     complete, legitimate entry with no artifact.
+
+    `unlock_at_age_provided` is the difference between "I have no opinion about sealing" and
+    "the parent turned sealing off", which `unlock_at_age` alone cannot express — Pydantic
+    produces `None` for an omitted key and for an explicit `null` alike. Callers pass
+    `"unlock_at_age" in payload.model_fields_set`. It defaults to False so a caller that has
+    genuinely not thought about sealing still gets the prompt's default, which is the safe
+    direction: a letter sealed by accident can be unsealed, and one published by accident
+    cannot be unpublished.
     """
     if await session.get(Entry, entry_id) is not None:
         raise RascalError(
@@ -373,8 +390,10 @@ async def create_entry(
 
     assignment, prompt = await _resolve_assignment(session, assignment_id, child)
 
-    if unlock_at_age is None and prompt is not None:
-        # Letters are sealed by default. The server owns this, not the client.
+    if unlock_at_age is None and not unlock_at_age_provided and prompt is not None:
+        # Letters are sealed by default. The server owns this, not the client — a client that
+        # has never heard of sealing still writes a sealed letter. An *explicit* null is the
+        # one thing that overrides it, and only because the parent said so on a screen.
         unlock_at_age = prompt.default_unlock_age
 
     entry = Entry(
@@ -425,6 +444,7 @@ def _filters(
     after: dt.datetime | None,
     entry_type: str | None,
     tag: str | None,
+    sealed: bool | None = None,
 ) -> list:
     clauses = [Entry.child_id == child_id, Entry.deleted_at.is_(None)]
     if before is not None:
@@ -433,6 +453,14 @@ def _filters(
         clauses.append(Entry.occurred_at > after)
     if entry_type:
         clauses.append(Entry.entry_type == entry_type)
+    if sealed is not None:
+        # Sealed is `unlock_at_age IS NOT NULL`, not an `entry_type` — a sealed letter is a
+        # `text` entry and `?type=` cannot express the difference. Its own parameter rather
+        # than a seventh entry_type, because the two are orthogonal: a sealed photo is
+        # possible and would have to remain findable as a photo.
+        clauses.append(
+            Entry.unlock_at_age.is_not(None) if sealed else Entry.unlock_at_age.is_(None)
+        )
     if tag:
         clauses.append(
             Entry.id.in_(
@@ -456,6 +484,7 @@ async def list_entries(
     after: dt.datetime | None = None,
     entry_type: str | None = None,
     tag: str | None = None,
+    sealed: bool | None = None,
     query: str | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
     cursor: str | None = None,
@@ -476,11 +505,12 @@ async def list_entries(
             after=after,
             entry_type=entry_type,
             tag=tag,
+            sealed=sealed,
             limit=limit,
             cursor=cursor,
         )
 
-    clauses = _filters(child_id, before, after, entry_type, tag)
+    clauses = _filters(child_id, before, after, entry_type, tag, sealed)
 
     if cursor:
         position = Cursor.decode(cursor)
@@ -495,7 +525,7 @@ async def list_entries(
         )
 
     statement = (
-        _loaded(select(Entry))
+        loaded(select(Entry))
         .where(*clauses)
         .order_by(Entry.occurred_at.desc(), Entry.id.desc())
         # One extra row tells us whether there is a next page without a second count query.
@@ -519,6 +549,7 @@ def search_statement(
     after: dt.datetime | None = None,
     entry_type: str | None = None,
     tag: str | None = None,
+    sealed: bool | None = None,
     limit: int = DEFAULT_PAGE_SIZE,
     cursor: str | None = None,
 ) -> Select:
@@ -531,7 +562,7 @@ def search_statement(
     tsq = search.tsquery(query)
     rank = search.rank_expression(tsq)
 
-    clauses = [*_filters(child_id, before, after, entry_type, tag), search.matches(tsq)]
+    clauses = [*_filters(child_id, before, after, entry_type, tag, sealed), search.matches(tsq)]
 
     if cursor:
         position = SearchCursor.decode(cursor)
@@ -555,7 +586,7 @@ def search_statement(
         )
 
     return (
-        _loaded(select(Entry, rank.label("rank")))
+        loaded(select(Entry, rank.label("rank")))
         .where(*clauses)
         # Relevance first, then the timeline's own order, so equally-good matches still read
         # newest to oldest.
@@ -574,6 +605,7 @@ async def _search_entries(
     after: dt.datetime | None,
     entry_type: str | None,
     tag: str | None,
+    sealed: bool | None,
     limit: int,
     cursor: str | None,
 ) -> tuple[list[Entry], str | None]:
@@ -585,6 +617,7 @@ async def _search_entries(
         after=after,
         entry_type=entry_type,
         tag=tag,
+        sealed=sealed,
         limit=limit,
         cursor=cursor,
     )
@@ -734,7 +767,7 @@ async def moments_for(
     """
     utc_occurred = func.timezone("UTC", Entry.occurred_at)
     statement = (
-        _loaded(select(Entry))
+        loaded(select(Entry))
         .where(
             Entry.child_id == child.id,
             Entry.deleted_at.is_(None),
@@ -757,7 +790,7 @@ async def moments_for(
     fallback = (
         (
             await session.execute(
-                _loaded(select(Entry))
+                loaded(select(Entry))
                 .where(Entry.child_id == child.id, Entry.deleted_at.is_(None))
                 .order_by(func.random())
                 .limit(5)

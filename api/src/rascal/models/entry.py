@@ -27,6 +27,7 @@ from rascal.constants import (
     TagSource,
     UploadStatus,
 )
+from rascal.models.assignment import Assignment
 from rascal.models.base import (
     Base,
     client_uuid_pk,
@@ -103,6 +104,13 @@ class Entry(Base):
     entry_tags: Mapped[list[EntryTag]] = relationship(
         back_populates="entry", cascade="all, delete-orphan", lazy="raise"
     )
+    # Read-only, and only so a list row can quote the prompt it answered. No cascade and no
+    # back_populates: deleting an entry must not touch the assignment — `release_assignment`
+    # puts it back to `pending`, which is the opposite of deleting it.
+    #
+    # `lazy="raise"` like its siblings, so a caller that forgot to eager-load fails loudly in
+    # a test rather than issuing one query per row in production.
+    assignment: Mapped[Assignment | None] = relationship(lazy="raise", viewonly=True)
 
 
 class Media(Base):
