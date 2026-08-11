@@ -20,6 +20,11 @@ class UserOut(ApiModel):
     display_name: str | None
     # So a client can hide the library editor rather than offer it and take a 403.
     is_admin: bool = False
+    # The notification preference, on the user rather than the child: one human decides when
+    # their own phone buzzes. `notify_local_time` is a wall-clock time read in the child's
+    # `family_timezone` — never the device's timezone and never UTC.
+    notify_enabled: bool = False
+    notify_local_time: dt.time
     created_at: dt.datetime
 
 

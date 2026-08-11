@@ -68,8 +68,12 @@ def one_of(column: str, values: tuple[str, ...], *, name: str) -> CheckConstrain
     return CheckConstraint(f"{column} IN ({rendered})", name=name)
 
 
-# Tables carrying an updated_at column, and therefore the set_updated_at() trigger. The
-# migration reads this list, so adding a table with updated_at is a one-line change.
+# Every table carrying an updated_at column, and therefore the set_updated_at() trigger.
+#
+# This is the *current* schema's list, and no migration reads it. Each migration attaches the
+# triggers for the tables it creates, from a literal frozen at that revision — a migration
+# that reads a live constant describes whatever the models look like today rather than the
+# schema it was written for, and starts creating triggers for tables that do not exist yet.
 TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "users",
     "children",
@@ -79,5 +83,6 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "media",
     "tags",
     "entry_tags",
+    "devices",
     "prompt_suppressions",
 )

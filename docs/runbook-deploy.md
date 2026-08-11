@@ -118,6 +118,116 @@ fly secrets set --app rascal-api \
 | `S3_ENDPOINT_URL` | `fly.toml` `[env]`, Tigris | **The quiet one.** Unset means real AWS. Presigning is an offline signature computation, so nothing fails at boot and the health check stays green — the app just hands the phone an `amazonaws.com` URL that 403s. Only §7's storage check catches this. |
 | `FLY_API_TOKEN` | GitHub repo secret | The Deploy workflow fails immediately with a message telling you to run `fly tokens create deploy --app rascal-api`. |
 | `FLY_DEPLOY_ENABLED` | GitHub repo **variable**, `true` | Not a secret and not optional: while it is unset, a push to `main` **skips** the deploy and renders grey. Manual dispatch always runs. |
+| `APNS_KEY_ID` | Fly secret | **No notification is ever delivered.** The app starts, the health check is green, `notification_sends` rows are written, and every phone stays silent. See §4a. |
+| `APNS_TEAM_ID` | Fly secret | Same as above — all three are required together and a partial set is treated as unconfigured. |
+| `APNS_PRIVATE_KEY` | Fly secret | Same as above. The **contents** of the `.p8`, not a path. |
+| `APNS_TOPIC` | Fly secret, optional | Defaults to `APPLE_BUNDLE_ID`, which is correct. Set it only if the two ever legitimately differ. **Wrong** is worse than unset: the app starts and APNs rejects every token with `DeviceTokenNotForTopic`. |
+
+### 4a. APNs — the push credentials, and where the `.p8` comes from
+
+**None of this exists yet, and nothing below can be done until Apple Developer enrollment
+completes** — the same enrollment that blocks real Sign in with Apple. See
+`docs/blocked.md` §1.
+
+The key is created in the Apple Developer portal: **Certificates, Identifiers & Profiles →
+Keys → +**, with **Apple Push Notifications service (APNs)** enabled. That gives you a
+`.p8` file and a **Key ID**. The **Team ID** is on the portal's membership page. One APNs
+key works for both the sandbox and the production hosts — the *token* differs per
+environment, not the key, which is why `devices.environment` exists and the API refuses to
+guess it.
+
+```bash
+fly secrets set --app rascal-api \
+  APNS_KEY_ID="ABC1234567" \
+  APNS_TEAM_ID="DEF7654321" \
+  APNS_PRIVATE_KEY="$(cat AuthKey_ABC1234567.p8)"
+```
+
+**The `.p8` is downloadable exactly once.** Store it somewhere you will still have it in a
+year; regenerating means revoking the old key.
+
+**The newlines matter, and losing them is the likely mistake here.** A `.p8` is a PEM: two
+`BEGIN`/`END` lines with base64 between them. `"$(cat …)"` above preserves that. Pasting the
+file into the Fly dashboard's secret box, or into a chat window and back out, frequently does
+not. The job checks at startup rather than at send time, so a mangled key looks like this and
+costs nothing:
+
+```
+RuntimeError: APNS_PRIVATE_KEY is set but could not be used to sign a provider token:
+Unable to load PEM file. … It must be the full contents of the .p8, newlines and BEGIN/END
+lines intact. See docs/runbook-deploy.md section 4a.
+```
+
+That is deliberately a hard exit before any user is looked at. If the key were only found to
+be bad on the first send, the job would already have claimed and committed those users' days
+— they would be recorded as notified, hear nothing, and be skipped the next run as "already
+sent". Fix the secret, re-run, and everyone whose window has not gone stale still gets it.
+
+**What happens with these unset — which is the state today.** `build_push_client` returns a
+client that sends nothing and logs `push not configured` at WARNING on every attempt. That
+is deliberate: a push service that silently no-ops is indistinguishable from one that works
+until somebody notices their phone has been quiet for a month. The rest of the system runs
+normally, so nothing else is blocked on this.
+
+### 4b. The notification job — a second scheduled machine
+
+The send job is `python -m rascal.jobs.notify`, and like the scheduler it is **not created
+or updated by `fly deploy`**. Same shape as §5's scheduler machine, and the same three
+load-bearing parts — this command was originally written in the short form that §5 records
+as having silently produced an hourly second copy of uvicorn:
+
+```bash
+fly machine run registry.fly.io/rascal-api:deployment-<id> \
+  --app rascal-api \
+  --schedule hourly \
+  --region ord \
+  --vm-size shared-cpu-1x \
+  --vm-memory 512 \
+  --restart no \
+  --env ENVIRONMENT=prod \
+  --env S3_REGION=auto \
+  --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+  -- python -m rascal.jobs.notify
+```
+
+The `--env` flags are not optional here either: `build_push_client` reads the full
+`Settings`, so a machine without them dies on `s3_region Field required` before it looks at
+a single user — the same failure the scheduler machine hit on Aug 10. Verify the same way:
+`fly machine status <id> --display-config`, where `init.cmd` must name `rascal.jobs.notify`
+and `"init": {}` means `--command` was dropped and this machine is running uvicorn instead.
+
+A good run logs one line and stops:
+
+```
+{"logger": "rascal.notifications", "message": "notification run", "users_considered": 1, "notifications_sent": 1, ...}
+Main child exited normally with code: 0
+```
+
+Every run is idempotent — the unique index on `(user_id, notification_date)` means a
+duplicate firing sends once — and every run is catch-up: it sends anything whose window has
+passed today and has not been sent, subject to the two-hour staleness tolerance.
+
+**Read this next part before deciding this machine is optional, because it is not.**
+
+`GET /today` repairs a missed *assignment*, which is what demoted the scheduler to an
+optimisation. **Nothing repairs a missed notification.** There is no read at 19:00 on the
+user's behalf, so a window that no run ever looks at is a notification that simply never
+happened, and the user experiences it as the feature being broken. The staleness tolerance
+bounds how late catch-up may fire; it cannot invent a run that never occurred.
+
+Two consequences of `fly machine run`, both of which bite harder here than they do for the
+scheduler:
+
+1. A fresh app has **no notification job at all** until someone runs this by hand, and
+   nothing fails if they forget. The API is green, devices register, preferences save, and
+   no notification is ever sent.
+2. The machine **pins the image it was created from**. Later deploys do not update it, so
+   it can quietly run months-old code. Recreate it whenever the job changes.
+
+Hourly is Fly's floor, not this job's preferred resolution — a user picks a minute, so a
+window is served by the first run after it opens. That is exactly why the tolerance is two
+hours rather than one. Nothing in the job assumes an interval; run it more often if the
+platform ever allows.
 
 Backups need their own credentials (`BACKUP_DATABASE_URL` and an `AWS_*` pair as GitHub
 secrets) — that is `docs/DEPLOY.md` §4 and it is not on the path to a running API.

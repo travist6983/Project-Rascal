@@ -29,6 +29,7 @@ from rascal.schemas.entry import (
     MediaSummary,
     PromptRef,
     TagOut,
+    TagWrite,
 )
 from rascal.services import search
 from rascal.services.dates import age_at_instant
@@ -251,6 +252,43 @@ async def apply_tags(
     await session.flush()
 
 
+async def apply_tag_writes(
+    session: AsyncSession,
+    entry: Entry,
+    tags: list[object],
+) -> None:
+    """Write a mixed list of tags, grouping by source.
+
+    **The order is load-bearing, and it is `user` first.** :func:`apply_tags` sets the tags for
+    *one* source and removes the ones it was not given, and its only protection runs one way — a
+    `device_ai` write never eats a `user` row, but a `user` write happily removes a `device_ai`
+    one. Applying `device_ai` first would therefore have the `user` pass delete everything the
+    model just wrote.
+
+    **A source absent from the payload is left alone**, which is what makes this backwards
+    compatible in both directions:
+
+    * A list of bare strings is `user`-only and behaves exactly as it did before this existed.
+    * An extraction write is `device_ai`-only, and the parent's own tags are untouched.
+    """
+    grouped: dict[TagSource, list[str]] = {}
+    for tag in tags:
+        if isinstance(tag, str):
+            grouped.setdefault("user", []).append(tag)
+            continue
+        # `PATCH /entries/{id}` reaches here through `payload.model_dump(exclude_unset=True)`,
+        # which turns a `TagWrite` back into a plain dict, while `POST /entries` passes the
+        # model itself. Validating covers both and refuses a source the enum does not know
+        # rather than letting it reach a CHECK constraint as a 500.
+        written = tag if isinstance(tag, TagWrite) else TagWrite.model_validate(tag)
+        grouped.setdefault(written.source, []).append(written.name)
+
+    # `user` before `device_ai`. See above — reversing these is silent data loss.
+    for source in ("user", "device_ai"):
+        if source in grouped:
+            await apply_tags(session, entry, grouped[source], source)
+
+
 # --- Creation ----------------------------------------------------------------------------
 
 
@@ -429,7 +467,7 @@ async def create_entry(
     # assignment is left alone — the archive matters more than the bookkeeping.
 
     if tags:
-        await apply_tags(session, entry, tags, "user")
+        await apply_tag_writes(session, entry, tags)
 
     await session.flush()
     return await load_entry(session, entry.id)
@@ -656,7 +694,7 @@ async def update_entry(
         )
 
     if tags is not None:
-        await apply_tags(session, entry, tags, "user")
+        await apply_tag_writes(session, entry, tags)
 
     if "body" in fields or "title" in fields:
         # Written content can tip a freeform entry from did_it to text, so the type has to
