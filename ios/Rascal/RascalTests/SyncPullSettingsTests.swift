@@ -51,7 +51,11 @@ struct SyncPullSettingsTests {
         ))
 
         #expect(model.pullEnabledBinding.wrappedValue == false)
-        #expect(model.lastPullDescription == "Off")
+        // **Was `== "Off"`, and that assertion pinned the defect rather than the behaviour.**
+        // "Last pull" is a row whose value is a time; "Off" is the state of the toggle three rows
+        // below it. The value now answers the question the label asks, and names the reason a
+        // time cannot exist rather than leaving an empty fact on screen.
+        #expect(model.lastPullDescription == "Never — pulling is off")
         #expect(model.cursorDescription == nil, "no position row while it is off")
     }
 
@@ -67,7 +71,7 @@ struct SyncPullSettingsTests {
 
         #expect(state.pullEnabled)
         #expect(engine.pullEnabled)
-        #expect(model.lastPullDescription == "Not yet", "on, but nothing has landed yet")
+        #expect(model.lastPullDescription == "Never", "on, but nothing has landed yet")
         #expect(model.cursorDescription == "Nothing stored — the next sync reads everything")
     }
 

@@ -49,10 +49,20 @@ final class SyncStatusModel {
 
     // MARK: The rows
 
+    /// When the last pull actually succeeded.
+    ///
+    /// **This row's value is a time, and it never says anything else.** It used to fall back to
+    /// `pullEnabled ? "Not yet" : "Off"`, so a row labelled "Last pull" rendered the *feature's*
+    /// on/off state where a timestamp belongs — "Last pull — Off" is not a wrong time, it is not
+    /// a time at all, and it was the reason to distrust every other number on the card.
+    ///
+    /// Three states, all of them about when: a real relative time, "Never", or "Never" plus the
+    /// reason it cannot have happened. The last one matters because with pulling off the row is
+    /// otherwise an empty fact a parent has no way to interpret.
     var lastPullDescription: String {
         _ = revision
         guard let last = engine.lastSuccess else {
-            return engine.pullEnabled ? "Not yet" : "Off"
+            return engine.pullEnabled ? "Never" : "Never — pulling is off"
         }
         return Self.relative(last)
     }

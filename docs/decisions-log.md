@@ -1561,3 +1561,53 @@ Two documentation defects the same pass found, both of the kind this project tre
   was simply the one the job reached first. Corrected there as well as fixed in the code,
   because the interesting part is the step ordering — a lint job that stops at its first
   failing step reports its first problem, not its problems.
+
+---
+
+## Phase 20 — onboarding and settings catch-up
+
+- **The onboarding birthday wheel's contrast was a dark-mode defect, not a foreground-style one.**
+  Bisected in the harness across four variants. `.foregroundStyle(Color.ink)` is a **no-op** on
+  `DatePicker(.wheel)` — measured identical at 1.03:1 with and without it. What fixes it is
+  `.environment(\.colorScheme, .light)`, which `EditChildSheet` and `ComposerView` already carry on
+  their pickers. The palette is fixed light-mode `Color(hex:)` with no dark variant and the app pins
+  no scheme, so on a phone in Dark Mode any *system* control resolves dark-appearance colours over
+  the app's cream. Deliberately did **not** add the no-op modifier for symmetry.
+- **`OnboardingStepScaffold` now scrolls with its footer in a `safeAreaInset`.** It was a `VStack`
+  with a `Spacer(minLength:)` doing the pinning — the same shape Phase 18 fixed on four backfill
+  screens. At `accessibility-extra-extra-large` the birthdate step pushed the progress rail up under
+  the Dynamic Island. All five onboarding steps share the scaffold, so all five get the fix.
+- **`BackfillScanner` now publishes `authorization`, not just `isLimitedLibrary`.** The `+` sheet
+  needs the distinction before any backfill screen exists, and `state == .unavailable` is both
+  "never asked" and "refused" — which need different sentences.
+- **`AddToArchiveModel` was extracted so the four authorization cases are assertable.** The defect
+  was a case-analysis bug; a view body cannot be case-analysed in a test.
+- **Reused onboarding's `NotifyTimePickerSheet` for Settings rather than writing a second picker**,
+  and added the colour-scheme fix to it now that a second caller exists.
+- **`Outstanding.total` was left meaning what it meant** — "not in the archive" — so Today's count
+  does not move. The split is additive: `failedMedia` is a subset, and `waiting` is the derived
+  number Settings shows.
+- **The tab bar reports its own height** instead of RootView hardcoding 84. `.offset` moves the
+  raised disc without resizing its box, so the bar also carries `.padding(.top, lift)` to make the
+  measured frame the bar's real extent.
+- **Two existing assertions were replaced, both because the brief overturned the behaviour they
+  pinned**, not to make a failing test pass. Named in full in `docs/phases/phase-20-verification.md`.
+- **Left open, raised not chosen:** `DatePicker(.wheel)`'s unselected rows measure 2.48:1 and
+  1.20:1 against the canvas — identical in light mode, so intrinsic to `UIDatePicker`'s barrel
+  fade and not reachable through public API. `.compact` measures 20.16:1 and is what
+  `EditChildSheet` already uses for this same field.
+- **Second pass over phase 20's own diff, after it had been reported finished.** Nine defects, all
+  in code that compiled and had a green suite. Worth logging as a class rather than a list: four
+  were in the recompute sheet and all four came from one change — holding the sheet open to show
+  `entries_updated` — which turned Cancel into a lie, disabled the only retry, and briefly left no
+  toolbar exit at all. **A screen that gains a state gains every state's exits.**
+- **`presentationSizing(.fitted)` is wrong for a sheet whose root is a `ScrollView`.** It is the
+  modifier the problem looks like it wants; a `ScrollView` has no intrinsic height, so `.fitted`
+  sizes to the proposal and produces a near-full-screen sheet — measured, and worse than the
+  `.medium` it was replacing. The `+` sheet uses a seeded, measured `.height()` detent instead.
+- **A raised control over a variable-height bar is anchored to the bar's edge, never to its
+  centre.** A centre offset only yields a fixed protrusion while the bar is a fixed height.
+- **`writeFailed` became `WriteFailure.switching` / `.time`.** One boolean for two different writes
+  meant a refused *toggle* reported the send time back, naming the one value nobody was changing.
+- **`BackfillActionBackdrop` → `PinnedActionBackdrop`.** Giving `OnboardingStepScaffold` a pinned
+  footer made all five onboarding steps depend on a type whose name said "backfill".

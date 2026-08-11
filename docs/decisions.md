@@ -201,6 +201,27 @@ disc, the name, the age and the born date, and it opens the same sheet the `Birt
 Section labels now run a hairline out to the trailing edge, which is what stops nine stacked cards
 from reading as one column.
 
+**Phase 20 — the sync card's own numbers were audited against that same rule, and one row was
+rewritten rather than dropped.** "Last pull — Off" was a placeholder: a row whose value is a
+timestamp rendering the *feature's* on/off state. It now shows a real relative time, "Never", or
+"Never — pulling is off" when pulling is disabled and a pull therefore cannot have happened.
+Nothing was dropped for want of a number, because every value on that card traces to the local
+store: the pending count and the transcribe backlog are `FetchDescriptor`s over `Media`, and the
+pull rows read the engine's own state. **The pending count did have to be split**: it folded media
+past the retry cap in with media still on its way, under a line promising they would "finish on
+their own" — which a `failed` row does not do. Waiting and stalled are two sentences now. No
+`GET /children/{id}/stats` was invented, and nothing on the card claims a number the client cannot
+see.
+
+**The floating tab bar's `+` was drawn inside the capsule it is meant to sit above.** It was the
+middle child of the `HStack` carrying the capsule's `.background` and `.overlay`, and an overlay
+composites above everything it modifies — so the bar's own `border` stroke drew across the top of
+the disc, which is the faint pale ring in the TestFlight screenshot. The disc is now composited
+after the capsule, lifted clear, and ringed in `canvas` deliberately. Its shadow is the design
+system's `y: 2, blur: 8, opacity: 0.04` rather than the terracotta glow it carried, which was not
+a token. The bar now reports its measured height so the scrolling screens behind it inset by what
+is actually there instead of a hardcoded 84.
+
 **Three of the design's elements need numbers the API does not serve, and were dropped rather than
 faked**: the hero's `412 entries · 1,204 photos · 3 sealed` strip, the `First entry` row, and the
 sync card's progress bar. The local cache is paged and partial by construction, so counting it
@@ -213,6 +234,35 @@ for `TimelineHeader`, that the client never claims to know the size of the archi
 whitespace. A divider between two rows says these belong together; a gap says they do not. The rest
 of the grouping was adopted verbatim — the dry run and the reset moved out of the tail of the sync
 card into an `Advanced` card of their own, which is a genuine improvement on where they were.
+
+> **Amended in Phase 20 — both halves of that paragraph moved, and the rule above did not.**
+>
+> **Recompute is now a checkbox on the child-edit sheet, not a `Corrections` card in Settings.**
+> It appears *only* while the birthdate differs from its loaded value, disappears if it is changed
+> back, and defaults to unchecked. On Save: `PATCH /children/{id}` first, and
+> `POST /children/{id}/recompute-ages` **only if that succeeded and the box is ticked**;
+> `entries_updated` is then shown, because that number is the confirmation the thing happened. A
+> recompute failure does not roll back the birthdate — they are two outcomes and the parent is told
+> both, with the birthday reported as saved.
+>
+> **A future reader finding recompute on the edit sheet must not conclude the rule was abandoned.**
+> The settled rule is the row at the top of this file: *stored `child_age_months` is corrected by
+> explicit user action, never automatically on birthdate edit — a correction is deliberate, not a
+> side effect.* A box that defaults to unchecked and must be deliberately ticked **is** explicit
+> user action. What the rule forbids is recomputing *because* the date moved, and nothing does
+> that. `EditChildModel.recomputeAges` conjoins `birthdateChanged` in its **getter**, so the flag
+> cannot outlive the condition that offered it.
+>
+> What changed is only the placement, and the reasoning for the original placement was about
+> *adjacency to ordinary edit rows in a list of unrelated settings*. On the sheet the parent opened
+> to fix the birthday, the correction is not a neighbour of an unrelated row — it is the second
+> half of the thing they came to do.
+>
+> **The `Advanced` card is gone too.** The dry run and the reset now sit behind one
+> `Sync diagnostics` row inside the Syncing card. Neither action was deleted and their copy is
+> unchanged: the dry run is what gets read before the pull flag is flipped, and that is still
+> ahead. A top-level card put two diagnostics for an engine that ships behind a flag, and has
+> never met a real archive, at the same level as the archive and the account.
 
 **The gradient behind the hero lost on contrast before it lost on principle.** The palette's
 `Gradients.wash` is reserved for emotional beats, and whether the child card counts as one is a

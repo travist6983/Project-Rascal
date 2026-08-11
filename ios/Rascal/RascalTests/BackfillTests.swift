@@ -326,11 +326,51 @@ struct BackfillScannerTests {
         await until { if case .ready = model.state { return true }; return false }
 
         #expect(model.isLimitedLibrary)
+        #expect(model.authorization == .limited)
         if case .ready(let clusters) = model.state {
             #expect(clusters.count == 1)
         } else {
             Issue.record("limited access produced no result")
         }
+    }
+
+    /// **A count under `.limited` is a count of the selection, and every surface that shows one
+    /// has to say so.**
+    ///
+    /// `PHAsset.fetchAssets` returns only the shared subset under selected-photos access, so the
+    /// numbers are computed over a fraction of the library and are *wrong while looking entirely
+    /// normal* — the same failure shape as a photo filed under the wrong day. This fails if any
+    /// of the three carriers of that number presents it as a whole-library figure.
+    @Test("No surface presents a limited-access count as though it were complete")
+    func limitedCountsAreNeverPresentedAsComplete() async {
+        let source = StubAssetSource(
+            auth: .limited, dates: [date(2019, 10, 3), date(2019, 10, 4), date(2019, 10, 5)]
+        )
+        let model = scanner(source)
+        model.scan(entryDates: [])
+        await until { if case .ready = model.state { return true }; return false }
+
+        // 1. The scanner knows, and keeps knowing.
+        #expect(model.isLimitedLibrary)
+
+        // 2. The + sheet's row says whose photos it counted, in the same sentence as the number.
+        let clusters: [BackfillCluster]
+        if case .ready(let ready) = model.state { clusters = ready } else { clusters = [] }
+        let sheet = AddToArchiveModel(authorization: .limited, clusters: clusters)
+        #expect(sheet.cameraRollSubtitle.lowercased().contains("shared"))
+        #expect(sheet.cameraRollSubtitle.contains("nothing logged") == false)
+
+        // 3. The browse surface leads with a claim about the library, so it changes too.
+        let full = BackfillSuggestionsScreen(
+            clusters: clusters, months: model.months, childBirthdate: nil,
+            isLimited: false, onOpen: { _ in }, onDismissMonth: { _ in }, onClose: {}
+        )
+        let limited = BackfillSuggestionsScreen(
+            clusters: clusters, months: model.months, childBirthdate: nil,
+            isLimited: true, onOpen: { _ in }, onDismissMonth: { _ in }, onClose: {}
+        )
+        #expect(limited.isLimited)
+        #expect(full.isLimited == false)
     }
 
     @Test("Denied access is unavailable rather than an error state to recover from")
@@ -472,26 +512,48 @@ struct BackfillOfferTests {
         )
     }
 
-    /// **The row is absent, not empty.** This sheet is on the way to every entry the app records.
-    @Test("With nothing to suggest, the sheet offers no row at all")
-    func noRowWhenNothingToOffer() {
-        #expect(AddToArchiveSheet.offer(from: []) == nil)
+    /// **Replaces `noRowWhenNothingToOffer`, which asserted the opposite and was right about the
+    /// principle and wrong about this row.**
+    ///
+    /// That test pinned "the row is absent, not empty" — a good rule for a row that reports
+    /// something, and the wrong one for a row that is a *door*. Clusters are only non-empty after
+    /// a scan, a scan only runs with authorization, and the only thing in the app that asks for
+    /// authorization is the explainer behind this row. Absent-when-empty therefore meant absent
+    /// forever on any phone that had not already granted access. `docs/decisions.md` settles that
+    /// the camera roll sits below the divider as a fifth, non-verb thing; this is that, and the
+    /// four cases are here because the defect being fixed was exactly a case-analysis bug.
+    @Test("The camera-roll row is present in every authorization state")
+    func cameraRollRowIsUnconditional() {
+        for authorization in [
+            BackfillAuthorization.notDetermined, .limited, .authorized, .denied,
+        ] {
+            let empty = AddToArchiveModel(authorization: authorization, clusters: [])
+            let populated = AddToArchiveModel(
+                authorization: authorization, clusters: [cluster(2025, 10, count: 62)]
+            )
+            #expect(empty.includesCameraRoll, "row missing with no clusters: \(authorization)")
+            #expect(populated.includesCameraRoll, "row missing with clusters: \(authorization)")
+            #expect(empty.cameraRollSubtitle.isEmpty == false)
+            #expect(populated.cameraRollSubtitle.isEmpty == false)
+        }
     }
 
     @Test("The newest unlogged month is the one offered")
     func newestMonthIsOffered() {
-        let offered = AddToArchiveSheet.offer(from: [
-            cluster(2025, 10, count: 62),
-            cluster(2024, 12, count: 118),
-        ])
-        #expect(offered?.month == BackfillMonth(year: 2025, month: 10))
+        let model = AddToArchiveModel(
+            authorization: .authorized,
+            clusters: [cluster(2025, 10, count: 62), cluster(2024, 12, count: 118)]
+        )
+        #expect(model.offer?.month == BackfillMonth(year: 2025, month: 10))
     }
 
     /// Factual, and **never a tally**. A count of what is in the camera roll is not an accusation;
     /// "you've missed six months" would be, and this app keeps that score nowhere.
     @Test("The offer states the count and the month, and nothing about what was missed")
     func offerCopyIsFactual() {
-        let line = AddToArchiveSheet.offerLine(cluster(2025, 10, count: 62))
+        let line = AddToArchiveModel(
+            authorization: .authorized, clusters: [cluster(2025, 10, count: 62)]
+        ).cameraRollSubtitle
 
         #expect(line.contains("62 photos"))
         #expect(line.contains("2025"))
@@ -502,9 +564,53 @@ struct BackfillOfferTests {
 
     @Test("A single photo is not pluralised")
     func offerCopySingular() {
-        let line = AddToArchiveSheet.offerLine(cluster(2025, 10, count: 1))
+        let line = AddToArchiveModel(
+            authorization: .authorized, clusters: [cluster(2025, 10, count: 1)]
+        ).cameraRollSubtitle
         #expect(line.hasPrefix("1 photo from"))
         #expect(line.contains("1 photos") == false)
+    }
+
+    /// **No count is ever presented as complete when it is not.**
+    ///
+    /// Under `.limited` the scan sees the selected photos and nothing else, so "62 photos from
+    /// October 2025" is a fraction wearing the clothes of a total. The number may still be shown
+    /// — it is true of what was seen — but the sentence has to say whose photos it counted.
+    @Test("A count under limited access says what it is a count of")
+    func limitedCountIsLabelled() {
+        let limited = AddToArchiveModel(
+            authorization: .limited, clusters: [cluster(2025, 10, count: 62)]
+        ).cameraRollSubtitle
+        let full = AddToArchiveModel(
+            authorization: .authorized, clusters: [cluster(2025, 10, count: 62)]
+        ).cameraRollSubtitle
+
+        #expect(limited.contains("62 photos"))
+        #expect(limited != full, "limited copy is indistinguishable from complete copy")
+        #expect(limited.lowercased().contains("shared"))
+        // "nothing logged" is a claim about the whole month, which is not knowable here.
+        #expect(limited.contains("nothing logged") == false)
+    }
+
+    /// A denial gets one honest sentence and no funnel. iOS asks once; the flow behind the row
+    /// offers Settings, which is the only thing that can change the answer.
+    @Test("A denied library says so plainly, without scolding or re-asking")
+    func deniedCopyIsHonest() {
+        let line = AddToArchiveModel(authorization: .denied, clusters: []).cameraRollSubtitle
+
+        #expect(line.lowercased().contains("off"))
+        for pressure in ["allow", "enable", "grant", "turn on", "please"] {
+            #expect(line.lowercased().contains(pressure) == false, "re-prompt copy: \(line)")
+        }
+    }
+
+    /// Before anything has been asked, nothing has been counted — so nothing is counted at.
+    @Test("With authorization undecided the row invites rather than reports")
+    func notDeterminedCopyClaimsNoCount() {
+        let line = AddToArchiveModel(authorization: .notDetermined, clusters: []).cameraRollSubtitle
+
+        #expect(line.contains("photos from") == false)
+        #expect(line.rangeOfCharacter(from: .decimalDigits) == nil, "a count with nothing scanned")
     }
 
     /// The rule the composer-row placement was protecting, asserted against the placement that

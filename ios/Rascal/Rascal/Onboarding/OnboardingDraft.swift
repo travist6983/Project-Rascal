@@ -68,34 +68,35 @@ nonisolated struct OnboardingDraft: Codable, Equatable, Sendable {
     }
 }
 
-// MARK: - Validation and the age echo
+// MARK: - The birthdate bound and the age echo
 
-nonisolated enum BirthdateCheck: Equatable, Sendable {
-    case ok
-    case inTheFuture
-
-    /// Quiet copy, stated inline under the field. Not an alert, and it does not scold — the
-    /// parent mistyped a year, which is the single most likely thing to have happened.
-    var message: String? {
-        switch self {
-        case .ok: nil
-        case .inTheFuture: "That's still ahead of us. Check the year."
-        }
-    }
-}
-
+/// The rule the birthdate picker is built on: **nothing after today is selectable.**
+///
+/// This replaced a `BirthdateCheck`/`.inTheFuture` pair that rendered "That's still ahead of us.
+/// Check the year." under a disabled Continue. The picker was unbounded, so a future date was
+/// reachable, and — because the step writes the draft through on every change — a future date
+/// was also *persistable*. A parent who spun the wheel forward and then put the phone down came
+/// back to the first real screen of the app opening on an error they had not made yet, with the
+/// only way forward disabled.
+///
+/// Bounding the picker at `...Date()` makes that state unreachable, so the error state is gone
+/// rather than left standing behind a condition that can no longer be true. What survives is the
+/// clamp, and it is not validation — it is the migration for drafts already written to disk by
+/// the build that had no bound.
 nonisolated enum BirthdateRule {
-    /// A birthdate is a calendar day, so "in the future" is a comparison of *days* and not of
-    /// instants. Comparing the raw `Date`s would reject a birthday of today for every hour
+    /// The latest selectable birthdate: today.
+    ///
+    /// A birthdate is a calendar day, so this is a comparison of *days* and not of instants.
+    /// Clamping on the raw `Date`s would move a birthday of today backwards for every hour
     /// between midnight and now.
-    static func check(
+    static func clamped(
         _ birthdate: Date,
         now: Date = Date(),
         calendar: Calendar = .current
-    ) -> BirthdateCheck {
+    ) -> Date {
         let day = calendar.startOfDay(for: birthdate)
         let today = calendar.startOfDay(for: now)
-        return day > today ? .inTheFuture : .ok
+        return day > today ? now : birthdate
     }
 }
 

@@ -74,6 +74,32 @@ final class EditChildModel {
     /// line on the sheet is conditioned on. Saying it when only the name changed would be noise.
     var birthdateChanged: Bool { birthdateString != original.birthdate }
 
+    /// **"Also update the age saved on every entry."** Unchecked by default, and offered only
+    /// while the birthdate is actually different from what the server last sent.
+    ///
+    /// The getter conjoins `birthdateChanged` rather than trusting the stored flag, so the box
+    /// cannot survive the parent spinning the date back to where it started — the checkbox
+    /// disappears and the intent goes with it, instead of lurking as a true flag behind a control
+    /// nobody can see. That is the state the adversarial re-read is told to hunt for.
+    ///
+    /// **This does not violate the settled decision.** `docs/decisions.md`: *"Stored
+    /// `child_age_months` is corrected by explicit user action, never automatically on birthdate
+    /// edit."* A box that defaults to unchecked and must be deliberately ticked **is** explicit
+    /// user action. Recomputing *because* the date moved is what the rule forbids, and nothing
+    /// here does that.
+    var recomputeAges: Bool {
+        get { wantsRecompute && birthdateChanged }
+        set { wantsRecompute = newValue && birthdateChanged }
+    }
+
+    private var wantsRecompute = false
+
+    /// The correction, when the box is ticked. Built here because this is the only type holding
+    /// both the child id and the client.
+    func makeRecompute() -> RecomputeAgesModel {
+        RecomputeAgesModel(childId: childId, api: api)
+    }
+
     // MARK: Saving
 
     /// Returns the updated child on success, nil on failure — the sheet stays open on nil, with
