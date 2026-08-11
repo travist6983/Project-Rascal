@@ -1,20 +1,19 @@
 import SwiftUI
 
-/// The sync-pull controls, inside the existing sync-status section.
+/// Where the pull has got to, and the switch that turns it on. Inside the sync card.
 ///
 /// **This is a switch for something unverified, and it says so in words.** Everything else in
 /// Settings reports on a path that has been used; this one gates a path that has not, and the
 /// honest thing is one plain line saying that rather than a toggle that looks like every other
 /// toggle. There is still nothing red here — an unverified feature is not an emergency.
 ///
-/// The order is the order it gets used in: read the position, run the dry run, read the report,
-/// then flip the switch. Reset is last and behind a confirmation, where irreversible-feeling
-/// things live on this screen.
+/// The order is the order it gets used in, and the design import did not change it: read the
+/// position here, run the dry run in `SyncAdvancedSection` below, read the report, come back and
+/// flip the switch. The two halves are now two cards rather than one run of rows — see
+/// `SyncAdvancedSection` for why — and the switch stayed with the status it is a switch *for*,
+/// so the sequence still reads top to bottom and nothing gained a tap.
 struct SyncPullSection: View {
     let model: SyncStatusModel
-
-    @State private var confirmingReset = false
-    @State private var showingReport = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,8 +32,55 @@ struct SyncPullSection: View {
 
             SettingsDivider()
             toggleRow
+        }
+    }
 
-            SettingsDivider()
+    /// The switch itself.
+    ///
+    /// A plain `Toggle`, tinted terracotta, with the caveat underneath it rather than hidden in a
+    /// help sheet. Someone turning this on should read why they might not want to in the same
+    /// glance in which they turn it on.
+    ///
+    /// The import draws a hand-built 50×30 pill here. It is not adopted: a stock `Toggle` already
+    /// announces its state to VoiceOver, works under Switch Control and Full Keyboard Access, and
+    /// grows with Dynamic Type — none of which a styled `HStack` gets for free. The tint is the
+    /// one thing the import asks for that a stock toggle can honour, and it already did.
+    private var toggleRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: model.pullEnabledBinding) {
+                Text("Pull changes from the server")
+                    .typeRole(.body)
+                    .foregroundStyle(Color.ink)
+            }
+            .tint(.terracotta)
+            Text("New, and not yet verified against a real archive. Run the dry run first and read what it would change.")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Layout.cardPadding)
+    }
+}
+
+/// The dry run and the reset, in their own card under an `Advanced` label.
+///
+/// The design import groups these two with **recompute-ages** as a third row. That third row is
+/// not here, and its absence is deliberate: recomputing every stored age in an archive is not a
+/// neighbour of asking the server what changed. A divider between two rows says "these belong
+/// together"; recompute keeps its own card and its own whitespace on `SettingsScreen`, which is
+/// the structural rule that screen was built on. See `docs/settings-v2-inventory.md`, D8.
+///
+/// What the import *did* change is worth keeping: these two were previously the tail of one long
+/// sync card, below the switch, where a reset sat four rows under an unrelated toggle. They read
+/// better as a labelled pair.
+struct SyncAdvancedSection: View {
+    let model: SyncStatusModel
+
+    @State private var confirmingReset = false
+    @State private var showingReport = false
+
+    var body: some View {
+        VStack(spacing: 0) {
             dryRunRow
 
             SettingsDivider()
@@ -57,27 +103,6 @@ struct SyncPullSection: View {
         .sheet(isPresented: $showingReport) {
             SyncReportSheet(title: model.reportTitle, report: model.report ?? "")
         }
-    }
-
-    /// The switch itself.
-    ///
-    /// A plain `Toggle`, tinted terracotta, with the caveat underneath it rather than hidden in a
-    /// help sheet. Someone turning this on should read why they might not want to in the same
-    /// glance in which they turn it on.
-    private var toggleRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: model.pullEnabledBinding) {
-                Text("Pull changes from the server")
-                    .typeRole(.body)
-                    .foregroundStyle(Color.ink)
-            }
-            .tint(.terracotta)
-            Text("New, and not yet verified against a real archive. Run the dry run first and read what it would change.")
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(Layout.cardPadding)
     }
 
     @ViewBuilder

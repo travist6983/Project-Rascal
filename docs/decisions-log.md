@@ -1193,3 +1193,58 @@ only what the run decided, or got wrong — the procedure itself is `docs/runboo
   default and `min_machines_running = 1` is a floor rather than a count. Roughly $6/month
   instead of $3. Flagged rather than silently halved: the redundancy is real, and the call is
   the account holder's.
+
+## Phase 13 — Settings v2 (design import)
+
+- **The Settings export renders one direction, not the two it advertises.** Its header says
+  "two directions" and `b1` is fully authored — a navy card, an amber progress bar, dot
+  swatches, a periwinkle label tag — but `renderVals()` returns `1a` alone, so `b1` is dead
+  code in the prototype. Built `1a`. Implementing a constant the designer's own file never
+  draws would be building something nobody has looked at.
+- **`tokens/colors.css` matched `Palette.swift` exactly for the third phase running.** Eleven
+  hardcoded values in the prototype appear in neither file. Snapped all eleven, added no token.
+  The rule settled after Moments and Today did not need relitigating and did not get it.
+- **The hero is `terracottaSoft`, not `Gradients.wash`.** The import puts a three-stop gradient
+  behind the child card and the palette has its own version of it — but `inkMuted` over that
+  gradient measures **4.22:1** on the middle stop, under AA, and the wash is reserved for
+  emotional beats besides. `terracottaSoft` is the import's own first stop to the digit, is the
+  tinted fill `PromptCard` already pairs with the cream hairline, and measures 4.69:1. The
+  "is the child an emotional beat?" argument never had to be had.
+- **The export card's photo-stack motif is three rotated cards, which is a named anti-pattern.**
+  `transform:rotate(-9deg)`, `rotate(5deg)`, `rotate(-2deg)`. `design-system.md` lists "passport
+  stamps, receipt-spike stacks, rotated cards" and says "rejected twice already". Dropped rather
+  than softened — the bullet names the exact construction.
+- **Three elements were dropped for want of a number rather than for taste.** The hero's stats
+  strip, the `First entry` row, and the sync progress bar all need archive-wide counts. No
+  endpoint serves them, and the local cache is paged and partial by construction, so any figure
+  would be a claim about how much of the archive this phone happens to hold. `design-system.md`
+  already settles that exact rule for `TimelineHeader`.
+- **`Recompute ages` was refused a seat in `Advanced`.** The import groups it with the dry run
+  and the reset. It kept its own card and its own whitespace: a divider between two rows says
+  "these belong together", and rewriting every stored age in an archive is not a neighbour of
+  asking the server what changed. Everything else about the grouping was adopted verbatim.
+- **The section label stayed `inkMuted` and the closing note did too.** The import sets both
+  `inkFaint`, which measures **2.13:1** on the canvas. `design-system.md` settles section
+  headers as `inkMuted`, and `SectionLabel` is shared with three other screens — restyling it
+  here would have restyled them.
+- **Chevrons stayed `inkMuted`.** The import's `#C4BAAE` measures 1.88:1 on `surface` and even
+  `inkFaint` measures 2.19:1, both under the 3:1 a non-text control is asked for. A chevron
+  carries nothing VoiceOver needs, but taking a control *down* toward 2:1 to match a mockup is
+  the `KindBadge` mistake in a new surface.
+- **A flag that had never changed a pixel was removed rather than revived.** `valueIsMuted` on
+  `SettingsRow` and `SettingsValueRow` resolved to `inkMuted` in both branches, and both call
+  sites passed it. The import settles the question it was reaching for: every trailing value in
+  it is `#6E6A63`, and the two toned variants its own row helper supports are never invoked.
+- **`SyncStatusModel` was being built in `.task`, which runs once.** `RootView` builds the
+  `SyncEngine` in *its* `.task`, so a render reaching Settings first left the engine nil, and
+  `syncStatus` was then never retried — the dry run, the reset and the pull toggle absent for
+  the whole session with nothing on screen saying so. Pre-existing since PR #21; found by
+  running the app rather than reading it, because the screenshot harness launches straight into
+  Settings and that *is* the race. Now `.onChange(of: syncEngine != nil, initial: true)`.
+- **The hero's padding lives inside its button.** `cardSurface` pads and then fills, which put
+  a 16pt ring of card outside the tap target — including the corner a thumb reaching for the
+  avatar lands on. `SettingsCard` gained a `fill` instead, so the content pads itself, which is
+  how every row on the screen already worked.
+- **Paper grain: still out, still unresolved.** Third phase to drop it and decline to settle it.
+  The bundle calls it mandatory identity, `design-system.md` opens its anti-patterns with
+  screen-print texture, and neither decisions file mentions grain at all.

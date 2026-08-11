@@ -14,6 +14,11 @@ import SwiftUI
 /// load-bearing at the bottom of this screen, where the irreversible actions are deliberately
 /// *not* in the same card as anything ordinary.
 struct SettingsCard<Content: View>: View {
+    /// `surface` for every card that holds rows. `ChildHeroCard` is the one that is tinted, and it
+    /// keeps the cream `border` — `docs/design-system.md` asks a tinted card for a tinted hairline,
+    /// and the hairline the palette names for a terracotta fill *is* `border`. See
+    /// `AssignmentPresentation.tintBorder`, which resolves the same way for the same reason.
+    var fill: Color = .surface
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -25,7 +30,12 @@ struct SettingsCard<Content: View>: View {
         // a card holds a left-aligned stack instead — the export card rendered as a floating
         // box two-thirds of the way across the screen.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.surface, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
+        .background(fill)
+        // Clipped rather than merely backgrounded, so a child may carry a fill of its own and
+        // still take the card's corners. `SettingsCardHeader` is the reason: the sync card's
+        // summary is washed `terracottaSoft` to the card's edge, and without this its two top
+        // corners square off and overhang the hairline.
+        .clipShape(RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous)
                 .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
@@ -35,6 +45,104 @@ struct SettingsCard<Content: View>: View {
             radius: Layout.Shadow.blur / 2,
             x: 0,
             y: Layout.Shadow.y
+        )
+    }
+}
+
+/// A section label with a rule running out from it to the trailing edge.
+///
+/// The design import's one structural addition to this screen's vocabulary. The rule is not
+/// decoration: with nine blocks stacked on one scroll, a bare small-caps label is easy to read as
+/// belonging to the card *above* it. A line drawn from the label to the edge closes the group it
+/// opens.
+///
+/// `SectionLabel` is reused rather than restyled — it is shared with Timeline, Today and Moments,
+/// and `docs/design-system.md` settles section headers as `inkMuted`. The import sets them
+/// `inkFaint`, which measures 2.13:1 on the canvas and is not a contrast this app puts words at.
+struct SettingsSectionHeader: View {
+    let title: String
+
+    init(_ title: String) {
+        self.title = title
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            SectionLabel(title)
+            Rectangle()
+                .fill(Color.border)
+                .frame(height: Layout.borderWidth)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 2)
+    }
+}
+
+/// The head of a card that reports before it lists — the sync card's summary.
+///
+/// Washed `terracottaSoft` while something is outstanding and plain `surface` when nothing is,
+/// which is the whole of its state. **The wash is not an alarm.** A photo that has not uploaded is
+/// a fact about the network; the tint says "this is live" in the same colour the app uses for
+/// every other thing in progress, and there is no red here or anywhere on this screen.
+///
+/// The import draws a progress bar in this header at a fixed 64%. It is not built: Settings knows
+/// how many items are outstanding and has nothing to divide them by — the size of the archive is a
+/// server answer this client never receives. See `docs/settings-v2-inventory.md`, D4.
+struct SettingsCardHeader: View {
+    let eyebrow: String
+    /// The trailing count. Absent when there is nothing to count.
+    var counter: String?
+    let headline: String
+    var detail: String?
+    /// Something is happening. Tints the wash and lights the dot.
+    var isActive: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 9) {
+                if isActive {
+                    Circle()
+                        .fill(Color.terracotta)
+                        .frame(width: 7, height: 7)
+                        .accessibilityHidden(true)
+                }
+                // Styled like `SectionLabel` but written out, deliberately without its
+                // `.isHeader` trait: this eyebrow is folded into a combined element below, and a
+                // card's summary sentence has no business appearing in VoiceOver's heading rotor
+                // alongside the actual section names.
+                Text(eyebrow)
+                    .typeRole(.label)
+                    .foregroundStyle(Color.inkMuted)
+                Spacer(minLength: 8)
+                if let counter {
+                    Text(counter)
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                }
+            }
+            .padding(.bottom, 5)
+
+            Text(headline)
+                .typeRole(.cardTitle)
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let detail {
+                Text(detail)
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Layout.cardPadding)
+        .background(isActive ? Color.terracottaSoft : Color.surface)
+        .accessibilityElement(children: .combine)
+        // The counter is left out on purpose. It is the same number the headline already spells
+        // out in words — "3 left" after "3 files still to upload" is VoiceOver reading the count
+        // twice, which is noise at the one moment a parent is listening carefully.
+        .accessibilityLabel(
+            [eyebrow, headline, detail].compactMap { $0 }.joined(separator: ". ")
         )
     }
 }
@@ -51,12 +159,15 @@ struct SettingsDivider: View {
 }
 
 /// Label, trailing value, chevron. Tapping presents a sheet.
+///
+/// **A row value is `inkMuted`, always.** There was a `valueIsMuted` flag here whose two branches
+/// were both `inkMuted`, so it had never once changed a pixel — and both call sites passed it. The
+/// design import settles the question rather than reviving the flag: every trailing value in it is
+/// `#6E6A63`, and the two toned variants its own row helper supports are never once invoked. The
+/// distinction the flag was reaching for is carried by the words — "Not set" — not by the colour.
 struct SettingsRow: View {
     let label: String
     var value: String?
-    /// Set when the value is absent rather than empty — "Not provided" is words, and it is set
-    /// in `inkMuted` so it does not read as content.
-    var valueIsMuted: Bool = false
     var action: () -> Void
 
     var body: some View {
@@ -69,10 +180,14 @@ struct SettingsRow: View {
                 if let value {
                     Text(value)
                         .typeRole(.body)
-                        .foregroundStyle(valueIsMuted ? Color.inkMuted : Color.inkMuted)
+                        .foregroundStyle(Color.inkMuted)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+                // `inkMuted`, not the import's `#C4BAAE`. That measures 1.88:1 on `surface` and
+                // `inkFaint` measures 2.19:1 — both under the 3:1 a non-text control is asked for.
+                // The chevron carries nothing VoiceOver needs, but taking a control *down* to 2:1
+                // to match a mockup is the mistake this phase was told not to repeat.
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Color.inkMuted)
@@ -91,7 +206,6 @@ struct SettingsRow: View {
 struct SettingsValueRow: View {
     let label: String
     let value: String
-    var valueIsMuted: Bool = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
