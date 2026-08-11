@@ -30,6 +30,7 @@ EXPECTED_TABLES = {
     "media",
     "tags",
     "entry_tags",
+    "prompt_suppressions",
 }
 
 EXPECTED_INDEXES = {
@@ -78,6 +79,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "media",
     "tags",
     "entry_tags",
+    "prompt_suppressions",
 }
 
 

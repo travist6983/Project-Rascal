@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import DEFAULT_EXPIRY_DAYS, Slot
-from rascal.models import Assignment, Child, Prompt
+from rascal.models import Assignment, Child, Prompt, PromptSuppression
 from rascal.services.dates import local_date, local_hour
 
 log = logging.getLogger("rascal.scheduler")
@@ -139,11 +139,40 @@ def _weighted_pick(
 # --- The impure half ---------------------------------------------------------------------
 
 
-async def _candidates(session: AsyncSession, spec: SlotSpec) -> list[Prompt]:
+async def _candidates(
+    session: AsyncSession, spec: SlotSpec, child_id: uuid.UUID
+) -> list[Prompt]:
+    """The candidate pool, with this child's suppressions already removed.
+
+    **Suppression is enforced here and nowhere else, and that placement is the rule.** The
+    ladder in :func:`choose_prompt` relaxes the cooldown, then drops theme rotation, then drops
+    the cooldown entirely, then the age window, and finally falls back to "anything in the
+    pool". A suppressed prompt has to survive none of that — so it is removed before selection
+    begins rather than filtered at any rung. There is no rung that can resurrect a prompt that
+    was never in the list.
+
+    Both callers reach this through :func:`select_prompt`: the nightly scheduler via
+    ``run_scheduler`` and the Phase 12 read path via ``ensure_day_filled``. One query, one
+    exclusion, no chance of the two diverging — which over years would corrupt variety in a way
+    nothing would notice.
+    """
     clauses = [Prompt.active.is_(True), Prompt.cadence == spec.cadence]
     if spec.kinds is not None:
         clauses.append(Prompt.kind.in_(spec.kinds))
-    rows = await session.execute(select(Prompt).where(*clauses))
+    rows = await session.execute(
+        select(Prompt).where(
+            *clauses,
+            ~select(PromptSuppression.prompt_id)
+            .where(
+                PromptSuppression.child_id == child_id,
+                PromptSuppression.prompt_id == Prompt.id,
+                # A withdrawn suppression stops excluding. The soft delete is what makes the
+                # decision reversible.
+                PromptSuppression.revoked_at.is_(None),
+            )
+            .exists(),
+        )
+    )
     return list(rows.scalars().all())
 
 
@@ -191,7 +220,7 @@ async def select_prompt(
     from rascal.services.dates import age_in_months
 
     spec = SLOT_SPECS[slot]
-    candidates = await _candidates(session, spec)
+    candidates = await _candidates(session, spec, child.id)
     served, themes = await _history(session, child.id, as_of_date)
     return choose_prompt(
         candidates,

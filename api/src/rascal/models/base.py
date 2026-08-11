@@ -79,4 +79,5 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "media",
     "tags",
     "entry_tags",
+    "prompt_suppressions",
 )

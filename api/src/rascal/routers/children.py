@@ -6,13 +6,16 @@ docs/decisions-log.md.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import select
 
 from rascal.deps import ChildAccess, CurrentUser, SessionDep, SettingsDep, child_access
-from rascal.models import Child, Guardian
+from rascal.errors import not_found
+from rascal.models import Child, Guardian, Prompt, PromptSuppression
 from rascal.schemas.child import (
     AvatarUploadUrlRequest,
     AvatarUploadUrlResponse,
@@ -23,9 +26,17 @@ from rascal.schemas.child import (
     ChildWithRole,
     RecomputeAgesResult,
 )
+from rascal.schemas.prompt import (
+    PoolHealthOut,
+    PromptOut,
+    PromptSuppressionCreate,
+    PromptSuppressionOut,
+    SlotHealthOut,
+)
 from rascal.services import avatars
 from rascal.services import entries as entries_service
 from rascal.services.dates import age_in_months, today_in
+from rascal.services.pool_health import pool_health
 
 router = APIRouter(prefix="/children", tags=["children"])
 
@@ -181,4 +192,134 @@ async def recompute_ages(
         child_id=child.id,
         entries_updated=await entries_service.recompute_child_ages(session, child),
         birthdate=child.birthdate,
+    )
+
+
+# --- Prompt suppression ----------------------------------------------------------------------
+
+
+@router.post(
+    "/{child_id}/prompt-suppressions",
+    response_model=PromptSuppressionOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Never show this prompt to this child again",
+    description=(
+        "Idempotent. Suppressing an already-suppressed prompt returns the existing row rather "
+        "than failing, and re-suppressing one that was undone revives that row rather than "
+        "creating a second.\n\n"
+        "**This outranks every relaxation rule**, including an empty candidate pool. A "
+        "suppressed prompt is removed from the pool before selection begins, so the relaxed "
+        "90-day cooldown, the dropped theme rotation and the final 'anything at all' fallback "
+        "each fall back to a list it was never in.\n\n"
+        "Distinct from dismissing an assignment, which still means 'not today'. See "
+        "`docs/decisions.md` — whether the client's single dismiss action should offer this is "
+        "an open product question that this endpoint deliberately does not answer."
+    ),
+)
+async def suppress_prompt(
+    payload: PromptSuppressionCreate,
+    session: SessionDep,
+    access: Annotated[ChildAccess, Depends(child_access("parent"))],
+) -> PromptSuppressionOut:
+    prompt = await session.get(Prompt, payload.prompt_id)
+    if prompt is None:
+        raise not_found("Prompt")
+
+    existing = await session.get(PromptSuppression, (access.child.id, payload.prompt_id))
+    if existing is None:
+        existing = PromptSuppression(
+            child_id=access.child.id, prompt_id=payload.prompt_id, reason=payload.reason
+        )
+        session.add(existing)
+    else:
+        # Idempotent revival. `updated_at` is the trigger's, never set here.
+        existing.revoked_at = None
+        if payload.reason is not None:
+            existing.reason = payload.reason
+    await session.flush()
+    await session.refresh(existing)
+    return PromptSuppressionOut.model_validate(
+        {**existing.__dict__, "prompt": PromptOut.model_validate(prompt)}
+    )
+
+
+@router.delete(
+    "/{child_id}/prompt-suppressions/{prompt_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Undo a suppression",
+    description=(
+        "Soft delete — `revoked_at` is set and the row stays, so the prompt becomes eligible "
+        "again and the change syncs as a row rather than as an absence. **A permanent decision "
+        "a parent cannot undo is worse than no decision.** Idempotent: revoking twice is still "
+        "`204`. A prompt this child never suppressed is `404`."
+    ),
+)
+async def unsuppress_prompt(
+    prompt_id: uuid.UUID,
+    session: SessionDep,
+    access: Annotated[ChildAccess, Depends(child_access("parent"))],
+) -> Response:
+    existing = await session.get(PromptSuppression, (access.child.id, prompt_id))
+    if existing is None:
+        raise not_found("Suppression")
+    existing.revoked_at = existing.revoked_at or dt.datetime.now(tz=dt.UTC)
+    await session.flush()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{child_id}/prompt-suppressions",
+    response_model=list[PromptSuppressionOut],
+    summary="What this child has been told to stop asking",
+    description=(
+        "So a client can show what has been suppressed and offer to restore it. Live rows "
+        "only by default — pass `include_revoked=true` to see undone ones too."
+    ),
+)
+async def list_prompt_suppressions(
+    session: SessionDep,
+    access: Annotated[ChildAccess, Depends(child_access("viewer"))],
+    include_revoked: bool = False,
+) -> list[PromptSuppressionOut]:
+    clauses = [PromptSuppression.child_id == access.child.id]
+    if not include_revoked:
+        clauses.append(PromptSuppression.revoked_at.is_(None))
+    rows = (
+        await session.execute(
+            select(PromptSuppression, Prompt)
+            .join(Prompt, Prompt.id == PromptSuppression.prompt_id)
+            .where(*clauses)
+            .order_by(PromptSuppression.created_at.desc())
+        )
+    ).all()
+    return [
+        PromptSuppressionOut.model_validate(
+            {**suppression.__dict__, "prompt": PromptOut.model_validate(prompt)}
+        )
+        for suppression, prompt in rows
+    ]
+
+
+@router.get(
+    "/{child_id}/pool-health",
+    response_model=PoolHealthOut,
+    summary="How close this child's prompt pool is to repeating itself",
+    description=(
+        "Computed on every call, never cached — an admin-grade read, not a hot path.\n\n"
+        "**It reports and nothing else.** The scheduler decides; a health check that quietly "
+        "reshaped selection would make the number it returns a description of itself.\n\n"
+        "`estimated_days_until_first_repeat` is an estimate and the name says so."
+    ),
+)
+async def child_pool_health(
+    session: SessionDep,
+    access: Annotated[ChildAccess, Depends(child_access("viewer"))],
+) -> PoolHealthOut:
+    as_of = today_in(access.child.family_timezone)
+    slots = await pool_health(session, access.child, as_of=as_of)
+    return PoolHealthOut(
+        child_id=access.child.id,
+        as_of=as_of,
+        age_months=age_in_months(access.child.birthdate, as_of),
+        slots=[SlotHealthOut.model_validate(slot.__dict__) for slot in slots],
     )

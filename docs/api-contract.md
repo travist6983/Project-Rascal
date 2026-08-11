@@ -441,6 +441,36 @@ Tags written here get `entry_tags.source = 'device_ai'`. They never overwrite or
 row with `source = 'user'` — re-running extraction must be free, and it must never eat a
 tag I typed. Idempotent: sending the same transcript twice changes nothing.
 
+**`POST /children/{id}/prompt-suppressions`** — parent only
+Body: `{ prompt_id, reason? }` → `201` with the suppression and the prompt inlined.
+
+"Stop asking me this." **Idempotent** — suppressing twice returns the one row, and re-suppressing
+something previously undone revives it rather than growing a second.
+
+**This outranks every relaxation rule, including an empty candidate pool.** A suppressed prompt is
+removed from the pool *before* selection begins, so the relaxed 90-day cooldown, the dropped theme
+rotation and the final "anything at all" fallback each fall back to a list it was never in.
+
+Distinct from dismissing an assignment, which still means "not today". Whether a client's single
+dismiss action should offer this is an open product question — see `docs/decisions.md`.
+
+**`DELETE /children/{id}/prompt-suppressions/{prompt_id}`** → `204`
+Soft delete: `revoked_at` is set and the row stays. **A permanent decision a parent cannot undo is
+worse than no decision.** Idempotent; `404` for a prompt this child never suppressed.
+
+**`GET /children/{id}/prompt-suppressions`**
+Query: `include_revoked` (default false). Each row carries the prompt, so a client can show what
+has been suppressed and offer to restore it without fanning out.
+
+**`GET /children/{id}/pool-health`**
+Per slot and per kind: `eligible`, `suppressed`, `served_within_cooldown`, `available_now`,
+`estimated_days_until_first_repeat`, `relaxation_active`, `relaxation_step`.
+
+Computed on every call, never cached — an admin-grade read, not a hot path. **It reports and
+nothing else**; the scheduler decides. `estimated_days_until_first_repeat` is an estimate and the
+name says so: it is `available_now` divided by the serve interval, and it is null when the pool is
+already dry rather than counting down to zero.
+
 ---
 
 ## Moments

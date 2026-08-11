@@ -19,7 +19,6 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from rascal.models.base import TABLES_WITH_UPDATED_AT
 
 revision: str = "0001_initial"
 down_revision: str | None = None
@@ -53,8 +52,30 @@ CREATE INDEX ix_entries_child_month_day ON entries (
 """
 
 
+# **Frozen deliberately, and not `TABLES_WITH_UPDATED_AT`.**
+#
+# This migration used to iterate that constant. A migration is a snapshot of one moment, and
+# reading a mutable constant makes it a snapshot of whatever the codebase looks like *now* —
+# so the first table added to the constant afterwards made this revision try to create a
+# trigger on a table that does not exist until several revisions later, and migrating from
+# empty failed at 0001. Phase 15 was the first to add one and the first to trip it.
+#
+# These are exactly the eight tables this revision creates. Adding a ninth belongs in the
+# revision that creates it, not here.
+_TABLES_CREATED_HERE = (
+    "users",
+    "children",
+    "prompts",
+    "assignments",
+    "entries",
+    "media",
+    "tags",
+    "entry_tags",
+)
+
+
 def _attach_updated_at_triggers() -> None:
-    for table in TABLES_WITH_UPDATED_AT:
+    for table in _TABLES_CREATED_HERE:
         op.execute(
             f"CREATE TRIGGER trg_{table}_set_updated_at "
             f"BEFORE UPDATE ON {table} "

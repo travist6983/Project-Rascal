@@ -593,6 +593,35 @@ schema cost: deleting an entry releases its assignment, and the sync cursor carr
 30-second overlap window. The coverage table in `mission-library.md` was corrected — it had
 under-counted video, activity, and weekly since before the last prompts were added.
 
+**Aug 10, 2026** — Phase 15 made the prompt pool durable. Three decisions.
+
+**Suppression outranks every relaxation rule, including an empty pool.** A dismissed prompt was
+excluded only by the same 180-day cooldown as any other, so a question about a mother in a
+household where that is painful — or a mission assuming an ability this child does not have —
+came back, forever, on a loop. That is a different failure from a repeat: it is the app asking
+something the parent has already told it to stop asking. Enforced by removing the prompt from the
+candidate pool *before* selection rather than filtering inside the ladder, so no relaxation rung
+can resurrect it. Soft-deleted, because a permanent decision a parent cannot undo is worse than no
+decision.
+
+**Whether "dismiss" should mean *not today* or *never again* is unresolved, and deliberately
+so.** It is a client-side product decision. The server is built so both are expressible:
+dismissing an assignment behaves exactly as it did, and suppression is a separate explicit call.
+**No client calls the suppression endpoints today.** Resolving this needs a look at how often a
+dismissal is really "not this one, ever" versus "not this morning", and that is a question about
+the parent rather than about the schema.
+
+**The candidate review CLI flags and never rejects.** A candidate using *precious*, *cherish*,
+*treasure* or *little moments*, or opening with a feeling rather than an action, is surfaced with
+the rule it tripped so that a rejection is a judgment rather than a guess. The model does not get
+to reject its own peers and it certainly does not get to approve them. The decisions file starts
+every candidate at `skip`, so a file applied without reading anything changes nothing.
+
+Also confirmed rather than changed: `docs/data-model.md` says the 180-day cooldown relaxes to 90
+**before** the age window gives, and the code already did exactly that. A repeat is a mild
+annoyance; an age-inappropriate prompt served to a four-year-old is a broken product. There is now
+a test that fails if the order is ever inverted, verified by inverting it.
+
 **Aug 10, 2026** — iOS Phase 14 landed push notifications on the client. Six decisions,
 all of them about *when* the app is allowed to ask rather than about what it sends.
 
