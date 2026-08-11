@@ -10,8 +10,42 @@ struct ComposerRequest: Identifiable {
     /// Set when opening an existing entry to edit. Date, title, and body are editable; media
     /// is shown read-only, because adding or removing files after save is a later phase.
     var editing: UUID?
+    /// What to open the moment the composer appears.
+    ///
+    /// Set by the **+** sheet, whose four verbs each name a gesture before the composer exists —
+    /// someone who tapped Camera has already said what they want and should not have to say it
+    /// again on arrival. Nil everywhere else, which is every path that opens the composer without
+    /// a verb attached.
+    var opening: ComposerOpening?
+    /// Set when the composer was reached through the camera-roll backfill. Carries the staged
+    /// photos and the date rule's answer — see `BackfillPrefill`.
+    var backfill: BackfillPrefill?
 
     var isEditing: Bool { editing != nil }
+}
+
+/// A gesture the parent already chose, before the composer opened.
+enum ComposerOpening: Equatable {
+    case library
+    case camera
+    case recorder
+    case writing
+}
+
+/// What the backfill picker hands the composer.
+///
+/// The photos are **already staged** by the time this exists: the picker converts and writes them
+/// while the parent is still looking at the grid, so the composer opens with them on screen rather
+/// than with empty frames that fill in. It also means the composer needs no PhotoKit of its own —
+/// it receives drafts exactly as if they had come from the library picker.
+struct BackfillPrefill {
+    /// The resolved `occurred_at` and where it came from. **Not recomputed here** — this is the
+    /// tested rule's answer and the composer renders it rather than forming an opinion.
+    let plan: BackfillEntryPlan
+    let drafts: [MediaDraft]
+    /// For the age line under the date. Nil when the archive has not told us a birthdate yet, in
+    /// which case the line is simply absent.
+    let childBirthdate: Date?
 }
 
 /// Writing an entry. Opens knowing its completion mode, because "we did it" and "write it" are
@@ -20,14 +54,30 @@ struct ComposerView: View {
     let request: ComposerRequest
     let api: APIClient
 
-    /// Written by hand for one property. `seal` has to start from the assignment — sealed, at
-    /// the prompt's own age — and a `@State` default cannot see the request. Setting it in
-    /// `.task` instead would render the toggle off for a frame on the one screen where "on" is
-    /// the entire point.
+    /// Written by hand, because several of these have to start from the request and a `@State`
+    /// default cannot see it.
+    ///
+    /// `seal` has to start from the assignment — sealed, at the prompt's own age — because setting
+    /// it in `.task` would render the toggle off for a frame on the one screen where "on" is the
+    /// entire point. The backfill prefill is here for the same reason and a sharper one: assigning
+    /// it in `.task` renders the empty *capture tiles* first and then replaces them with the
+    /// photos, so a composer reached by picking three photos opens by appearing to have none.
     init(request: ComposerRequest, api: APIClient) {
         self.request = request
         self.api = api
         _seal = State(initialValue: .initial(for: request.assignment, isEditing: request.isEditing))
+        _drafts = State(initialValue: request.backfill?.drafts ?? [])
+        _occurredAt = State(initialValue: request.backfill?.plan.occurredAt ?? Date())
+        // **The plan's date is already settled, and this is what stops anything overwriting it.**
+        // `BackfillDateRule` falls back to the month being filled and never to today, refuses a
+        // creation date from outside that month, and has a timezone fixture pinning it.
+        // `MediaDraftBuilder.suggestedOccurredAt` does none of that — it is the share sheet's
+        // rule, which falls back to `now`. Leaving this false would let the next import re-derive
+        // the date and quietly swap the careful rule for the dangerous one.
+        //
+        // A parent who taps the pill themselves still wins, which is the point of resolving the
+        // date on screen before anything is saved rather than at save time.
+        _dateWasChosen = State(initialValue: request.backfill != nil)
     }
 
     /// Whether this entry seals, and at what age. Only ever shown for a `letter` prompt.
@@ -75,7 +125,10 @@ struct ComposerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    DatePill(date: $occurredAt, isExpanded: $showDatePicker)
+                    VStack(alignment: .leading, spacing: 6) {
+                        DatePill(date: $occurredAt, isExpanded: $showDatePicker)
+                        if let backfill = request.backfill { dateProvenance(backfill) }
+                    }
 
                     if let assignment = request.assignment {
                         quotedPrompt(assignment)
@@ -132,6 +185,7 @@ struct ComposerView: View {
                !request.isEditing, drafts.isEmpty {
                 showRecorder = true
             }
+            openWhatWasAlreadyChosen()
         }
         .presentationDragIndicator(.visible)
         .fullScreenCover(isPresented: $showRecorder) {
@@ -191,6 +245,18 @@ struct ComposerView: View {
         existingMedia = (try? context.fetch(
             FetchDescriptor<Media>(predicate: #Predicate { $0.entryId == editingId })
         )) ?? []
+    }
+
+    /// The **+** sheet's four verbs, honoured on arrival.
+    private func openWhatWasAlreadyChosen() {
+        guard !request.isEditing else { return }
+        switch request.opening {
+        case .library: showLibrary = true
+        case .camera: showCamera = true
+        case .recorder: showRecorder = true
+        case .writing: writing = true
+        case nil: break
+        }
     }
 
     // MARK: Importing
@@ -491,6 +557,72 @@ struct ComposerView: View {
             RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
                 .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
         )
+    }
+
+    /// Where the date under the pill came from.
+    ///
+    /// **The defaulted case is the reason this whole feature is careful.** A photo from October
+    /// 2019 filed under this week looks completely normal and is wrong permanently, so a date
+    /// nothing actually knew must not render identically to one read off the asset. It says which
+    /// it is, in place, before anything is saved.
+    ///
+    /// Tinted rather than red: an absent date is not an error and the parent did nothing wrong.
+    @ViewBuilder
+    private func dateProvenance(_ backfill: BackfillPrefill) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if backfill.plan.isDateDefaulted {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "calendar.badge.questionmark")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(Color.terracotta)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("These photos didn't carry a date.")
+                            .typeRole(.metadata)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.ink)
+                        Text("\(backfill.plan.month.label()) is standing in. Tap the date to set the day.")
+                            .typeRole(.metadata)
+                            .foregroundStyle(Color.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(10)
+                .background(
+                    Color.terracottaSoft,
+                    in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                )
+            } else {
+                Text("From the photo · tap to change")
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+            }
+
+            if let age = ageLine(backfill) {
+                Text(age)
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkFaint)
+            }
+        }
+        .padding(.leading, 2)
+        // One element, so VoiceOver reads the provenance with the date rather than as three
+        // orphaned fragments after it.
+        .accessibilityElement(children: .combine)
+    }
+
+    /// How old the child was on the resolved date.
+    ///
+    /// `DraftAge`, not `child_age_months` — a month with no entries has no server-computed age to
+    /// render, because nothing has been written in it yet. This is the same confirmation echo
+    /// onboarding shows under a birthdate: never stored, never sent, and replaced by the server's
+    /// own number the moment the entry is saved.
+    ///
+    /// Neutrally worded on purpose. The seeded prompt library is he/him for now; copy written here
+    /// is not, and does not become so by copying a mockup.
+    private func ageLine(_ backfill: BackfillPrefill) -> String? {
+        guard let birthdate = backfill.childBirthdate,
+              birthdate <= backfill.plan.occurredAt
+        else { return nil }
+        return DraftAge.spoken(from: birthdate, to: backfill.plan.occurredAt)
     }
 
     private func quotedPrompt(_ assignment: AssignmentResponse) -> some View {

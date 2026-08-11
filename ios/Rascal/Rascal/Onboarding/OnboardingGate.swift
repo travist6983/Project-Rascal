@@ -473,10 +473,15 @@ struct OnboardingGate: View {
                 // not the zone it was computed in, and the widget has to be able to ask whether
                 // that date is still today. The gate already holds the whole `ChildResponse`, so
                 // this costs a parameter rather than a second request.
+                // The birthdate travels for the same reason and at the same cost: the camera-roll
+                // backfill says how old the child was in a month with nothing written in it, and
+                // `GET /today` carries only `age_months` — an age as of today, which says nothing
+                // about a month in 2019. The gate holds the whole `ChildResponse` already.
                 RootView(
                     session: session.account,
                     childId: child.id,
                     familyTimezone: child.familyTimezone,
+                    childBirthdate: child.birthdate,
                     onSignOut: { await session.signOut() },
                     notifications: session.notifications,
                     pendingLink: $pendingLink

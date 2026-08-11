@@ -246,6 +246,41 @@ same row is the whole point.
 
 ---
 
+## 13. Camera-roll backfill (phase 18) — the whole flow, on a real library
+
+**Nothing in this feature has ever met a real camera roll.** Every assertion runs against a stub
+source of dates, and the accessibility screenshots were taken against fabricated assets with no
+thumbnails. `docs/device-verification-backfill.md` is the full checklist; these are the parts that
+only a phone can answer.
+
+- [ ] **The permission prompt is one-shot, so spend it deliberately.** From **+** → *Browse your
+      camera roll*, tap **Not now** first and confirm iOS asked nothing. Reopen and grant.
+- [ ] **Time the first scan and write the number down**, along with the library's asset count.
+      Scroll the timeline while it runs — the app must stay responsive. This is the figure the
+      feature does not have.
+- [ ] Kill the app mid-scan. Relaunch. Nothing is corrupt and no half-built list appears. The
+      second launch uses the cache and does not re-scan.
+- [ ] **A month whose photos are all in iCloud.** Every tile says so, none is selectable, and
+      **nothing downloads** while you sit there. Watch the network — this is the promise the
+      explainer just made.
+- [ ] **A photo with no `DateTimeOriginal`** — an old import, a screenshot, something from
+      WhatsApp. The composer must say *"These photos didn't carry a date"* and file it in the
+      month being backfilled, **never today**. This is the error the whole feature exists to
+      prevent and it is invisible once saved.
+- [ ] Pick photos from one day, then reach for another day. The one-day note appears, nothing is
+      discarded, and **Start here** moves you cleanly.
+- [ ] Save an entry, go back. The day is badged *Written*. Now do it again and **Cancel** the
+      composer instead — the day must **not** be badged.
+- [ ] Set a month aside, then **Undo** from the toast. Force quit inside the toast window instead
+      and relaunch: the month stays set aside, because a dismissal is persisted immediately.
+- [ ] **VoiceOver, out loud.** Every label was audited in code and none has been heard. The offer
+      row and the month rows should read as single elements, day headers as headers, tiles as
+      selected/not, and a cloud-only tile should say why it cannot be picked.
+- [ ] **Accessibility XXL, on the phone.** Four layout defects were fixed against simulator
+      screenshots; confirm the permission screen's two actions are reachable on real hardware.
+
+---
+
 ## What I could not verify, and why
 
 - **Everything above.** The simulator has no camera, cannot truly suspend a process, and its
