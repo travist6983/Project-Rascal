@@ -37,6 +37,13 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- Xcode injects this only when it generates the plist, and GENERATE_INFOPLIST_FILE is NO
+	     here (a generated plist cannot carry the custom API_* keys below). Without it the
+	     archive uploads and is rejected by App Store Connect with error 90713, which names the
+	     key but not the reason it is absent. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

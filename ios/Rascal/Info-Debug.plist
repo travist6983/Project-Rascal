@@ -33,6 +33,13 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 
+	<!-- Same key as Info.plist, same reason. Only Release is uploaded, so this does nothing
+	     here — it is present because this file's contract is "every key identical plus the ATS
+	     exception", and the key that exists in one plist and not the other is how that stops
+	     being true. -->
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
