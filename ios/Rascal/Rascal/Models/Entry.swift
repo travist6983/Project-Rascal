@@ -257,11 +257,18 @@ nonisolated struct EntryCreateRequest: Encodable {
     /// Written by hand for one field. **`unlock_at_age` is always sent, including as an explicit
     /// null**, where the synthesized encoder would drop the key entirely.
     ///
-    /// "Not sealed" is a decision the parent made on a letter prompt, and an absent key cannot
-    /// express a decision — it reads as "no opinion". The server does not currently tell the two
-    /// apart on create (see `ComposerView.unsealOnServerIfNeeded`, and `docs/blocked.md`), so
-    /// today this is the client being right ahead of the contract rather than a behaviour change.
-    /// The moment `create_entry` starts distinguishing them, this is already correct.
+    /// **This is the contract, not a workaround, and it is load-bearing — do not "simplify" it
+    /// back to `encodeIfPresent`.** It looks like dead ceremony and it is the opposite: the
+    /// server distinguishes an explicit `null` from an absent key by
+    /// `"unlock_at_age" in payload.model_fields_set`, so an omitted key means "no opinion, use
+    /// the prompt's default" and a letter comes back sealed. "Not sealed" is a decision the
+    /// parent made on a letter prompt, and only this encoder can say it.
+    ///
+    /// Verified against a running server in phase 19, on a `letter` prompt with
+    /// `default_unlock_age = 13`: explicit null returned `unlock_at_age: null`, the same body
+    /// with the key removed returned `13`. That is also what removed
+    /// `unsealIfTheServerSealedItAnyway` — the corrective `PATCH` that used to follow every
+    /// create. The workaround went; this stayed, because this is what makes the answer right.
     ///
     /// Every other optional keeps `encodeIfPresent`: the server reads an absent `title` and an
     /// absent `assignment_id` as "not supplied", which is exactly what they mean.

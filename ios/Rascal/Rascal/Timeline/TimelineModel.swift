@@ -20,16 +20,6 @@ final class TimelineModel {
     /// it would trade a smoother scroll for a slower first paint on the screen that opens most.
     static let pageSize = 50
 
-    /// How many pages one load may spend looking for a row under a filter the server cannot
-    /// express — today that is `sealed` and only `sealed`.
-    ///
-    /// Ten pages is five hundred entries: enough to cross a long stretch of archive holding no
-    /// sealed letters, and bounded so a filter matching nothing cannot walk a six-year archive
-    /// in a single gesture. When the budget runs out the screen shows what it found and another
-    /// scroll spends another budget, which is the honest behaviour — "none in the last five
-    /// hundred" is not the same claim as "none".
-    static let clientFilterPageBudget = 10
-
     private(set) var isLoadingFirstPage = false
     private(set) var isLoadingMore = false
     /// The server has no more pages for the current filter.
@@ -124,18 +114,6 @@ final class TimelineModel {
         case cursor(String)
     }
 
-    /// What a page turned out to hold, from the point of view of the filter on screen.
-    private enum PageResult {
-        /// At least one row the current filter will draw.
-        case matched
-        /// Real rows, none of them the filter's. Only reachable under a client-side-only
-        /// filter — otherwise the server would not have sent them.
-        case empty
-        /// The request did not land. Never retried in the drain loop: ten pages against a dead
-        /// network is ten identical failures and a flat battery.
-        case failed
-    }
-
     private func nextWindow() -> PageWindow? {
         if let continuation { return .cursor(continuation) }
         if let oldest = oldestCachedOccurredAt() { return .before(oldest.addingTimeInterval(1)) }
@@ -154,42 +132,45 @@ final class TimelineModel {
         await drain(from: .start)
     }
 
-    /// Fetch a page — and keep fetching while a client-side-only filter has nothing to show
-    /// for one.
+    /// Fetch a page. **One request, for every filter.**
     ///
-    /// For every server-expressible filter this is exactly one request, because every row the
-    /// server returns is a row the screen will draw. `sealed` is the case that needs the loop:
-    /// a page of fifty ordinary entries adds no visible card, and **a page that adds no card
-    /// also adds nothing to trigger the next one** — paging hangs off the last card appearing.
-    /// Without this the filter would stop dead on any stretch of archive without a letter in it.
+    /// This used to be a loop with a ten-page budget, and the budget existed for exactly one
+    /// chip: `sealed` had no server parameter, so the client asked for the whole archive and
+    /// narrowed it locally — and a page of fifty ordinary entries added no visible card, while
+    /// **a page that adds no card also adds nothing to trigger the next one**, because paging
+    /// hangs off the last card appearing. The loop was what stopped the filter dying on any
+    /// stretch of archive without a letter in it, at the cost of the screen only ever being able
+    /// to claim "none in the last five hundred" rather than "none".
+    ///
+    /// `?sealed=true` removed the reason. Every row the server returns is now a row the screen
+    /// will draw, under every chip, so one page in is one page drawn.
+    ///
+    /// **Kept as a function rather than inlined**, because it is the single paging entry point
+    /// that `loadFirstPage` and `loadMore` both go through — the loop was the workaround, not
+    /// this seam.
     private func drain(from first: PageWindow) async {
-        var window = first
-        var budget = filter.isClientSideOnly ? Self.clientFilterPageBudget : 1
-
-        while budget > 0 {
-            budget -= 1
-            let result = await fetchPage(window)
-            // A filter changed under us, the archive ran out, or something landed to draw.
-            guard result == .empty, !reachedEnd, pagedFilter == filter else { return }
-            guard let next = nextWindow() else { return }
-            window = next
-        }
+        await fetchPage(first)
     }
 
-    @discardableResult
-    private func fetchPage(_ window: PageWindow) async -> PageResult {
+    /// **Returned nothing to the caller since the drain loop went.** It used to answer
+    /// `matched` / `empty` / `failed`, and the only reader was the loop deciding whether to
+    /// spend another page looking for a sealed letter. Every filter is a server filter now, so
+    /// every row that arrives is a row the screen draws and there is nothing left to ask.
+    private func fetchPage(_ window: PageWindow) async {
         do {
             let page = try await api.entries(
                 childId: childId,
                 type: filter.serverType,
                 before: { if case .before(let date) = window { date } else { nil } }(),
+                // The Sealed chip, on the wire instead of in a local narrowing pass.
+                sealed: filter.serverSealed,
                 limit: Self.pageSize,
                 cursor: { if case .cursor(let value) = window { value } else { nil } }()
             )
             // A filter changed while this was in flight. Its rows are still worth caching —
             // they are real entries — but its position belongs to a list nobody is reading.
             EntryCache.upsert(page.entries, into: context)
-            guard pagedFilter == filter else { return .failed }
+            guard pagedFilter == filter else { return }
 
             switch window {
             case .start:
@@ -203,23 +184,14 @@ final class TimelineModel {
             reachedEnd = page.nextCursor == nil
             hasLoaded = true
             notice = nil
-
-            // Asked of the wire rows rather than of the cache, because the cache holds every
-            // page ever fetched and would answer "yes" for a page that added nothing.
-            let matched = page.entries.contains {
-                filter.matches(entryType: $0.entryType, unlockAtAge: $0.unlockAtAge)
-            }
-            return matched ? .matched : .empty
         } catch let error as APIError {
             // The cache is already on screen. A failed refetch must not blank it, and offline
             // is not a failure worth a dialog.
             notice = error.userMessage
             hasLoaded = true
-            return .failed
         } catch {
             notice = error.localizedDescription
             hasLoaded = true
-            return .failed
         }
     }
 
@@ -246,6 +218,26 @@ final class TimelineModel {
                 predicate: #Predicate<Entry> { entry in
                     entry.childId == child && entry.deletedAt == nil
                         && entry.existsOnServer && entry.entryType == wanted
+                },
+                sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
+            )
+        } else if filter.serverSealed != nil {
+            // **The seed has to match the filter, and for `sealed` it did not used to.**
+            //
+            // While the Sealed chip narrowed locally, the request was unfiltered and the right
+            // seed was the oldest cached row of *any* kind — seeding from the oldest cached
+            // letter would have stranded every ordinary entry between it and the present.
+            //
+            // `?sealed=true` inverts that. The request now returns letters and only letters, so
+            // seeding from the oldest cached row of any kind asks for letters older than an
+            // entry that may be years older than the oldest letter — and every letter in between
+            // is skipped, silently, on a list that looks complete. Browse All to the bottom of
+            // 2019, switch to Sealed, scroll: page two starts before 2019 and the letters from
+            // 2020 onward never arrive.
+            descriptor = FetchDescriptor<Entry>(
+                predicate: #Predicate<Entry> { entry in
+                    entry.childId == child && entry.deletedAt == nil
+                        && entry.existsOnServer && entry.unlockAtAge != nil
                 },
                 sortBy: [SortDescriptor(\.occurredAt, order: .forward)]
             )

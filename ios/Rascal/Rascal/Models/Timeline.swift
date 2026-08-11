@@ -101,10 +101,10 @@ nonisolated struct MomentGroupResponse: Decodable, Sendable, Identifiable {
 /// The timeline's filter row. Maps to the `type` query parameter, and to `entry_type` on a
 /// locally cached row so the same filter works with no connection.
 ///
-/// **`sealed` is the exception and it is deliberate.** A sealed letter is `unlock_at_age` being
-/// set, not an `entry_type`, so there is no `?type=` value that expresses it — see
-/// `isClientSideOnly` for what the client does instead, and `docs/blocked.md` for the server
-/// parameter that would make it unnecessary.
+/// **`sealed` is not an `entry_type`, and it now has a parameter of its own.** A sealed letter is
+/// `unlock_at_age` being set, so no `?type=` value expresses it — it goes on the wire as
+/// `?sealed=true` instead. That parameter is what this filter used to lack, and lacking it is why
+/// the client used to ask for the whole archive and narrow it locally across a paging budget.
 nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
     case all
     case photo
@@ -147,9 +147,9 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
 
     /// What goes on the wire as `?type=`.
     ///
-    /// Nil for `all`, which sends no `type` at all — and nil for `sealed`, which the server has
-    /// no parameter for. **The two nils do not mean the same thing**, which is what
-    /// `isClientSideOnly` exists to say out loud.
+    /// Nil for `all`, which sends no `type` at all — and nil for `sealed`, which is expressed by
+    /// `serverSealed` instead. Both nils now mean the same thing here: no `type` parameter. They
+    /// did not always, which is what the deleted `isClientSideOnly` existed to say out loud.
     var serverType: String? {
         switch self {
         case .all, .sealed: nil
@@ -161,14 +161,16 @@ nonisolated enum TimelineFilter: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// True when the server cannot express this filter, so the client asks for the whole
-    /// archive and narrows it locally.
+    /// What goes on the wire as `?sealed=`.
     ///
-    /// The consequence is real and it is why `TimelineModel` has a loop: a page of fifty
-    /// entries can contain no sealed letters at all, and a page that adds no visible row also
-    /// adds nothing to trigger the next one. Paging has to keep going on its own until it finds
-    /// something or runs out of archive.
-    var isClientSideOnly: Bool { serverType == nil && self != .all }
+    /// **`true` or absent, never `false`.** The server takes `sealed=false` too — it returns
+    /// only unsealed rows — but no chip in this row means "everything except letters", so
+    /// sending it would narrow a list nobody asked to narrow. `All` sends nothing and gets both.
+    ///
+    /// This replaced `isClientSideOnly`. Every chip is now a server filter, so one request per
+    /// page is always enough and `TimelineModel` no longer keeps a paging budget for the case
+    /// where a page of fifty entries contained no visible row.
+    var serverSealed: Bool? { self == .sealed ? true : nil }
 
     /// The same decision against a cached row, so an offline filter and an online one agree.
     ///

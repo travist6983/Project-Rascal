@@ -154,7 +154,6 @@ private struct TimelineList: View {
 
     @Query private var entries: [Entry]
     @Query private var media: [Media]
-    @Query private var assignments: [Assignment]
     @FocusState private var fieldFocused: Bool
 
     init(
@@ -240,10 +239,6 @@ private struct TimelineList: View {
             filter: #Predicate<Media> { $0.deletedAt == nil },
             sort: [SortDescriptor(\Media.createdAt, order: .forward)]
         )
-        // The prompts, for the quote each card is built around. Assignments carry the same
-        // sentence `GET /entries/{id}` returns, `/sync` keeps them current, and nothing evicts
-        // them — so the quote is there on a cold launch with no signal.
-        _assignments = Query(filter: #Predicate<Assignment> { $0.childId == childId })
     }
 
     var body: some View {
@@ -368,18 +363,11 @@ private struct TimelineList: View {
     /// nothing on device can recompute it, so the ordering is carried rather than derived.
     private var cards: [EntryCardModel] {
         let byEntry = Dictionary(grouping: media, by: \.entryId)
-        // Built once for the whole screen. A lookup per card would be a linear scan of every
-        // assignment ever synced, five hundred times over.
-        let promptByAssignment = Dictionary(
-            assignments.map { ($0.id, $0.body) },
-            uniquingKeysWith: { first, _ in first }
-        )
 
         func card(_ entry: Entry) -> EntryCardModel {
             EntryCardModel(
                 entry: entry,
                 media: byEntry[entry.id] ?? [],
-                assignedPrompt: entry.assignmentId.flatMap { promptByAssignment[$0] },
                 searchQuery: search?.query
             )
         }
