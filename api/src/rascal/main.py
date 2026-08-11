@@ -14,6 +14,7 @@ from rascal.routers import (
     auth,
     children,
     debug,
+    devices,
     entries,
     export,
     me,
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(me.router, prefix=API_PREFIX)
+    app.include_router(devices.router, prefix=API_PREFIX)
     app.include_router(children.router, prefix=API_PREFIX)
     app.include_router(export.router, prefix=API_PREFIX)
     app.include_router(today.router, prefix=API_PREFIX)

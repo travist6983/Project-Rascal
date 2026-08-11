@@ -23,6 +23,16 @@ Last updated: **Aug 9, 2026**
 | Sealed entries with `unlock_at_age` | Letters written *to* him. Impossible to retrofit at 500 entries. |
 | Backdating is a core flow, not a setting | Camera-roll backfill is a whole mission category. |
 | Kid gets access "later" — mechanism TBD | See open items. |
+| **One notification a day. Not two, under any name** | No reminder, no digest, no weekly summary, no "you have 3 waiting". The roadmap says one and it means one. A second daily notification is the point at which a warm app becomes a nagging one, and there is no path through the send job that can produce two. |
+| **A finished day is silent** | If every item for today is done, nothing is sent — no "great job", no summary, no streak. A parent who completed the day should not be pinged about it, and a congratulation is still an interruption. This is the no-guilt rule applied correctly, and it is the rule most likely to be eroded by a well-meaning addition. |
+| **The notification carries the mission, and never the archive** | The mission body, optionally the child's first name, and the assignment id for the deep link. Never entry content, never anything from a sealed entry, never a count of waiting or missed items. It renders on a lock screen other people can see: a sealed letter is addressed to one person eighteen years from now, and a backlog number there is a guilt engine you cannot look away from. The message type has no field that could carry any of it, so this is enforced by the shape rather than by care. |
+| The notification preference lives on the **user**, not the child | One human decides when their own phone buzzes. A second guardian on the same child is a second phone with a second opinion, and per-child preferences would be a matrix nobody asked for. It is surfaced on the existing `GET /me` and `PATCH /me` rather than a preferences endpoint, so a client that already reads `/me` on launch needs no second call. Off by default: the client turns it on after the parent grants OS permission, never before. |
+| Default notification time is **19:00**, and it is a default rather than an answer | Early evening: the parent is with the child, a question is answered in conversation over dinner, and a mission not done tonight stacks to tomorrow at no cost. Open item 6 — what time actually works — is still open, and every user can change it. |
+| A missed send window is **dropped after two hours**, never fired late | Phase 12 made a missed *assignment* self-repairing, because `GET /today` fills the day on read. **A notification has no read to repair it** — nothing calls anything at 19:00 on the user's behalf — so the job is catch-up capable instead: every run sends anything whose window has passed today and has not been sent. The tolerance is what stops catch-up becoming a 2am notification about a day that is nearly over, or a job that was down for a day waking every user at once when it comes back. Two hours because Fly's coarsest schedule is hourly, so a window is already up to an hour old before any run looks at it, and two hours absorbs exactly one entirely missed run while still never reaching the middle of the night from a daytime window. |
+| A device is unique on `(token, environment)`, and `environment` has no default | A sandbox token and a production token are different tokens addressed to different APNs hosts, and sending to the wrong one **fails silently**. This is the single most common way push works in development and not in TestFlight. Collapsing them onto one row would mean whichever build launched last silently won. The client is the only thing that knows which build it is, so the API refuses to guess. |
+| One notification per user per day is guaranteed by a **unique index**, not by a check | `notification_sends` is unique on `(user_id, notification_date)` and the row is claimed with `ON CONFLICT DO NOTHING` *before* anything reaches APNs — exactly how `assignments` makes the scheduler free to re-run. A read-then-write would let two overlapping runs both read "not sent" and both send. Written before the push rather than after, so a crash between the two costs one notification instead of sending one on every retry. |
+| The claim is **committed** before the push, one transaction per user — the send job is not atomic, on purpose | The unique index only orders two runs that overlap; it does nothing about one run that dies. An APNs push is the single side effect in this service that a rollback cannot undo, so a run wrapped in one transaction would roll back every claim it had made while the phones those claims covered had already buzzed — and the next hourly run would send them all a second time. Committing per user costs the opposite failure: a crash in the window between the commit and the send loses that user one notification. For a product whose first rule is "one a day, not two, under any name", losing one is the right side of the trade. The consequence to hold onto is that `run_notifications` commits, so nothing but the job may call it. |
+| An unreadable `APNS_PRIVATE_KEY` fails at **startup**, not at the first send | A `.p8` that lost its newlines on the way into a secret is the likely first-deploy mistake, and it is unreadable in a way nothing notices until something signs with it. Discovered at send time it is the worst possible moment: the day has already been claimed and committed, so the user is recorded as notified, hears nothing, and is skipped tomorrow as "already sent" — a permanent silent miss from a typo. `build_push_client` signs one throwaway token before any user is read, so a bad key is a hard exit that claims nobody and is fully recoverable by fixing the secret. `ApnsClient.send` also degrades a signing failure to a result rather than an exception, because an error escaping mid-run costs every *remaining* user their notification too. |
 
 ### Technical
 
@@ -265,6 +275,50 @@ they matter most, because a Home Screen is the one surface a parent cannot choos
 `waiting` — the backlog of previous days — is deliberately never consulted when the snapshot is
 built, so there is nothing to count even by accident. `accessoryInline` says "Mission waiting",
 never "2 waiting".
+
+**Aug 11, 2026** — Push notifications, server side. One a day, and the day it stays quiet.
+
+Built against a **stubbed APNs client**, the way transcription was built against a stubbed
+transcriber. No APNs key exists — it comes from the same Apple Developer trip as the Sign in
+with Apple key, and `docs/blocked.md` §1 is still open — so **no real notification has been
+sent from this repository and none of Apple's behaviour is verified**. What is verified is
+everything on this side of the socket, which is where all of the product decisions live.
+
+**The durability problem is the whole shape of this phase.** Phase 12 demoted the scheduler
+to an optimisation by making `GET /today` fill the day on read: a machine that slept through
+5am costs milliseconds, not a lost day. **That repair does not exist for a notification.**
+Nothing calls anything at 19:00 on the user's behalf, so a send window nobody looked at is a
+notification that simply never happened, and it is experienced as the feature not working.
+So the job is catch-up capable instead — every run sends anything whose window passed today
+and has not been sent — and the staleness tolerance is what stops catch-up from becoming a
+2am notification, or a day-long outage waking every user at once when it recovers.
+
+Phase 12's actual answer for scheduler durability was `min_machines_running = 1` plus the
+read path, and it is **not sufficient for push**. It keeps the machine serving the read path
+awake; it does nothing about the scheduled machine, which `fly deploy` neither creates nor
+updates. For assignments that is fine — the read repairs them. For notifications the
+scheduled machine *is* the mechanism, so a fresh app with nobody to run `fly machine run` by
+hand sends nothing, forever, with a green health check. Recorded in the runbook §4b and in
+`blocked.md` in those words, because it is the one thing about this feature most likely to
+be discovered a month late.
+
+Two things the send job deliberately does not do. It does not send when every item for today
+is done — no "great job", no summary, no streak, because a congratulation is still an
+interruption and a parent who finished should not be pinged about finishing. And it never
+puts entry content, sealed content, or a count of waiting items on the wire: the message type
+has no field that could carry them, so a future edit cannot leak one by accident.
+
+The tolerance is **two hours**, and it is a consequence of Fly rather than of taste. Fly's
+finest schedule is hourly, so a window is already up to an hour old before any run looks at
+it; two hours absorbs exactly one entirely missed run while still never reaching the middle
+of the night from a daytime window. The default time is **19:00** and open item 6 stays open.
+
+One migration hazard found and fixed on the way, unrelated to push but blocking it: migration
+`0001` imported `TABLES_WITH_UPDATED_AT` from `rascal.models.base` and looped over it. That
+list is the *current* model layer, so the moment any later migration added a table with an
+`updated_at`, `0001` would have tried to attach a trigger to a table three revisions away
+from existing — and `alembic upgrade head` from empty would have failed. It is now a literal
+frozen at that revision, and later migrations attach their own.
 
 **Aug 10, 2026** — Deploy readiness, and the scheduler stops being load-bearing.
 

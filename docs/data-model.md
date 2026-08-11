@@ -15,6 +15,9 @@ Alembic migration; if the code and this file disagree, the code is wrong.
 | `id` | uuid PK | |
 | `email` | text | nullable — Apple relay emails are unreliable |
 | `display_name` | text | |
+| `is_admin` | boolean | gates writes to the mission library |
+| `notify_enabled` | boolean | default `false`; the client turns it on after the parent grants OS permission |
+| `notify_local_time` | time (no zone) | default `19:00`; a wall clock read in the **child's** `family_timezone`, never the device's and never UTC |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
@@ -157,6 +160,47 @@ expression must be `IMMUTABLE` and the one-argument `to_tsvector` reads a GUC.
 `entry_tags`: `entry_id`, `tag_id`, `source` (`user` \| `device_ai`).
 
 Keeping `source` on the join lets you distinguish tags you chose from tags the on-device model extracted, and lets you re-run extraction without clobbering yours.
+
+### `devices`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `user_id` | uuid FK | one user, many devices — phone today, iPad later |
+| `token` | text | the APNs device token |
+| `platform` | text + CHECK | `ios` |
+| `environment` | text + CHECK | `sandbox` \| `production` — **not optional** |
+| `last_seen_at` | timestamptz | written by the registration call, not the trigger |
+| `created_at` | timestamptz | |
+| `updated_at` | timestamptz | |
+| `revoked_at` | timestamptz | nullable — the soft delete |
+
+Unique on **`(token, environment)`**, not on `token`. A sandbox token and a production token
+are different tokens addressed to different APNs hosts, and the same string can legitimately
+be both; sending to the wrong host fails silently, which is the usual reason push works in
+development and not in TestFlight. Registering is an upsert on that pair, so a client calling
+it on every launch produces one row, and a token that re-registers after sign-out comes back
+live rather than stranded.
+
+### `notification_sends`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `user_id` | uuid FK | |
+| `child_id` | uuid FK | whose day the notification was about |
+| `assignment_id` | uuid FK | nullable, `ON DELETE SET NULL` — the deep link |
+| `notification_date` | date | **in the child's `family_timezone`**, not UTC |
+| `device_count` | integer | live tokens it was addressed to |
+| `delivered_count` | integer | how many APNs accepted |
+| `created_at` | timestamptz | |
+
+Unique on **`(user_id, notification_date)`**, and that index *is* the product guarantee: one
+notification per user per day. The row is claimed with `ON CONFLICT DO NOTHING` before
+anything reaches APNs, exactly the way `assignments` makes the scheduler free to re-run, so
+two overlapping runs cannot both decide to send.
+
+No `updated_at` and no soft delete — this is a system ledger rather than user data. It never
+syncs to a client and there is nothing here to restore, which is the same reasoning that
+leaves `refresh_tokens` and `idempotency_keys` without them.
 
 ---
 

@@ -32,6 +32,9 @@ EXPECTED_TABLES = {
     "media",
     "tags",
     "entry_tags",
+    # Where a notification goes, and the record that it went.
+    "devices",
+    "notification_sends",
 }
 
 EXPECTED_INDEXES = {
@@ -48,6 +51,11 @@ EXPECTED_INDEXES = {
     "ix_prompts_content_hash",
     "ix_entries_search_vector",
     "ix_media_search_vector",
+    # A sandbox token and a production token are different tokens.
+    "uq_devices_token_environment",
+    "ix_devices_user_id",
+    # One notification per user per day. This index is the guarantee.
+    "uq_notification_sends_user_id_notification_date",
 }
 
 EXPECTED_CHECKS = {
@@ -64,6 +72,8 @@ EXPECTED_CHECKS = {
     "ck_media_kind",
     "ck_media_upload_status",
     "ck_entry_tags_source",
+    "ck_devices_platform",
+    "ck_devices_environment",
 }
 
 TABLES_WITH_UPDATED_AT_TRIGGER = {
@@ -75,6 +85,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "media",
     "tags",
     "entry_tags",
+    "devices",
 }
 
 # The two columns Postgres maintains itself. If a provider quietly accepted the DDL but did

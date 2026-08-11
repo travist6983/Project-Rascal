@@ -5,11 +5,15 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Index, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, ForeignKey, Index, Text, Time, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from rascal.constants import CREDENTIAL_PROVIDERS, CredentialProvider
+from rascal.constants import (
+    CREDENTIAL_PROVIDERS,
+    DEFAULT_NOTIFY_LOCAL_TIME,
+    CredentialProvider,
+)
 from rascal.models.base import (
     Base,
     created,
@@ -34,6 +38,24 @@ class User(Base):
     # The mission library is content, authored server-side. Without this, any future `viewer`
     # login could write to it.
     is_admin: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+
+    # The notification preference lives on the user, not on the child: one human decides when
+    # their own phone buzzes, and a second guardian on the same child is a second phone with a
+    # second opinion. Per-child preferences would be a matrix nobody asked for.
+    #
+    # Defaults to off. The client turns it on *after* the parent grants notification
+    # permission at the OS level, never before — a server that assumes consent it was never
+    # told about is how an app gets deleted.
+    notify_enabled: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    # A wall-clock time with no zone, read in the **child's** `family_timezone` — not the
+    # user's device timezone and not UTC. `time without time zone` is exactly right for that:
+    # storing an offset here would pin the preference to wherever the parent stood when they
+    # set it, and it would drift an hour against DST twice a year.
+    notify_local_time: Mapped[dt.time] = mapped_column(
+        Time(timezone=False),
+        server_default=text(f"'{DEFAULT_NOTIFY_LOCAL_TIME.isoformat()}'"),
+    )
+
     created_at: Mapped[created]
     updated_at: Mapped[updated]
 

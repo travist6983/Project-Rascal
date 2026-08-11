@@ -85,6 +85,32 @@ class Settings(DatabaseSettings):
 
     assignment_expiry_days: int = 14
 
+    # --- APNs ----------------------------------------------------------------------------
+    #
+    # All optional, and unset is the state this repository has always been in: the key comes
+    # from the same Apple Developer portal trip as Sign in with Apple, and that enrollment is
+    # still open — see docs/blocked.md §1. Unset means `build_push_client` hands back a
+    # client that sends nothing and says so loudly, rather than one that pretends to succeed.
+    #
+    # `apns_private_key` is the *contents* of the `.p8` file, not a path. A Fly secret is a
+    # string, and a path would mean shipping a key into the image.
+    apns_key_id: str | None = None
+    apns_team_id: str | None = None
+    apns_private_key: str | None = None
+    # The APNs topic is the bundle id. Defaults to `apple_bundle_id` rather than being a
+    # second place to get the same value wrong.
+    apns_topic: str | None = None
+
+    @property
+    def apns_configured(self) -> bool:
+        """Whether a real APNs client can be built. All three or none — a partial set is a
+        misconfiguration, and treating it as "nearly working" hides which piece is missing."""
+        return all((self.apns_key_id, self.apns_team_id, self.apns_private_key))
+
+    @property
+    def resolved_apns_topic(self) -> str:
+        return self.apns_topic or self.apple_bundle_id
+
     @field_validator("s3_endpoint_url", mode="after")
     @classmethod
     def _blank_endpoint_is_unset(cls, value: str | None) -> str | None:
