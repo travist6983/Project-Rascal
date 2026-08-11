@@ -40,8 +40,19 @@ async def test_a_user_can_change_their_own_display_name(
     body = response.json()
     assert body["display_name"] == "Travis"
     assert body["id"] == str(user.id)
-    # The same user object /auth/apple returns, not a parallel shape.
-    assert set(body) == {"id", "email", "display_name", "is_admin", "created_at"}
+    # The same user object /auth/apple returns, not a parallel shape. `notify_enabled` and
+    # `notify_local_time` joined it when push shipped — the notification preference lives on
+    # the user object rather than behind a preferences endpoint of its own, so a client that
+    # already reads /me on launch learns it without a second call.
+    assert set(body) == {
+        "id",
+        "email",
+        "display_name",
+        "is_admin",
+        "notify_enabled",
+        "notify_local_time",
+        "created_at",
+    }
 
     after = await _stored(session, user)
     assert after.display_name == "Travis"
