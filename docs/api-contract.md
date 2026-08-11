@@ -347,17 +347,22 @@ The single call the home screen makes. Returns everything the Today screen rende
   "date": "2026-08-14",
   "child": { "id": "...", "name": "Miles", "age_months": 50 },
   "today": [
-    { "id": "...", "slot": "mission", "body": "Record him telling you a story...",
-      "kind": "audio", "completion_mode": "media", "theme": "voice",
-      "status": "pending", "expires_on": "2026-08-28" },
     { "id": "...", "slot": "question", "body": "What did he say this week...",
       "kind": "question", "completion_mode": "text", "theme": "his-words",
+      "status": "pending", "expires_on": "2026-08-28" },
+    { "id": "...", "slot": "mission", "body": "Photograph what he built today...",
+      "kind": "photo", "completion_mode": "media", "theme": "everyday-ordinary",
+      "status": "pending", "expires_on": "2026-08-28" },
+    { "id": "...", "slot": "mission_b", "body": "Record him telling you a story...",
+      "kind": "audio", "completion_mode": "media", "theme": "voice",
       "status": "pending", "expires_on": "2026-08-28" }
   ],
   "waiting": [ ... ],
   "done_today": [ ... ]
 }
 ```
+
+**Three daily slots.** `question`, `mission` (photo only) and `mission_b` (video, audio or activity) are filled every day; `weekly` on Saturday, `monthly` on the 1st and `letter` on the 15th fire on top of them, so `today` holds up to five items. **The response shape is unchanged** — `slot` simply has one more possible value. A client that groups by whatever `today` contains needs no change; one holding a list of slot names does.
 
 `waiting` is pending assignments from previous days, oldest first. `done_today` is anything completed with `occurred_at` today.
 

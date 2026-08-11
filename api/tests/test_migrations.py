@@ -210,3 +210,94 @@ def test_every_timestamp_column_is_timezone_aware(scratch_url: str) -> None:
         )
     engine.dispose()
     assert naive == [], f"naive timestamp columns: {naive}"
+
+
+def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str) -> None:
+    """Upgrade, downgrade *with data present*, upgrade again.
+
+    The downgrade is the half worth testing. Postgres will not create a CHECK that existing
+    rows violate, so a `mission_b` row left in place would make `downgrade` fail outright and
+    the migration irreversible in practice — which is the thing every migration in this chain
+    promises not to be. 0002's letter-slot downgrade is the pattern, and this asserts it holds
+    against a table that actually holds one.
+    """
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    with engine.begin() as conn:
+        child_id = conn.execute(
+            sa.text(
+                "INSERT INTO children (id, name, birthdate, family_timezone) "
+                "VALUES (gen_random_uuid(), 'Miles', DATE '2022-06-14', 'America/Detroit') "
+                "RETURNING id"
+            )
+        ).scalar_one()
+        # A parent-authored one-off, so this needs no prompt row: the table's CHECK is
+        # satisfied by `custom_body`, and the slot is the only thing under test.
+        for slot in ("mission", "mission_b"):
+            conn.execute(
+                sa.text(
+                    "INSERT INTO assignments "
+                    "(id, child_id, custom_body, slot, assigned_on, expires_on, status) VALUES "
+                    "(gen_random_uuid(), :child, 'x', :slot, CURRENT_DATE, "
+                    "CURRENT_DATE + 14, 'pending')"
+                ),
+                {"child": child_id, "slot": slot},
+            )
+
+    with engine.connect() as conn:
+        assert _slot_check(conn).count("mission_b") == 1
+        assert _slot_count(conn, "mission_b") == 1
+
+    _alembic("downgrade -1", scratch_url)
+
+    with engine.connect() as conn:
+        # The rows went, and only the mission_b ones.
+        assert _slot_count(conn, "mission_b") == 0
+        assert _slot_count(conn, "mission") == 1
+        assert "mission_b" not in _slot_check(conn)
+
+    _alembic("upgrade head", scratch_url)
+
+    with engine.connect() as conn:
+        assert _slot_check(conn).count("mission_b") == 1
+        # Re-widening does not resurrect what the downgrade deleted, and must not pretend to.
+        assert _slot_count(conn, "mission_b") == 0
+    engine.dispose()
+
+
+def _slot_check(conn: sa.Connection) -> str:
+    return conn.execute(
+        sa.text(
+            "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
+            "WHERE conname = 'ck_assignments_slot'"
+        )
+    ).scalar_one()
+
+
+def _slot_count(conn: sa.Connection, slot: str) -> int:
+    return conn.execute(
+        sa.text("SELECT count(*) FROM assignments WHERE slot = :slot"), {"slot": slot}
+    ).scalar_one()
+
+
+def test_the_slot_check_constraint_admits_exactly_the_slots_the_code_knows(
+    scratch_url: str,
+) -> None:
+    """The migration freezes slot names as a literal; `constants.SLOTS` is the live list.
+
+    That duplication is deliberate — a migration must not read a constant that can change under
+    it — which is exactly why it needs a test. A slot the code serves but the schema rejects is
+    an IntegrityError in the scheduler; a slot the schema allows but the code never writes is
+    dead permission.
+    """
+    from rascal.constants import SLOTS
+
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        definition = _slot_check(conn)
+    engine.dispose()
+
+    admitted = {value for value in SLOTS if f"'{value}'" in definition}
+    assert admitted == set(SLOTS), f"the CHECK does not admit: {sorted(set(SLOTS) - admitted)}"

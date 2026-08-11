@@ -79,7 +79,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("DROP TRIGGER IF EXISTS trg_prompt_suppressions_set_updated_at ON prompt_suppressions")
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_prompt_suppressions_set_updated_at ON prompt_suppressions"
+    )
     op.drop_index(
         "ix_prompt_suppressions_child_id_prompt_id_revoked_at", table_name="prompt_suppressions"
     )

@@ -1,6 +1,6 @@
 """How close a child's prompt pool is to repeating itself.
 
-The library holds ~113 active prompts and the scheduler serves two a day. Roughly 30 questions
+The library holds 113 active prompts and the scheduler serves three a day. Roughly 30 questions
 are eligible at 48 months, so at one a day the question pool empties in about a month — at which
 point the documented fallback relaxes the 180-day cooldown to 90 and the parent starts seeing
 prompts they answered last month, during exactly the sixty-day window P1 exists to prove.
@@ -44,11 +44,12 @@ class SlotHealth:
     relaxation_step: str
 
 
-# What each slot is served at, in days. The question and mission slots go daily; weekly and
+# What each slot is served at, in days. The question and both mission slots go daily; weekly and
 # monthly are named for their cadence; the letter is monthly too.
 SERVE_INTERVAL_DAYS: dict[Slot, int] = {
     "question": 1,
     "mission": 1,
+    "mission_b": 1,
     "weekly": 7,
     "monthly": 30,
     "letter": 30,
@@ -64,9 +65,7 @@ RELAXATION_AGE_WINDOW_DROPPED = "age_window_dropped"
 RELAXATION_EXHAUSTED = "pool_exhausted"
 
 
-async def pool_health(
-    session: AsyncSession, child: Child, *, as_of: dt.date
-) -> list[SlotHealth]:
+async def pool_health(session: AsyncSession, child: Child, *, as_of: dt.date) -> list[SlotHealth]:
     """One row per slot, per kind the slot draws from.
 
     The estimate is an **estimate** and the field name says so. It divides what is available
@@ -109,9 +108,7 @@ async def pool_health(
             clauses = [Prompt.active.is_(True), Prompt.cadence == spec.cadence]
             if kind is not None:
                 clauses.append(Prompt.kind == kind)
-            prompts = list(
-                (await session.execute(select(Prompt).where(*clauses))).scalars().all()
-            )
+            prompts = list((await session.execute(select(Prompt).where(*clauses))).scalars().all())
 
             in_window = [p for p in prompts if _eligible(p, age_months, month)]
             suppressed = [p for p in in_window if p.id in suppressed_ids]
@@ -149,9 +146,7 @@ def _estimate_days(slot: Slot, available: int) -> int | None:
     return available * SERVE_INTERVAL_DAYS.get(slot, 1)
 
 
-def _relaxation_step(
-    live: list[Prompt], available: list[Prompt], in_window: list[Prompt]
-) -> str:
+def _relaxation_step(live: list[Prompt], available: list[Prompt], in_window: list[Prompt]) -> str:
     """Which rung of `choose_prompt`'s ladder the next selection would land on.
 
     Mirrors the ladder rather than re-deriving it: as long as something is outside the 180-day

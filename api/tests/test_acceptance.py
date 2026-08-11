@@ -59,8 +59,13 @@ async def test_the_whole_daily_loop_through_the_api(
         headers=headers,
     )
     assert scheduled.status_code == 200
-    # question + mission + weekly (Saturday) + letter (the 15th).
-    assert scheduled.json()["created"] == 4
+    # question + mission + mission_b + weekly (Saturday) + letter (the 15th).
+    #
+    # 2026-08-15 is both, which makes this the five-item day: the three daily slots now fire
+    # underneath the two occasional ones, and none of them is suppressed to keep the count
+    # down. This is the worst case the calendar can produce and it is deliberate — see
+    # docs/decisions.md.
+    assert scheduled.json()["created"] == 5
     assert scheduled.json()["exhausted"] == []
 
     # Rerunning is free — that is what the unique index is for.
@@ -83,6 +88,7 @@ async def test_the_whole_daily_loop_through_the_api(
     assert {item["slot"] for item in screen["today"]} == {
         "question",
         "mission",
+        "mission_b",
         "weekly",
         "letter",
     }
@@ -146,7 +152,10 @@ async def test_the_whole_daily_loop_through_the_api(
             f"/v1/children/{child_id}/today", params={"date": RUN_DATE}, headers=headers
         )
     ).json()
-    assert {item["slot"] for item in after["today"]} == {"weekly", "letter"}
+    # `mission_b` is deliberately left uncompleted: two of the day's five are done, and the
+    # third daily slot stays pending exactly like the weekly and the letter do. A day is not
+    # all-or-nothing, and the third mission does not get special treatment for being new.
+    assert {item["slot"] for item in after["today"]} == {"mission_b", "weekly", "letter"}
     assert {item["slot"] for item in after["done_today"]} == {"question", "mission"}
 
 

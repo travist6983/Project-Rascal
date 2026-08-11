@@ -103,17 +103,33 @@ def test_coverage_at_48_months_meets_the_documented_floor() -> None:
         assert len(eligible) >= 4, bucket
 
 
-def test_daily_question_and_mission_pools_each_cover_a_fortnight() -> None:
+def test_each_daily_slots_own_pool_covers_a_fortnight() -> None:
+    """One pool per daily slot, which is three pools now and used to be two.
+
+    This previously pooled photo, video, audio and activity together and asked whether *that*
+    covered a fortnight. It did, and it would have gone on saying so long after the pool stopped
+    existing: `mission` draws photo alone from migration 0008, and photo alone is the thin one.
+    A slot is only as healthy as the kinds it can actually reach.
+    """
     buckets = _buckets()
-    questions = [b for b in buckets["question"] if b["min_age_months"] <= 48 <= b["max_age_months"]]
-    missions = [
-        row
-        for kind in ("photo", "video", "audio", "activity")
-        for row in buckets[kind]
-        if row["min_age_months"] <= 48 <= row["max_age_months"]
-    ]
-    assert len(questions) >= 14
-    assert len(missions) >= 14
+
+    def eligible(*kinds: str) -> int:
+        return len(
+            [
+                row
+                for kind in kinds
+                for row in buckets[kind]
+                if row["min_age_months"] <= 48 <= row["max_age_months"]
+            ]
+        )
+
+    assert eligible("question") >= 14
+    # `mission` is photo-only. This is the slot that reaches cooldown relaxation first, and the
+    # number to watch: it clears the fortnight floor and not by much.
+    assert eligible("photo") >= 14
+    # `mission_b` pools its three kinds, which is why none of them needs 14 on its own — and
+    # video and audio do not have 14 on their own.
+    assert eligible("video", "audio", "activity") >= 14
 
 
 def test_content_hash_distinguishes_kind_cadence_and_body() -> None:
