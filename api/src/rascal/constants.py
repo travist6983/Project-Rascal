@@ -7,6 +7,7 @@ here so the models, the migration, and the Pydantic schemas cannot drift apart.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Final, Literal
 
 CredentialProvider = Literal["apple", "google", "password"]
@@ -83,3 +84,43 @@ DEFAULT_EXPIRY_DAYS: Final = 14
 
 # The daily pair, plus the two that only fire on their day.
 DAILY_SLOTS: Final = ("question", "mission")
+
+# --- Push notifications ------------------------------------------------------------------
+
+# Only iOS can be sent to, because APNs is the only transport that exists. A browser client
+# would need WebPush, which is a different protocol and a different credential — so this is
+# a `text` + CHECK column exactly so that day is an ALTER rather than a migration dance.
+DevicePlatform = Literal["ios"]
+DEVICE_PLATFORMS: Final = ("ios",)
+
+# A sandbox token and a production token are different tokens, and sending one to the wrong
+# host fails *silently*. This is the single most common way push works in development and
+# not in TestFlight, which is why the column is NOT NULL and the API field has no default.
+PushEnvironment = Literal["sandbox", "production"]
+PUSH_ENVIRONMENTS: Final = ("sandbox", "production")
+
+# The default hour the one daily notification goes out, on the wall clock in the child's
+# family_timezone. Early evening: the parent is with the child, a question is answered in
+# conversation over dinner, and a mission not done tonight stacks to tomorrow at no cost.
+#
+# This is a **default, not an answer**. docs/decisions.md open item 6 — what time actually
+# works — is still open, and every user can change it through `PATCH /v1/me`.
+DEFAULT_NOTIFY_LOCAL_TIME: Final = dt.time(19, 0)
+
+# How late a missed window may still be fired. Past this, the notification is dropped.
+#
+# The send job runs on a Fly scheduled machine, and Fly's coarsest-grained schedule is
+# hourly — so a window can be up to an hour old before any run even looks at it, and a run
+# that fails outright puts it two hours old. Two hours absorbs exactly one missed run, and
+# still cannot reach the middle of the night from any daytime window: 19:00 fires by 21:00
+# or not at all. A notification at 2am about a mission for a day that is nearly over is
+# worse than no notification, which is the whole reason there is a tolerance and not a
+# best-effort catch-up.
+NOTIFICATION_STALENESS: Final = dt.timedelta(hours=2)
+
+# Which of the day's pending items the one notification carries, most-wanted first.
+#
+# The mission is the thing you go and *do*, so it is what a nudge is for. The question is
+# answered in conversation and needs no reminder to be answerable. Anything not on this list
+# falls back to the first pending item of the day.
+NOTIFICATION_SLOT_PRIORITY: Final = ("mission", "weekly", "monthly", "letter", "question")

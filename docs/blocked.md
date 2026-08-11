@@ -312,6 +312,48 @@ fly secrets set --app rascal-api APPLE_BUNDLE_ID="com.travisterry.childarchive"
 Registering the App ID with Sign in with Apple enabled is the other half. Adding the
 capability in Xcode under automatic signing does that registration for you.
 
+### 1a. The same enrollment also blocks push — no APNs key exists
+
+**Not a separate blocker.** The APNs key comes from the same Apple Developer portal trip as
+the Sign in with Apple key, so this unblocks when §1 does, and it is recorded here rather
+than as its own entry for that reason.
+
+Push notifications shipped complete against a stubbed APNs client, the way transcription
+shipped against a stubbed transcriber. `devices` and `notification_sends` exist, the
+preference is on `/me`, and `python -m rascal.jobs.notify` decides correctly *who* should be
+notified, *when* in the child's timezone, and *what* the payload contains — all of it
+tested. What has never happened is a single real call to Apple.
+
+**What is stubbed, precisely.** `rascal.services.push.ApnsClient` is written and its pure
+parts are tested: the ES256 provider token's header and claims, the host chosen per
+environment, the request headers, and the mapping from an APNs response onto a result —
+including `410` and `BadDeviceToken` revoking the device. **The socket is not tested.** No
+byte has been sent to `api.push.apple.com` from this repository, so "Apple accepts this
+request" is unverified in every respect: the topic, the payload shape, the token format, and
+the provider-token signature.
+
+**What that looks like in production today.** With `APNS_KEY_ID`, `APNS_TEAM_ID` and
+`APNS_PRIVATE_KEY` unset, `build_push_client` returns a client that sends nothing and logs
+`push not configured` at WARNING. It deliberately does **not** report success — a push
+service that silently no-ops is indistinguishable from one that works until somebody notices
+their phone has been quiet for a month. `notification_sends` rows are still written, with
+`delivered_count` at zero, which is the honest record of what happened.
+
+**What I still need:** an APNs key from the portal — Certificates, Identifiers & Profiles →
+Keys → + → Apple Push Notifications service (APNs) — and then three Fly secrets. The `.p8`
+is downloadable exactly once. `docs/runbook-deploy.md` §4a has the exact commands.
+
+Nothing in the code changes when the key arrives. The first real send is also the first real
+test of it, so treat the first TestFlight notification as a verification step and not as a
+formality — in particular that `sandbox` is what a TestFlight build registers.
+
+**Also outstanding, and not credential-blocked:** the notification job needs its own Fly
+scheduled machine (`docs/runbook-deploy.md` §4b), created by hand like the scheduler's. A
+fresh app has no notification job until someone runs that command, and **nothing fails if
+they forget** — the API is green, devices register, and no notification is ever sent. This
+matters more than it does for the scheduler, because `GET /today` repairs a missed
+assignment and nothing repairs a missed notification.
+
 **Meanwhile:** `POST /v1/auth/dev-login` returns a real session with real tokens against a
 fixture account, and it works for curl and for the iOS client. It is registered only when
 `ENVIRONMENT == "local"`, and there is a test that builds a production app and asserts the

@@ -971,3 +971,55 @@ ambiguity by matching existing code and keep going.
   expires lapsed assignments — the read path deliberately does not — so without it the
   `waiting` list grows without bound. That is a slow product problem, not data loss, which
   is exactly the demotion this work was for.
+
+## Push notifications (server side)
+
+- **Branched off the Phase 12 branch, not `main`.** The brief said "off `main`", but
+  `ensure_day_filled` — the shared path this job is required to reuse — is not on `main`; it
+  lives only on the unmerged `claude/deploy-readiness-scheduler-5pr0uh` and has no open PR.
+  Branching off `main` would have meant writing a second copy of the selection logic, which
+  the brief forbids in stronger terms than it asks for the base branch. The PR therefore
+  carries Phase 12's commit as well as this one.
+- **One child per user, the oldest they are a `parent` of.** The rule is one notification a
+  day *per user*, and sending per child would quietly turn that into N. `viewer` guardians
+  are excluded entirely — a grandparent with read access did not sign up for a nightly
+  reminder to do somebody else's mission. Second-kid handling is roadmap open item 7.
+- **The mission slot wins the one notification**, then weekly, monthly, letter, question. A
+  nudge is for the thing you go and do; a question is answered in conversation and needs no
+  reminder to be answerable.
+- **A user with no registered device is not recorded as sent.** Nothing was attempted, so
+  nothing is claimed, and a phone that registers an hour later still gets today's — as long
+  as the window has not gone stale.
+- **A failed send still burns the day.** The `notification_sends` row is written before the
+  push, so a delivery failure is logged and dropped rather than retried on the next hourly
+  run. "Never queued into tomorrow" is in the brief; this is the same rule applied within
+  the day.
+- **`DELETE /devices/{token}` revokes both environments.** The path carries a token and no
+  environment, sign-out means this phone stops receiving on this account, and a phone that
+  has run both a development and a TestFlight build holds a row for each.
+- **A token that re-registers under a different account moves to it.** The phone reports the
+  same token either way, and the alternative is the previous account's notifications landing
+  on the new account's lock screen.
+- **No `/debug/notifications/run` route.** The scheduler has one, but this job is reachable
+  as `python -m rascal.jobs.notify --as-of`, and a new debug route is new surface for
+  something a CLI already covers.
+- **`notification_sends` has no `updated_at` and no soft delete.** It is a system ledger, not
+  user data: it never syncs and there is nothing to restore, the same reasoning that leaves
+  `refresh_tokens` and `idempotency_keys` without them. `devices` gets both, because it is a
+  thing a user owns and revokes.
+- **`platform` is `ios` only.** APNs is the only transport implemented; a browser would need
+  WebPush, a different protocol and a different credential. `text` + CHECK, so that day is an
+  `ALTER`.
+- **Added `httpx[http2]`.** APNs speaks HTTP/2 and nothing else, so the `h2` extra is what
+  makes the real client able to open a connection at all. No new top-level dependency.
+- **Froze migration `0001`'s trigger list as a literal.** It imported the live
+  `TABLES_WITH_UPDATED_AT`, so adding any later table with an `updated_at` would have made
+  `0001` attach a trigger to a table that did not exist yet, breaking `upgrade head` from
+  empty. Unrelated to push, but it blocked it.
+- **Extended `EXPECTED_TABLES` / `EXPECTED_INDEXES` / `EXPECTED_CHECKS` in both
+  `test_migrations.py` and `.github/scripts/verify_schema.py`.** Both are subset checks, so
+  leaving them alone would have passed — and left two new tables unverified on Neon, which is
+  the one place it matters. A test enforces that the two lists agree.
+- **Changed one existing assertion.** `test_me.py` pinned the `/me` response to an exact set
+  of five keys; the preference fields are required to be on `/me` by the brief, so the set
+  grew to seven. It is the only existing test touched.
