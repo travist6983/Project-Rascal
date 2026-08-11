@@ -468,26 +468,38 @@ struct OnboardingSessionTests {
 
     // MARK: Birthdate
 
-    @Test("a birthdate in the future is refused, quietly")
-    func futureBirthdateIsRefused() {
+    /// Replaces `futureBirthdateIsRefused`, which asserted the copy of an error state that no
+    /// longer exists. The picker is bounded at `...Date()`, so "in the future" is unreachable
+    /// rather than reported — and what needs pinning now is the clamp that corrects a draft the
+    /// unbounded build already wrote to disk.
+    @Test("a stored birthdate in the future is clamped back to today, not refused")
+    func futureBirthdateIsClamped() {
         let now = Date(timeIntervalSince1970: 1_786_300_000)
         let tomorrow = now.addingTimeInterval(60 * 60 * 24)
 
-        #expect(BirthdateRule.check(tomorrow, now: now) == .inTheFuture)
-        #expect(BirthdateRule.check(tomorrow, now: now).message != nil)
-        // Copy rules: it says what is wrong and what to do, and it does not scold.
-        #expect(BirthdateRule.check(tomorrow, now: now).message?.contains("year") == true)
+        #expect(BirthdateRule.clamped(tomorrow, now: now) == now)
+        // A year out, not just a day — the mistyped-year case the old error was written for.
+        let nextYear = now.addingTimeInterval(60 * 60 * 24 * 365)
+        #expect(BirthdateRule.clamped(nextYear, now: now) == now)
     }
 
     @Test("today is not in the future, at any hour of it")
     func todayIsAcceptable() {
         let now = Date(timeIntervalSince1970: 1_786_300_000)
-        // A birthdate is a calendar day. Comparing instants would refuse a baby born this
-        // morning for the rest of the day.
+        // A birthdate is a calendar day. Comparing instants would drag a baby born this morning
+        // backwards for the rest of the day.
         let earlierToday = Calendar.current.startOfDay(for: now)
 
-        #expect(BirthdateRule.check(earlierToday, now: now) == .ok)
-        #expect(BirthdateRule.check(now, now: now) == .ok)
+        #expect(BirthdateRule.clamped(earlierToday, now: now) == earlierToday)
+        #expect(BirthdateRule.clamped(now, now: now) == now)
+    }
+
+    @Test("a birthdate in the past is left exactly as it is")
+    func pastBirthdateIsUntouched() {
+        let now = Date(timeIntervalSince1970: 1_786_300_000)
+        let fourYearsAgo = now.addingTimeInterval(-60 * 60 * 24 * 365 * 4)
+
+        #expect(BirthdateRule.clamped(fourYearsAgo, now: now) == fourYearsAgo)
     }
 
     /// Both dates are built in the *current* calendar, so the arithmetic holds whatever zone the

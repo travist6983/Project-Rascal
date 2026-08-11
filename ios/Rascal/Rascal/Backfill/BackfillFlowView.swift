@@ -73,6 +73,9 @@ struct BackfillFlowView: View {
                         source: source,
                         childBirthdate: childBirthdate,
                         savedDays: savedDays,
+                        // Carried in so the month total does not read as a fact about the month
+                        // when it is a fact about the selection.
+                        isLimited: scanner.isLimitedLibrary,
                         onUse: { plan, drafts, day in
                             // Recorded, **not** marked written. See `confirmWritten`.
                             pendingDay = day
@@ -165,10 +168,24 @@ struct BackfillFlowView: View {
             clusters: readyClusters,
             months: scanner.months,
             childBirthdate: childBirthdate,
+            // **Carried through, so no count on that screen reads as a complete one.** Under
+            // `.limited` every month total is computed over the shared selection, which is wrong
+            // while looking entirely normal.
+            isLimited: scanner.isLimitedLibrary,
+            onWidenSelection: scanner.isLimitedLibrary ? { Task { await widenSelection() } } : nil,
             onOpen: { path.append($0) },
             onDismissMonth: { setAside($0) },
             onClose: { dismiss() }
         )
+    }
+
+    /// Add more photos to the selection, then count again.
+    ///
+    /// The rescan is `force`, because the selection changing is exactly the case a cached result
+    /// is wrong about — and it is the whole reason the parent tapped.
+    private func widenSelection() async {
+        await LimitedLibraryPicker.present()
+        await scanner.scanAndWait(entryDates: entryDates(), force: true)
     }
 
     private var readyClusters: [BackfillCluster] {
@@ -386,14 +403,19 @@ struct BackfillPermissionScreen: View {
             // height to work in and body text collided with the button's top edge.
             .padding(.top, 26)
             .padding(.bottom, 18)
-            .background(BackfillActionBackdrop(tint: Color(hex: 0xFBF6EF)))
+            .background(PinnedActionBackdrop(tint: Color(hex: 0xFBF6EF)))
         }
     }
 }
 
 /// The backdrop behind a pinned action bar: opaque where the buttons are, fading upward so
 /// content scrolling underneath does not collide with them.
-struct BackfillActionBackdrop: View {
+///
+/// **Named for what it does, not for where it was born.** It started as backfill's, and Phase 20
+/// gave `OnboardingStepScaffold` the same pinned-footer treatment — at which point every
+/// onboarding screen in the app depended on a type whose name said "backfill", which is the kind
+/// of thing that reads as an accident and gets copy-pasted into a second one.
+struct PinnedActionBackdrop: View {
     var tint: Color = .canvas
 
     var body: some View {
@@ -528,7 +550,7 @@ struct BackfillLimitedAccessScreen: View {
             // height to work in and body text collided with the button's top edge.
             .padding(.top, 26)
             .padding(.bottom, 18)
-            .background(BackfillActionBackdrop())
+            .background(PinnedActionBackdrop())
         }
     }
 
@@ -571,7 +593,7 @@ struct BackfillNoAccessScreen: View {
                 .padding(.horizontal, Layout.screenMargin)
                 .padding(.top, 26)
                 .padding(.bottom, 18)
-                .background(BackfillActionBackdrop())
+                .background(PinnedActionBackdrop())
         }
     }
 }
@@ -613,7 +635,7 @@ struct BackfillNothingToSuggestScreen: View {
                 .padding(.horizontal, Layout.screenMargin)
                 .padding(.top, 26)
                 .padding(.bottom, 18)
-                .background(BackfillActionBackdrop(tint: Color(hex: 0xFBF6EF)))
+                .background(PinnedActionBackdrop(tint: Color(hex: 0xFBF6EF)))
         }
     }
 }

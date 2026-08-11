@@ -5,6 +5,13 @@ import Foundation
 import Photos
 #endif
 
+// `presentLimitedLibraryPicker(from:)` is declared in PhotosUI, not Photos — see
+// `LimitedLibraryPicker`. Importing Photos alone compiles everything else here and fails only on
+// that one call, with an error that reads as an availability problem rather than a missing import.
+#if canImport(PhotosUI)
+import PhotosUI
+#endif
+
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -76,6 +83,17 @@ final class BackfillScanner {
     }
 
     private(set) var state: State = .idle
+    /// What the system last said, verbatim.
+    ///
+    /// **Published because the `+` sheet needs it before any backfill screen exists.** That row
+    /// is present in every state — it is the door to the explainer — but what it *says* differs,
+    /// and under `.limited` it must not state a month count as though it were complete. `state`
+    /// alone cannot carry that: `.unavailable` is both "never asked" and "refused", and those two
+    /// get different sentences.
+    ///
+    /// `.notDetermined` until a scan has read one, which is the honest default — nothing has been
+    /// counted yet, so nothing is claimed.
+    private(set) var authorization: BackfillAuthorization = .notDetermined
     /// True when the parent granted access to selected photos only. **Not an error** — the UI
     /// says what it can see rather than pretending it saw everything.
     private(set) var isLimitedLibrary = false
@@ -125,12 +143,15 @@ final class BackfillScanner {
     }
 
     private func run(entryDates: [Date], now: Date, force: Bool) async {
-        let authorization = await source.authorization()
-        guard authorization.canScan else {
+        let granted = await source.authorization()
+        // Recorded before the guard, so a refusal is still a *known* refusal rather than an
+        // absence. The `+` sheet says something different for "never asked" than for "said no".
+        authorization = granted
+        guard granted.canScan else {
             state = .unavailable
             return
         }
-        isLimitedLibrary = authorization == .limited
+        isLimitedLibrary = granted == .limited
 
         let token = await source.libraryToken()
         if !force, let cached = cache.load(), cached.isFresh(now: now, token: token) {
@@ -198,6 +219,7 @@ final class BackfillScanner {
     /// Ask the system for access, from behind the explainer.
     func requestAccess() async -> BackfillAuthorization {
         let granted = await source.requestAuthorization()
+        authorization = granted
         isLimitedLibrary = granted == .limited
         if !granted.canScan { state = .unavailable }
         return granted
@@ -453,3 +475,46 @@ private nonisolated final class ResumeGuard: @unchecked Sendable {
     }
 }
 #endif
+
+/// Widening a selected-photos grant, in place.
+///
+/// **This is not a re-prompt and must never become one.** iOS shows its authorization prompt
+/// once, a denial is close to permanent, and `docs/decisions.md` records that this app builds no
+/// retry funnel. `presentLimitedLibraryPicker` is a different thing entirely: it is the selection
+/// sheet a parent who chose "Selected Photos" can open any number of times to add more, and it
+/// asks for no new permission because the grant is already there.
+///
+/// Setting `PHPhotoLibraryPreventAutomaticLimitedAccessAlert` in `Info.plist` is what makes this
+/// the app's job — iOS otherwise volunteers its own version of this alert once per launch, and
+/// two things offering the same choice in different words is worse than either alone.
+@MainActor
+enum LimitedLibraryPicker {
+
+    /// Presents the selection sheet, and returns once it has been dismissed so the caller can
+    /// rescan against whatever is now visible.
+    ///
+    /// Silent where there is no view controller to present from — a missing window is not
+    /// something a parent can act on, and this is an offer rather than a promise.
+    static func present() async {
+        #if canImport(UIKit) && canImport(PhotosUI)
+        guard let controller = topViewController() else { return }
+        // The async overload resumes when the sheet is dismissed and hands back the identifiers
+        // now in the selection. They are discarded here on purpose — the scan re-reads the
+        // library rather than trusting a list, so widening and a first grant take one path.
+        _ = await PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: controller)
+        #endif
+    }
+
+    #if canImport(UIKit)
+    private static func topViewController() -> UIViewController? {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+        guard var top = scene?.keyWindow?.rootViewController else { return nil }
+        // The flow is a full-screen cover over the root, so the thing that must present this is
+        // the deepest presented controller rather than the root itself.
+        while let presented = top.presentedViewController { top = presented }
+        return top
+    }
+    #endif
+}

@@ -112,6 +112,19 @@ final class NotificationPreference {
     private(set) var notifyTime: NotifyTime = .default
     /// A `PATCH /v1/me` is in flight. Disables the control that started it.
     private(set) var isWorking = false
+    /// What the last refused write was trying to change, or nil if the last one landed.
+    ///
+    /// **Which one it was is the whole value of reporting it.** A single boolean sent the row
+    /// into saying "it's still set to 7:00 PM" after a *toggle* failed, which names the one value
+    /// that was never in question. Cleared by the next successful write.
+    private(set) var writeFailure: WriteFailure?
+
+    enum WriteFailure: Equatable, Sendable {
+        /// Turning the reminder on or off.
+        case switching
+        /// Changing the time it arrives.
+        case time
+    }
 
     private var record: NotificationAskRecord
 
@@ -263,17 +276,25 @@ final class NotificationPreference {
         if let time { notifyTime = time }
 
         isWorking = true
+        writeFailure = nil
         defer { isWorking = false }
         do {
             let user = try await backend.updatePreference(enabled: enabled, time: time)
             notifyEnabled = user.notifyEnabled
             notifyTime = user.notifyLocalTime
         } catch {
-            // Non-fatal and silent, matching registration. The next launch re-reads `/me` and
-            // the server's answer wins; surfacing an error here would put a failure banner on a
-            // screen the parent has usually already left.
+            // Non-fatal, and no longer silent. The rollback was always here; what was missing was
+            // saying so. A parent who picks 7:30, watches the row snap back to 7:00 and is told
+            // nothing has been shown a control that appears to refuse input for no reason — and
+            // the value they set is the one thing on this screen they will check again later.
+            //
+            // Still not an alert and still not red: one line under the row, cleared by the next
+            // successful write. The next launch re-reads `/me` and the server's answer wins.
             notifyEnabled = previousEnabled
             notifyTime = previousTime
+            // `time` is non-nil only on the path `setTime` takes, so this names the control the
+            // parent actually touched rather than guessing from what rolled back.
+            writeFailure = time != nil ? .time : .switching
         }
     }
 }

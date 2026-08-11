@@ -69,8 +69,10 @@
 
 	<!-- Shown verbatim in the system prompt the first time each is touched. Written as a
 	     sentence a parent would actually understand — what is taken, and where it goes. -->
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Add photos you have already taken to your child's archive. Nothing is read or uploaded unless you pick it.</string>
+	<string>Rascal reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>

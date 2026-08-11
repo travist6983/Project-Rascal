@@ -16,6 +16,11 @@ struct BackfillMonthPickerScreen: View {
     let childBirthdate: Date?
     /// Days written during this visit, checked off without waiting for a rescan.
     let savedDays: Set<Date>
+    /// Selected-photos access. **The month total in the subtitle is a count of what the app can
+    /// see**, and under `.limited` that is the shared selection rather than the month — so it says
+    /// which. The grid below is self-describing (the photos are right there); a total above it is
+    /// not, and reads as a fact about the month.
+    var isLimited: Bool = false
     let onUse: (BackfillEntryPlan, [MediaDraft], Date) -> Void
 
     @Environment(BackfillThumbnailLoader.self) private var loader
@@ -120,6 +125,7 @@ struct BackfillMonthPickerScreen: View {
     private var subtitle: String {
         let count = days.reduce(0) { $0 + $1.assets.count }
         var parts = [count == 1 ? "1 photo" : "\(count) photos"]
+        if isLimited { parts[0] += " you've shared" }
         // Neutrally worded — new client copy does not assume a gender. `DraftAge` because a month
         // with nothing written in it has no server-computed age to render.
         if let childBirthdate, childBirthdate <= month.fallbackDate() {

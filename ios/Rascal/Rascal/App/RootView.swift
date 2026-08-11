@@ -91,6 +91,17 @@ struct RootView: View {
     @State private var pendingAdd: AddToArchiveChoice?
     @State private var showingAddSheet = false
     @State private var showingBackfill = false
+    /// The floating bar's measured height, reported by the bar itself.
+    ///
+    /// Seeded at roughly what the current design produces at the default text size — a ~64pt
+    /// capsule plus the disc's protrusion — so the very first frame, before the measurement
+    /// lands, insets by about the right amount rather than by nothing. Every frame after that
+    /// uses what was actually laid out, at whatever text size the phone is set to.
+    @State private var tabBarHeight: CGFloat = 78
+
+    /// The gap between the bar and the bottom safe area. One constant, used both to place the bar
+    /// and to inset the content behind it, so the two cannot drift.
+    static let tabBarFloatGap: CGFloat = 4
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -241,7 +252,7 @@ struct RootView: View {
             ComposerView(request: request, api: session.api)
         }
         .sheet(isPresented: $showingAddSheet, onDismiss: consumePendingAdd) {
-            AddToArchiveSheet(clusters: offeredClusters) { pendingAdd = $0 }
+            AddToArchiveSheet(model: addToArchiveModel) { pendingAdd = $0 }
         }
         .fullScreenCover(isPresented: $showingBackfill) {
             if let backfill, let backfillSource {
@@ -264,11 +275,17 @@ struct RootView: View {
         }
     }
 
-    /// What the **+** sheet offers, if anything. Empty until a scan has produced clusters, which
-    /// is what keeps the row absent rather than present-and-empty.
-    private var offeredClusters: [BackfillCluster] {
-        guard let backfill, case .ready(let clusters) = backfill.state else { return [] }
-        return clusters
+    /// What the **+** sheet shows.
+    ///
+    /// **The camera-roll row is in it in every state.** It used to be conditioned on this list
+    /// being non-empty, and the list is empty until a scan has produced clusters — which needs
+    /// authorization, which is only ever asked for by the explainer that lives behind the row.
+    /// A phone that had never granted access therefore never saw the row and never could.
+    private var addToArchiveModel: AddToArchiveModel {
+        guard let backfill else { return AddToArchiveModel() }
+        let clusters: [BackfillCluster]
+        if case .ready(let ready) = backfill.state { clusters = ready } else { clusters = [] }
+        return AddToArchiveModel(authorization: backfill.authorization, clusters: clusters)
     }
 
     /// Acted on after the sheet has gone, never during. See `pendingAdd`.
@@ -382,15 +399,28 @@ struct RootView: View {
                 }
             }
             .environment(\.thumbnails, thumbnails)
-            // Clear the floating bar so the last card is never trapped underneath it.
-            .safeAreaPadding(.bottom, 84)
+            // **Clear the floating bar so the last card is never trapped underneath it — by what
+            // the bar actually measures, not by a number kept in step by hand.**
+            //
+            // This was a hardcoded 84. The bar is a capsule whose height follows Dynamic Type,
+            // plus a disc lifted 16pt out of its top, plus the float gap below it — so 84 was
+            // right for one text size and one FAB geometry and silently wrong either side of
+            // that. "Retry now" rendering under the bar is what that looks like from the outside.
+            //
+            // Applied to the `Group`, so it reaches **every** tab rather than the ones somebody
+            // remembered: Today, Timeline, Moments and Settings all scroll behind this bar.
+            .safeAreaPadding(.bottom, tabBarHeight + Self.tabBarFloatGap)
 
             // **The centre button opens a sheet rather than the composer, and that is a
             // reversal** — see `docs/decisions.md`. It costs a tap on the way to every entry,
             // which is the price of the camera roll having a home that is a browse action rather
             // than a fifth capture verb buried in a form.
-            FloatingTabBar(selection: $tab) { showingAddSheet = true }
-            .padding(.bottom, 4)
+            FloatingTabBar(
+                selection: $tab,
+                onCreate: { showingAddSheet = true },
+                onHeightChange: { tabBarHeight = $0 }
+            )
+            .padding(.bottom, Self.tabBarFloatGap)
         }
     }
 }
