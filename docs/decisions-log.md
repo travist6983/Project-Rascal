@@ -1468,3 +1468,62 @@ Smaller calls:
 - **Left open deliberately, not bundled in:** editing the seal on an entry that already exists.
   `PATCH` supports it, no UI calls it, and `isOffered` is false while editing — so an age set by a
   stepper mis-tap is permanent from inside the app, quietly. Raised, not chosen.
+
+---
+
+## Aug 11, 2026 — Phase 19: three missions a day
+
+Implementation-level calls the brief left to me, and the two places it asked me to check
+rather than assume.
+
+- **The theme window needed no change, and that is worth writing down rather than just
+  reporting.** The brief flagged that the rule was written for a pair and asked whether it
+  covers three picks. It does, by construction: `_fill_slot` inserts each assignment before the
+  next slot is selected, and `_history` re-reads the child's day per pick inside the same
+  transaction, so the third pick sees the first two exactly as the second saw the first.
+  Nothing counts slots, so a fourth would need nothing either. Proven by a test whose pool
+  makes the right answer forced rather than lucky, and confirmed by breaking the window to
+  exclude today and watching that test fail.
+- **`ensure_day_filled` needed no change either.** Both it and `run_scheduler` reach the day's
+  slot list through `slots_for`, so `mission_b` arrived in both from one edit. There is still
+  exactly one selection path and no second copy to drift.
+- **The downgrade deletes `mission_b` rows before narrowing the CHECK**, following 0002's
+  letter-slot pattern. Ran it against a real Postgres holding an actual `mission_b` row rather
+  than reasoning about it: upgrade, insert, downgrade, confirm the row is gone and the
+  constraint narrowed, upgrade again. The deletion is destructive and correct — the row has no
+  representable slot at the previous revision — and `entries.assignment_id` and
+  `notification_sends.assignment_id` are both `ON DELETE SET NULL`, so the archive keeps the
+  entry and loses only the link to what asked for it.
+- **`MISSION_KINDS` was left alone and two new tuples were added beside it.** It still feeds
+  the weekly and monthly slots, so narrowing it would have silently changed the monthly
+  measurement slot — a slot this phase does not own. `MISSION_KINDS_PHOTO` and
+  `MISSION_B_KINDS` name what the two daily slots draw.
+- **`DAILY_SLOTS` in `constants.py` was updated even though nothing reads it.** A constant that
+  says "the daily pair" while the day holds three is the drift this project treats as a defect,
+  and a dead constant is the easiest kind to be wrong.
+- **`SERVE_INTERVAL_DAYS` in `pool_health.py` gained `mission_b` explicitly**, though its
+  `.get(slot, 1)` default would have produced the same answer. Relying on a default to be
+  accidentally correct is how the next slot with a different cadence gets reported wrong.
+- **`pool_health` reports per *kind*, not per slot, and that is now more misleading than it
+  was.** `mission_b` comes back as three rows — video 10, audio 11, activity 16 — when the slot
+  actually draws from all 37 pooled. The same was true of `mission` before this phase, so it is
+  pre-existing rather than introduced, but the split makes it easier to misread. The PR states
+  slot-level figures; the endpoint was not changed, because reshaping it is not this phase's.
+- **The monthly slot reports `relaxation_active: true` for video, audio and activity**, because
+  it draws `MISSION_KINDS` and the library holds no monthly prompts of those kinds. Noise in
+  the report, pre-existing, and fixing it would mean editing `MISSION_KINDS`.
+- **iOS: `mission_b` had to become a real `Slot` case rather than falling to `.unknown`.** An
+  unrecognised slot deliberately renders as a neutral grey card with no tint — correct for a
+  value from a future server release, wrong for one of the three cards a parent sees daily.
+  That forced updating one exhaustive switch (`PromptCard.footnoteLabel`); every other use of
+  `Slot` is a comparison rather than a switch.
+- **Both daily missions display as "Mission", with no A and B in the copy.** Numbering them
+  invites the reading that one is optional, or that the pair is a checklist to clear, which is
+  the streak thinking this product refuses.
+- **The widget change is a fallback, not a reordering.** It already showed `mission` first,
+  which matches the push ladder; what it lacked was second place. `mission` draws the thinnest
+  pool of the three, so an empty `mission` is a real and recurring case, and without the
+  fallback the widget would show no mission at all while one sat on the Today board.
+- **Preview fixtures were re-pointed at the slot each kind now belongs to.** They are DEBUG
+  only and nothing asserts on them, but a preview showing an audio prompt in `mission` would
+  teach the next reader the wrong model.

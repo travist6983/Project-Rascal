@@ -39,16 +39,16 @@ enum TodayPreview {
             make(sample, slot: "mission", kind: "photo", mode: "media",
                  body: "Take a photo of what summer looks like for him this year.")
         case .video:
-            make(sample, slot: "mission", kind: "video", mode: "media",
+            make(sample, slot: "mission_b", kind: "video", mode: "media",
                  body: "Ask him what he'd say at eighteen.")
         case .question:
             make(sample, slot: "question", kind: "question", mode: "text",
                  body: "What did he say this week that you want to remember exactly?")
         case .audio:
-            make(sample, slot: "mission", kind: "audio", mode: "media",
+            make(sample, slot: "mission_b", kind: "audio", mode: "media",
                  body: "Record him telling you a story. Don't correct the words he says wrong.")
         case .didIt:
-            make(sample, slot: "mission", kind: "activity", mode: "did_it",
+            make(sample, slot: "mission_b", kind: "activity", mode: "did_it",
                  body: "Get on the floor for ten minutes. That's the whole mission.")
         case .letter:
             make(sample, slot: "letter", kind: "letter", mode: "text",
@@ -81,7 +81,7 @@ enum TodayPreview {
                  body: "What is he frightened of this month?",
                  expiresOn: "2026-08-12")
         case .expiringSoon:
-            make(sample, slot: "mission", kind: "audio", mode: "media",
+            make(sample, slot: "mission_b", kind: "audio", mode: "media",
                  body: "Record the song he has been singing wrong all week.",
                  expiresOn: "2026-08-13")
         }

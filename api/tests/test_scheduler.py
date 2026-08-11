@@ -163,8 +163,8 @@ def test_a_prompt_this_child_has_never_seen_is_weighted_higher() -> None:
 
 
 def test_the_weekly_slot_only_fires_on_saturday() -> None:
-    assert slots_for(SATURDAY) == ["question", "mission", "weekly"]
-    assert slots_for(SUNDAY) == ["question", "mission"]
+    assert slots_for(SATURDAY) == ["question", "mission", "mission_b", "weekly"]
+    assert slots_for(SUNDAY) == ["question", "mission", "mission_b"]
 
 
 def test_the_monthly_slot_only_fires_on_the_first() -> None:
@@ -214,12 +214,12 @@ async def test_running_twice_for_the_same_date_creates_no_duplicates(
     second = await run_scheduler(session, as_of_date=SUNDAY, seed=2)
     await session.commit()
 
-    assert first.created == 2  # question and mission
+    assert first.created == 3  # question, mission, mission_b
     assert second.created == 0
-    assert second.skipped_existing == 2
+    assert second.skipped_existing == 3
 
     total = await session.scalar(sa.select(sa.func.count()).select_from(Assignment))
-    assert total == 2
+    assert total == 3
 
 
 async def test_two_children_in_different_zones_get_different_dates_from_one_instant(
@@ -259,7 +259,7 @@ async def test_saturday_adds_the_weekly_slot(session: AsyncSession) -> None:
         .scalars()
         .all()
     )
-    assert slots == {"question", "mission", "weekly"}
+    assert slots == {"question", "mission", "mission_b", "weekly"}
 
 
 async def test_the_first_of_the_month_adds_the_monthly_slot(session: AsyncSession) -> None:
@@ -304,21 +304,74 @@ async def test_stale_pending_assignments_expire(session: AsyncSession) -> None:
     assert still_open.status == "pending"
 
 
-async def test_the_scheduler_avoids_repeating_a_theme_across_the_daily_pair(
+async def test_the_scheduler_avoids_repeating_a_theme_across_the_daily_three(
     session: AsyncSession,
 ) -> None:
-    """The question and the mission are picked seconds apart; they must not match."""
+    """All three daily slots are picked seconds apart; none of them may match.
+
+    This used to cover a pair, and the rule it tests was written for a pair. It generalises
+    by construction rather than by arithmetic: `_fill_slot` inserts each assignment before the
+    next slot is selected, and `_history` re-reads the child's day per pick inside the same
+    transaction — so the third pick sees the first two exactly as the second saw the first.
+
+    The pool is arranged so the right answer is **forced rather than lucky**. The first two
+    slots have exactly one candidate each, so their themes are fixed. The third has three, two
+    of which duplicate a theme already served *today* — one from the first slot, one from the
+    second. Only `sleep` is fresh, so a scheduler that looked at neither, or at only the
+    immediately preceding pick, would land somewhere this asserts against.
+    """
     child = await make_child(session)
-    # Every mission prompt shares a theme with a question prompt except one.
+    # Slot 1, forced: "voice".
     await make_prompt(session, kind="question", theme="voice")
-    await make_prompt(session, kind="audio", completion_mode="media", theme="voice")
+    # Slot 2, forced: "outdoors".
     await make_prompt(session, kind="photo", completion_mode="media", theme="outdoors")
+    # Slot 3 has a choice, and two of the three are already spent today.
+    await make_prompt(session, kind="audio", completion_mode="media", theme="voice")
+    await make_prompt(session, kind="video", completion_mode="media", theme="outdoors")
+    await make_prompt(session, kind="activity", completion_mode="did_it", theme="sleep")
     await session.commit()
 
     await run_scheduler(session, as_of_date=SUNDAY, seed=11)
     await session.commit()
 
-    themes = list(
+    by_slot = dict(
+        (
+            await session.execute(
+                sa.select(Assignment.slot, Prompt.theme)
+                .join(Prompt, Prompt.id == Assignment.prompt_id)
+                .where(Assignment.child_id == child.id)
+            )
+        ).all()
+    )
+
+    assert set(by_slot) == {"question", "mission", "mission_b"}
+    assert by_slot["question"] == "voice"
+    assert by_slot["mission"] == "outdoors"
+    # The whole point: the third pick saw both of the first two, not just the last one.
+    assert by_slot["mission_b"] == "sleep"
+    assert len(set(by_slot.values())) == 3
+
+
+async def test_a_theme_collision_is_preferred_to_an_empty_slot(session: AsyncSession) -> None:
+    """When the only candidate shares a theme already used today, it is still served.
+
+    Theme rotation is a preference and the ladder relaxes it; a hole in the day is not a
+    preference. This is the case the three-slot fixture above deliberately avoids, asserted
+    here on its own so that relaxing is a decision rather than an accident.
+    """
+    child = await make_child(session)
+    await make_prompt(session, kind="question", theme="voice")
+    await make_prompt(session, kind="photo", completion_mode="media", theme="outdoors")
+    # The only thing mission_b can draw, and it collides with the question's theme.
+    await make_prompt(session, kind="audio", completion_mode="media", theme="voice")
+    await session.commit()
+
+    run = await run_scheduler(session, as_of_date=SUNDAY, seed=11)
+    await session.commit()
+
+    assert run.created == 3
+    assert run.exhausted == []
+    themes = sorted(
         (
             await session.execute(
                 sa.select(Prompt.theme)
@@ -329,7 +382,7 @@ async def test_the_scheduler_avoids_repeating_a_theme_across_the_daily_pair(
         .scalars()
         .all()
     )
-    assert sorted(themes) == ["outdoors", "voice"]
+    assert themes == ["outdoors", "voice", "voice"]
 
 
 async def test_the_cooldown_excludes_a_prompt_this_child_saw_recently(
@@ -358,7 +411,8 @@ async def test_a_slot_with_no_eligible_prompt_is_left_empty_not_faked(
     await session.commit()
 
     assert run.created == 0
-    assert len(run.exhausted) == 2
+    # All three daily slots, not two: an empty library exhausts mission_b as well.
+    assert len(run.exhausted) == 3
     assert await session.scalar(sa.select(sa.func.count()).select_from(Assignment)) == 0
 
 
@@ -396,7 +450,7 @@ async def test_the_debug_route_runs_an_arbitrary_date(
     )
 
     assert response.status_code == 200
-    assert response.json()["created"] == 3  # question, mission, weekly
+    assert response.json()["created"] == 4  # question, mission, mission_b, weekly
 
     # And it is idempotent, exactly like the real job.
     again = await client.post(
@@ -405,7 +459,7 @@ async def test_the_debug_route_runs_an_arbitrary_date(
         headers=auth_headers(user),
     )
     assert again.json()["created"] == 0
-    assert again.json()["skipped_existing"] == 3
+    assert again.json()["skipped_existing"] == 4
 
 
 async def test_reset_today_clears_a_day_so_the_loop_can_be_rerun(
@@ -429,7 +483,7 @@ async def test_reset_today_clears_a_day_so_the_loop_can_be_rerun(
     )
 
     assert reset.status_code == 200
-    assert reset.json()["deleted"] == 2
+    assert reset.json()["deleted"] == 3
     assert await session.scalar(sa.select(sa.func.count()).select_from(Assignment)) == 0
 
 
@@ -478,11 +532,36 @@ def test_the_letter_slot_only_fires_on_the_fifteenth() -> None:
 
 
 def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
-    """Four items on one day breaks "two items is the most that survives a bad Tuesday"."""
+    """The split that keeps the money letter from losing a coin flip to a height measurement.
+
+    The original reason for this test — "four items on one day breaks two-items-is-the-most-
+    that-survives-a-bad-Tuesday" — no longer holds, because the third daily mission puts every
+    day past that ceiling. The owner took that call knowing the worst day now reaches five.
+
+    **What survives is the part that was never about the count.** `monthly` and `letter` still
+    must not share a day: they are the two occasional slots most likely to be skipped, and
+    stacking them means the letter is the one that goes.
+    """
     for day in (FIRST, FIFTEENTH):
         slots = slots_for(day)
         assert not {"monthly", "letter"} <= set(slots)
-        assert len(slots) <= 3
+        # Three daily plus at most one occasional, on these two days.
+        assert len(slots) == 4
+
+
+def test_a_saturday_that_is_also_the_fifteenth_is_the_five_item_day() -> None:
+    """The worst the calendar can do, asserted rather than left to arithmetic.
+
+    2026-08-15 is a Saturday *and* the 15th, so the weekly and the letter both fire on top of
+    the daily three. Nothing suppresses either — that was decided, not overlooked.
+    """
+    saturday_the_fifteenth = dt.date(2026, 8, 15)
+    assert saturday_the_fifteenth.weekday() == 5, "the fixture must actually be a Saturday"
+
+    slots = slots_for(saturday_the_fifteenth)
+
+    assert slots == ["question", "mission", "mission_b", "weekly", "letter"]
+    assert len(slots) == 5
 
 
 async def test_the_monthly_slot_never_serves_a_letter(session: AsyncSession) -> None:
@@ -733,7 +812,7 @@ async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
     second = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=34)
     await session.commit()
 
-    assert first.created == 3  # question, mission, weekly (2026-08-22 is a Saturday)
+    assert first.created == 4  # question, mission, mission_b, weekly (a Saturday)
     assert second.created == 0
 
 
@@ -823,3 +902,165 @@ def _aged_prompt(*, min_age_months: int, max_age_months: int) -> Prompt:
         active=True,
         content_hash=uuid.uuid4().hex,
     )
+
+
+# --- The three-slot day --------------------------------------------------------------------
+
+
+TUESDAY = dt.date(2026, 8, 18)
+
+
+async def _every_daily_kind(session: AsyncSession) -> None:
+    """A daily prompt of every kind, so a slot drawing the wrong one has somewhere wrong to go.
+
+    This is the point of the fixture: if `mission` could return a video, this pool contains a
+    video for it to return. A pool holding only photos would make the purity tests below pass
+    against any implementation at all.
+    """
+    for index in range(4):
+        await make_prompt(session, kind="question", theme=f"q-{index}")
+        await make_prompt(session, kind="photo", completion_mode="media", theme=f"p-{index}")
+        await make_prompt(session, kind="video", completion_mode="media", theme=f"v-{index}")
+        await make_prompt(session, kind="audio", completion_mode="media", theme=f"a-{index}")
+        await make_prompt(session, kind="activity", completion_mode="did_it", theme=f"x-{index}")
+
+
+async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
+    session: AsyncSession,
+) -> None:
+    """Not a Saturday, not the 1st, not the 15th. Three, and one of each."""
+    child = await make_child(session)
+    await _every_daily_kind(session)
+    await session.commit()
+
+    run = await run_scheduler(session, as_of_date=TUESDAY, seed=3)
+    await session.commit()
+
+    assert run.created == 3
+    assert run.exhausted == []
+
+    rows = (
+        (
+            await session.execute(
+                sa.select(Assignment.slot).where(
+                    Assignment.child_id == child.id, Assignment.assigned_on == TUESDAY
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(rows) == ["mission", "mission_b", "question"]
+
+
+async def test_the_mission_slot_never_serves_a_non_photo_kind(session: AsyncSession) -> None:
+    """200 draws against a pool that contains every kind it must not return."""
+    child = await make_child(session)
+    await _every_daily_kind(session)
+    await session.commit()
+
+    kinds = set()
+    for seed in range(200):
+        prompt = await select_prompt(child, "mission", TUESDAY, session, rng=random.Random(seed))
+        assert prompt is not None, f"seed {seed} produced no prompt at all"
+        kinds.add(prompt.kind)
+
+    assert kinds == {"photo"}, f"the mission slot served: {sorted(kinds)}"
+
+
+async def test_the_mission_b_slot_never_serves_a_photo_or_a_question(
+    session: AsyncSession,
+) -> None:
+    """The same 200 draws, from the other side of the split."""
+    child = await make_child(session)
+    await _every_daily_kind(session)
+    await session.commit()
+
+    kinds = set()
+    for seed in range(200):
+        prompt = await select_prompt(child, "mission_b", TUESDAY, session, rng=random.Random(seed))
+        assert prompt is not None, f"seed {seed} produced no prompt at all"
+        kinds.add(prompt.kind)
+
+    assert kinds <= {"video", "audio", "activity"}, f"mission_b served: {sorted(kinds)}"
+    assert "photo" not in kinds
+    assert "question" not in kinds
+    # And it can actually reach all three, so this is not passing because one kind dominates.
+    assert kinds == {"video", "audio", "activity"}
+
+
+async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
+    session: AsyncSession,
+) -> None:
+    """The thin-pool case, which is the one the real library is closest to.
+
+    A slot with nothing eligible is left empty and logged — never filled with a fallback from
+    another kind. The other two slots are unaffected, because an exhausted slot must not take
+    the day down with it.
+    """
+    child = await make_child(session)
+    await make_prompt(session, kind="question", theme="q")
+    await make_prompt(session, kind="audio", completion_mode="media", theme="a")
+    # Deliberately no daily photo prompt at all.
+    await session.commit()
+
+    run = await run_scheduler(session, as_of_date=TUESDAY, seed=5)
+    await session.commit()
+
+    assert run.created == 2
+    assert run.exhausted == [f"{child.id}:mission"]
+
+    rows = dict(
+        (
+            await session.execute(
+                sa.select(Assignment.slot, Prompt.kind)
+                .join(Prompt, Prompt.id == Assignment.prompt_id)
+                .where(Assignment.child_id == child.id, Assignment.assigned_on == TUESDAY)
+            )
+        ).all()
+    )
+    assert set(rows) == {"question", "mission_b"}
+    assert rows["question"] == "question"
+    assert rows["mission_b"] == "audio"
+
+
+# --- The slot name lives in five places, so nothing may drift ------------------------------
+
+
+def test_every_registry_keyed_by_slot_covers_every_slot() -> None:
+    """`mission_b` had to be added to five separate places, and a sixth would be easy to miss.
+
+    `constants.SLOTS` is the list; `SLOT_SPECS` says what each slot draws; `SERVE_INTERVAL_DAYS`
+    says how often it is served; `NOTIFICATION_SLOT_PRIORITY` says which one a notification
+    carries. A slot missing from the first two is a `KeyError` in production. Missing from the
+    third is worse — `.get(slot, 1)` returns a plausible wrong answer and the pool report is
+    quietly incorrect. Missing from the fourth is a silent fallback to "first pending item".
+
+    This is the test that fails when slot number seven is added to only some of them.
+    """
+    from rascal.constants import NOTIFICATION_SLOT_PRIORITY, SLOTS
+    from rascal.services.pool_health import SERVE_INTERVAL_DAYS
+    from rascal.services.scheduler import SLOT_SPECS
+
+    assert set(SLOT_SPECS) == set(SLOTS), "SLOT_SPECS and constants.SLOTS disagree"
+    assert set(SERVE_INTERVAL_DAYS) == set(SLOTS), "SERVE_INTERVAL_DAYS and SLOTS disagree"
+    assert set(NOTIFICATION_SLOT_PRIORITY) == set(SLOTS), "the push ladder is missing a slot"
+
+
+def test_slots_for_never_invents_a_slot_the_schema_would_reject() -> None:
+    """Every value `slots_for` can produce, over a whole year, has to be a known slot.
+
+    The database's CHECK constraint is the backstop and it would reject an unknown value with
+    an IntegrityError at 5am. This catches it at a keystroke instead.
+    """
+    from rascal.constants import SLOTS
+
+    day = dt.date(2026, 1, 1)
+    produced: set[str] = set()
+    while day < dt.date(2027, 1, 1):
+        produced.update(slots_for(day))
+        day += dt.timedelta(days=1)
+
+    assert produced <= set(SLOTS), f"slots_for produced unknown slots: {produced - set(SLOTS)}"
+    # And over a year it should actually exercise all six, or this proves less than it looks.
+    assert produced == set(SLOTS)

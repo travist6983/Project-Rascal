@@ -101,7 +101,8 @@ What the scheduler served on a given day.
 | `child_id` | uuid FK | |
 | `prompt_id` | uuid FK | nullable if `custom_body` set |
 | `custom_body` | text | nullable — parent-authored one-offs |
-| `slot` | text | `question` \| `mission` \| `weekly` \| `monthly` |
+| `slot` | text | `question` \| `mission` \| `mission_b` \| `weekly` \| `monthly` \| `letter` |
+| | | `mission` is **photo-only** from migration 0008; `mission_b` takes video, audio and activity. Rows written before 0008 hold other kinds in `mission` and are correct for the day they were served — see `docs/decisions.md`. |
 | `assigned_on` | date | in family timezone |
 | `expires_on` | date | `assigned_on + 14` |
 | `status` | text | `pending` \| `done` \| `dismissed` \| `expired` |
@@ -270,14 +271,18 @@ The scheduler avoids serving two prompts from the same theme back to back.
 Runs 5am in each child's `family_timezone`.
 
 1. Expire assignments where `expires_on < today` and `status = 'pending'`.
-2. For each active child, for slot `question` and slot `mission`:
-   - Candidate pool = active prompts where cadence matches, `child_age_months` falls inside the age window, and `month_tags` is empty or contains the current month.
+2. For each active child, for **all three** daily slots in order — `question`, then `mission`, then `mission_b`:
+   - Candidate pool = active prompts where cadence matches, **the kind is one this slot draws** (`question` → question; `mission` → photo; `mission_b` → video, audio, activity), `child_age_months` falls inside the age window, and `month_tags` is empty or contains the current month.
+   - Exclude any prompt suppressed for this child, before selection begins rather than at any rung of the ladder below.
    - Exclude any prompt served to this child in the last 180 days.
-   - Exclude the theme served in the previous 2 days.
-   - Weighted random pick.
+   - Exclude any theme served in the previous 2 days **including today's earlier picks** — each assignment is inserted before the next slot is selected, so the third pick sees the first two.
+   - Weighted random pick; a prompt this child has never seen is weighted 3 to 1 against one they have.
 3. Saturday: also fill slot `weekly`.
 4. First of the month: also fill slot `monthly` (measurement).
-5. Insert with `ON CONFLICT (child_id, assigned_on, slot) DO NOTHING`.
+5. Fifteenth of the month: also fill slot `letter`.
+6. Insert with `ON CONFLICT (child_id, assigned_on, slot) DO NOTHING`.
+
+Steps 3–5 fire **on top of** step 2 and never in place of it, so the worst day the calendar can produce — a Saturday that is also the 15th — is five assignments. A slot whose pool is empty is left empty and logged; it is never filled from another kind's pool.
 
 If the candidate pool empties (small library, narrow age band), relax the 180-day cooldown to 90 before relaxing the age window. Relax the age window last — an age-inappropriate
 prompt is worse than a repeat.

@@ -29,7 +29,7 @@ from rascal.services.scheduler import ensure_day_filled, run_scheduler
 SATURDAY = dt.date(2026, 8, 22)
 # The 1st, and a Tuesday, so `monthly` is tested without `weekly` riding along.
 FIRST = dt.date(2026, 9, 1)
-# A plain Wednesday: the daily pair and nothing else.
+# A plain Wednesday: the daily three and nothing else.
 WEEKDAY = dt.date(2026, 8, 19)
 
 # UTC+14 and UTC-11. At any instant at least one of them is on a different calendar date
@@ -59,6 +59,10 @@ async def _pool(session: AsyncSession) -> None:
     """Enough of a library that every slot a day can ask for has a candidate."""
     await make_prompt(session, kind="question", cadence="daily", completion_mode="text")
     await make_prompt(session, kind="photo", cadence="daily", completion_mode="media")
+    # `mission_b` draws video/audio/activity. Without a daily one of those the third slot is
+    # exhausted every day, and the tests below that assert "nothing was left empty" would be
+    # asserting it against a hole this fixture dug.
+    await make_prompt(session, kind="audio", cadence="daily", completion_mode="media")
     await make_prompt(session, kind="activity", cadence="weekly", completion_mode="did_it")
     await make_prompt(session, kind="measurement", cadence="monthly", completion_mode="text")
     await make_prompt(session, kind="letter", cadence="monthly", completion_mode="text")
@@ -240,6 +244,7 @@ async def test_saturday_fills_the_weekly_slot(session: AsyncSession) -> None:
     assert {row.slot for row in await _rows(session, child.id, SATURDAY)} == {
         "question",
         "mission",
+        "mission_b",
         "weekly",
     }
 
@@ -253,6 +258,7 @@ async def test_the_first_of_the_month_fills_the_monthly_slot(session: AsyncSessi
     assert {row.slot for row in await _rows(session, child.id, FIRST)} == {
         "question",
         "mission",
+        "mission_b",
         "monthly",
     }
 
@@ -266,10 +272,11 @@ async def test_only_the_missing_slot_is_filled(session: AsyncSession) -> None:
 
     run = await ensure_day_filled(session, child, WEEKDAY)
 
-    assert run.created == 1
+    # question was already there; mission and mission_b were the gaps.
+    assert run.created == 2
     assert run.skipped_existing == 1
     rows = await _rows(session, child.id, WEEKDAY)
-    assert {row.slot for row in rows} == {"question", "mission"}
+    assert {row.slot for row in rows} == {"question", "mission", "mission_b"}
     question = next(row for row in rows if row.slot == "question")
     assert question.id == kept.id
     assert question.prompt_id == existing.id
@@ -346,7 +353,9 @@ async def test_two_separate_transactions_racing_the_same_day_still_fill_each_slo
 
     rows = await _rows(session, child.id, WEEKDAY)
     slots = [row.slot for row in rows]
-    assert sorted(slots) == ["mission", "question"], f"a slot was filled twice: {slots}"
+    assert sorted(slots) == ["mission", "mission_b", "question"], (
+        f"a slot was filled twice: {slots}"
+    )
 
 
 async def test_the_read_path_does_not_expire_anything(session: AsyncSession) -> None:

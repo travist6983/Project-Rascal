@@ -34,7 +34,8 @@ DETROIT = "America/Detroit"
 # UTC-10 all year, so a local evening is the *next* UTC day. No DST to reason about.
 HONOLULU = "Pacific/Honolulu"
 
-MISSION = "Get on the floor for ten minutes and let him lead."
+MISSION = "Take a photo of what he built today."
+MISSION_B = "Get on the floor for ten minutes and let him lead."
 QUESTION = "What did he say today that you want to remember?"
 
 
@@ -62,8 +63,12 @@ async def _world(
     await grant(session, user, child, "parent")
 
     await make_prompt(session, kind="question", cadence="daily", body=QUESTION)
+    # One per daily slot, and the kinds matter: `mission` is photo-only as of 0008 and
+    # `mission_b` takes video/audio/activity. A pool that fed only one of them would leave the
+    # other exhausted, and "the day is fully done" would then be true of a day with a hole in it.
+    await make_prompt(session, kind="photo", cadence="daily", completion_mode="media", body=MISSION)
     await make_prompt(
-        session, kind="activity", cadence="daily", completion_mode="did_it", body=MISSION
+        session, kind="activity", cadence="daily", completion_mode="did_it", body=MISSION_B
     )
 
     made = [await make_device(session, user) for _ in range(devices)]
@@ -215,13 +220,22 @@ async def test_a_second_day_gets_its_own_notification(session: AsyncSession) -> 
 async def _finish_the_day(
     session: AsyncSession, user: User, child, day: dt.date, timezone: str
 ) -> None:
-    """Both of the day's slots assigned, completed, and evidenced by a real entry.
+    """**All three** of the day's slots assigned, completed, and evidenced by a real entry.
 
     `assignments_for` only counts an assignment as done when an entry with that
     `assignment_id` occurred on the day, so setting a status alone would not be a finished
     day — it would be a way for this test to pass without the product working.
+
+    The third slot is why this helper is load-bearing rather than incidental. When the day
+    held two slots and this filled two, "fully done" meant fully done. The moment `mission_b`
+    existed it meant two-thirds done, and the silence test started failing for the right
+    reason: there genuinely was something left to nudge about.
     """
-    for slot, kind in (("question", "question"), ("mission", "activity")):
+    for slot, kind in (
+        ("question", "question"),
+        ("mission", "photo"),
+        ("mission_b", "activity"),
+    ):
         prompt = await make_prompt(session, kind=kind, cadence="daily")
         assignment = await make_assignment(
             session, child, prompt, slot=slot, assigned_on=day, status="done"
@@ -543,7 +557,7 @@ async def test_the_job_fills_the_day_through_the_shared_scheduler_path(
             Assignment.child_id == child.id, Assignment.assigned_on == DAY
         )
     )
-    assert set(filled.scalars().all()) == {"question", "mission"}
+    assert set(filled.scalars().all()) == {"question", "mission", "mission_b"}
     assert push.sent[0].body == MISSION
 
 
@@ -661,3 +675,51 @@ async def test_a_crash_on_one_user_does_not_undo_the_user_already_notified(
     run, push = await _run(session, at=_utc(DAY, dt.time(20, 0), DETROIT))
     assert run.skipped_already_sent == 2
     assert push.sent == []
+
+
+async def test_a_five_item_day_still_produces_exactly_one_notification(
+    session: AsyncSession,
+) -> None:
+    """The day the calendar can now reach, and the rule that does not bend for it.
+
+    2026-08-15 is a Saturday *and* the 15th, so the three daily slots fire underneath a weekly
+    and a letter. Five assignments, five things a well-meaning change could decide to mention,
+    and still **one** notification carrying one of them.
+
+    This day was not reachable before the third daily slot existed — the old ceiling was four
+    — which is why it gets its own test rather than being folded into the once-a-day one.
+    """
+    saturday_the_fifteenth = dt.date(2026, 8, 15)
+    assert saturday_the_fifteenth.weekday() == 5, "the fixture must actually be a Saturday"
+    assert saturday_the_fifteenth.day == 15, "...and actually the 15th"
+
+    user, child, _ = await _world(session)
+    # The two occasional slots need somewhere to draw from, or the day is only three items.
+    await make_prompt(session, kind="activity", cadence="weekly", completion_mode="did_it")
+    await make_prompt(session, kind="letter", cadence="monthly", completion_mode="text")
+    await session.commit()
+
+    run, push = await _run(session, at=_utc(saturday_the_fifteenth, dt.time(19, 5), DETROIT))
+
+    filled = await session.execute(
+        sa.select(Assignment.slot).where(
+            Assignment.child_id == child.id,
+            Assignment.assigned_on == saturday_the_fifteenth,
+        )
+    )
+    slots = sorted(filled.scalars().all())
+    assert slots == ["letter", "mission", "mission_b", "question", "weekly"], (
+        f"the five-item day did not materialise: {slots}"
+    )
+
+    # Five assignments, one notification, one push, one ledger row.
+    assert run.sent == 1
+    assert len(push.sent) == 1
+    sends = await _sends(session)
+    assert len(sends) == 1
+    assert sends[0].user_id == user.id
+
+    # And it carried the photo mission, which is the top of the ladder.
+    carried = await session.get(Assignment, sends[0].assignment_id)
+    assert carried is not None
+    assert carried.slot == "mission"

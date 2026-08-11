@@ -187,23 +187,24 @@ Your son is 48 months. Prompts eligible at 48 months, by kind.
 matching, the test fails and tells you the new numbers. Corrected Aug 4, 2026: the previous
 version predated the last handful of prompts and under-counted video, activity, and weekly.
 
-| Kind | Total | Active | Eligible at 48mo | Of those, any-month | Enough for 14 days? |
-|---|---|---|---|---|---|
-| Question | 30 | 30 | 30 | 30 | ✅ |
-| Photo | 22 | 22 | 22 | 18 | ✅ |
-| **Video** | 11 | **0** | — | — | **inactive — no multipart upload yet** |
-| **Audio** | 12 | **0** | — | — | **inactive — no recorder yet** |
-| Activity | 16 | 16 | 16 | 16 | ✅ |
-| Weekly | 10 | 9 | 9 | 9 | ✅ |
-| Monthly | 4 | 4 | 4 | 4 | ✅ |
-| Letter | 8 | 8 | 8 | 8 | ✅ |
+| Kind | Total | Active | Eligible at 48mo | Of those, any-month | Slot it feeds | Enough for 14 days? |
+|---|---|---|---|---|---|---|
+| Question | 30 | 30 | 30 | 30 | `question` | ✅ |
+| Photo | 22 | 22 | 22 | 18 | `mission` | ✅ |
+| Video | 11 | 11 | 11 | 10 | `mission_b` | ✅ (pooled) |
+| Audio | 12 | 12 | 11 | 11 | `mission_b` | ✅ (pooled) |
+| Activity | 16 | 16 | 16 | 16 | `mission_b` | ✅ |
+| Weekly | 10 | 10 | 10 | 10 | `weekly` | ✅ |
+| Monthly | 4 | 4 | 4 | 4 | `monthly` | ✅ |
+| Letter | 8 | 8 | 8 | 8 | `letter` | ✅ |
 
-**113 prompts in the library, 89 active.** The 24 video and audio prompts are seeded but
-inactive: no client can complete either yet, and a prompt the client cannot complete is a dead
-end rather than a mission — a device session hit exactly that, with the composer offering a
-still camera on a prompt that said to film. They stay in the library rather than being deleted,
-because re-enabling them is one line (`UNCOMPLETABLE_KINDS` in
-`api/scripts/mission_library_to_yaml.py`) once multipart upload and the recorder ship.
+**113 prompts in the library, and all 113 are active.** This table said `active: 0` for video
+and audio for far longer than it was true. Both kinds were deactivated through
+`UNCOMPLETABLE_KINDS` in `api/scripts/mission_library_to_yaml.py` because no client could
+complete them, and a prompt the client cannot complete is a dead end rather than a mission — a
+device session hit exactly that, with the composer offering a still camera on a prompt that
+said to film. **Video came back when multipart upload shipped and audio when the recorder did.**
+`UNCOMPLETABLE_KINDS` is now empty and stays in place for the next kind that needs it.
 
 Deactivation lives in the generator, not hand-edited into the yaml: this markdown is the
 authoring surface and the yaml is generated from it, so an edit made only in the yaml is erased
@@ -211,11 +212,32 @@ by the next regeneration and drifts silently until then. "Any-month" excludes th
 is eligible by age but will not be served in August, so that column is what the scheduler
 actually has to draw from on an arbitrary day.
 
-The daily `mission` slot draws from photo, video, audio, and activity together — **38 eligible
-at 48 months while video and audio are inactive**, down from 55 — not from any one of them
-alone. Still comfortably past the 14-day requirement; worth re-checking if more kinds ever go
-inactive at once. `monthly` draws from the four measurement and
-camera-roll prompts on the 1st; `letter` draws from the eight letters on the 15th.
+**There are three daily slots, not two, and they no longer share a pool.** The sentence that
+used to sit here — "the daily `mission` slot draws from photo, video, audio, and activity
+together" — stopped being true when the day split into three. What replaced it:
+
+| Slot | Draws from | Available on an August day at 49mo | First repeat | Relaxation begins |
+|---|---|---|---|---|
+| `question` | question | 30 | ~30 days | 2026-09-10 |
+| `mission` | **photo only** | 20 | ~20 days | **2026-08-31** |
+| `mission_b` | video + audio + activity, pooled | 37 | ~37 days | 2026-09-17 |
+
+Measured with `GET /children/{id}/pool-health` on 2026-08-11, not estimated from this file.
+The figures differ slightly from the "any-month" column above because that column counts only
+untagged prompts, while the scheduler also serves prompts tagged to the current month.
+
+**`mission` is now the thin slot, and it is thin because the photo pool is the smallest of the
+three.** Splitting a 57-prompt combined pool into 20 and 37 is what buys three items a day; the
+cost is that the photo slot reaches its cooldown relaxation in under three weeks rather than
+in two months. That is a call for authoring, not for tuning: **the fix is more photo prompts**,
+and nothing in this phase generated any. `estimated_days_until_first_repeat` is a projection
+from pool size, not a promise — theme rotation can relax a single pick earlier without the
+slot being exhausted.
+
+`weekly` draws from the ten weekly prompts on Saturday; `monthly` draws from the four
+measurement and camera-roll prompts on the 1st; `letter` draws from the eight letters on the
+15th. **All three fire on top of the daily three rather than replacing any of them**, so a
+Saturday is four items, the 15th is four, and a Saturday that is also the 15th is five.
 
 The 180-day cooldown holds comfortably at this size. When the library grows past ~300 you can tighten theme rotation instead of loosening cooldown.
 
