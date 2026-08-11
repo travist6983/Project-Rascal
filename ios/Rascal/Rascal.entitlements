@@ -2,6 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Without this, `registerForRemoteNotifications()` fails on a real device with "no valid
+	     aps-environment entitlement string found for application" and no token is ever minted.
+	     Nothing in the simulator or the test suite can catch its absence.
+
+	     `development` is the value the Push Notifications capability writes, and it is correct
+	     for a build Xcode installs. Xcode substitutes `production` when exporting for TestFlight
+	     or the App Store, which is why `PushEnvironment.current` reports `production` for every
+	     non-Debug configuration. Signing a build now requires a provisioning profile with the
+	     Push Notifications capability enabled — see docs/blocked.md. -->
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>com.apple.developer.applesignin</key>
 	<array>
 		<string>Default</string>

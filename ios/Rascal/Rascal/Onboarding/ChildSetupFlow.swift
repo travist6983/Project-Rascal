@@ -47,6 +47,7 @@ struct ChildSetupFlow: View {
         case .birthdate: BirthdateStep(session: session)
         case .timezone: TimezoneStep(session: session)
         case .avatar: AvatarStep(session: session)
+        case .notifications: NotificationStep(session: session)
         }
     }
 

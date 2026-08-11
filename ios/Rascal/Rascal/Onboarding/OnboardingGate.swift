@@ -54,6 +54,11 @@ final class OnboardingSession {
     /// The session owner the rest of the app already uses. Handed to `RootView` unchanged.
     let account: AppSession
 
+    /// Permission, the preference, and the token. Owned here because the last onboarding step
+    /// needs it and Settings needs the same instance — two would disagree about whether the
+    /// single re-offer had been spent.
+    let notifications: NotificationPreference
+
     private let drafts: OnboardingDraftStoring
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
@@ -79,7 +84,8 @@ final class OnboardingSession {
         appleIDs: AppleUserIDStoring = UserDefaultsAppleUserIDStore(),
         credentials: AppleCredentialChecking = LiveAppleCredentialCheck(),
         avatars: AvatarStoring = LocalAvatarStore(),
-        widget: WidgetSnapshotPublisher = .live
+        widget: WidgetSnapshotPublisher = .live,
+        notifications: NotificationPreference? = nil
     ) {
         self.account = account
         self.drafts = drafts
@@ -88,10 +94,29 @@ final class OnboardingSession {
         self.avatars = avatars
         self.widget = widget
         self.draft = drafts.load() ?? OnboardingDraft()
+        self.notifications = notifications ?? NotificationPreference(
+            authorizer: NotificationAuthorizerFactory.live(),
+            backend: PushRegistrar(api: account.api, authorizer: NotificationAuthorizerFactory.live())
+        )
     }
 
     static func live() -> OnboardingSession {
-        OnboardingSession(account: .live())
+        let account = AppSession.live()
+        let registrar = PushRegistrar(
+            api: account.api,
+            authorizer: NotificationAuthorizerFactory.live()
+        )
+        let session = OnboardingSession(
+            account: account,
+            notifications: NotificationPreference(
+                authorizer: NotificationAuthorizerFactory.live(),
+                backend: registrar
+            )
+        )
+        // The delegate's only route back into the app. Done here rather than in `init` so a test
+        // building a session never reaches for the process-wide instance.
+        PushCenter.shared.attach(registrar)
+        return session
     }
 
     // MARK: Resuming
@@ -145,6 +170,11 @@ final class OnboardingSession {
                 // not. Offline, the stored copy stands.
                 if let fetched = try? await account.api.me() {
                     account.apply(user: fetched)
+                    // The server owns `notify_enabled` and `notify_local_time`. Seeding the
+                    // mirror here means Settings renders the real preference on a cold launch
+                    // rather than the type's default, which would read as "off" for a parent who
+                    // had turned it on.
+                    notifications.apply(user: fetched)
                 }
             } else {
                 draft = drafts.load() ?? OnboardingDraft()
@@ -206,6 +236,7 @@ final class OnboardingSession {
             // `fullName` is never cached or rendered — it went out in the request and that is the
             // last this client sees of it.
             account.apply(user: session.user)
+            notifications.apply(user: session.user)
             await resolveChild()
         } catch let error as APIError {
             notice = error.userMessage
@@ -230,6 +261,7 @@ final class OnboardingSession {
                 displayName: "Dev Parent"
             )
             account.apply(user: session.user)
+            notifications.apply(user: session.user)
             await resolveChild()
         } catch let error as APIError {
             notice = Self.explainDevLogin(error)
@@ -310,6 +342,30 @@ final class OnboardingSession {
         }
     }
 
+    // MARK: The notification step
+
+    /// "Turn it on". **The only path in the app that reaches the system permission prompt.**
+    ///
+    /// Setup completes afterwards either way — granted, denied, or a preference write that
+    /// failed. A permission outcome is never allowed to be the reason a parent cannot finish
+    /// naming their kid.
+    func acceptNotifications(at time: NotifyTime) async {
+        await notifications.acceptSoftAsk(time: time)
+        await finishSetup()
+    }
+
+    /// "Not now". **Fires nothing.** The system prompt is untouched, so the offer can be made
+    /// once more after the first entry and still mean something.
+    func declineNotifications() async {
+        notifications.declineSoftAsk()
+        await finishSetup()
+    }
+
+    /// The end of setup, whichever way the last step was answered.
+    func finishSetup() async {
+        await createChild()
+    }
+
     /// Onboarding is over. The draft goes, because the server's copy is now the truth and a
     /// stale local one could only contradict it.
     private func finish(with child: ChildResponse) {
@@ -332,6 +388,11 @@ final class OnboardingSession {
     /// them. Leaving a child's name in UserDefaults after someone asked to leave is the sort of
     /// thing "signed out" is supposed to mean.
     func signOut() async {
+        // **Before `account.signOut()`, and the order is the point.** `DELETE /v1/devices/{token}`
+        // authenticates with the session it is revoking against, so revoking after the tokens are
+        // cleared is a request that 401s and a phone that keeps receiving the child's missions
+        // after someone asked to be signed out.
+        await notifications.revokeDevice()
         await account.signOut()
         forgetLocalIdentity()
         state = .signedOut
@@ -365,6 +426,7 @@ final class OnboardingSession {
 
 struct OnboardingGate: View {
     @State private var session = OnboardingSession.live()
+    @Environment(\.scenePhase) private var scenePhase
     /// The spinner is deliberately late. See `.task`.
     @State private var showsLoadingChrome = false
     /// A widget tap, held until there is something that can act on it.
@@ -416,6 +478,7 @@ struct OnboardingGate: View {
                     childId: child.id,
                     familyTimezone: child.familyTimezone,
                     onSignOut: { await session.signOut() },
+                    notifications: session.notifications,
                     pendingLink: $pendingLink
                 )
                 .id(child.id)
@@ -426,6 +489,22 @@ struct OnboardingGate: View {
         // the link — which is what happens, because only `RootView` ever reads this.
         .onOpenURL { url in
             pendingLink = WidgetDeepLink.parse(url)
+        }
+        // A tapped notification arrives through the delegate rather than as a URL, so it lands in
+        // `PushCenter` and is drained here into the same held link a widget tap uses. **One
+        // pending-link path, not two** — the rule that an unknown assignment lands on Today lives
+        // at the other end of it and must not be reimplemented alongside.
+        .onChange(of: PushCenter.shared.pendingLink) { _, link in
+            guard let link else { return }
+            pendingLink = link
+            PushCenter.shared.pendingLink = nil
+        }
+        // Rule 5: a parent who turned notifications on in iOS Settings comes back to an app that
+        // registers a token and asks them nothing. Every foreground, because that is the only
+        // moment the app can notice.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await session.notifications.refresh() }
         }
         .task {
             // A warm launch resolves a stored session in well under 150ms. A spinner that

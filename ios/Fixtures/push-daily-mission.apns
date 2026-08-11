@@ -1,0 +1,11 @@
+{
+  "Simulator Target Bundle": "com.travisterry.childarchive",
+  "aps": {
+    "alert": {
+      "title": "Today's mission",
+      "body": "Film him telling you about his day. Don't prompt him."
+    },
+    "sound": "default"
+  },
+  "assignment_id": "8f14e45f-ceea-467a-9b0e-4c4d5a5f8b21"
+}

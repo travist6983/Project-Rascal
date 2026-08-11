@@ -2,7 +2,7 @@
 
 Read this before proposing anything. Settled decisions are settled; don't relitigate them without new information.
 
-Last updated: **Aug 9, 2026**
+Last updated: **Aug 10, 2026**
 
 ---
 
@@ -646,6 +646,45 @@ both reversible, both taken while the database is empty. Two correctness fixes w
 schema cost: deleting an entry releases its assignment, and the sync cursor carries a
 30-second overlap window. The coverage table in `mission-library.md` was corrected — it had
 under-counted video, activity, and weekly since before the last prompts were added.
+
+**Aug 10, 2026** — iOS Phase 14 landed push notifications on the client. Six decisions,
+all of them about *when* the app is allowed to ask rather than about what it sends.
+
+**The system prompt is never fired directly.** iOS grants exactly one permission prompt per
+install and a denial is effectively permanent, so the prompt fires only after the parent has
+already said yes to an in-app screen. This is not a dark pattern — it is what stops a "not right
+now" from becoming a permanent no. Every path to `requestAuthorization` goes through
+`NotificationPreference.acceptSoftAsk` and there is no second route.
+
+**Permission is the last step of onboarding**, after the avatar. The ask arrives to someone who
+has already named their kid and chosen a photo, rather than to someone still deciding whether to
+use this at all. Child creation moved from the avatar step to the end of the notification step as
+a consequence: `finish(with:)` sets `.ready` and lands the parent on Today, so a step after the
+create would never have been shown. Onboarding completes identically whether they said yes, no,
+or were refused by the system.
+
+**"Not now" is re-offered exactly once, after the first completed entry**, and never again. The
+parent has by then experienced the loop, so the offer means something it could not have meant on
+day zero. The offer is spent when it is *shown*, not when it is answered — a parent who swipes it
+away has answered, and the alternative re-shows it after every entry.
+
+**A system-level denial is terminal.** Nothing re-prompts by any mechanism: not onboarding, not
+the post-entry offer, not the Settings toggle. Settings replaces the control with a sentence
+naming where the iOS toggle lives. A denied permission is a valid steady state, not a funnel to
+recover from. The Settings row must never render as an enabled control that silently does
+nothing.
+
+**Notifications are suppressed in the foreground.** The one notification this app sends carries
+today's mission, and Today is the screen it would banner over — telling a parent looking at the
+prompt about the prompt. Nothing is lost: it stays in Notification Centre. Reversible, and
+`docs/device-verification-push.md` §4 asks for a judgment on it from a real device.
+
+**TestFlight is `production`, not `sandbox`.** `docs/api-contract.md` says otherwise and is
+wrong: APNs environment follows the `aps-environment` entitlement in the embedded provisioning
+profile, TestFlight builds are signed with a distribution profile, and there is no separate
+TestFlight APNs host. Treating TestFlight as sandbox is exactly the defect that makes push work
+under Xcode and silently deliver nothing to testers. The client sends `production` for every
+non-Debug configuration.
 
 **Aug 3, 2026** — Build started. Sprint One planning added an "Epic Z" of ground-zero
 infrastructure the original backlog assumed but never defined: repo skeleton, migrations,

@@ -37,6 +37,10 @@ struct SettingsScreen: View {
     /// The backlog action. Optional too, and its row is absent rather than empty when there is
     /// no queue or nothing waiting.
     var transcription: TranscriptionQueue?
+    /// Permission and the daily-note preference. Optional for the same reason `sync` is — this
+    /// screen is buildable in a test without one, and it renders every other section unchanged
+    /// when it has none.
+    var notifications: NotificationPreference?
     /// Reports the child's timezone whenever this screen learns it, because this is the only
     /// screen that can change it.
     ///
@@ -81,6 +85,14 @@ struct SettingsScreen: View {
                 accountSection
                 exportSection
                 syncSection
+
+                if let notifications {
+                    NotificationSettingsSection(
+                        preference: notifications,
+                        familyTimezone: child?.familyTimezone
+                    )
+                }
+
                 advancedSection
                 appSection
 

@@ -3,12 +3,63 @@ import SwiftUI
 
 #if canImport(UIKit)
 import UIKit
+import UserNotifications
 
-/// Exists for one method. `handleEventsForBackgroundURLSession` is delivered to the app
-/// delegate and nowhere else, and the handler it carries must be called once the session's
-/// queue drains — the system waits on it before letting the app suspend again. Skipping it is
-/// how background uploads appear to stall for minutes at a time.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+/// Exists for the methods UIKit delivers nowhere else.
+///
+/// `handleEventsForBackgroundURLSession` is one. The APNs token callbacks and the notification
+/// tap are the others: `UNUserNotificationCenter` hands them to a delegate object, not to a view,
+/// so they arrive here and are forwarded straight to `PushCenter`. **No logic lives in this
+/// class** — it is a doorway.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Set before the first frame. A tap that launched the app cold is delivered as soon as
+        // the delegate is assigned, and a delegate assigned later misses it entirely.
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    // MARK: APNs
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        MainActor.assumeIsolated { PushCenter.shared.receive(token: deviceToken) }
+    }
+
+    /// **Silent and non-fatal.** A phone that could not get a token still launches, still
+    /// onboards, and is told nothing about it. There is no recovery a parent could perform.
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {}
+
+    // MARK: Presentation and taps
+
+    /// **Suppressed in the foreground.** The one notification this app sends carries today's
+    /// mission, and Today is the screen it would banner over — telling a parent who is looking
+    /// at the prompt about the prompt. Nothing is lost: it is still in Notification Centre, and
+    /// the content is already on screen behind it.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        []
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let userInfo = response.notification.request.content.userInfo
+        await MainActor.run { PushCenter.shared.handleTap(userInfo: userInfo) }
+    }
+
     func application(
         _ application: UIApplication,
         handleEventsForBackgroundURLSession identifier: String,

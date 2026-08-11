@@ -74,9 +74,15 @@ are decisions, not opening positions. If one seems wrong, raise it — do not ro
 
 ## Out of scope — stop if you find yourself building one
 
-An Android or web client, a design system package, push notifications, offline media
+An Android or web client, a design system package, offline media
 transcoding, analytics, a login screen for anything other than Sign in with Apple and
 `dev-login`, multi-kid switching UI beyond what `GET /children` already returns.
+
+**Push notifications came off this list in Phase 14** and are now built. What remains out of
+scope within push is everything that was out of scope then: local notifications and
+`UNUserNotificationCenter` scheduling of any kind (the server owns the schedule), badges, rich
+notifications, actions, categories, provisional authorization, more than one notification a day
+under any name, and re-prompting after a system-level denial by any mechanism.
 
 ## Working here
 
