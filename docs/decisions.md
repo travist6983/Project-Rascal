@@ -276,6 +276,32 @@ they matter most, because a Home Screen is the one surface a parent cannot choos
 built, so there is nothing to count even by accident. `accessoryInline` says "Mission waiting",
 never "2 waiting".
 
+**Aug 11, 2026** — iOS Phase 17 landed structured extraction over entry bodies.
+
+**Extraction runs once per entry, and never again.** The phase offered a choice: track every
+`device_ai` tag a parent deleted so a re-run could not resurrect it, or do not offer re-running.
+Not re-running makes the failure *impossible* rather than defended against — there is no tombstone
+list to get wrong, and a tag the parent removed is gone for good. The cost, accepted knowingly: an
+entry whose body is edited afterwards keeps the tags it got the first time. **Two tests named in
+the phase file are retired by this** — "re-running replaces `device_ai` tags" and "a hand-deleted
+tag does not return on re-run" — replaced by one stronger assertion: extraction never runs twice.
+
+**A sealed entry is never read, and the guard sits before anything touches the body.** A sealed
+letter is written to be opened years from now; its contents leaking into tags that render on
+today's timeline would show the parent the exact thing they deliberately locked. Asserted both by
+outcome and by the model never being handed the text.
+
+**The parent's words are never touched.** Extraction writes tags and nothing else — `title` and
+`body` are not in the payload at all, not even as unchanged values.
+
+**Scoped to entry bodies, not transcripts**, deliberately: extraction over text needs no
+transcriber, so this phase is not gated on the device checklist and does not stack two unknowns in
+one branch. Transcript extraction is a small follow-on once transcription has been verified.
+
+The model is reached through `EntryExtracting`, so a hard task could later be routed elsewhere
+without touching a call site. `@Generable` and `LanguageModelSession` are confined to one file
+behind `@available(iOS 26, *)`.
+
 **Aug 11, 2026** — Push notifications, server side. One a day, and the day it stays quiet.
 
 Built against a **stubbed APNs client**, the way transcription was built against a stubbed

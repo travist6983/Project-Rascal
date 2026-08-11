@@ -86,6 +86,21 @@ extension APIClient {
 /// `JSONEncoder` drops a nil optional, which collapses the two. Every field here is therefore
 /// a `Change`: `.unchanged` writes no key at all, `.set(value)` writes the key — including when
 /// the value is null.
+/// A tag on the wire, with its provenance.
+///
+/// `entry_tags.source` is what lets a tag the parent typed be told apart from one the on-device
+/// model extracted. The server defaults an unqualified tag to `user`; this client is always
+/// explicit, because the only reason it writes tags at all is extraction.
+nonisolated struct EntryTagWrite: Encodable, Sendable, Equatable {
+    let name: String
+    let source: EntryTagSource
+}
+
+nonisolated enum EntryTagSource: String, Encodable, Sendable, Equatable {
+    case user
+    case deviceAI = "device_ai"
+}
+
 nonisolated struct EntryChanges: Encodable, Sendable {
     enum Change<Value: Encodable & Sendable>: Sendable {
         case unchanged
@@ -96,7 +111,10 @@ nonisolated struct EntryChanges: Encodable, Sendable {
     var body: Change<String?> = .unchanged
     var occurredAt: Change<Date> = .unchanged
     var unlockAtAge: Change<Int?> = .unchanged
-    var tags: Change<[String]> = .unchanged
+    /// Each tag carries who decided it. **A source absent from the payload is left alone**
+    /// server-side, so an extraction write carrying only `device_ai` tags cannot touch a tag the
+    /// parent typed, and a parent's tag edit cannot eat the model's. See `docs/api-contract.md`.
+    var tags: Change<[EntryTagWrite]> = .unchanged
 
     private enum CodingKeys: String, CodingKey {
         case title, body, occurredAt, unlockAtAge, tags
