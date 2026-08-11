@@ -133,13 +133,12 @@ extension EntryCardModel {
     /// `media` is expected to be that entry's live media, oldest first — the order they were
     /// attached, which is the order a multi-photo card should show them in.
     ///
-    /// `assignedPrompt` is the fallback for the quoted prompt, and it is the caller's job
-    /// because the lookup is a dictionary the list builds once for the whole screen rather than
-    /// a fetch per card. See `TimelineList.cards`.
+    /// The quoted prompt comes from `entry.promptBody` and nowhere else. There used to be an
+    /// `assignedPrompt` fallback the caller looked up from cached `Assignment` rows; see the note
+    /// on `prompt` below for why it went.
     init(
         entry: Entry,
         media: [Media],
-        assignedPrompt: String? = nil,
         searchQuery: String? = nil
     ) {
         let sealed = entry.unlockAtAge != nil
@@ -174,11 +173,20 @@ extension EntryCardModel {
                 of: entry.body,
                 lines: entry.type == .text ? 3 : 2
             ),
-            // `promptBody` is only filled by `GET /entries/{id}`, so on a list row it is
-            // usually nil. The assignment this entry completed carries the same sentence, is
-            // pulled down by `/sync`, and is never evicted — so the quote survives a cold
-            // launch on a plane, which is the case the archive is built for.
-            prompt: entry.promptBody ?? assignedPrompt,
+            // **`prompt_body` is on the list row now, so there is nothing to fall back to.**
+            //
+            // It used to be filled only by `GET /entries/{id}`, which left it nil on every
+            // timeline row — so the card looked the completed assignment up in the local cache
+            // to find the same sentence. `EntryOut` carries `prompt_body` today (verified in
+            // phase 19: eleven of eleven assignment-backed rows returned it non-null), and the
+            // fallback resolved nothing anyway, because `Assignment` rows are written only by
+            // `SyncEngine` from a `/sync` response and sync pull ships behind `syncPullEnabled`,
+            // which is off.
+            //
+            // A freshly composed entry is still correct offline and immediately, because
+            // `ComposerView` writes the prompt onto the row at composition time — that write is
+            // not this fallback and did not go with it.
+            prompt: entry.promptBody,
             type: entry.type,
             ageMonths: entry.childAgeMonths,
             tags: sealed ? [] : entry.tagNames,

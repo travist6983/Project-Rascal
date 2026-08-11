@@ -26,6 +26,10 @@ extension APIClient {
         query: String? = nil,
         before: Date? = nil,
         after: Date? = nil,
+        /// `?sealed=` — `true` for only sealed rows, `false` for only unsealed, absent for both.
+        /// Sealing is `unlock_at_age`, not an `entry_type`, so it needs its own parameter; the
+        /// Sealed chip used to have none and paged the whole archive narrowing locally.
+        sealed: Bool? = nil,
         limit: Int = 50,
         cursor: String? = nil
     ) async throws -> EntryPageResponse {
@@ -34,6 +38,7 @@ extension APIClient {
         if let type { items.append(URLQueryItem(name: "type", value: type)) }
         if let query { items.append(URLQueryItem(name: "q", value: query)) }
         if let tag { items.append(URLQueryItem(name: "tag", value: tag)) }
+        if let sealed { items.append(URLQueryItem(name: "sealed", value: sealed ? "true" : "false")) }
         if let before { items.append(URLQueryItem(name: "before", value: ISO8601Formatters.string(from: before))) }
         if let after { items.append(URLQueryItem(name: "after", value: ISO8601Formatters.string(from: after))) }
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }

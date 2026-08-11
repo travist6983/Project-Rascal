@@ -277,37 +277,53 @@ struct EntryCardModelTests {
 @Suite("Entry card prompt")
 struct EntryCardPromptTests {
 
-    @Test("the cached prompt wins over the assignment's copy of it")
-    func promptBodyWins() throws {
-        // `GET /entries/{id}` returns the prompt as the server records it against this entry.
-        // The assignment is the same sentence seen from the schedule's side, and it is the
-        // fallback rather than the source.
+    @Test("the quote is the prompt the server recorded against this entry")
+    func promptBodyIsTheSource() throws {
         let entry = try cachedEntry(prompt: "Photograph the mess. Don't clean it up first.")
-        let card = EntryCardModel(entry: entry, media: [], assignedPrompt: "something else")
+        let card = EntryCardModel(entry: entry, media: [])
 
         #expect(card.prompt == "Photograph the mess. Don't clean it up first.")
     }
 
-    @Test("a list row with no detail fetch falls back to the assignment it completed")
-    func fallsBackToAssignment() throws {
-        // This is the ordinary case and the reason the fallback exists: `GET /entries` does not
-        // carry `prompt`, so without it the quote — the whole point of the v3 card — would be
-        // blank on every row until the parent had opened it once.
-        let entry = try cachedEntry(assignmentId: UUID())
-        #expect(entry.promptBody == nil, "a list row does not carry the prompt")
-
-        let card = EntryCardModel(
-            entry: entry, media: [],
-            assignedPrompt: "Get on the floor for ten minutes. That's the whole mission."
+    /// **Replaces `fallsBackToAssignment`, whose premise the server has since falsified.**
+    ///
+    /// That test asserted the local `Assignment` lookup, on the stated grounds that
+    /// "`GET /entries` does not carry `prompt`". It does now — verified in phase 19 against a
+    /// running server, where eleven of eleven rows with an `assignment_id` came back with a
+    /// non-null `prompt_body`. The fallback was also resolving nothing in practice, because
+    /// `Assignment` rows are written only by `SyncEngine` from a `/sync` response and sync pull
+    /// ships behind `syncPullEnabled`, which is off.
+    ///
+    /// So this asserts the case the fallback used to cover, with the fallback gone: an entry that
+    /// completed an assignment, **no cached `Assignment` anywhere**, and the quote still renders.
+    @Test("a list row quotes its prompt with no cached assignment to look up")
+    func listRowQuotesWithoutAnAssignmentLookup() throws {
+        let entry = try cachedEntry(
+            assignmentId: UUID(),
+            prompt: "Get on the floor for ten minutes. That's the whole mission."
         )
+        let card = EntryCardModel(entry: entry, media: [])
+
+        #expect(entry.assignmentId != nil, "this row completed an assignment")
         #expect(card.prompt == "Get on the floor for ten minutes. That's the whole mission.")
+    }
+
+    /// The other half of the same deletion: with `prompt_body` genuinely absent there is nothing
+    /// to show, and the card must leave the space out rather than reserve it for a lookup that
+    /// no longer happens.
+    @Test("a row the server sent no prompt for quotes nothing")
+    func listRowWithoutPromptQuotesNothing() throws {
+        let entry = try cachedEntry(assignmentId: UUID())
+
+        #expect(entry.promptBody == nil)
+        #expect(EntryCardModel(entry: entry, media: []).prompt == nil)
     }
 
     @Test("a freeform entry has no prompt and the zone drops out")
     func freeformHasNoPrompt() throws {
         // Nothing was asked, so there is nothing to quote. The card must not reserve the space.
         let entry = try cachedEntry(body: "Just a thing I wanted to keep.")
-        let card = EntryCardModel(entry: entry, media: [], assignedPrompt: nil)
+        let card = EntryCardModel(entry: entry, media: [])
 
         #expect(card.prompt == nil)
     }

@@ -29,8 +29,22 @@ extension APIClient {
     /// `Idempotency-Key` makes a retry safe: a replay returns the original 201 body
     /// byte-for-byte, never a second row and never a 409. That is what lets a failed save sit
     /// in SwiftData and retry on next foreground without risking a duplicate.
+    /// **One request.** This used to be two whenever a letter was written with sealing turned
+    /// off: the create, and then a corrective `PATCH` undoing a seal the server had applied to an
+    /// entry that asked not to have one.
+    ///
+    /// `create_entry` now distinguishes an explicit `null` from an absent key —
+    /// `unlock_at_age_provided` is `"unlock_at_age" in payload.model_fields_set` — so the answer
+    /// comes back right the first time. The old workaround said of itself that it was
+    /// "self-detecting and therefore self-deleting… the day `create_entry` distinguishes null
+    /// from absent, this stops doing anything and can be removed." That day arrived; this is the
+    /// removal.
+    ///
+    /// **What makes the server's answer correct is `EntryCreateRequest` sending the explicit
+    /// null**, which it does through a hand-written `encode(to:)`. That encoder is not part of
+    /// the workaround and did not go with it — see the note on it in `Entry.swift`.
     func createEntry(_ entry: Entry, tags: [String] = []) async throws -> EntryResponse {
-        let response: EntryResponse = try await send(
+        try await send(
             .post, "v1/entries",
             body: EntryCreateRequest(
                 id: entry.id,
@@ -44,36 +58,6 @@ extension APIClient {
             ),
             headers: ["Idempotency-Key": entry.idempotencyKey.uuidString]
         )
-        return await unsealIfTheServerSealedItAnyway(sent: entry.unlockAtAge, id: entry.id, response)
-    }
-
-    /// Undo a seal the server applied to an entry that asked not to have one.
-    ///
-    /// `create_entry` seals a letter whenever `unlock_at_age` arrives as `None`, and Pydantic hands
-    /// it `None` for an omitted key and for an explicit `null` alike — so "the parent turned
-    /// sealing off" is unsayable on create. `PATCH` *can* say it: the router dumps with
-    /// `exclude_unset`, and `services/entries.py::update_entry` does `setattr` over what it is
-    /// given, so an explicit null clears the column.
-    ///
-    /// **This lives here rather than in the composer because the composer is not the only writer.**
-    /// `EntrySync` re-sends an entry that was saved while offline through this same call, and a
-    /// letter written on a train with sealing turned off would otherwise arrive sealed hours later
-    /// with nobody told. One place, every caller.
-    ///
-    /// Self-detecting and therefore self-deleting: it fires only when what came back disagrees
-    /// with what went out, so the day `create_entry` distinguishes null from absent, this stops
-    /// doing anything and can be removed.
-    private func unsealIfTheServerSealedItAnyway(
-        sent: Int?,
-        id: UUID,
-        _ response: EntryResponse
-    ) async -> EntryResponse {
-        guard sent == nil, response.unlockAtAge != nil else { return response }
-        // Best effort. A failure here leaves the archive holding a seal the parent did not ask
-        // for, which is why `applyServerResponse` copies `unlock_at_age` back onto the row — the
-        // phone then shows what the archive actually holds rather than what was intended.
-        return (try? await updateEntry(id: id, changes: EntryChanges(unlockAtAge: .set(nil))))
-            ?? response
     }
 
     func dismissAssignment(_ id: UUID) async throws {
