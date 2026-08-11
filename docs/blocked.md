@@ -699,3 +699,24 @@ decision — only on a credential.
 development or TestFlight build". That is wrong: TestFlight is signed with a distribution profile
 and addresses the production APNs host. It is a description string with no behaviour attached, so
 it is recorded here rather than fixed across lanes.
+
+---
+
+## Phase 16 (video audio tracks) — gated on the transcription device checklist (Aug 10 2026)
+
+**Not started. No code was written.**
+
+`docs/device-verification-transcription.md` records **0 of 45** checkboxes ticked and no results,
+dates, or device names. Its own first line reads "Nothing in this feature has ever run."
+
+Phase 16's preflight #1 makes that a hard stop, and the reasoning holds: `SpeechAnalyzer` needs
+iOS 26, `isAvailable` is false on every simulator, and no transcription has ever been produced by
+this app. Building video transcription on an unverified transcriber stacks two unknowns in one
+branch — if the output is poor, nothing distinguishes a bad extraction from a model that cannot
+read a four-year-old.
+
+Its own prerequisite is also unrun: the audio checklist from PR #22 needs a real microphone.
+
+**To unblock:** run the PR #22 audio checklist, then the transcription checklist on a signed build
+on iOS 26+, and record the results — especially §0, the per-recording word accuracy against three
+ordinary voice notes.

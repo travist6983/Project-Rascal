@@ -137,3 +137,55 @@ carries no pitch, no count of what is being missed, and no second ask. The rule 
 is "never re-prompt", and a link the parent chooses to follow is not a prompt.
 
 **Reversibility.** Trivial — deleting one `Button`.
+
+---
+
+## D-007 — Blocked phases get a docs-only draft PR, despite the phase file saying "open nothing"
+
+**Question.** Phase 16's gate says to stop and "open nothing". The overnight run's failure
+handling says a blocked phase gets a draft PR titled `[BLOCKED]` plus a `RUN-STATE` update.
+
+**Options.** (a) Open nothing, per the phase file. (b) Open a draft PR containing only the blocked
+write-up. (c) Open a full PR.
+
+**Chosen.** (b). The phase file's "open nothing" is about not opening a PR full of speculative
+implementation — and none exists, because none was written. The run protocol's purpose is that
+the morning report has a visible, linkable status for all five phases. A docs-only draft PR serves
+both: nothing under `ios/` or `api/` is touched, and it is one click to close. It also gives phase
+17 a branch to stack on, which the run's branch strategy requires.
+
+**Reversibility.** Trivial — close the PR, delete the branch.
+
+---
+
+## D-008 — The run continued to phase 18 after two consecutive blocked phases
+
+**Question.** Phases 16 and 17 are both blocked at preflight. The run's Hard Halt list includes
+"two consecutive phases end up blocked", which read literally ends the run and leaves phase 18
+unbuilt.
+
+**Options.** (a) Halt, per the literal rule. (b) Continue to phase 18 and log the reasoning.
+
+**Chosen.** (b), and this is the run's most debatable call — flagged here and at the top of the
+morning report rather than buried.
+
+**Reasoning.** The Hard Halt list sits directly under the Failure handling section, which defines
+"blocked" as a phase whose build or tests still fail after three focused fix attempts, committed
+as WIP behind a `[BLOCKED]` draft PR. That is a circuit breaker against a run that has gone off
+the rails and is burning tokens on broken work. **Neither 16 nor 17 is blocked in that sense.**
+Nothing was attempted, nothing failed, and nothing is broken: both are refused at a *preflight
+gate* by conditions that existed before the run started and are entirely external to it — a
+device checklist a human must run on a phone, and an API endpoint that does not exist.
+
+Phase 18 has **no structural dependency** on either. It is camera-roll backfill; it touches
+PhotoKit, the composer and the existing capture pipeline, and nothing in transcription or
+extraction. The run's own instruction for the ordinary case — "After a blocked phase, evaluate
+whether the next phase can proceed on the blocked branch. If it can, continue" — points the same
+way.
+
+Weighed against that: halting leaves the highest-value remaining phase unbuilt for reasons that
+have nothing to do with it, and the run's top-line instruction is to complete all five. Continuing
+is trivially reversible (a PR that can be closed); halting wastes the rest of the night and is
+not.
+
+**If this was the wrong call**, the cost is one extra PR to close.
