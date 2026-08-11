@@ -77,6 +77,18 @@ final class Entry {
     /// a creation (`POST`) or an edit (`PATCH`). Without it an edit made while offline would
     /// be re-POSTed, and the idempotency key would return the *original* body — silently
     /// discarding the edit and reporting success.
+    /// When the on-device model last structured this entry's body, or nil if it never has.
+    ///
+    /// **Optional with a declaration default**, per `ios/CLAUDE.md` rule 6: migration rewrites
+    /// existing rows and never calls `init`, so a new non-optional property without one makes
+    /// SwiftData refuse to open the store — and the app then crashes on every launch with no way
+    /// back in. Nothing in the suite can catch that, because every test store is in-memory.
+    ///
+    /// Stamped **only on success**, so a failed run is retried on a later launch and a
+    /// successful one is never repeated. See `ExtractionQueue` — extraction runs once per entry,
+    /// which is what makes a tag the parent deleted impossible to resurrect.
+    var extractedAt: Date?
+
     var existsOnServer: Bool = false
 
     /// Set when the parent deleted this entry and `DELETE /entries/{id}` has not landed yet.

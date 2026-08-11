@@ -63,6 +63,11 @@ struct RootView: View {
     /// **no parallel inference.** Two queues would mean two `SpeechAnalyzer`s warming the phone
     /// at once, which is a real cost on a device someone is holding.
     @State private var transcription: TranscriptionQueue?
+    /// One extractor for the process, for the same reason there is one transcriber: **no
+    /// parallel inference.** Two model sessions warming the phone at once is a real cost on a
+    /// device someone is holding. Deliberately not tied to `MediaCoordinator` the way the
+    /// transcriber is — extraction reads text, so it has nothing to do with media landing.
+    @State private var extraction: ExtractionQueue?
     /// One picture cache for the whole app, so the timeline, Moments, and a detail screen all
     /// draw from the same fetches rather than each pulling the same photo down again.
     @State private var thumbnails: ThumbnailStore?
@@ -112,6 +117,9 @@ struct RootView: View {
                 // Claim the background session now so tasks outstanding from a previous launch
                 // reattach to this delegate rather than reporting to nobody.
                 MediaUploader.shared.activate()
+            }
+            if extraction == nil {
+                extraction = ExtractionQueue(api: session.api, context: context)
             }
             if transcription == nil, let mediaCoordinator {
                 let queue = TranscriptionQueue(api: session.api, context: context)
@@ -188,6 +196,7 @@ struct RootView: View {
             Task {
                 await runSweep()
                 considerNotificationReoffer()
+                await extractLatest()
             }
         }) { request in
             ComposerView(request: request, api: session.api)
@@ -297,6 +306,23 @@ extension RootView {
     /// the entry, and the sweep in between is what obtains that confirmation. Reaping first would
     /// mean a failed `POST /entries` had already thrown away the only copy of the photo — the
     /// bytes exist nowhere else once Photos is closed.
+    /// Structure the entry the parent just wrote, if this phone can.
+    ///
+    /// **Names one row and never enumerates.** The candidate list is reduced to the newest here
+    /// rather than walked, which is what keeps a first launch from running inference over six
+    /// years of archive — the same restraint `TranscriptionQueue.enqueue` shows.
+    ///
+    /// Every rule beyond that is the queue's: a sealed entry is refused before its body is read,
+    /// an already-extracted one is skipped, and a phone that cannot run the model does nothing
+    /// and says nothing about it.
+    private func extractLatest() async {
+        guard let extraction else { return }
+        guard let newest = ExtractionQueue.pending(in: context)
+            .max(by: { $0.createdAt < $1.createdAt })
+        else { return }
+        await extraction.extract(entryId: newest.id)
+    }
+
     private func runSweep() async {
         await shareDrain?.ingest()
         if let syncEngine {
