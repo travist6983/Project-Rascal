@@ -50,10 +50,14 @@ async def _create(client: AsyncClient, user, child, tags: list) -> uuid.UUID:
 
 async def _sources(session: AsyncSession, entry_id: uuid.UUID) -> dict[str, str]:
     rows = (
-        await session.execute(
-            select(EntryTag).where(EntryTag.entry_id == entry_id, EntryTag.deleted_at.is_(None))
+        (
+            await session.execute(
+                select(EntryTag).where(EntryTag.entry_id == entry_id, EntryTag.deleted_at.is_(None))
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out = {}
     for link in rows:
         await session.refresh(link, ["tag"])
@@ -79,16 +83,12 @@ async def test_a_tag_can_declare_itself_device_ai(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     user, child = await _world(session)
-    entry_id = await _create(
-        client, user, child, [{"name": "seaside", "source": "device_ai"}]
-    )
+    entry_id = await _create(client, user, child, [{"name": "seaside", "source": "device_ai"}])
 
     assert await _sources(session, entry_id) == {"seaside": "device_ai"}
 
 
-async def test_a_mixed_write_keeps_both_sources(
-    client: AsyncClient, session: AsyncSession
-) -> None:
+async def test_a_mixed_write_keeps_both_sources(client: AsyncClient, session: AsyncSession) -> None:
     user, child = await _world(session)
     entry_id = await _create(
         client, user, child, ["beach", {"name": "seaside", "source": "device_ai"}]
@@ -144,9 +144,7 @@ async def test_re_running_extraction_replaces_only_its_own_tags(
     assert await _sources(session, entry_id) == {"beach": "user", "shoreline": "device_ai"}
 
 
-async def test_user_is_applied_before_device_ai(
-    client: AsyncClient, session: AsyncSession
-) -> None:
+async def test_user_is_applied_before_device_ai(client: AsyncClient, session: AsyncSession) -> None:
     """The ordering inside `apply_tag_writes`, asserted rather than trusted.
 
     `apply_tags` protects `user` rows from a `device_ai` write and not the reverse, so applying

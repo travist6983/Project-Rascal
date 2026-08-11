@@ -52,7 +52,7 @@ class PromptPage(ApiModel):
 
 
 class PromptSuppressionCreate(ApiModel):
-    """"Stop asking me this." `reason` is free text and optional."""
+    """ "Stop asking me this." `reason` is free text and optional."""
 
     prompt_id: uuid.UUID
     reason: str | None = Field(

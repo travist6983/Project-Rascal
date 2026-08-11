@@ -139,9 +139,7 @@ def _weighted_pick(
 # --- The impure half ---------------------------------------------------------------------
 
 
-async def _candidates(
-    session: AsyncSession, spec: SlotSpec, child_id: uuid.UUID
-) -> list[Prompt]:
+async def _candidates(session: AsyncSession, spec: SlotSpec, child_id: uuid.UUID) -> list[Prompt]:
     """The candidate pool, with this child's suppressions already removed.
 
     **Suppression is enforced here and nowhere else, and that placement is the rule.** The
