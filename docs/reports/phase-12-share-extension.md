@@ -156,16 +156,67 @@ ever have been checked by looking at a picture of it.
 
 ## Tests
 
-**524 → 567, in 53 → 56 suites. No existing test was modified.** Run cold from a deleted
+**524 → 571, in 53 → 56 suites. No existing test was modified.** Run cold from a deleted
 `DerivedData` with `CODE_SIGNING_ALLOWED=NO`, zero warnings.
 
-Three assertions were checked by breaking the implementation rather than by trusting them.
+Five assertions were checked by breaking the implementation rather than by trusting them.
 
 | Mutation | Result |
 | --- | --- |
 | Remove the drain's idempotency guard | 4 tests fail, including the double-drain one |
+| Remove the drain's `running` guard | The concurrent-drain test fails: both passes report `ingested == 1` |
 | Reap staged files without waiting for `existsOnServer` | The confirmation test fails on both the record and the files |
+| Clear the staged destination before the copy rather than after | The re-stage test fails: a failed re-stage deleted the file that was already there |
 | Replace the copy with a chunked read into a `Data` | The memory test reports a **316MB** peak against its 40MB ceiling |
+
+### The review pass, and the three defects it found
+
+Everything above was green before a second, adversarial read of the phase. It found three real
+things, and the first was the serious one.
+
+**No re-entrancy guard on the drain.** `EntrySync` and `MediaCoordinator` both carry one;
+`ShareDrain` did not. `RootView.runSweep` is called from `.task` **and** from
+`scenePhase == .active`, both of which fire within a moment of each other on a cold launch, and
+converting a video suspends — so a second pass could read the same record, see no entry for it yet,
+and create it too. Measured, not theorised: two concurrent ingests both reported `ingested == 1`.
+
+`Entry.id` is `@Attribute(.unique)`, so SwiftData upserts and the visible damage is small. **The
+invisible damage is not.** If the first pass's entry is pushed and marked `existsOnServer` before
+the second pass's insert lands, the upsert replaces it with a fresh `pending` row carrying a **new
+`idempotencyKey`** — and the next push therefore creates a second entry in the archive rather than
+replaying the first. That is exactly the duplicate this phase promises cannot happen, arriving by a
+route the sequential double-drain test does not take. `ShareDrain` is a class now, with the same
+`running` flag its two siblings have, and the concurrent case is a test.
+
+**`stage` cleared the destination before the copy.** A re-stage that then failed would have
+destroyed a good file to make room for one that never arrived. Media ids are fresh UUIDs so it
+could not trigger today, but it is not a shape to leave in the one path that holds the only copy of
+someone's photo. The destination is displaced only once a complete replacement is on disk.
+
+**The preview row decoded its thumbnails inside `body`.** `UIImage(data:)` per render pass, which
+is the composer's existing pattern and is fine in the app — but SwiftUI may re-run a body for
+reasons that are not worth reasoning about, and in a process with a hard memory ceiling "we think
+it skips the re-render" is the wrong kind of confidence. Decoded once, into `@State`, and only for
+the tiles actually on screen.
+
+Two smaller corrections came with them: `ingested` was counted even when `context.save()` failed —
+a number that contradicted the store — and `viewDidDisappear` discarded staged bytes without
+checking that the sheet was actually being dismissed rather than merely covered.
+
+### The round trip, run once and not committed
+
+Every drain test builds its record by hand, so a mismatch between what the extension writes and
+what the app reads would have passed the whole suite. That seam was closed by temporarily
+compiling the extension's files into the app target and driving the **real** `ShareComposerModel`
+and `ShareItemLoader` over real `NSItemProvider`s, then draining the record they wrote with the
+**real** `ShareDrain`: three photos, two of them dated, produced one entry with three media,
+`occurred_at` at 14:30 on 4 July 2019 — the earlier of the two EXIF times — the note trimmed,
+converted originals and thumbnails in the app's staging store, and the inbox copy held until
+`existsOnServer` and released after it.
+
+It is not in the suite, because it can only exist while the extension's files are in the app
+target, and leaving them there would ship the share sheet's UI inside the app. The scaffolding was
+removed the same way the screenshot harness was.
 
 **The third one is the one worth reading.** It began as a before-and-after `phys_footprint` reading
 and **passed a mutation it should have caught**: replacing `FileManager.copyItem` with

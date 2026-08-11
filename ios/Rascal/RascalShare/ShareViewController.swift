@@ -62,11 +62,21 @@ final class ShareViewController: UIViewController {
     /// never have a record would otherwise sit in the container until the app's orphan sweep found
     /// them; discarding here means the common case cleans up immediately.
     ///
-    /// Guarded on `hasCompleted`, because a successful save also dismisses this view controller —
-    /// and discarding *then* would delete the bytes the record it just wrote points at.
+    /// **Two guards, and both are about not deleting a photo someone is still holding.**
+    ///
+    /// `hasCompleted`, because a successful save also dismisses this view controller — and
+    /// discarding then would delete the bytes the record it just wrote points at.
+    ///
+    /// And `isBeingDismissed || isMovingFromParent`, because `viewDidDisappear` means "this view
+    /// left the hierarchy", which is not the same as "this share is over" — anything presented
+    /// over the sheet would fire it while the parent's selection is still sitting there unsaved.
+    /// Nothing currently presents over it, so this guard is for the change that has not happened
+    /// yet, and the direction it fails in is the safe one: if the real teardown path ever reports
+    /// neither flag, the cleanup is simply skipped and `ShareInbox.sweepOrphans` collects the bytes
+    /// on the app's next launch. Missing a cleanup costs disk. Running one early costs a photo.
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        guard !hasCompleted else { return }
+        guard !hasCompleted, isBeingDismissed || isMovingFromParent else { return }
         model.discard()
     }
 

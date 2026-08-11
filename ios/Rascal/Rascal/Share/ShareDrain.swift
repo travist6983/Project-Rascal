@@ -20,8 +20,11 @@ import SwiftData
 /// once Photos is closed, so a conversion that fails leaves the file where it is and tries again
 /// next time. The only deletions are of files whose entry the server has confirmed, and of bytes
 /// no record names.
+///
+/// **A class, and not a struct, for the `running` flag alone** — the same reason `EntrySync` and
+/// `MediaCoordinator` are classes. See `ingest`.
 @MainActor
-struct ShareDrain {
+final class ShareDrain {
     let inbox: ShareInbox
     let staging: StagingStore
     let context: ModelContext
@@ -30,6 +33,25 @@ struct ShareDrain {
     /// to pick one inside a share sheet is a question a twelve-second screen cannot afford.
     /// Multi-kid selection is out of scope for this phase either way.
     let childId: UUID
+
+    /// One ingest at a time, for the reason `EntrySync.running` and `MediaCoordinator.sweeping`
+    /// exist — and here it is load-bearing rather than merely tidy.
+    ///
+    /// `RootView.runSweep` is called from `.task` **and** from `scenePhase == .active`, and on a
+    /// cold launch both fire within a moment of each other. Converting a video suspends
+    /// (`AVURLAsset.load(.isExportable)`), so a second pass can start, read the same record, see no
+    /// entry for it yet — because the first pass has not inserted one — and decide to create it
+    /// too.
+    ///
+    /// The visible damage is small, because `Entry.id` is `@Attribute(.unique)` and SwiftData
+    /// upserts. **The invisible damage is not.** If the first pass's entry is pushed and marked
+    /// `existsOnServer` before the second pass's insert lands, the upsert replaces it with a fresh
+    /// `pending` row carrying a **new `idempotencyKey`** — and the next push therefore creates a
+    /// second entry server-side rather than replaying the first. That is precisely the duplicate
+    /// this phase promises cannot happen, arriving by a route the double-drain test does not take.
+    /// Measured, not theorised: two concurrent ingests of one record both reported `ingested == 1`
+    /// before this guard existed.
+    private var running = false
 
     init(
         inbox: ShareInbox = .shared,
@@ -76,6 +98,11 @@ struct ShareDrain {
     func ingest() async -> Result {
         var result = Result()
         guard inbox.directory != nil else { return result }
+        // See `running`. A second pass while one is in flight is not extra safety, it is the
+        // duplicate.
+        guard !running else { return result }
+        running = true
+        defer { running = false }
 
         for record in inbox.pending() {
             if existingEntry(record.id) != nil {
@@ -144,10 +171,18 @@ struct ShareDrain {
             // permission to delete the only local copy of the original.
             media.hasThumbnail = one.hasThumbnail
             context.insert(media)
-            result.mediaStaged += 1
         }
 
-        try? context.save()
+        // **Counted only if it persisted.** A `ModelContext` that fails to save has written
+        // nothing, and the next foreground re-ingests the record from scratch — which is correct,
+        // and which makes a reported `ingested` on a failed save a number that contradicts the
+        // store. The rest of this type is honest about what it did; this has to be too.
+        do {
+            try context.save()
+        } catch {
+            return
+        }
+        result.mediaStaged += staged.count
         result.ingested += 1
     }
 

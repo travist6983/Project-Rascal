@@ -1109,3 +1109,41 @@ The import tripped three of the phase's four stop conditions; the full reasoning
   leaves the previous value alone, so the first set of screenshots was six frames all at XXL, two
   pairs byte-identical. iOS's default size is `large`. Worth recording for whoever writes the next
   harness.
+
+### What a second, adversarial read of phase 12 found
+
+Three real defects on top of a green suite, recorded because the first one is the kind that only
+shows up under a race and would have been blamed on the server.
+
+- **`ShareDrain` had no re-entrancy guard, and both of its siblings do.** `EntrySync.running` and
+  `MediaCoordinator.sweeping` exist for exactly this; the drain was written as a struct and got
+  neither. `RootView.runSweep` is called from `.task` **and** from `scenePhase == .active`, which on
+  a cold launch fire within a moment of each other, and converting a video suspends — so a second
+  pass reads the same record, sees no entry for it yet, and creates it too. Measured before the fix:
+  two concurrent ingests both returned `ingested == 1`. `Entry.id` being `@Attribute(.unique)` hides
+  it as an upsert **until the first pass has been pushed**, at which point the second insert replaces
+  a synced row with a fresh `pending` one carrying a new `idempotencyKey`, and the next push creates
+  a second entry server-side. Now a class with a `running` flag, and a test that fails without it.
+- **`ShareInbox.stage` cleared its destination before copying.** A re-stage whose copy then failed
+  would have destroyed a good file to make room for one that never arrived. Fresh UUIDs mean it
+  cannot trigger today; it is still the wrong shape in the one path that holds the only copy of a
+  photo. The destination is displaced only once a complete replacement is on disk.
+- **`SharePreviewRow` decoded its thumbnails inside `body`.** The composer's `MediaDraft.image` does
+  the same and it is fine in the app, but a share extension has a hard memory ceiling and SwiftUI's
+  decision to re-run a body is not a thing to reason about. Decoded once into `@State`, and only for
+  the tiles actually on screen — a twenty-photo share now costs four thumbnails rather than twenty.
+
+Two smaller corrections with them: `ingested` was counted even when `context.save()` failed, which
+is a return value contradicting the store; and `viewDidDisappear` discarded staged bytes without
+checking the sheet was being dismissed rather than merely covered — the failure directions there are
+"leak a file the sweep collects" versus "delete a photo someone is about to save", and only one of
+those is acceptable.
+
+- **The suite never proved the two halves agree.** Every drain test builds its record by hand, so a
+  mismatch between what `ShareComposerModel.save()` writes and what `ShareDrain.ingest()` reads would
+  have passed everything. Closed by temporarily compiling the extension's files into the app target
+  and running the real model over real `NSItemProvider`s into the real drain — three photos, two
+  dated, one entry, `occurred_at` at the earlier EXIF time, note trimmed, originals and thumbnails
+  staged, inbox copy held until `existsOnServer`. Not committed: it can only exist while the
+  extension's UI is compiled into the app, and leaving it there would ship the share sheet inside the
+  app. Removed the way the screenshot harness was.

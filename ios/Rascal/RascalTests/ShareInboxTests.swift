@@ -334,6 +334,44 @@ struct ShareInboxTests {
         }
     }
 
+    /// **A Live Photo stages as its still image, and this is what makes that true.**
+    ///
+    /// `com.apple.live-photo` does **not** conform to `public.image` — checked against the real
+    /// type system rather than assumed, because the whole Live Photo story rests on it. A provider
+    /// for one registers `public.jpeg` alongside it, so `ShareItemLoader.acceptedType` scans past
+    /// the live-photo type and takes the still, which is the only shape the archive has for it.
+    ///
+    /// If this ever starts returning `.photo`, a Live Photo would stage as a bundle that
+    /// `ImagePipeline` cannot read, and the share would silently lose its photo.
+    @Test("a Live Photo is not itself an image; the still beside it is")
+    func livePhotoIsNotAnImage() {
+        #expect(ShareMediaKind.resolve(.livePhoto) == nil)
+        #expect(ShareMediaKind.resolve(.jpeg) == .photo)
+    }
+
+    /// A real camera roll and a real share sheet carry more than JPEG and QuickTime, and the
+    /// activation rule offers this extension anything conforming to image or movie. These are the
+    /// ones that actually turn up, resolved as they were measured.
+    ///
+    /// Two of them are accepted and then fail conversion, on purpose rather than by oversight:
+    /// an SVG conforms to `public.image` and `CGImageSource` will not read one, and a
+    /// DRM-protected movie is not exportable. Both are skipped by the drain with the rest of the
+    /// share intact — `oneBadFileDoesNotSinkTheShare` is that guarantee. Refusing them earlier
+    /// would mean maintaining a denylist that goes stale.
+    @Test("the formats a real share sheet actually offers")
+    func realWorldTypes() {
+        for photo in [UTType.heic, .heif, .tiff, .bmp, .webP, .rawImage, .svg] {
+            #expect(ShareMediaKind.resolve(photo) == .photo, "\(photo.identifier)")
+        }
+        for video in [UTType.quickTimeMovie, .mpeg4Movie, .avi, .mpeg2Video,
+                      .appleProtectedMPEG4Video] {
+            #expect(ShareMediaKind.resolve(video) == .video, "\(video.identifier)")
+        }
+        // The abstract parent of both branches resolves to neither — a provider carrying only
+        // `public.audiovisual-content` tells us nothing about which pipeline to use.
+        #expect(ShareMediaKind.resolve(.audiovisualContent) == nil)
+    }
+
     /// The plist is the real gate, so the plist is what is asserted — not a second copy of the
     /// claim written in Swift. It is a resource of this test bundle for exactly this reason.
     ///
@@ -433,6 +471,44 @@ struct ShareInboxTests {
             at: mediaDirectory, includingPropertiesForKeys: nil
         )
         #expect(contents.count == 1)
+        #expect(contents.allSatisfy { !$0.lastPathComponent.hasSuffix(".partial") })
+    }
+
+    /// Re-staging the same id replaces it, and a re-stage that **fails** leaves what was already
+    /// there untouched. The second half is the one worth having: clearing the destination before
+    /// the copy would mean a failed re-stage had destroyed a good photo to make room for nothing.
+    @Test("re-staging replaces, and a failed re-stage destroys nothing")
+    func reStagingIsNotDestructive() throws {
+        let inbox = temporaryInbox()
+        let mediaId = UUID()
+        let first = try sourceFile(imageData(dateTimeOriginal: "2019:07:04 14:30:00"))
+        defer { try? FileManager.default.removeItem(at: first) }
+
+        let staged = try inbox.stage(copyingFrom: first, as: mediaId, ext: "jpg")
+        let url = try #require(inbox.mediaURL(for: PendingShare.Item(
+            id: mediaId, filename: staged.filename, kind: .photo, byteCount: 0, capturedAt: nil
+        )))
+        let original = try Data(contentsOf: url)
+
+        // A replacement that succeeds.
+        let second = try sourceFile(imageData(dateTimeOriginal: "2021:01:02 09:00:00"))
+        defer { try? FileManager.default.removeItem(at: second) }
+        try inbox.stage(copyingFrom: second, as: mediaId, ext: "jpg")
+        #expect(ImagePipeline.exifDate(fileAt: url) != ImagePipeline.exifDate(fileAt: first))
+
+        // A replacement that fails. The staged file must survive it intact.
+        let missing = URL.temporaryDirectory.appending(path: "gone-\(UUID().uuidString).jpg")
+        #expect(throws: ShareInbox.Failure.copyFailed) {
+            try inbox.stage(copyingFrom: missing, as: mediaId, ext: "jpg")
+        }
+        #expect(FileManager.default.fileExists(atPath: url.path), "a failed re-stage deleted the staged file")
+        #expect(try Data(contentsOf: url).count > 0)
+        #expect(original.count > 0)
+
+        // And no `.partial` litter from the failure.
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: #require(inbox.mediaDirectory), includingPropertiesForKeys: nil
+        )
         #expect(contents.allSatisfy { !$0.lastPathComponent.hasSuffix(".partial") })
     }
 

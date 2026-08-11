@@ -116,6 +116,12 @@ nonisolated struct ShareInbox: Sendable {
     /// Two steps, because a copy is not atomic. The bytes land under a dot-prefixed temporary name
     /// and are renamed into place, so a crash mid-copy cannot leave a half-file sitting under the
     /// name a record would eventually point at.
+    ///
+    /// **Nothing already staged is displaced until a complete replacement exists.** Media ids are
+    /// fresh UUIDs, so a destination that already exists is not a case that can arise today — but
+    /// clearing it up front would mean a copy that then failed had destroyed a good file to make
+    /// room for one that never arrived, and that is not a thing to leave lying in a path whose
+    /// whole job is holding the only copy of someone's photo.
     @discardableResult
     func stage(copyingFrom source: URL, as mediaId: UUID, ext: String) throws -> Staged {
         guard let mediaDirectory else { throw Failure.unavailable }
@@ -126,11 +132,12 @@ nonisolated struct ShareInbox: Sendable {
         let partial = mediaDirectory.appending(path: ".\(name).partial")
 
         try? FileManager.default.removeItem(at: partial)
-        // Re-staging the same id overwrites cleanly, which happens if a share is retried.
-        try? FileManager.default.removeItem(at: destination)
 
         do {
             try FileManager.default.copyItem(at: source, to: partial)
+            // `moveItem` refuses an occupied destination, so re-staging the same id needs the old
+            // one out of the way — now, with the replacement already on disk, and not before.
+            try? FileManager.default.removeItem(at: destination)
             try FileManager.default.moveItem(at: partial, to: destination)
         } catch {
             try? FileManager.default.removeItem(at: partial)

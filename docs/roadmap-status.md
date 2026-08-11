@@ -36,15 +36,15 @@ What is left is then the two things only you can unblock — Apple enrollment an
 | --- | --- |
 | Merged pull requests | **34** — Today v2 (#34) merged since the last snapshot. The share sheet is **open** at this snapshot |
 | API tests | **315 passing**, 24 files — unchanged; the share sheet is an iOS-lane change and touched nothing under `api/`. Carried forward, not re-measured |
-| iOS tests | **567 passing**, 56 suites, zero warnings (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 43 with the share sheet, in three new suites. No existing test was modified |
+| iOS tests | **571 passing**, 56 suites, zero warnings (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 47 with the share sheet, in three new suites. No existing test was modified |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-**The pull-request and iOS-test counts moved; nothing in the API lane did.** The share sheet added three suites and 43 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
+**The pull-request and iOS-test counts moved; nothing in the API lane did.** The share sheet added three suites and 47 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
 
-**Three of the share sheet's assertions were checked by breaking the code rather than by trusting them**, which is worth naming because one of them needed it. Dropping the drain's idempotency guard fails four tests; reaping staged files before the server confirms the entry fails the confirmation test on both the record and the files; and the memory test — which measures a peak footprint while a 160MB file is staged — reports 316MB against its 40MB ceiling when the copy is replaced with a read into memory. **That last one started as a before-and-after reading and passed a mutation it should have caught**, because `Data(contentsOf:)` maps a file that size and mapped pages are not charged to `phys_footprint`. It samples a peak on a second thread now, and the mmap limit is written into the test rather than left for someone to rediscover.
+**Five of the share sheet's assertions were checked by breaking the code rather than by trusting them**, which is worth naming because two of them needed it. Dropping the drain's idempotency guard fails four tests; reaping staged files before the server confirms the entry fails the confirmation test on both the record and the files; and the memory test — which measures a peak footprint while a 160MB file is staged — reports 316MB against its 40MB ceiling when the copy is replaced with a read into memory. **That last one started as a before-and-after reading and passed a mutation it should have caught**, because `Data(contentsOf:)` maps a file that size and mapped pages are not charged to `phys_footprint`. It samples a peak on a second thread now, and the mmap limit is written into the test rather than left for someone to rediscover.
 
 The iOS suite was also run **five times** for this snapshot rather than once. Today v2 introduced the project's first tests that wait on a timer, and the first version of them passed alone and failed inside the full suite, where fifty-odd parallel suites contend for the main actor. They poll for a condition now instead of sleeping a fixed interval.
 
@@ -251,7 +251,7 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 567 iOS tests, 56 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 571 iOS tests, 56 suites, zero warnings
 
 # Three targets now, and all three must carry the same App Group or the widget goes
 # neutral and the share sheet says it cannot save — in both cases with no error anywhere.

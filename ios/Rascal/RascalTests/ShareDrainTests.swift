@@ -81,6 +81,43 @@ struct ShareDrainTests {
         return output as Data
     }
 
+    /// Copy `count` photos into the inbox and describe them, without writing a record. Separate
+    /// from `stageShare` so a test can compose a record out of more than one kind of file.
+    private func stagePhotos(
+        _ harness: Harness,
+        count: Int,
+        dateTimeOriginal: String? = nil
+    ) throws -> [PendingShare.Item] {
+        try (0..<count).map { _ in
+            let mediaId = UUID()
+            let source = URL.temporaryDirectory.appending(path: "src-\(UUID().uuidString).jpg")
+            try imageData(dateTimeOriginal: dateTimeOriginal).write(to: source)
+            defer { try? FileManager.default.removeItem(at: source) }
+
+            let staged = try harness.inbox.stage(copyingFrom: source, as: mediaId, ext: "jpg")
+            return PendingShare.Item(
+                id: mediaId, filename: staged.filename, kind: .photo,
+                byteCount: staged.byteCount, capturedAt: nil
+            )
+        }
+    }
+
+    /// Bytes no decoder will take, under a `.mov`. Useful because `VideoPipeline` **awaits** before
+    /// it throws — `AVURLAsset.load(.isExportable)` — so this is a real suspension point in the
+    /// drain without a real video fixture.
+    private func stageBrokenVideo(_ harness: Harness) throws -> PendingShare.Item {
+        let mediaId = UUID()
+        let source = URL.temporaryDirectory.appending(path: "src-\(UUID().uuidString).mov")
+        try Data(repeating: 0, count: 4096).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+
+        let staged = try harness.inbox.stage(copyingFrom: source, as: mediaId, ext: "mov")
+        return PendingShare.Item(
+            id: mediaId, filename: staged.filename, kind: .video,
+            byteCount: staged.byteCount, capturedAt: nil
+        )
+    }
+
     /// Stage `count` photos into the inbox and write one record naming all of them — exactly the
     /// shape the extension leaves behind.
     @discardableResult
@@ -89,29 +126,16 @@ struct ShareDrainTests {
         photos count: Int = 1,
         dateTimeOriginal: String? = nil,
         note: String? = nil,
+        extra: [PendingShare.Item] = [],
         occurredAt: Date = Date(timeIntervalSince1970: 1_562_250_600),
         createdAt: Date = Date(timeIntervalSince1970: 1_786_000_000)
     ) throws -> PendingShare {
-        var items: [PendingShare.Item] = []
-        for _ in 0..<count {
-            let mediaId = UUID()
-            let source = URL.temporaryDirectory.appending(path: "src-\(UUID().uuidString).jpg")
-            try imageData(dateTimeOriginal: dateTimeOriginal).write(to: source)
-            defer { try? FileManager.default.removeItem(at: source) }
-
-            let staged = try harness.inbox.stage(copyingFrom: source, as: mediaId, ext: "jpg")
-            items.append(PendingShare.Item(
-                id: mediaId, filename: staged.filename, kind: .photo,
-                byteCount: staged.byteCount, capturedAt: nil
-            ))
-        }
-
         let record = PendingShare(
             createdAt: createdAt,
             occurredAt: occurredAt,
             occurredAtSource: .captureMetadata,
             note: note,
-            media: items
+            media: extra + (try stagePhotos(harness, count: count, dateTimeOriginal: dateTimeOriginal))
         )
         try harness.inbox.write(record)
         return record
@@ -261,6 +285,47 @@ struct ShareDrainTests {
         for one in media(harness.context) {
             #expect(harness.staging.exists(harness.staging.originalURL(for: one.id, ext: "jpg")))
         }
+    }
+
+    /// **Two drains running at once, which the sequential double-drain test cannot catch.**
+    ///
+    /// `RootView.runSweep` is called from `.task` and from `scenePhase == .active`, and on a cold
+    /// launch both fire within a moment of each other. Converting a video suspends
+    /// (`AVURLAsset.load(.isExportable)`), so without a guard the second pass reads the same
+    /// record, sees no entry for it yet, and creates it too — measured at `ingested == 1` from
+    /// *both* passes before `ShareDrain.running` existed.
+    ///
+    /// `Entry.id` being `@Attribute(.unique)` hides most of that behind an upsert. What it does not
+    /// hide is the case that matters: if the first pass's entry is pushed and marked
+    /// `existsOnServer` before the second pass's insert lands, the upsert replaces it with a fresh
+    /// `pending` row carrying a **new `idempotencyKey`**, and the next push creates a second entry
+    /// in the archive rather than replaying the first.
+    ///
+    /// The fixture leads with a video precisely because a photo-only share never suspends and would
+    /// pass this test with no guard at all.
+    @Test("two drains running at once still produce one entry, and only one pass does the work")
+    func concurrentDrainsProduceOneEntry() async throws {
+        let harness = try harness()
+        // The video leads so the suspension happens before either pass has inserted anything.
+        let record = try stageShare(
+            harness,
+            photos: 2,
+            note: "a note, so a share whose video fails is still an entry",
+            extra: [try stageBrokenVideo(harness)]
+        )
+
+        async let first = harness.drain.ingest()
+        async let second = harness.drain.ingest()
+        let (a, b) = await (first, second)
+
+        #expect(a.ingested + b.ingested == 1, "both passes ingested the same record")
+        #expect(entries(harness.context).count == 1)
+        #expect(media(harness.context).count == 2, "the photos were converted twice")
+
+        // And the entry that exists is a first-pass entry: never re-inserted, so never re-keyed.
+        let entry = try #require(entries(harness.context).first)
+        #expect(entry.id == record.id)
+        #expect(entry.existsOnServer == false)
     }
 
     /// Soft deletes are how this app deletes. A share drained and then thrown away must not come

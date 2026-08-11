@@ -21,6 +21,17 @@ struct SharePreviewRow: View {
     private var visible: [ShareItemLoader.Loaded] { Array(loaded.prefix(visibleLimit)) }
     private var overflow: Int { max(0, loaded.count - visibleLimit) }
 
+    /// Decoded once, when the row appears, and never again.
+    ///
+    /// **Not `UIImage(data:)` inside `body`.** That is what the composer's `MediaDraft.image` does,
+    /// and it is fine in the app — but `body` re-runs whenever SwiftUI decides it might need to,
+    /// which here includes anything that invalidates the screen while a parent is typing a note.
+    /// Four 400px thumbnails is a couple of megabytes of pixels per pass; in the app that is
+    /// nothing, and in a process with a hard memory ceiling it is a cost nobody is measuring.
+    ///
+    /// The fix is not to reason about how often SwiftUI re-evaluates. It is to decode once.
+    @State private var decoded: [UUID: Image] = [:]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SectionLabel(ShareCopy.heading(
@@ -39,12 +50,29 @@ struct SharePreviewRow: View {
                 .padding(.vertical, 2)
             }
         }
+        // Keyed on what is actually drawn: only the visible tiles are ever decoded, so a
+        // twenty-photo share costs four thumbnails rather than twenty.
+        .task(id: visible.map(\.id)) {
+            var next: [UUID: Image] = [:]
+            for one in visible {
+                if let existing = decoded[one.id] {
+                    next[one.id] = existing
+                } else if let data = one.preview, let image = UIImage(data: data) {
+                    next[one.id] = Image(uiImage: image)
+                }
+            }
+            decoded = next
+        }
     }
 
     private func tile(_ one: ShareItemLoader.Loaded, position: Int) -> some View {
         Group {
-            if let preview = one.preview, let image = UIImage(data: preview) {
-                Image(uiImage: image).resizable().scaledToFill()
+            if let image = decoded[one.item.id] {
+                image.resizable().scaledToFill()
+            } else if one.item.kind == .photo, one.preview != nil {
+                // Decoded on the next turn of the run loop. A flat surface rather than the glyph,
+                // so a photo does not flash a video-shaped placeholder on its way in.
+                Color.surface
             } else {
                 // Video, and a photo whose thumbnail could not be made. Terracotta, because
                 // colour carries meaning and terracotta is photo and video — a grey box would
