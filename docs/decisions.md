@@ -593,6 +593,31 @@ schema cost: deleting an entry releases its assignment, and the sync cursor carr
 30-second overlap window. The coverage table in `mission-library.md` was corrected — it had
 under-counted video, activity, and weekly since before the last prompts were added.
 
+**Aug 10, 2026** — Phase 18 built the camera-roll backfill engine. Four decisions.
+
+**A backfill is not an assignment, and the rule is structural rather than remembered.** The server
+owns the schedule; a suggestion built from this phone's camera roll is something the server cannot
+know about. `BackfillEntryPlan` therefore has **no field that can hold an assignment**, and the
+composer request it builds passes `assignment: nil` as a literal. Entries carry `assignment_id`
+null — freeform entries are first-class and this is what that is for.
+
+**`occurred_at` comes from the asset, and the fallback is the month being backfilled — never
+today.** The share sheet falls back to `now`, which is right for a photo shared this minute and
+catastrophic for one from 2019: it would file the entry under this week, look completely normal,
+and be wrong permanently. The fallback date is **midday on the 1st**, not midnight, because
+midnight read in a western timezone is the last day of the previous month — the fallback would
+otherwise have been the bug it exists to prevent.
+
+**"Clearly invalid" metadata means a date outside the month being backfilled.** The scan grouped
+the asset into that month by its own creation date, so a date outside it did not come from the
+grouping — it came from edited metadata, a broken import, or an epoch-zero default. It is refused
+and the month stands in.
+
+**Where the suggestion lives is still open**, because the surface was not built. The engine —
+scan, clustering, dismissal, caching, date resolution — is complete and tested; Today's lower
+region versus Moments versus its own entry point is a design decision that should be made against
+the design vocabulary rather than settled by whoever writes the view first.
+
 **Aug 10, 2026** — Phase 15 made the prompt pool durable. Three decisions.
 
 **Suppression outranks every relaxation rule, including an empty pool.** A dismissed prompt was
