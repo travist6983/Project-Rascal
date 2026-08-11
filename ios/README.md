@@ -34,6 +34,28 @@ only runs tests, which never touch the keychain.
 | **Moments** | `Moments/` | This day in prior years, or a warm redirect when there is nothing. |
 | **Composer** | `Composer/` | Writing and capture, including backdating and edit mode. |
 | **Settings** | `Settings/` | Who the archive is for, which account holds it, the app version, and the way out. |
+| **Share sheet** | `RascalShare/`, `Rascal/Share/` | Capture from Photos without opening the app. A separate target: it copies bytes and a versioned record into the App Group and exits, and `ShareDrain` files them on the app's next launch or foreground. See below. |
+
+## Three targets, and what each is allowed to do
+
+| Target | Networking | Reads the App Group | Writes the App Group |
+|---|---|---|---|
+| `Rascal` | Yes — it is the only one that holds a credential | Yes | Yes |
+| `RascalWidget` | **Never** | `today.json` | Never |
+| `RascalShare` | **Never** | Never | `share-inbox/` |
+
+**No extension in this project makes a network request, and that is a rule rather than a
+coincidence.** A token refresh running inside an extension, concurrently with the app, can
+invalidate the app's own session — intermittently, and very hard to attribute. A share extension
+has two further reasons: a hard memory ceiling that a 4K video exceeds, and the standing rule that
+an entry is confirmed server-side before its media upload is attempted. See `docs/decisions.md`.
+
+`Palette`, `Typography`, `Layout`, `Motion`, `Formatting`, `ImagePipeline` and everything in
+`Rascal/Share/` are compiled into more than one target through explicit membership in the project's
+`Shared` group. They compile into the app anyway through its synchronized `Rascal/` group, so
+nothing is built twice into one binary. **A file added there has to compile under
+`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` in every target that takes it**, which is why the
+extension targets copy the app's Swift settings rather than using the template's.
 
 ## Patterns worth knowing before you change anything
 
@@ -129,8 +151,22 @@ xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
   CODE_SIGNING_ALLOWED=NO
 ```
 
-CI runs the same command and then fails the build on **any** warning in `ios/Rascal/Rascal` or
-`ios/Rascal/RascalTests`. Warnings are errors here; do not merge red.
+CI runs the same command and then fails the build on **any** warning in `ios/Rascal/Rascal`,
+`ios/Rascal/RascalTests`, `ios/Rascal/RascalWidget` or `ios/Rascal/RascalShare`. Warnings are errors
+here; do not merge red. **A new target means a new branch in that alternation** — the pattern
+requires a `/` immediately after the branch, so a directory that is not named is not covered by the
+branch it happens to share a prefix with. `RascalWidget/` shipped ungated for exactly as long as it
+took to notice.
+
+**Run it from a deleted `DerivedData` before believing a warning count.** An incremental build does
+not recompile an unchanged file, and a file that is not recompiled emits no warning. A phase once
+saw 21 warnings in a full run that a targeted `-only-testing` run had reported as zero.
+
+Nothing in `RascalShare/` is reachable from the test target: it is its own module and the test host
+is the app. That is why everything the share sheet's correctness rests on — the record, the
+container, the date rule, and every sentence it says — lives in `Rascal/Share/` instead, and why
+`RascalShare-Info.plist` is a **resource of the test bundle** so the shipped activation rule can be
+asserted rather than a second copy of the claim.
 
 `RascalTests/TimelineFixtures.swift` holds server-shaped JSON builders mirroring
 `api/src/rascal/schemas/entry.py`. If the two disagree, that file is right and the fixture is the

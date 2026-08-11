@@ -1046,3 +1046,104 @@ The import tripped three of the phase's four stop conditions; the full reasoning
 - **The completion burst was not built.** A 96pt disc with an expanding ripple is compliant in kind
   with "circular terracotta checkmark + spring + haptic … no stamp, no confetti" and louder in
   degree. Judged not mine to escalate unilaterally.
+
+## Phase 12 — the share sheet
+
+- **`ImagePipeline.swift` is compiled into the extension rather than its EXIF reader being
+  reimplemented.** The brief says the derivation must not be reinvented, and target membership is
+  the only way to guarantee the shared photo's date is produced by literally the same code as the
+  picked one's. The file is pure ImageIO with no API model and no SwiftData; the calls the
+  extension makes (`exifDate`, `makeThumbnail`) read metadata and downsample without ever decoding
+  a full image. The alternative — a second small reader — is the divergence the widget's
+  duplicated `symbolName` mapping needs a test to prevent, and here there was no need to accept it.
+- **`Formatting.swift`, `Layout.swift` and `Motion.swift` joined `Palette` and `Typography` in the
+  extension target.** Reaching `Palette` was the requirement; these three are what *using* a
+  Palette token correctly costs — `typeRole`, the card and capsule shapes, `TapScaleButtonStyle`,
+  and `DurationText` for a video's spoken duration. All are SwiftUI-and-Foundation only. Nothing
+  beyond target membership was needed, so the design system reaches the extension unchanged.
+- **`ShareCopy` was extracted out of the extension's views into `Rascal/Share/`.** The extension is
+  its own module and the test host is the app, so a string built inside `ShareComposer` could only
+  be verified by looking at a screenshot. The date sentence is the only warning a parent gets
+  before a photo from another year is filed under this week; that is not a thing to eyeball. It
+  immediately earned itself — see the grammar defect below.
+- **The date is shown and not editable.** The brief asks for it to be visible before saving, which
+  it is, in `DatePill`'s vocabulary. A graphical picker is most of a share sheet's height, and the
+  entry is editable in the app the moment the drain files it. Recorded because it is a narrowing of
+  what "using the DatePill vocabulary" could have meant.
+- **Video previews are a glyph tile, not a poster frame.** Extracting one means
+  `AVAssetImageGenerator` on a file that may be a 4K minute, inside the process with the memory
+  ceiling, to draw an 84pt tile. `MediaPreviewRow` already answers "this media has nothing to draw"
+  with a tinted glyph tile for voice notes; this is that answer in terracotta, which is the colour
+  video owns. Duration comes from the metadata read that `occurred_at` needs anyway.
+- **A record naming files that are all gone, with no note on it, is removed rather than retried
+  forever.** The same situation `MediaCoordinator.beginUpload` calls unrecoverable when a staged
+  original has vanished. Nothing is destroyed — the bytes were already gone — and creating an empty
+  entry from a lost photo would be a lie about what the parent saved. A note with no surviving media
+  still becomes a text entry, because the words are real content.
+- **A deleted entry reaps its inbox copy even though the server never heard of it.** Without this
+  the record sits in the container permanently, retried on every launch against an entry that exists
+  precisely so it can be gone.
+- **`sweepOrphans` refuses to run at all while a record this build cannot read is present.** Such a
+  record names files whose names are unreachable from here, and sweeping past it would delete the
+  media belonging to a record a newer build wrote — the one deletion in this feature that could
+  destroy a photo.
+- **`CFBundleDisplayName` is the literal string `Rascal`.** `$(PRODUCT_NAME)` resolves to the target
+  name and would put "RascalShare" in the share sheet. One more place open decision #1 has to change
+  when the name closes; the widget gallery was the first.
+- **The extension does not know which child a share is for.** It has no session and no
+  `GET /children`, and asking inside a twelve-second screen is a question that cannot be afforded.
+  The app resolves it at drain time from the child the gate already has. The consequence is that a
+  share made before onboarding waits rather than failing, and nothing tells the parent it is
+  waiting — flagged in §8 of the device checklist rather than solved.
+- **The memory test was rewritten after it passed a mutation it should have failed.** A
+  before-and-after `phys_footprint` reading did not move when `FileManager.copyItem` was replaced
+  with `Data(contentsOf:)`, because Foundation maps a file that size and mapped clean pages are not
+  charged. It samples a peak on a second thread now and reports 316MB against a 40MB ceiling for a
+  materialising read. The mmap blind spot is documented in the test rather than left to be
+  rediscovered.
+- **A screenshot found a grammar defect that two passing assertions had covered.** The fallback
+  sentence read "These files don't say when *it* was taken". The suite asserted a prefix and a
+  substring, both true of the broken sentence. The assertions are whole sentences now — a partial
+  assertion on a sentence tests that the sentence exists, not that it reads.
+- **`content_size default` is not a valid `simctl` argument.** It returns "Invalid argument" and
+  leaves the previous value alone, so the first set of screenshots was six frames all at XXL, two
+  pairs byte-identical. iOS's default size is `large`. Worth recording for whoever writes the next
+  harness.
+
+### What a second, adversarial read of phase 12 found
+
+Three real defects on top of a green suite, recorded because the first one is the kind that only
+shows up under a race and would have been blamed on the server.
+
+- **`ShareDrain` had no re-entrancy guard, and both of its siblings do.** `EntrySync.running` and
+  `MediaCoordinator.sweeping` exist for exactly this; the drain was written as a struct and got
+  neither. `RootView.runSweep` is called from `.task` **and** from `scenePhase == .active`, which on
+  a cold launch fire within a moment of each other, and converting a video suspends — so a second
+  pass reads the same record, sees no entry for it yet, and creates it too. Measured before the fix:
+  two concurrent ingests both returned `ingested == 1`. `Entry.id` being `@Attribute(.unique)` hides
+  it as an upsert **until the first pass has been pushed**, at which point the second insert replaces
+  a synced row with a fresh `pending` one carrying a new `idempotencyKey`, and the next push creates
+  a second entry server-side. Now a class with a `running` flag, and a test that fails without it.
+- **`ShareInbox.stage` cleared its destination before copying.** A re-stage whose copy then failed
+  would have destroyed a good file to make room for one that never arrived. Fresh UUIDs mean it
+  cannot trigger today; it is still the wrong shape in the one path that holds the only copy of a
+  photo. The destination is displaced only once a complete replacement is on disk.
+- **`SharePreviewRow` decoded its thumbnails inside `body`.** The composer's `MediaDraft.image` does
+  the same and it is fine in the app, but a share extension has a hard memory ceiling and SwiftUI's
+  decision to re-run a body is not a thing to reason about. Decoded once into `@State`, and only for
+  the tiles actually on screen — a twenty-photo share now costs four thumbnails rather than twenty.
+
+Two smaller corrections with them: `ingested` was counted even when `context.save()` failed, which
+is a return value contradicting the store; and `viewDidDisappear` discarded staged bytes without
+checking the sheet was being dismissed rather than merely covered — the failure directions there are
+"leak a file the sweep collects" versus "delete a photo someone is about to save", and only one of
+those is acceptable.
+
+- **The suite never proved the two halves agree.** Every drain test builds its record by hand, so a
+  mismatch between what `ShareComposerModel.save()` writes and what `ShareDrain.ingest()` reads would
+  have passed everything. Closed by temporarily compiling the extension's files into the app target
+  and running the real model over real `NSItemProvider`s into the real drain — three photos, two
+  dated, one entry, `occurred_at` at the earlier EXIF time, note trimmed, originals and thumbnails
+  staged, inbox copy held until `existsOnServer`. Not committed: it can only exist while the
+  extension's UI is compiled into the app, and leaving it there would ship the share sheet inside the
+  app. Removed the way the screenshot harness was.

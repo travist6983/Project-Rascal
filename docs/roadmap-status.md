@@ -1,13 +1,17 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 10, 2026**, written as Today v2 went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 10, 2026**, written as the share sheet went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message.
 
-**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`). **The API-side figures — API tests, live operations, prompt counts, entries in the dev archive — were carried forward unmeasured**, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as one revision stale rather than as freshly checked.
+**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API-side figures — API tests, live operations, prompt counts, entries in the dev archive — were carried forward unmeasured**, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
 
 * * *
 ## The headline
-**P0's scope list is complete, P3's headline feature is built, and P1's retention lever now exists.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**, and the iOS CI cost fix as #33. **One pull request is outstanding — Today v2, #34.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and both of P1's shippable retention levers now exist.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**; the iOS CI cost fix as #33; **Today v2 as #34**. **One pull request is outstanding — the share sheet target.** Every other branch that has ever been opened is merged into `main`.
+
+**The share sheet closes the last unblocked P1 item.** A photo now goes from Photos into an entry without opening the app, and the phase's real content is a date rather than a screen: a photo shared from the camera roll is almost never from today, so `occurred_at` is read from the file's own capture metadata and shown before Save. Defaulting it to now would have filed a 2019 photo under this week, and that error is invisible — the entry looks completely normal, on the wrong day, permanently. The architecture is the widget's, inverted: **the extension stages into the App Group container and exits; the app drains the queue through the pipeline the composer already uses.** No networking, no auth, and no second upload path in the extension. See `docs/reports/phase-12-share-extension.md`.
+
+Of the two remaining P1 retention levers, **push notifications is the only one left, and it is blocked where TestFlight is** — on Apple enrollment, not on code.
 
 **Today got its design pass, and the phase's most useful output was a stop rather than a screen.** The import tripped three of the four conditions the phase was told to halt on, so Phase 1 ended in `docs/today-v2-inventory.md` — a token reconciliation and eleven open questions — before any Swift existed. The finding that decided most of them: **the design prototype disagrees with its own design system.** It hardcodes a periwinkle, a sage ink and two hairlines that its own `tokens/colors.css` does not; that token file matches `Palette.swift` exactly. So one file disagreed with two, and the palette held — the same way the Moments export was resolved in Phase 10. Paper grain, the STORIES rail, the partner avatar and a second search affordance were all dropped rather than invented. See `docs/today-v2-inventory.md` §8 and the Aug 10 entry in `docs/decisions-log.md`.
 
@@ -30,15 +34,17 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **33** — the widget (#32) and the iOS CI cost fix (#33) both merged since the last snapshot. Today v2 is **open as #34** at this snapshot |
-| API tests | **315 passing**, 24 files — unchanged; Today v2 is an iOS-lane change and touched nothing under `api/`. Carried forward, not re-measured |
-| iOS tests | **524 passing**, 53 suites, zero warnings (verified from a deleted `DerivedData`) — up 19 with Today v2, in two new suites |
+| Merged pull requests | **34** — Today v2 (#34) merged since the last snapshot. The share sheet is **open** at this snapshot |
+| API tests | **315 passing**, 24 files — unchanged; the share sheet is an iOS-lane change and touched nothing under `api/`. Carried forward, not re-measured |
+| iOS tests | **571 passing**, 56 suites, zero warnings (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 47 with the share sheet, in three new suites. No existing test was modified |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
 | Entries in the dev archive | 755 |
 
-**The pull-request and iOS-test counts moved; nothing in the API lane did.** Today v2 added two suites and 19 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
+**The pull-request and iOS-test counts moved; nothing in the API lane did.** The share sheet added three suites and 47 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
+
+**Five of the share sheet's assertions were checked by breaking the code rather than by trusting them**, which is worth naming because two of them needed it. Dropping the drain's idempotency guard fails four tests; reaping staged files before the server confirms the entry fails the confirmation test on both the record and the files; and the memory test — which measures a peak footprint while a 160MB file is staged — reports 316MB against its 40MB ceiling when the copy is replaced with a read into memory. **That last one started as a before-and-after reading and passed a mutation it should have caught**, because `Data(contentsOf:)` maps a file that size and mapped pages are not charged to `phys_footprint`. It samples a peak on a second thread now, and the mmap limit is written into the test rather than left for someone to rediscover.
 
 The iOS suite was also run **five times** for this snapshot rather than once. Today v2 introduced the project's first tests that wait on a timer, and the first version of them passed alone and failed inside the full suite, where fifty-odd parallel suites contend for the main actor. They poll for a condition now instead of sleeping a fixed interval.
 
@@ -109,7 +115,8 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
 | **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | ✅ merged |
 | **CI cost** | The iOS workflow made dispatch-only after it spent an entire month's Actions allowance in two days and took the nightly backup down with it | #33 | ✅ merged |
-| **11 (the other one) — Today v2** | The Today board rebuilt against its own design export. New compact waiting and done cards, a child switcher, swipe-to-skip with a held-request undo, and the board extracted into a previewable `TodayBoardView` | #34 | **open at this snapshot** |
+| **11 (the other one) — Today v2** | The Today board rebuilt against its own design export. New compact waiting and done cards, a child switcher, swipe-to-skip with a held-request undo, and the board extracted into a previewable `TodayBoardView` | #34 | ✅ merged |
+| **12 — The share sheet** | A Share Extension target, the App Group staging queue it writes, and the drain in the app that turns it into entries through the existing pipeline. EXIF-derived `occurred_at`, one entry per share | — | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -161,8 +168,8 @@ Work that landed early, mostly as a side effect of doing P0 properly. Worth know
 | Transcode policy (a P1 _risk_, not an item) | ✅ settled in P0 — 1080p H.264/AAC video, AAC/m4a audio, originals preserved |
 | Full export before you need it (a standing risk, "P2 at the latest") | ✅ shipped in P0 — zip with manifest, entries, and media |
 | Home Screen / Lock Screen widget | ✅ **built** — five families, five states, deep-linking into the composer. Reads a snapshot from a shared App Group container and never calls the API. **Never run by WidgetKit on a device**, which is where refresh budget and file protection are decided — `docs/device-verification-widget.md` |
-| Push notifications | ❌   |
-| Share sheet target | ❌   |
+| Push notifications | ❌ blocked on Apple enrollment, in the same place TestFlight is |
+| Share sheet target | ✅ **built** — images and videos only, one entry per share, `occurred_at` read from the file's capture metadata. The extension stages into the App Group container and never touches the network; the app drains it on launch and foreground. **Never launched by the system** — every screenshot is the real view rendered inside the app by a harness, because a share sheet cannot be opened from a CLI, and the memory ceiling a share extension actually runs under does not exist in a simulator. `docs/device-verification-share-extension.md` |
 | **A name** (open decision #3, needed by P1) | ❌ still `RASCAL`, bundle id deliberately neutral |
 
 * * *
@@ -177,16 +184,18 @@ These gate the P0 exit test and nothing else can move them.
   
 4. **A restore drill** — the machinery is tested, the act never performed.
   
-5. **Device verification.** Five checklists are now outstanding: `docs/device-verification-widget.md` from PR #32, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The Moments one is cheapest and has the sharpest single question in it: a sealed letter is surfaced by that screen at random, and only a device can show you what is actually on the glass.
+5. **Device verification.** **Seven** checklists are now outstanding: `docs/device-verification-share-extension.md` (new), `docs/device-verification-widget.md` from PR #32, `docs/device-verification-today-v2.md` from PR #34, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The share-sheet one is new and is the only one with a number to write down in it: a share extension's memory ceiling is not enforced on a simulator, so the architecture built to respect it has never been tested against it.
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
 
 * * *
 ## Recommended next phase
-> **This section has gone stale twice**, both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again from what is actually outstanding — re-checked against `main` after deploy readiness landed, and again after the widget did. **Deploying is still first, and the widget entry is gone from the build list because the widget now exists.**
+> **This section has gone stale twice**, both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again from what is actually outstanding — re-checked against `main` after deploy readiness landed, again after the widget did, and again now that the share sheet exists. **Deploying is still first. The widget entry is gone because the widget exists, and the share-sheet entry is gone for the same reason.**
 >
 > If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
+>
+> **Checked this revision, one line at a time:** deploy — still not done, still first. Device verification — grown to seven, none run. Push notifications — still blocked on enrollment. A name — still open. Structured extraction — still deliberately deferred. Video audio tracks — still gated on the audio checklist. The only line that changed state is the share sheet, and it moved to built.
 
 ### Deploy, because everything else is waiting behind it
 Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and five of the seven device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
@@ -194,9 +203,11 @@ Nothing else on this list can be finished without a deployed API. TestFlight nee
 ### Then verify what is built before building more
 **Nothing here is a coding task, and that is the point.** Five features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, the widget has never been rendered by WidgetKit, and **Today's swipe-to-skip has never been swiped.** Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
-**The list has grown by one again.** In the order they cost you least to discover something in:
+**The list has grown by one again — to seven.** In the order they cost you least to discover something in:
 
-1. `docs/device-verification-widget.md` — it has held the top for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest to run.
+0. `docs/device-verification-share-extension.md` — **new, and it goes above the widget for a reason the widget's own entry explains.** The widget's four unobservables are all about rendering; the share sheet's first one is whether the process survives. **A share extension runs under a hard memory ceiling that a simulator does not enforce**, the entire stage-don't-upload architecture exists to respect it, and the number has never been measured. Its §3 asks you to attach Instruments and write one down — it would be the only real figure this feature has. Its §2 is the sharper question though: a photo filed under the wrong day looks completely normal forever, and only a real camera roll has photos with edited metadata, missing `DateTimeOriginal`, and iCloud copies that are not on the phone.
+
+1. `docs/device-verification-widget.md` — held the top until now for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest to run — and it now shares its App Group with a third target, so its §1 answers half of the share sheet's §1 for free.
 2. `docs/device-verification-today-v2.md` — new. The screen a parent opens every day now has a **gesture** on it, and a gesture is the one interaction class a simulator answers dishonestly: a trackpad swipe is not a thumb, and the full-swipe threshold, the eight-second undo window and the VoiceOver rotor action were all verified by reading rather than by touch. Its §2 is the sharpest single question in the list — whether a skip can be lost or double-sent — because the undo is implemented by *not sending* a one-way request.
 3. `docs/device-verification-transcription.md` — the one with the most unknown in it.
 4. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
@@ -215,7 +226,11 @@ Nothing else on this list can be finished without a deployed API. TestFlight nee
 
 - **A contrast defect the phase found and did not fix.** `KindBadge` draws tint-coloured text on a 12% wash of the same tint, which measures roughly 3.3–3.7:1 at 12pt semibold — below WCAG AA. It is pre-existing and shared, and fixing it needs either a `periwinkleDeep` token or a badge restyle, i.e. a design-system decision rather than a patch.
 
-- **The remaining P1 retention levers are push notifications and the share sheet target**, and they are now the largest unbuilt things. Push is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. The share sheet target is not blocked on anything, and the extension target created this phase is the pattern for it.
+- ~~**The share sheet target**~~ — **built**, and open for review at this snapshot. The widget's extension target was indeed the pattern, down to two of the same traps in the `xcodeproj` script. What it added that the widget did not have: a **write** direction on the App Group, a queue with a version gate, and a drain that has to be idempotent under a process the system can kill at any point. See `docs/reports/phase-12-share-extension.md`.
+
+- **Push notifications is now the only unbuilt P1 retention lever**, and it is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. Nothing else on P1 is waiting on code.
+
+- **Cross-share deduplication was deliberately not built**, and it is a decision rather than an omission. Sharing the same photo twice makes two entries: an `NSItemProvider` carries no asset identifier, and content-hashing a video inside the memory-ceilinged process is precisely what the architecture exists to avoid. It is also not obviously wrong — the same photo on two days is a legitimate pair of entries — so shipping a heuristic that silently dropped one would have been worse than shipping neither. Worth revisiting only if the device checklist's §10 says a real parent trips over it.
 
 - **A name.** Open decision #1, and the widget has just made it slightly more expensive to defer: the widget gallery groups by app name, so whatever the app is called is what a parent reads when they add it. The bundle id and the URL scheme are both deliberately name-neutral, so this is still a rename and not a migration — but it is now visible in one more place.
   
@@ -236,7 +251,11 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 505 iOS tests, 51 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 571 iOS tests, 56 suites, zero warnings
+
+# Three targets now, and all three must carry the same App Group or the widget goes
+# neutral and the share sheet says it cannot save — in both cases with no error anywhere.
+grep -l "group.com.travisterry.childarchive" ios/Rascal/*.entitlements   # expect 3
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "

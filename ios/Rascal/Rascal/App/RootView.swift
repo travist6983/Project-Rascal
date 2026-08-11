@@ -48,6 +48,13 @@ struct RootView: View {
     @State private var sync: EntrySync?
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
+    /// Files the share extension staged into the App Group container, waiting to become entries.
+    ///
+    /// Owned here rather than by a screen for the same reason `todayModel` is: a share is drained
+    /// on launch and on every foreground, and neither of those is a tab. Built here because this
+    /// is where the child is — the extension deliberately does not know which child a share is
+    /// for, and this view has the one the gate resolved.
+    @State private var shareDrain: ShareDrain?
     /// One transcriber for the process, for the same reason there is one upload coordinator:
     /// **no parallel inference.** Two queues would mean two `SpeechAnalyzer`s warming the phone
     /// at once, which is a real cost on a device someone is holding.
@@ -107,6 +114,9 @@ struct RootView: View {
             }
             if sync == nil {
                 sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
+            }
+            if shareDrain == nil {
+                shareDrain = ShareDrain(context: context, childId: childId)
             }
             // The engine needs the child, which the gate has already resolved.
             if syncEngine == nil {
@@ -241,12 +251,26 @@ extension RootView {
     ///
     /// With `syncPullEnabled` off — which is how this ships — `pull()` drains the queue and
     /// returns without reading `/sync`, so this is exactly the behaviour that was here before.
+    ///
+    /// **The share queue brackets the sweep, and the order is the point.**
+    ///
+    /// `ingest` first, so a photo shared while the app was closed is an ordinary local entry
+    /// before anything is pushed — it then rides the same queue, the same retries and the same
+    /// entries-before-media ordering as everything the composer wrote, rather than getting a
+    /// second path of its own.
+    ///
+    /// `reap` last, because the rule is that staged files go only once the server has confirmed
+    /// the entry, and the sweep in between is what obtains that confirmation. Reaping first would
+    /// mean a failed `POST /entries` had already thrown away the only copy of the photo — the
+    /// bytes exist nowhere else once Photos is closed.
     private func runSweep() async {
+        await shareDrain?.ingest()
         if let syncEngine {
             await syncEngine.pull()
         } else {
             await sync?.sweep()
         }
+        shareDrain?.reap()
     }
 }
 

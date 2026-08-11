@@ -144,9 +144,14 @@ enum MediaDraftBuilder {
     /// The **earliest** EXIF date among them, not the latest and not now. Picking three photos
     /// from an afternoon should file the entry on that afternoon, and if one of them has no
     /// date it should not drag the entry forward to today.
+    ///
+    /// The rule itself now lives in `PendingShare.resolveOccurredAt`, because the share extension
+    /// needs the identical answer and cannot reach this file — `MediaDraft` is a composer type and
+    /// giving an extension that stages bytes the composer's model would be handing it the app.
+    /// Two implementations that agree today is how they stop agreeing later, so there is one, and
+    /// `ShareInboxTests` asserts both callers land on the same date.
     static func suggestedOccurredAt(for drafts: [MediaDraft], now: Date = Date()) -> Date {
-        let dates = drafts.compactMap(\.capturedAt)
-        return dates.min() ?? now
+        PendingShare.resolveOccurredAt(captures: drafts.map(\.capturedAt), now: now).date
     }
 }
 

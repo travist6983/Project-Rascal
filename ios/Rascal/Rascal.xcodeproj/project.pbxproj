@@ -7,18 +7,36 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0449A33814E6AA82BB10D485 /* ShareCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E8BCBEAD4F1D2BEA412647 /* ShareCopy.swift */; };
 		0F5A916C7F99C9BB46F875D2 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */; };
 		19B281DBCA50510CD77BF721 /* WidgetSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 032FF62C46C415DE689A7EDC /* WidgetSnapshotStore.swift */; };
+		502CEBD4990AD35367BD49B0 /* Motion.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BE4B833C45BB2B2F6CB0FF /* Motion.swift */; };
 		591765408DC2A815E86942F3 /* RascalWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		60BFE94665780F7BC55EF51D /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2D425BCE34EA8C2C4590526 /* ShareInbox.swift */; };
 		6C14DE434859CCCBAD00DEE3 /* WidgetDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F85F7A106AD59664FFCFBC /* WidgetDeepLink.swift */; };
+		73EE186FB6986104D0E61C78 /* PendingShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = 607C57BC40166B1807D3927B /* PendingShare.swift */; };
+		7419DEB24E216FCDCFD89676 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253349DE7E4D86E0CB862CF3 /* Palette.swift */; };
 		765B54D2406167A502CFAA68 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 253349DE7E4D86E0CB862CF3 /* Palette.swift */; };
+		7E00A90631A451FEABD1E713 /* RascalShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E69CFEBB4D496E235FD3F863 /* RascalShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		82178496EF5CAFA53F7D8ADB /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD48BFE63E69BE5E5420041 /* Typography.swift */; };
 		822006774D2EA9C90EDCA03B /* PromptText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E426110C2B8530FE4D94ED7 /* PromptText.swift */; };
+		A6657F5DA37DFA322D799E01 /* RascalShare-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = D27617473D0DAACB258BD8A1 /* RascalShare-Info.plist */; };
+		ABE7484552535ADAF166A4DE /* Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D8BF670E3C55A36D8FE9767 /* Layout.swift */; };
+		BC74839ACDADD2016D0632B8 /* ImagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97BF3129EE40DE48127B5E27 /* ImagePipeline.swift */; };
+		BFE8EF80D4B794973EAF83B0 /* Formatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A817E4057D41C05A33742C77 /* Formatting.swift */; };
 		C6D4E8482C0C3B0BBE00EA71 /* WidgetNarration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C660FB4997E4AB2392A35353 /* WidgetNarration.swift */; };
 		C82A90A86B841E513FD5AACF /* WidgetTimelinePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188825FFFCDDA0A7102E6772 /* WidgetTimelinePlan.swift */; };
+		E363E43271564BA291FE04CB /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DD48BFE63E69BE5E5420041 /* Typography.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		4310A1DFE9FDFCFEB6CE1C8B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F1B641E3027A5C000BFFE84 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5919D1EEF2599ED9B18836A5;
+			remoteInfo = RascalShare;
+		};
 		AA000000000000000000000B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 1F1B641E3027A5C000BFFE84 /* Project object */;
@@ -43,6 +61,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				591765408DC2A815E86942F3 /* RascalWidget.appex in Embed Foundation Extensions */,
+				7E00A90631A451FEABD1E713 /* RascalShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -57,17 +76,31 @@
 		1F1B64263027A5C000BFFE84 /* Rascal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rascal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F1B64363027A6B400BFFE84 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 		253349DE7E4D86E0CB862CF3 /* Palette.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Palette.swift; path = Rascal/DesignSystem/Palette.swift; sourceTree = "<group>"; };
+		3D8BF670E3C55A36D8FE9767 /* Layout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Layout.swift; path = Rascal/DesignSystem/Layout.swift; sourceTree = "<group>"; };
+		47E8BCBEAD4F1D2BEA412647 /* ShareCopy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareCopy.swift; path = Rascal/Share/ShareCopy.swift; sourceTree = "<group>"; };
 		5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RascalWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		607C57BC40166B1807D3927B /* PendingShare.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PendingShare.swift; path = Rascal/Share/PendingShare.swift; sourceTree = "<group>"; };
 		8DD48BFE63E69BE5E5420041 /* Typography.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = Rascal/DesignSystem/Typography.swift; sourceTree = "<group>"; };
+		97BF3129EE40DE48127B5E27 /* ImagePipeline.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ImagePipeline.swift; path = Rascal/Media/ImagePipeline.swift; sourceTree = "<group>"; };
+		A817E4057D41C05A33742C77 /* Formatting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Formatting.swift; path = Rascal/DesignSystem/Formatting.swift; sourceTree = "<group>"; };
 		AA0000000000000000000003 /* RascalTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RascalTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2D425BCE34EA8C2C4590526 /* ShareInbox.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShareInbox.swift; path = Rascal/Share/ShareInbox.swift; sourceTree = "<group>"; };
 		C660FB4997E4AB2392A35353 /* WidgetNarration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetNarration.swift; path = Rascal/Widget/WidgetNarration.swift; sourceTree = "<group>"; };
 		D0C54D2C2A6391E970C9995C /* WidgetSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = WidgetSnapshot.swift; path = Rascal/Widget/WidgetSnapshot.swift; sourceTree = "<group>"; };
+		D27617473D0DAACB258BD8A1 /* RascalShare-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "RascalShare-Info.plist"; sourceTree = "<group>"; };
+		E3BE4B833C45BB2B2F6CB0FF /* Motion.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Motion.swift; path = Rascal/DesignSystem/Motion.swift; sourceTree = "<group>"; };
+		E69CFEBB4D496E235FD3F863 /* RascalShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RascalShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1F1B64283027A5C000BFFE84 /* Rascal */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Rascal;
+			sourceTree = "<group>";
+		};
+		33AE6552B1A1C201611F1EB8 /* RascalShare */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RascalShare;
 			sourceTree = "<group>";
 		};
 		AA0000000000000000000001 /* RascalTests */ = {
@@ -84,6 +117,13 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		1F1B64233027A5C000BFFE84 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4E6BE8DA3083F2F41E247E68 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -116,6 +156,8 @@
 				1F1B64273027A5C000BFFE84 /* Products */,
 				F0AE286D3A3A52317C96570F /* RascalWidget */,
 				EC587F2EF995B4D524FAC198 /* Shared */,
+				33AE6552B1A1C201611F1EB8 /* RascalShare */,
+				D27617473D0DAACB258BD8A1 /* RascalShare-Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -125,6 +167,7 @@
 				1F1B64263027A5C000BFFE84 /* Rascal.app */,
 				AA0000000000000000000003 /* RascalTests.xctest */,
 				5D3AA41C88D15A3EC1D5E65E /* RascalWidget.appex */,
+				E69CFEBB4D496E235FD3F863 /* RascalShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -140,6 +183,13 @@
 				1E426110C2B8530FE4D94ED7 /* PromptText.swift */,
 				C660FB4997E4AB2392A35353 /* WidgetNarration.swift */,
 				188825FFFCDDA0A7102E6772 /* WidgetTimelinePlan.swift */,
+				3D8BF670E3C55A36D8FE9767 /* Layout.swift */,
+				E3BE4B833C45BB2B2F6CB0FF /* Motion.swift */,
+				97BF3129EE40DE48127B5E27 /* ImagePipeline.swift */,
+				607C57BC40166B1807D3927B /* PendingShare.swift */,
+				B2D425BCE34EA8C2C4590526 /* ShareInbox.swift */,
+				A817E4057D41C05A33742C77 /* Formatting.swift */,
+				47E8BCBEAD4F1D2BEA412647 /* ShareCopy.swift */,
 			);
 			name = Shared;
 			sourceTree = "<group>";
@@ -160,6 +210,7 @@
 			);
 			dependencies = (
 				6836E37C3C4BD1B7880744E5 /* PBXTargetDependency */,
+				A27A4103FB00638E670D7350 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				1F1B64283027A5C000BFFE84 /* Rascal */,
@@ -168,6 +219,26 @@
 			productName = Rascal;
 			productReference = 1F1B64263027A5C000BFFE84 /* Rascal.app */;
 			productType = "com.apple.product-type.application";
+		};
+		5919D1EEF2599ED9B18836A5 /* RascalShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6B8F67C781E97F637E2825C4 /* Build configuration list for PBXNativeTarget "RascalShare" */;
+			buildPhases = (
+				FE8D96A56B44FBD29A70EB3D /* Sources */,
+				4E6BE8DA3083F2F41E247E68 /* Frameworks */,
+				63AF4AD9B7FAB00C1F184D92 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				33AE6552B1A1C201611F1EB8 /* RascalShare */,
+			);
+			name = RascalShare;
+			productName = RascalShare;
+			productReference = E69CFEBB4D496E235FD3F863 /* RascalShare.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		AA0000000000000000000002 /* RascalTests */ = {
 			isa = PBXNativeTarget;
@@ -246,6 +317,7 @@
 				1F1B64253027A5C000BFFE84 /* Rascal */,
 				AA0000000000000000000002 /* RascalTests */,
 				DA4E974A3CE9B9C57FB5F9D7 /* RascalWidget */,
+				5919D1EEF2599ED9B18836A5 /* RascalShare */,
 			);
 		};
 /* End PBXProject section */
@@ -258,10 +330,18 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		63AF4AD9B7FAB00C1F184D92 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		AA0000000000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A6657F5DA37DFA322D799E01 /* RascalShare-Info.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -304,6 +384,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FE8D96A56B44FBD29A70EB3D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7419DEB24E216FCDCFD89676 /* Palette.swift in Sources */,
+				E363E43271564BA291FE04CB /* Typography.swift in Sources */,
+				ABE7484552535ADAF166A4DE /* Layout.swift in Sources */,
+				502CEBD4990AD35367BD49B0 /* Motion.swift in Sources */,
+				BC74839ACDADD2016D0632B8 /* ImagePipeline.swift in Sources */,
+				73EE186FB6986104D0E61C78 /* PendingShare.swift in Sources */,
+				60BFE94665780F7BC55EF51D /* ShareInbox.swift in Sources */,
+				BFE8EF80D4B794973EAF83B0 /* Formatting.swift in Sources */,
+				0449A33814E6AA82BB10D485 /* ShareCopy.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -312,6 +408,12 @@
 			name = RascalWidget;
 			target = DA4E974A3CE9B9C57FB5F9D7 /* RascalWidget */;
 			targetProxy = D538CC50F02AF140E65FE853 /* PBXContainerItemProxy */;
+		};
+		A27A4103FB00638E670D7350 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RascalShare;
+			target = 5919D1EEF2599ED9B18836A5 /* RascalShare */;
+			targetProxy = 4310A1DFE9FDFCFEB6CE1C8B /* PBXContainerItemProxy */;
 		};
 		AA000000000000000000000A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -544,6 +646,38 @@
 			};
 			name = Release;
 		};
+		7545E1D90A78729AC13184AD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RascalShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8976QYWNC2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RascalShare-Info.plist";
+				"INFOPLIST_FILE[config=Debug]" = "RascalShare-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.travisterry.childarchive.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		AA0000000000000000000008 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -579,6 +713,38 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rascal.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rascal";
+			};
+			name = Release;
+		};
+		BBE083EDD447B7E41C1F9D8B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RascalShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8976QYWNC2;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "RascalShare-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.travisterry.childarchive.share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
@@ -640,6 +806,15 @@
 			buildConfigurations = (
 				FBBC385EDB15D51FF09765E0 /* Release */,
 				078717982C973F82B4DBF477 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6B8F67C781E97F637E2825C4 /* Build configuration list for PBXNativeTarget "RascalShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BBE083EDD447B7E41C1F9D8B /* Release */,
+				7545E1D90A78729AC13184AD /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Beside the .xcodeproj, not inside RascalShare/, for the same reason the app's and the
+	     widget's are: RascalShare/ is a synchronized folder group, so a plist placed there is
+	     also copied as a resource and the build fails with "Multiple commands produce
+	     Info.plist". See ios/CLAUDE.md rule 5.
+
+	     One plist for both configurations. The app needs two because Debug relaxes App Transport
+	     Security for a cleartext localhost API; this extension makes no network requests at all,
+	     so there is nothing here for a Debug variant to differ about. -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- **Literal, not `$(PRODUCT_NAME)`.** This string is what a parent reads in the share
+	     sheet's row of app icons, and `$(PRODUCT_NAME)` resolves to the target name — "RascalShare"
+	     — which is a build artefact's name, not a product's. The app itself has no
+	     CFBundleDisplayName and falls back to CFBundleName, which is "Rascal".
+
+	     This is one more place the still-open name decision (docs/decisions.md, open item 1) has
+	     to be changed when it closes. The widget gallery was the first. -->
+	<key>CFBundleDisplayName</key>
+	<string>Rascal</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionAttributes</key>
+		<dict>
+			<!-- **Images and videos only, and this dictionary is the gate that enforces it.**
+			     A predicate form (`NSExtensionActivationRule` as a string, which is what the
+			     Xcode template writes as `TRUEPREDICATE`) would offer this extension for URLs,
+			     text, PDFs and arbitrary files — every one of which is a composer path that does
+			     not exist and a staging shape nothing downstream can read.
+
+			     Keys that are absent default to zero, which means "not accepted". So the omissions
+			     below are load-bearing rather than incidental:
+			       NSExtensionActivationSupportsWebURLWithMaxCount   — absent
+			       NSExtensionActivationSupportsWebPageWithMaxCount  — absent
+			       NSExtensionActivationSupportsText                 — absent
+			       NSExtensionActivationSupportsFileWithMaxCount     — absent
+			     `RascalTests/ShareActivationTests.swift` reads this file and asserts exactly
+			     that, so deleting a line here fails a test rather than silently widening the
+			     extension's reach.
+
+			     The counts: 20 images is more than anyone selects in a share, and one entry per
+			     share means the number is a ceiling on one entry's media rather than on a
+			     session. 10 movies at ~70MB a minute is already a large drain. -->
+			<key>NSExtensionActivationRule</key>
+			<dict>
+				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
+				<integer>20</integer>
+				<key>NSExtensionActivationSupportsMovieWithMaxCount</key>
+				<integer>10</integer>
+			</dict>
+		</dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.share-services</string>
+		<!-- A plain UIViewController hosting SwiftUI, rather than SLComposeServiceViewController.
+		     The system composer draws its own chrome and its own type, and none of it is this
+		     product's — the design system is the authority for writing SwiftUI here as much as in
+		     the app. -->
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
+	</dict>
+</dict>
+</plist>
