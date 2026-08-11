@@ -220,14 +220,24 @@ of `(kind, cadence, body)`, so it updates and inserts but never duplicates and n
 created once with the CLI and is then not managed by `fly deploy`:
 
 ```bash
-fly machine run . \
+fly machine run registry.fly.io/rascal-api:deployment-<id> \
   --app rascal-api \
   --schedule hourly \
   --region ord \
   --vm-size shared-cpu-1x \
   --vm-memory 512 \
-  --command "python -m rascal.jobs.scheduler"
+  --restart no \
+  --env ENVIRONMENT=prod \
+  --env S3_REGION=auto \
+  --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+  -- python -m rascal.jobs.scheduler
 ```
+
+The `--env` flags are not redundant with `fly.toml`: **`fly machine run` does not read that
+file.** Only `fly deploy` applies `[env]`. Secrets are inherited, `[env]` is not. And the
+command must come after `--` — `--command` is for `--shell` and is otherwise dropped in
+silence, leaving a machine that runs this image's default CMD, which is uvicorn. Both
+mistakes were made here on Aug 10, 2026; `docs/runbook-deploy.md` §5 has the full account.
 
 **Hourly, not daily.** A single daily cron fires at one fixed UTC hour — 5am in exactly one
 timezone, evening in half the world, and an hour adrift after every DST change. Instead the

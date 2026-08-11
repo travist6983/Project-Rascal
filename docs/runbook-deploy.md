@@ -8,9 +8,9 @@ this file wins.
 Written for someone doing this at 11pm. Every step says what to run, what you should see,
 and what it means if you see something else. Nothing here requires a laptop except §7.
 
-**Nothing in this repo has ever been deployed.** The steps below have not been executed
-end to end by anyone — see §9 for exactly what has and has not been verified, and do not
-skip that section.
+**First deployed Aug 10, 2026**, and every step below was executed end to end that evening.
+§9 is the inventory of what that did and did not prove — it is shorter than it used to be,
+but the two steps that went wrong on the first run are still the two worth reading twice.
 
 ---
 
@@ -149,16 +149,45 @@ Expect `113 inserted`. It is idempotent; running it twice is free.
 
 ### The scheduled machine
 
-Not created by `fly deploy` — Fly has no fly.toml stanza for scheduled machines:
+Not created by `fly deploy` — Fly has no fly.toml stanza for scheduled machines. Pass the
+image `fly deploy` just published (`fly releases --app rascal-api` prints it) rather than `.`,
+so this pins the deployed build instead of triggering a second one:
 
 ```bash
-fly machine run . \
+fly machine run registry.fly.io/rascal-api:deployment-<id> \
   --app rascal-api \
   --schedule hourly \
   --region ord \
   --vm-size shared-cpu-1x \
   --vm-memory 512 \
-  --command "python -m rascal.jobs.scheduler"
+  --restart no \
+  --env ENVIRONMENT=prod \
+  --env S3_REGION=auto \
+  --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+  -- python -m rascal.jobs.scheduler
+```
+
+**Three parts of that are load-bearing**, and this step was first run without them on Aug 10,
+2026. What came back was a machine that had quietly become something else:
+
+- **`fly machine run` ignores `fly.toml`.** `[env]` is applied by `fly deploy` and by nothing
+  else, so `ENVIRONMENT`, `S3_REGION` and `S3_ENDPOINT_URL` have to be restated as `--env`.
+  Secrets *are* inherited — only the `[env]` block is missed — which is why the failure is a
+  bare `s3_region Field required` and names nothing about scheduled machines.
+- **The command goes after `--`.** `--command` belongs to `--shell` and is otherwise dropped
+  **without a warning**: the machine inherits the image's `CMD` and runs a second uvicorn,
+  hourly, costing money to serve traffic that never reaches it. Verify with
+  `fly machine status <id> --display-config` — `init.cmd` must be the scheduler, and `"init": {}`
+  means it was dropped. The `--` is needed because `-m` is flyctl's shorthand for `--metadata`.
+- **`--restart no`.** The job exits 0 when it is done; `on-failure` retries a broken config
+  three times before giving up.
+
+A good run logs one line and stops:
+
+```
+{"logger": "rascal.scheduler", "message": "scheduler run", "children": 0, "assignments_created": 0, ...}
+Main child exited normally with code: 0
+machine restart policy set to 'no', not restarting
 ```
 
 Hourly rather than daily: the job assigns only to children for whom it is currently 5am on
@@ -239,18 +268,35 @@ Be suspicious of this file in proportion to this section.
 - `scripts/verify_deployment.py` checks 1–5, against a real Postgres and a real
   `ENVIRONMENT=prod` uvicorn process, including the brand-new-child Today check.
 
-**Never executed by anyone:**
+**Executed against Fly, Aug 10, 2026 — the first real deployment:**
 
-- `fly apps create`, `fly deploy`, `fly secrets set`, `fly storage create`,
-  `fly machine run --schedule hourly`. Every Fly command in this file is written from the
-  documentation, not from having run it.
-- The Deploy and Smoke workflows have never completed a real run — there is no app to
-  deploy to, and GitHub Actions is separately blocked on billing (`docs/blocked.md` §0).
-- `scripts/verify_deployment.py` check 6, the Tigris round trip, has only been observed
-  **failing correctly**: it catches an unset `S3_ENDPOINT_URL` by rejecting an
-  `amazonaws.com` presigned URL, and it reports a refused connection as a clean failure. It
-  has never completed a successful upload, because no environment available to the agent
-  that wrote it can reach Tigris.
+- `fly apps create`, `fly secrets set` (all seven, staged before first deploy), `fly deploy`
+  via the Deploy workflow, `fly machine run --schedule hourly`. No longer written from the
+  documentation.
+- The Deploy and Smoke workflows both completed real runs. Release v1 migrated (a no-op —
+  Neon was already at `0004_full_text_search`), two machines came up in `ord`, and `/health`
+  served `{"status":"ok","db":"ok"}`.
+- **`scripts/verify_deployment.py` passed 6/6**, including check 6. The Tigris round trip
+  had never completed a successful upload anywhere; it has now, 75 bytes through
+  `rascal-media-prod.fly.storage.tigris.dev`, presigned by the deployed app.
 
-The first `fly deploy` is therefore the first real test of §1–§5. Run §7 immediately after
-it, and expect §4's table to be the part that earns its keep.
+**What the first run got wrong, both fixed, both worth expecting:**
+
+- **`deploy.yml` failed a healthy deploy.** Its release check required the status string
+  `succeeded`; flyctl 0.4.81 reports `complete`. The app was up, migrated and serving while
+  the workflow went red — the worst-shaped failure there is, because it teaches you to
+  discount the red. It now accepts both spellings.
+- **The scheduler command in §5 built the wrong machine**, silently. See §5; the short
+  version is that `fly machine run` ignores `fly.toml`'s `[env]` and drops `--command`
+  without a word, so the machine ran a second uvicorn instead of the job and crashed on a
+  missing `S3_REGION`.
+
+**Still not exercised by anything:**
+
+- A real multipart upload — a video over cellular. Tigris supports the API; parity with the
+  single-PUT path has not been proven end to end (`docs/blocked.md` §2).
+- Sign in with Apple against a real device token, which is blocked on enrollment
+  (`docs/blocked.md` §1). `APPLE_BUNDLE_ID` is set, but nothing has verified the `aud` claim
+  against a token Apple actually issued.
+- The hourly schedule *firing on its own*. The machine was created and run once by hand, and
+  it exited 0 — but no unattended hourly firing has been observed yet.

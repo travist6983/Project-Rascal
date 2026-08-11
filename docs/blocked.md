@@ -220,10 +220,21 @@ API answering `dev-login` with a usable session would be the bug.
 
 Worth writing down because a run instruction asked for exactly that as a preflight check, and
 the only way to satisfy it is against a local API (`make up && make dev`), which is what
-`make fixtures` already defaults to. Until section 3 closes there is no deployed API to check
-anything against: `rascal-api.fly.dev` does not resolve and every Deploy run has skipped.
+`make fixtures` already defaults to. `rascal-api.fly.dev` resolves as of Aug 10, 2026 — and
+answers that route with a 404, which is the correct answer and not a preflight.
 
-## 0. GitHub Actions is not running — account billing. **Recurred Aug 10.**
+## 0. ~~GitHub Actions is not running — account billing. **Recurred Aug 10.**~~ — RESOLVED Aug 10, 2026
+
+**Cleared at ~22:00Z**, and the cause was not a failed payment. The account had five
+product-level budgets at **$0 with "stop usage" on**, Actions among them, so every run was
+rejected before its first step. Raising the Actions budget to $10 fixed it; a `Backup`
+dispatch immediately ran a real 20s job and wrote `rascal-20260810T220343Z.sql.gz`.
+
+Worth keeping because the annotation ("recent account payments have failed **or** your
+spending limit needs to be increased") reads as a payment problem first, and it was the
+second clause both times. Check the budgets before the card.
+
+The original entry follows.
 
 **Blocked again, and only you can clear it.** Every macOS run since roughly **Aug 10, 00:08Z** has
 been rejected before executing a single step. The annotation on the job is explicit:
@@ -408,7 +419,18 @@ the day a browser first loads a photo, and nothing else will prompt that.
 
 ---
 
-## 3. Fly and Docker — blocks deployment, and blocks verifying the image
+## 3. ~~Fly and Docker — blocks deployment~~ — RESOLVED Aug 10, 2026. **The API is deployed.**
+
+`https://rascal-api.fly.dev` serves, `/health` returns `{"status":"ok","db":"ok"}`, and
+`scripts/verify_deployment.py` passes **6/6** against it — including the Tigris round trip
+that had never once succeeded anywhere. Two machines in `ord`, an hourly scheduler machine
+beside them, secrets set, Smoke green.
+
+The two things the first real deployment broke are recorded in `docs/runbook-deploy.md` §9,
+because both were silent: `deploy.yml` failed a healthy deploy over a status string, and the
+runbook's `fly machine run` built a machine that ran the API server instead of the scheduler.
+
+Everything below is the record of what this section said while it was open.
 
 Every artifact exists: multi-stage `Dockerfile`, `fly.toml` with `release_command =
 "alembic upgrade head"` and a `/health` check, and a full runbook in `docs/DEPLOY.md`.
@@ -474,10 +496,10 @@ missed scheduler run no longer costs a day.** `GET /today` creates the day's ass
 itself, so step 6's `fly machine run` can be skipped or fumbled and the product still works.
 Skipping it costs expiry, not assignments.
 
-**What remains true and unfixable from here:** none of the seven steps above has ever been
-executed, by anyone. Everything in the runbook's Fly sections is written from documentation.
-`docs/runbook-deploy.md` §9 is the honest inventory of what has and has not run against real
-infrastructure — read it before trusting the rest of that file.
+**All seven were executed on Aug 10, 2026**, in that order, and steps 1–7 are done. What the
+run cost in surprises is in `docs/runbook-deploy.md` §9, which is still the honest inventory
+of what has and has not run against real infrastructure — it is just a much shorter list of
+"has not" than it was this morning.
 
 ## 4. `ANTHROPIC_API_KEY` — resolved. Four batches generated, awaiting your review
 
