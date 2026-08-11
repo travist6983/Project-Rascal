@@ -102,6 +102,7 @@ async def make_prompt(
     month_tags: list[int] | None = None,
     default_unlock_age: int | None = None,
     active: bool = True,
+    source: str = "seeded",
 ) -> Prompt:
     body = body or f"Prompt {uuid.uuid4().hex[:8]}"
     prompt = Prompt(
@@ -113,7 +114,7 @@ async def make_prompt(
         min_age_months=min_age_months,
         max_age_months=max_age_months,
         month_tags=month_tags or [],
-        source="seeded",
+        source=source,
         default_unlock_age=default_unlock_age,
         active=active,
         content_hash=uuid.uuid4().hex,

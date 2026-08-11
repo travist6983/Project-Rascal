@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ARRAY, Boolean, Index, Integer, Text, text
+import datetime as dt
+import uuid
+
+from sqlalchemy import ARRAY, Boolean, DateTime, ForeignKey, Index, Integer, Text, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rascal.constants import (
@@ -66,3 +70,56 @@ class Prompt(Base):
 
     def covers_month(self, month: int) -> bool:
         return not self.month_tags or month in self.month_tags
+
+
+class PromptSuppression(Base):
+    """A prompt this family never wants to see again.
+
+    **The reason this outranks every relaxation rule.** A dismissed prompt is otherwise excluded
+    only by the same 180-day cooldown as any other, so a question about a mother in a household
+    where that is painful, or a mission assuming an ability this child does not have, comes back
+    — forever, on a loop, for eighteen years. Being asked something you have already told the app
+    to stop asking is a different kind of failure from seeing a repeat.
+
+    So suppression is not a cooldown and not a weight. It removes the prompt from the candidate
+    pool before selection begins, which is why `services/scheduler._candidates` is where it is
+    enforced: a suppressed prompt cannot be resurrected by an empty pool, by the relaxed
+    cooldown, by dropping theme rotation, or by the final "anything in the pool" fallback,
+    because it was never in the pool those fall back to.
+
+    Soft-deleted like every other user-data table — `revoked_at` rather than a row disappearing —
+    so a parent can undo a permanent decision, and so the change syncs as a row.
+    """
+
+    __tablename__ = "prompt_suppressions"
+    __table_args__ = (
+        # The scheduler's exclusion subquery: child first, then prompt, then the liveness
+        # filter it always carries.
+        Index(
+            "ix_prompt_suppressions_child_id_prompt_id_revoked_at",
+            "child_id",
+            "prompt_id",
+            "revoked_at",
+        ),
+    )
+
+    # Composite primary key, per the spec. One row per (child, prompt) ever — an un-suppress
+    # followed by a re-suppress revives this row rather than growing a second.
+    child_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("children.id", ondelete="CASCADE"), primary_key=True
+    )
+    prompt_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("prompts.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Free text and nullable. Deliberately not a constrained set: the useful reasons are the
+    # ones nobody thought to enumerate, and a parent is never shown this field as a required
+    # choice.
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[created]
+    updated_at: Mapped[updated]
+    # The soft delete. Named `revoked_at` rather than `deleted_at` because the row is not
+    # deleted data — it is a decision the parent withdrew, and `/sync` treats the two the same
+    # way regardless.
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

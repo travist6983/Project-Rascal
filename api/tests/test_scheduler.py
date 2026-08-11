@@ -750,3 +750,76 @@ async def test_without_the_filter_every_child_is_served(session: AsyncSession) -
     assert run.skipped_off_hour == 0
     served = set((await session.execute(sa.select(Assignment.child_id).distinct())).scalars().all())
     assert len(served) == 2
+
+
+# --- The relaxation order, which docs/data-model.md fixes deliberately ------------------------
+
+
+def test_the_cooldown_relaxes_before_the_age_window() -> None:
+    """**A repeat is a mild annoyance; an age-inappropriate prompt is a broken product.**
+
+    `docs/data-model.md` states the 180-day cooldown relaxes to 90 *before* the age window
+    gives, and this fails if that order is ever inverted.
+
+    The fixture makes the two mutually exclusive. There is exactly one prompt inside the
+    child's age window and it was served 100 days ago — inside the 180-day cooldown, outside
+    the relaxed 90-day one. There is exactly one prompt outside the age window and it has never
+    been served, so it is what a scheduler that relaxed the age window first would reach for.
+    """
+    in_window = _aged_prompt(min_age_months=24, max_age_months=72)
+    out_of_window = _aged_prompt(min_age_months=180, max_age_months=216)
+
+    chosen = choose_prompt(
+        [in_window, out_of_window],
+        age_months=48,
+        month=8,
+        # Inside 180, outside 90. Only the relaxed cooldown can reach it.
+        served_recently={in_window.id: 100},
+        recent_themes=set(),
+        rng=random.Random(0),
+    )
+
+    assert chosen is in_window, (
+        "the age window relaxed before the cooldown did — a four-year-old was served a "
+        "prompt written for a teenager rather than one they saw three months ago"
+    )
+
+
+def test_a_recent_prompt_still_beats_one_outside_the_age_window() -> None:
+    """The stronger form: even with the cooldown fully dropped, age wins.
+
+    Served yesterday, so it fails the 180-day and the 90-day cooldown alike and is only
+    reachable at ladder 4 — which still filters on the age window. The out-of-window prompt is
+    not reachable until ladder 5.
+    """
+    in_window = _aged_prompt(min_age_months=24, max_age_months=72)
+    out_of_window = _aged_prompt(min_age_months=180, max_age_months=216)
+
+    chosen = choose_prompt(
+        [in_window, out_of_window],
+        age_months=48,
+        month=8,
+        served_recently={in_window.id: 1},
+        recent_themes=set(),
+        rng=random.Random(0),
+    )
+
+    assert chosen is in_window
+
+
+def _aged_prompt(*, min_age_months: int, max_age_months: int) -> Prompt:
+    """An unsaved `Prompt` with an id, for the pure half of selection."""
+    return Prompt(
+        id=uuid.uuid4(),
+        kind="question",
+        cadence="daily",
+        completion_mode="text",
+        body="A question.",
+        theme="everyday-ordinary",
+        min_age_months=min_age_months,
+        max_age_months=max_age_months,
+        month_tags=[],
+        source="seeded",
+        active=True,
+        content_hash=uuid.uuid4().hex,
+    )

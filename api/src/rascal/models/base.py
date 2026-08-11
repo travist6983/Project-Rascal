@@ -84,4 +84,5 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "tags",
     "entry_tags",
     "devices",
+    "prompt_suppressions",
 )

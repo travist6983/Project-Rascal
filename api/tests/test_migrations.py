@@ -33,6 +33,7 @@ EXPECTED_TABLES = {
     # Where a notification goes, and the record that it went.
     "devices",
     "notification_sends",
+    "prompt_suppressions",
 }
 
 EXPECTED_INDEXES = {
@@ -89,6 +90,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "tags",
     "entry_tags",
     "devices",
+    "prompt_suppressions",
 }
 
 

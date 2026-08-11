@@ -7,7 +7,7 @@ from rascal.models.base import TABLES_WITH_UPDATED_AT, Base
 from rascal.models.child import Child, Guardian
 from rascal.models.device import Device, NotificationSend
 from rascal.models.entry import Entry, EntryTag, Media, Tag
-from rascal.models.prompt import Prompt
+from rascal.models.prompt import Prompt, PromptSuppression
 from rascal.models.user import Credential, IdempotencyKey, RefreshToken, User
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "Media",
     "NotificationSend",
     "Prompt",
+    "PromptSuppression",
     "RefreshToken",
     "Tag",
     "User",

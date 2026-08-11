@@ -201,6 +201,12 @@ These gate the P0 exit test and nothing else can move them.
 >
 > **One entry moved up.** The Settings checklist was 5th of seven and is now 3rd. Not because the redesign is risky, but because the phase found that `Advanced` — the dry run, the reset, the pull toggle — could be **silently absent for an entire session** depending on which tab the app opened on. That is fixed, and the fix is exactly the kind that wants a device to confirm: it depends on view-construction ordering that a simulator launching straight into Settings reproduces and a test does not.
 
+### The pool cliff is now a number you can read
+Phase 15 made it observable: `GET /children/{id}/pool-health`. On the dev archive's child today
+that reads **24 eligible questions, 24 days until the first repeat** — which is the arithmetic the
+phase was written about, now visible instead of inferred. Nothing about it is urgent yet, and the
+endpoint deliberately does not fix anything.
+
 ### Deploy, because everything else is waiting behind it — and now it gates a shipped feature
 **Push made this sharper rather than adding to the queue.** The client is done and cannot be
 verified at all: APNs pushes come from Apple to a deployed server, so there is no local version

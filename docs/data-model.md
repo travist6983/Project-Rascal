@@ -305,3 +305,26 @@ age-window rules live, and it's the half worth unit tests.
 - Pull is `GET /sync?since={updated_at}` returning changed rows across entities plus a new cursor.
 - Conflict resolution: last write wins on `entries`. A mission completed by either parent completes for both.
 - Soft deletes sync as rows with `deleted_at` set, never as absences.
+
+
+## `prompt_suppressions`
+
+| column | type | notes |
+|---|---|---|
+| `child_id` | uuid | PK, FK → `children.id` on delete cascade |
+| `prompt_id` | uuid | PK, FK → `prompts.id` on delete cascade |
+| `reason` | text, null | Free text. Deliberately not a constrained set — the useful reasons are the ones nobody thought to enumerate. |
+| `created_at` | timestamptz | |
+| `updated_at` | timestamptz | `set_updated_at()` trigger |
+| `revoked_at` | timestamptz, null | The soft delete. Withdrawing a suppression, not deleting data. |
+
+Composite primary key on `(child_id, prompt_id)`: one row per pair ever, which is what makes
+`POST` idempotent and re-suppression a revival rather than a duplicate.
+
+**Suppression outranks every relaxation rule.** It is enforced in
+`services/scheduler._candidates` — the single query both the nightly scheduler and the read path
+load candidates through — so a suppressed prompt is absent from the pool that the relaxed
+cooldown, the dropped theme rotation, the dropped age window and the final "anything at all"
+fallback each fall back to. There is no rung of the ladder that can resurrect one.
+
+Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusion subquery.
