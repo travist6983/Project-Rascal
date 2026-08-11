@@ -107,9 +107,16 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if recompute == nil { recompute = RecomputeAgesModel(childId: childId, api: session.api) }
-            refreshOutstanding()
             await loadChild()
         }
+        // **`sync` arrives late for exactly the same reason `syncEngine` does**, and the counts
+        // are worse than the rows when they are wrong: with no `EntrySync` the default
+        // `Outstanding` is all zeroes, which `syncSummary` reads as clear — so the card said
+        // "Everything's uploaded." on the strength of never having looked. That was survivable
+        // when it was a quiet row and is not now that it is the headline of a card.
+        //
+        // Counted once on appear and again the moment the sweep exists.
+        .onChange(of: sync != nil, initial: true) { _, _ in refreshOutstanding() }
         // **Not in `.task`, because `.task` runs once and the engine can arrive after it.**
         //
         // `RootView` builds the `SyncEngine` in its own `.task`, and this screen is handed

@@ -84,20 +84,37 @@ struct ChildHeroCardTests {
     /// The bug this pins is `EditChildModel`'s, one screen over: the wire format carries no zone,
     /// so parsing a birthday in UTC and formatting it in a UTC−4 calendar drew the day before.
     /// The hero is a second renderer of the same string and had to learn the same rule.
+    /// **The day is compared as a whole number, not as a substring**, and the month is compared
+    /// by name. An earlier version of this test asserted `rendered.contains("\(day)")`, which is
+    /// exactly the assertion that cannot see the bug in the sentence above it: the slip for
+    /// `2021-06-01` is `May 31, 2021`, and `"May 31, 2021".contains("1")` is **true** — the "1"
+    /// in "31". It passed on the one case it was written for. A partial assertion on a rendered
+    /// string tests that the string exists, not that it is right.
     @Test("a birthday renders as the calendar day the server named, not its neighbour")
-    func birthdateDoesNotSlip() {
+    func birthdateDoesNotSlip() throws {
         for raw in ["2022-06-19", "2021-06-01", "2024-02-29", "1999-12-31", "2021-01-01"] {
-            let rendered = ChildHeroCard.longBirthdate(raw)
-            let text = try! #require(rendered)
+            let text = try #require(ChildHeroCard.longBirthdate(raw), "\(raw) rendered nothing")
 
-            let parsed = try! #require(EditChildModel.dayFormatter.date(from: raw))
-            let components = Calendar.current.dateComponents([.year, .month, .day], from: parsed)
-            let day = try! #require(components.day)
-            let year = try! #require(components.year)
+            let parts = raw.split(separator: "-").compactMap { Int($0) }
+            var wanted = DateComponents()
+            wanted.year = parts[0]
+            wanted.month = parts[1]
+            wanted.day = parts[2]
+            let expected = try #require(Calendar.current.date(from: wanted))
 
-            #expect(text.contains("\(day)"), "\(raw) rendered as \(text)")
-            #expect(text.contains("\(year)"), "\(raw) rendered as \(text)")
-            // And the round trip is stable: format then re-parse lands on the same server day.
+            // Digits as tokens, so "31" can never satisfy a test looking for "1".
+            let numbers = text.split(whereSeparator: { !$0.isNumber }).map(String.init)
+            #expect(numbers.contains("\(parts[2])"), "\(raw) rendered as \(text) — wrong day")
+            #expect(numbers.contains("\(parts[0])"), "\(raw) rendered as \(text) — wrong year")
+
+            // And the month by name, built through `FormatStyle` rather than the `DateFormatter`
+            // template `longBirthdate` uses — a different code path, so a bug in one does not
+            // hide in the other. Locale-derived rather than hard-coded English.
+            let monthName = expected.formatted(.dateTime.month(.wide))
+            #expect(text.contains(monthName), "\(raw) rendered as \(text) — wrong month")
+
+            // And the round trip is stable: parse then format lands on the same server day.
+            let parsed = try #require(EditChildModel.dayFormatter.date(from: raw))
             #expect(EditChildModel.dayFormatter.string(from: parsed) == raw)
         }
     }
@@ -266,9 +283,14 @@ struct SyncDryRunReachabilityTests {
         #expect(try context.fetchCount(FetchDescriptor<Entry>()) == 0)
     }
 
-    /// `SyncAdvancedSection` disables both its rows off one flag. If that flag stopped tracking
-    /// the run, the reset row would be tappable mid-dry-run.
-    @Test("the card is busy for exactly as long as the dry run is")
+    /// `SyncAdvancedSection` disables both its rows off `isBusy`. A run that left the flag set
+    /// would leave half the Advanced card permanently dead.
+    ///
+    /// **This checks the endpoints, not the middle.** Observing `isBusy == true` *during* a run
+    /// needs a performer that suspends on demand, which this suite has no fixture for; the flag
+    /// is `dryRun == .running` and the transition into it is covered by `runDryRun`'s own guard,
+    /// exercised in `RecomputeSeparationTests.concurrentRunsAreRefused`.
+    @Test("the busy flag is clear before a dry run and clear again after it")
     func busyTracksTheRun() async throws {
         let context = try makeContext()
         let childId = UUID()
@@ -327,9 +349,34 @@ struct RecomputeSeparationTests {
     }
 
     /// A second `run` while one is in flight is refused rather than queued. The dialog can be
-    /// re-presented; the archive is rewritten once.
-    @Test("a second run while one is running is refused")
-    func noDoubleRun() async throws {
+    /// re-presented; **the archive is rewritten once.**
+    ///
+    /// This genuinely races the two calls rather than asserting around them. It is deterministic
+    /// despite that: `run` is `@MainActor` and sets `state = .running` *synchronously* before its
+    /// first `await`, so the second call cannot begin until the first has already claimed the
+    /// flag and suspended on the request.
+    @Test("two runs started together issue one request, not two")
+    func concurrentRunsAreRefused() async throws {
+        let performer = StubPerformer()
+        let ok = Data("""
+        {"child_id":"\(UUID().uuidString)","entries_updated":7,"birthdate":"2022-06-19"}
+        """.utf8)
+        performer.on("/recompute-ages") { _ in (ok, 200) }
+
+        let model = RecomputeAgesModel(childId: UUID(), api: client(performer))
+
+        async let first: Void = model.run(context: nil)
+        async let second: Void = model.run(context: nil)
+        _ = await (first, second)
+
+        #expect(performer.count(for: "/recompute-ages") == 1, "the guard held")
+        #expect(model.state == .done(updated: 7, birthdate: "2022-06-19"))
+    }
+
+    /// The only way back to the row is through `dismiss`, so a finished run does not leave the
+    /// card stuck on its result.
+    @Test("a finished run dismisses back to idle")
+    func dismissReturnsToIdle() async throws {
         let performer = StubPerformer()
         let ok = Data("""
         {"child_id":"\(UUID().uuidString)","entries_updated":0,"birthdate":"2022-06-19"}
@@ -340,7 +387,6 @@ struct RecomputeSeparationTests {
         await model.run(context: nil)
         #expect(model.state == .done(updated: 0, birthdate: "2022-06-19"))
 
-        // Dismissing returns it to idle, which is the only way back to the row.
         model.dismiss()
         #expect(model.state == .idle)
     }

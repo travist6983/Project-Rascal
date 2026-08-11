@@ -6,10 +6,16 @@ after the build so the reasoning behind each resolution survives the diff.
 **Source.** `RASCAL Settings.dc.html`, imported live through the `claude_design` MCP from project
 `e227a63f-e516-4426-8074-eb12edd15ad2` ("Mobile app design pending"). The MCP import **succeeded**;
 `DesignSync.get_file` returned the file and it is byte-identical to the copy in
-`docs/mobile-app-design-settings/project/`. No fallback was needed and none was used. `support.js`
-(69 KB) is the prototype's own `x-dc` / `DCLogic` rendering runtime — a template engine, not design
-input; it defines `sc-for`, `sc-if` and the `{{ }}` binding the file uses and carries no RASCAL
-value of any kind. The bundle's `tokens/*.css` and `guidelines/*.html` were read in full.
+`docs/mobile-app-design-settings/project/`. No fallback was needed and none was used.
+
+`support.js` (69 KB) is the prototype's own `x-dc` / `DCLogic` rendering runtime — a template
+engine, not design input. It defines `sc-for`, `sc-if` and the `{{ }}` binding the design file
+uses. It contains exactly **three** hex values, and all three are the design tool's own chrome
+rather than RASCAL tokens: `CANVAS_BG_LIGHT #f0eee6`, `CANVAS_BG_DARK #2e2c26`, and `#b00020`
+(with `color:#fff`) on its error banner — a pure white and a signal red, neither of which is in
+this app's palette, which is itself the clearest evidence the file is the tool and not the design.
+**No RASCAL palette value appears in it.** The bundle's `tokens/*.css` and `guidelines/*.html`
+were read in full.
 
 ---
 
@@ -475,7 +481,7 @@ recorded above with its numbered question. Every "what must survive" behaviour i
 | `Settings/SettingsRow.swift` | `SettingsSectionHeader` (label + rule) and `SettingsCardHeader` (the sync card's summary) added; `SettingsCard` gained a `fill` and now clips; the dead `valueIsMuted` flag removed from both row types. |
 | `Settings/SettingsScreen.swift` | Restructured to the import's block order; `syncSummary` lifted out of the view body as a testable value; export idle became a card; the closing note adopted; `syncStatus` construction moved off `.task`. |
 | `Settings/SyncPullSection.swift` | Split — `SyncPullSection` keeps the status rows and the switch, new `SyncAdvancedSection` carries the dry run and the reset into their own labelled card. |
-| `RascalTests/SettingsV2Tests.swift` | **New.** 16 tests in 4 suites. |
+| `RascalTests/SettingsV2Tests.swift` | **New.** 17 tests in 4 suites. |
 
 Untouched, deliberately: `ArchiveExport`, `RecomputeAgesModel`, `SyncStatusModel`, `EditChildModel`,
 `EditChildSheet`, `EditProfileModel`, `EditProfileSheet`, `TranscriptionBacklogSection`,
@@ -483,8 +489,9 @@ Untouched, deliberately: `ArchiveExport`, `RecomputeAgesModel`, `SyncStatusModel
 
 ## 9. The adversarial re-read — what a second pass found
 
-Run as a distinct pass after the suite was green, against the phase's own diff. **Four findings,
-all four fixed.** Two of them the tests could not have caught, which is the point of the pass.
+Run as a distinct pass after the suite was green, against the phase's own diff. **Six findings, all six fixed** — four on the
+first pass, two more on a second verification pass that re-read the tests as adversarially as
+the code. Three of the six could not have been caught by any test, which is the point of the pass.
 
 ### F1 — The hero's outer 16pt was dead to touch — *fixed*
 
@@ -525,6 +532,45 @@ appear in VoiceOver's heading rotor beside the real section names — so rotor n
 "Uploading. 3 files still to upload…" as a landmark. The eyebrow is now a plain `Text` with the same
 type role and no header trait. `SettingsSectionHeader`, which *is* a heading, still uses
 `SectionLabel` and keeps the trait.
+
+### F5 — `sync` had the identical late-arrival bug, and the redesign made it lie — *fixed*
+
+Found on a second verification pass, by asking what *else* was captured the way `syncEngine` was.
+`sync: EntrySync?` is handed down from the same `RootView` `@State`, and `refreshOutstanding()`
+was called from the same run-once `.task`. Reach Settings before `RootView`'s task completes and
+`outstanding` kept its default — all zeroes — which `syncSummary` reads as **clear**.
+
+So the card said **"Everything's uploaded."** on the strength of never having looked, until
+something backgrounded and foregrounded the app. That was survivable while it was a quiet
+`SettingsValueRow`; F2's redesign promotes the same claim to the card's headline. Fixed the same
+way: `.onChange(of: sync != nil, initial: true) { refreshOutstanding() }`.
+
+Fixing one half of a two-instance bug and writing up the other half as "pre-existing, left alone"
+was the wrong call the first time round. Both are fixed.
+
+### F6 — Three defects in this phase's *own* tests — *fixed*
+
+Found by re-reading the tests as adversarially as the code.
+
+1. **An assertion that could not see the bug it was named for.** `birthdateDoesNotSlip` claimed to
+   pin the timezone slip that once drew a June 1st birthday as May 31st, and asserted
+   `rendered.contains("\(day)")`. For `2021-06-01` the slipped rendering is `May 31, 2021` — and
+   `"May 31, 2021".contains("1")` is **true**, because of the "1" in "31". The test passed on the
+   exact case it existed for. Now the day is matched as a whole numeric **token**
+   (`text.split(whereSeparator: { !$0.isNumber })`) and the month is matched by name, derived
+   through `FormatStyle` rather than the `DateFormatter` template the implementation uses.
+   **Verified by breaking the code**: with a deliberate `-1 day`, all five cases now fail, and the
+   `2021-06-01` case fails on both the day token and the month name independently.
+2. **`try!` inside a non-throwing test.** Four of them. `#require` throws on failure, so `try!`
+   turns a clean failure into a **crash that takes the process down** rather than a recorded
+   issue. The function is `throws` and uses `try #require` now, which is what every other suite in
+   this repo does.
+3. **A test whose name described something it never did.** `noDoubleRun` — "a second run while one
+   is running is refused" — ran once, checked the result, and dismissed. It never attempted a
+   concurrent run. Split: `concurrentRunsAreRefused` now genuinely races two `run` calls with
+   `async let` and asserts one request reaches the wire (deterministic, because `run` is
+   `@MainActor` and claims `state = .running` synchronously before its first `await`), and
+   `dismissReturnsToIdle` covers what the old test actually tested.
 
 ### Checked and clean
 
