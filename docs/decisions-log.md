@@ -1345,3 +1345,51 @@ a patch to the backend". The workarounds were the specification.
 - **Changed one existing assertion.** `test_me.py` pinned the `/me` response to an exact set
   of five keys; the preference fields are required to be on `/me` by the brief, so the set
   grew to seven. It is the only existing test touched.
+
+---
+
+## Aug 11, 2026 — Lane A: production audit of the notification feature, before the PR
+
+Asked to be certain this belonged in production rather than merely finished. Four things
+were not right. Recorded here because three of them were invisible from the diff alone.
+
+- **The migration chain had two heads.** `0005_devices_and_notifications` was cut against
+  `0004_full_text_search`, but `0005_child_pronouns` landed on `main` first from the same
+  parent. Rebasing produced a fork, and `alembic upgrade head` refuses to run with two
+  heads — the deploy's release command would have failed. Renamed to
+  `0006_devices_and_notifications` and re-pointed at `0005_child_pronouns`. Verified by
+  walking the exact path production will take: `0005_child_pronouns` → head → back down.
+- **The once-a-day guarantee did not survive a crash, though the docstring said it did.**
+  The claim row was inserted before the push but committed only at the end of the whole
+  run, so a process that died part-way through rolled back every claim it had made while
+  the notifications those claims covered had already been delivered. The next hourly run
+  would have sent them again — the one thing this feature must never do. Now committed per
+  user, immediately after the claim. Two tests cover it, and both fail on the old code.
+- **A malformed `.p8` was a permanent silent miss, and the fix above made it worse.** An
+  unreadable key raises out of `send()` as a bare `ValueError`, uncaught by the
+  `except httpx.HTTPError` around it. With the claim now committed first, that meant the
+  user was recorded as notified, heard nothing, and was skipped the next run. Validated at
+  `build_push_client` instead, which claims nobody and exits with an actionable message;
+  `send` also degrades a signing failure to a result rather than an exception, so one bad
+  key cannot cost the *remaining* users their notification too.
+- **Runbook §4b told you to build the wrong machine.** It carried the short
+  `fly machine run . --command …` form verbatim — the exact command `c5e06ad` records as
+  having silently produced an hourly second copy of uvicorn, because `--command` belongs to
+  `--shell` and is otherwise dropped without a warning, and because `fly machine run` never
+  reads `[env]`. Rewritten to match §5's corrected form, including why each flag is there.
+
+Smaller calls:
+
+- **`_deliver` now takes plain values, not ORM objects.** A commit sits between loading the
+  devices and pushing to them, and `resolved_body` reaches through a `lazy="raise"`
+  relationship. Reading everything off the ORM before the commit means the delivery path
+  cannot be broken by whatever a commit does to the identity map, rather than being correct
+  only because `expire_on_commit=False` happens to be set.
+- **Device revocation is a Core `UPDATE` by id** rather than an ORM attribute write, for the
+  same reason, and `WHERE revoked_at IS NULL` keeps the count honest under a concurrent run.
+- **`DELETE /v1/devices/{token}` keeps the token in the path.** It lands in Fly's proxy logs
+  and uvicorn's access log, which is not nothing — but an APNs token is an address, not a
+  credential, and is useless without the provider key. Changing it would be a contract change
+  for a privacy gain that does not exist. Noted rather than acted on.
+- **`main`'s roadmap figure of 315 API tests was stale** and its own note said so. Re-measured
+  from a clean worktree at `origin/main`: 339 in 25 files. This branch is 413 in 29.

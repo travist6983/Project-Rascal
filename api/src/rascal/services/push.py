@@ -273,10 +273,22 @@ class ApnsClient:
 
     async def send(self, message: PushMessage) -> PushResult:
         try:
+            headers = self.headers_for(message)
+        except Exception as exc:
+            # Signing the provider token failed, which in practice means `APNS_PRIVATE_KEY`
+            # is not a readable PEM — the usual cause being a multi-line `.p8` that lost its
+            # newlines on the way into a secret. `build_push_client` checks for this at
+            # startup so it should be unreachable; it is caught anyway because the
+            # alternative is an exception escaping mid-run, *after* the day has been claimed,
+            # which costs that user their notification permanently rather than for one run.
+            # Deliberately broad: cryptography and PyJWT raise several unrelated types here
+            # and none of them should be able to take down a run.
+            log.error("apns provider token could not be signed", extra={"error": str(exc)})
+            return PushResult(ok=False, status=None, reason="bad_apns_key")
+
+        try:
             response = await self._client.post(
-                self.url_for(message),
-                headers=self.headers_for(message),
-                json=message.payload(),
+                self.url_for(message), headers=headers, json=message.payload()
             )
         except httpx.HTTPError as exc:
             # A transport failure is retryable, and `send_with_retry` decides that from the
@@ -337,9 +349,29 @@ def build_push_client(settings: Settings) -> PushClient:
 
     # Narrowed by `apns_configured`, which is `all(...)` over exactly these three.
     assert settings.apns_key_id and settings.apns_team_id and settings.apns_private_key
-    return ApnsClient(
+    client = ApnsClient(
         key_id=settings.apns_key_id,
         team_id=settings.apns_team_id,
         private_key=settings.apns_private_key,
         topic=settings.resolved_apns_topic,
     )
+
+    # Sign one token now, before a single user is looked at, so an unreadable key is a loud
+    # startup failure rather than a per-send one.
+    #
+    # This matters more than it looks. The send job claims a user's day *before* it pushes,
+    # and commits that claim, so a key that only fails at send time means the user is marked
+    # notified and never hears anything — today and, once the window goes stale, for good.
+    # Failing here claims nobody, so fixing the secret and re-running still reaches everyone.
+    #
+    # The likely cause by far is a `.p8` whose newlines did not survive being pasted into a
+    # secret; `docs/runbook-deploy.md` §4a has the check for that.
+    try:
+        client.provider_token()
+    except Exception as exc:
+        raise RuntimeError(
+            "APNS_PRIVATE_KEY is set but could not be used to sign a provider token: "
+            f"{exc}. It must be the full contents of the .p8, newlines and BEGIN/END lines "
+            "intact. See docs/runbook-deploy.md section 4a."
+        ) from exc
+    return client

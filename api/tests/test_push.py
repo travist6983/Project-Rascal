@@ -324,3 +324,52 @@ async def test_the_stub_records_what_it_was_asked_to_send() -> None:
 
     assert result.ok
     assert [message.token for message in stub.sent] == ["a1b2c3"]
+
+
+# --- A key that cannot be read ----------------------------------------------------------------
+
+
+BAD_KEY = "-----BEGIN PRIVATE KEY-----\nnot a real key\n-----END PRIVATE KEY-----"
+
+
+def test_an_unreadable_private_key_fails_at_build_time_not_at_send_time() -> None:
+    """The most likely first-deploy mistake, caught before anyone is claimed.
+
+    A `.p8` pasted into a secret without its newlines is unreadable. If that only surfaced on
+    the first `send`, the job would already have claimed and committed the user's day — so
+    they would be recorded as notified, hear nothing, and be skipped tomorrow as "already
+    sent". Failing here claims nobody, so fixing the secret and re-running still reaches
+    everyone whose window has not gone stale.
+    """
+    with pytest.raises(RuntimeError) as caught:
+        build_push_client(
+            _settings(
+                apns_key_id="KEY123456",
+                apns_team_id="TEAM123456",
+                apns_private_key=BAD_KEY,
+            )
+        )
+    message = str(caught.value)
+    assert "APNS_PRIVATE_KEY" in message
+    assert "runbook-deploy.md" in message
+
+
+async def test_a_key_that_fails_at_send_time_is_a_result_not_an_exception() -> None:
+    """Defence in depth behind the build-time check.
+
+    Nothing may escape `send` as an exception: the run is mid-flight by then, days have been
+    claimed, and an unhandled error costs every remaining user their notification too.
+    """
+    client = ApnsClient(key_id="KEY123456", team_id="TEAM123456", private_key=BAD_KEY, topic="t")
+    result = await client.send(
+        PushMessage(
+            token="a" * 64,
+            environment="sandbox",
+            body="Get on the floor for ten minutes.",
+            assignment_id=uuid.uuid4(),
+        )
+    )
+    assert result.ok is False
+    assert result.reason == "bad_apns_key"
+    # Not retryable: signing will fail identically three times in a row.
+    assert result.is_retryable is False

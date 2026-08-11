@@ -34,7 +34,11 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rascal.constants import NOTIFICATION_SLOT_PRIORITY, NOTIFICATION_STALENESS
+from rascal.constants import (
+    NOTIFICATION_SLOT_PRIORITY,
+    NOTIFICATION_STALENESS,
+    PushEnvironment,
+)
 from rascal.models import Assignment, Child, Device, Guardian, NotificationSend, User
 from rascal.services.dates import zone
 from rascal.services.devices import live_devices
@@ -172,6 +176,13 @@ async def run_notifications(
     Safe to run as often as the platform allows and safe to run twice at once: the unique
     index on `(user_id, notification_date)` is the guarantee, and the row is claimed with
     `ON CONFLICT DO NOTHING` *before* anything reaches APNs.
+
+    **This function commits, once per user, and it has to.** An APNs push is the one side
+    effect in this service that a rollback cannot undo, so the row saying "this user has been
+    notified today" is made durable before the send rather than at the end of the run. A
+    single transaction around the whole run would mean a crash re-sending every notification
+    it had already delivered. The caller still owns the session; it just cannot assume the
+    run is atomic, which is why nothing else calls this — only `rascal.jobs.notify` does.
     """
     instant = as_of or dt.datetime.now(tz=dt.UTC)
     run = NotificationRun()
@@ -231,12 +242,34 @@ async def run_notifications(
         assignment = choose_assignment(today_items)
         assert assignment is not None  # today_items is non-empty.
 
+        # Everything the push needs is read off the ORM *here*, before the commit below, and
+        # passed on as plain values. The delivery path then touches no session state at all,
+        # so it cannot be broken by a commit expiring an attribute — in particular
+        # `resolved_body`, which reaches through the `lazy="raise"` prompt relationship.
+        targets = [Target(id=d.id, token=d.token, environment=d.environment) for d in devices]
+        payload = Payload(
+            body=assignment.resolved_body,
+            title=_first_name(child.name),
+            assignment_id=assignment.id,
+        )
+
         claimed = await _claim(session, user, child, assignment, window, len(devices))
         if not claimed:
             run.skipped_already_sent += 1
             continue
 
-        delivered = await _deliver(session, run, client, child, assignment, window, devices, sleep)
+        # **The claim has to be durable before anything reaches Apple**, and this commit is
+        # what makes that true. A push cannot be rolled back: without committing here, a
+        # process that died part-way through a run would roll back every claim it had made
+        # while the notifications those claims covered had already been delivered, and the
+        # next hourly run would send them all a second time.
+        #
+        # The cost is the other direction — a crash in the window between this commit and
+        # the send loses one notification. That is the right side of the trade for a product
+        # whose first rule is "one a day, not two, under any name".
+        await session.commit()
+
+        delivered = await _deliver(session, run, client, payload, window, targets, sleep)
         run.sent += 1
         run.delivered += delivered
         await session.execute(
@@ -244,6 +277,10 @@ async def run_notifications(
             .where(NotificationSend.id == claimed)
             .values(delivered_count=delivered)
         )
+        # The delivered count and any revocations from `_deliver`, made durable before the
+        # next user is touched. A later crash must not undo a revocation APNs has already
+        # told us about.
+        await session.commit()
 
     await session.flush()
     log.info(
@@ -277,8 +314,11 @@ async def _claim(
 
     `ON CONFLICT DO NOTHING` on `(user_id, notification_date)`, exactly the way the scheduler
     writes assignments. Deliberately **not** a read-then-write: two runs overlapping would
-    both read "not sent" and both send. Written before the push rather than after, so a
-    crash between the two costs one notification instead of sending one every retry.
+    both read "not sent" and both send.
+
+    Written before the push, and — see the commit in :func:`run_notifications` — committed
+    before it too. Both halves are needed: the insert alone only orders two concurrent runs,
+    and it is the commit that makes the claim outlive the process that made it.
     """
     statement = (
         insert(NotificationSend)
@@ -299,14 +339,31 @@ async def _claim(
     return (await session.execute(statement)).scalar_one_or_none()
 
 
+@dataclass(frozen=True)
+class Target:
+    """One live token, lifted off the ORM so delivery holds no session state."""
+
+    id: uuid.UUID
+    token: str
+    environment: PushEnvironment
+
+
+@dataclass(frozen=True)
+class Payload:
+    """What the notification says, resolved before the claim is committed."""
+
+    body: str
+    title: str | None
+    assignment_id: uuid.UUID
+
+
 async def _deliver(
     session: AsyncSession,
     run: NotificationRun,
     client: PushClient,
-    child: Child,
-    assignment: Assignment,
+    payload: Payload,
     window: Window,
-    devices: list[Device],
+    targets: list[Target],
     sleep: Callable[[float], Awaitable[None]] | None,
 ) -> int:
     """Push to every live token, and act on what APNs says back.
@@ -319,19 +376,19 @@ async def _deliver(
     The body is deliberately not truncated. Prompts run long, and cutting one mid-word
     server-side is worse than letting the OS lay it out.
     """
-    title = _first_name(child.name)
     delivered = 0
 
-    for device in devices:
+    for target in targets:
         message = PushMessage(
-            token=device.token,
-            environment=device.environment,
-            # `resolved_body` is a parent-authored one-off if there is one, else the library
-            # prompt. It is what the Today screen shows for this item, and it is the mission.
-            body=assignment.resolved_body,
-            assignment_id=assignment.id,
-            title=title,
-            # One id per user per day, so two devices and a retry cannot become three rows
+            token=target.token,
+            environment=target.environment,
+            # `payload.body` is `resolved_body`: a parent-authored one-off if there is one,
+            # else the library prompt. It is what the Today screen shows, and it is the
+            # mission.
+            body=payload.body,
+            assignment_id=payload.assignment_id,
+            title=payload.title,
+            # Scoped per device by APNs, so two devices and a retry cannot become three rows
             # on one lock screen.
             collapse_id=f"rascal-{window.local_date.isoformat()}",
         )
@@ -345,12 +402,20 @@ async def _deliver(
         if result.token_is_dead:
             # Without this, dead tokens accumulate forever and the failure rate climbs
             # invisibly until nothing is being delivered at all.
-            device.revoked_at = dt.datetime.now(tz=dt.UTC)
-            run.devices_revoked += 1
+            #
+            # A statement rather than an ORM attribute: the claim was committed a moment ago,
+            # and a Core UPDATE by id cannot be affected by whatever that did to the identity
+            # map. `revoked_at IS NULL` keeps the count honest if it was revoked concurrently.
+            result_rows = await session.execute(
+                update(Device)
+                .where(Device.id == target.id, Device.revoked_at.is_(None))
+                .values(revoked_at=dt.datetime.now(tz=dt.UTC))
+            )
+            run.devices_revoked += result_rows.rowcount or 0
             log.info(
                 "device revoked by APNs",
                 extra={
-                    "device_id": str(device.id),
+                    "device_id": str(target.id),
                     "apns_status": result.status,
                     "apns_reason": result.reason,
                 },
@@ -360,7 +425,7 @@ async def _deliver(
             log.warning(
                 "notification failed",
                 extra={
-                    "device_id": str(device.id),
+                    "device_id": str(target.id),
                     "apns_status": result.status,
                     "apns_reason": result.reason,
                 },

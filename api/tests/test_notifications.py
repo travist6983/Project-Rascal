@@ -16,6 +16,7 @@ import datetime as dt
 import uuid
 from zoneinfo import ZoneInfo
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -564,3 +565,99 @@ async def test_a_viewer_guardian_is_not_notified_about_somebody_elses_child(
     assert run.skipped_no_child == 1
     sends = await _sends(session)
     assert [row.user_id for row in sends] == [parent.id]
+
+
+# --- Durability: the claim has to outlive the process that made it -----------------------------
+
+
+class _ExplodingPushClient:
+    """A client that dies mid-send, the way a machine being reclaimed does.
+
+    Not a `PushResult(ok=False)` — that is a *handled* failure and the job already counts it.
+    This is the unhandled kind: the process stops between claiming the day and finishing the
+    sends, which is the only case where "did the claim survive?" has a different answer
+    depending on where the commit is.
+    """
+
+    def __init__(self, *, explode_after: int = 0) -> None:
+        self.explode_after = explode_after
+        self.sent: list[object] = []
+
+    async def send(self, message: object) -> PushResult:
+        if len(self.sent) >= self.explode_after:
+            raise RuntimeError("the machine went away mid-send")
+        self.sent.append(message)
+        return PushResult(ok=True, status=200)
+
+    async def aclose(self) -> None:
+        return None
+
+
+async def test_a_crash_after_the_claim_does_not_resend_on_the_next_run(
+    session: AsyncSession,
+) -> None:
+    """The once-a-day rule has to survive a process that dies at the worst moment.
+
+    An APNs push cannot be rolled back. If the claim were only committed at the end of the
+    run, a crash part-way through would erase every claim while the notifications they
+    covered had already been delivered — and the next hourly run would send them all again.
+    Two notifications in a day is the one thing this feature must never do.
+    """
+    await _world(session)
+    at = _utc(DAY, dt.time(19, 5), DETROIT)
+
+    with pytest.raises(RuntimeError):
+        await run_notifications(
+            session, client=_ExplodingPushClient(), as_of=at, sleep=_never_sleep
+        )
+
+    # What `rascal.jobs.notify`'s `async with` does on the way out of an exception.
+    await session.rollback()
+
+    # The claim is still there, because it was committed before the send was attempted.
+    assert len(await _sends(session)) == 1
+
+    # So the next run sends nothing rather than sending a second notification.
+    run, push = await _run(session, at=_utc(DAY, dt.time(20, 0), DETROIT))
+    assert run.skipped_already_sent == 1
+    assert run.sent == 0
+    assert push.sent == []
+    assert len(await _sends(session)) == 1
+
+
+async def test_a_crash_on_one_user_does_not_undo_the_user_already_notified(
+    session: AsyncSession,
+) -> None:
+    """Per-user commits, not one transaction around the run.
+
+    The first user's notification has genuinely been delivered by the time the second user's
+    send explodes. Rolling that back would lose the record of a push that a phone has already
+    buzzed for, and the next run would repeat it.
+    """
+    first, _child, _devices = await _world(session)
+    second = await make_user(session, notify_enabled=True, notify_local_time=dt.time(19, 0))
+    other_child = await make_child(session, name="Nell", timezone=DETROIT)
+    await grant(session, second, other_child, "parent")
+    await make_device(session, second)
+    await session.commit()
+
+    at = _utc(DAY, dt.time(19, 5), DETROIT)
+    # One successful send, then the process dies on the next one.
+    with pytest.raises(RuntimeError):
+        await run_notifications(
+            session,
+            client=_ExplodingPushClient(explode_after=1),
+            as_of=at,
+            sleep=_never_sleep,
+        )
+    await session.rollback()
+
+    sends = await _sends(session)
+    notified = {send.user_id for send in sends}
+    # Both were claimed: the first delivered, the second claimed and then crashed. Neither
+    # claim was rolled back, so neither user can be sent to twice today.
+    assert notified == {first.id, second.id}
+
+    run, push = await _run(session, at=_utc(DAY, dt.time(20, 0), DETROIT))
+    assert run.skipped_already_sent == 2
+    assert push.sent == []

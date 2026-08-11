@@ -16,8 +16,8 @@ read in the *child's* `family_timezone`, so an offset stored alongside it would 
 preference to wherever the parent happened to be standing and would drift an hour against
 DST twice a year.
 
-Revision ID: 0005_devices_and_notifications
-Revises: 0004_full_text_search
+Revision ID: 0006_devices_and_notifications
+Revises: 0005_child_pronouns
 Create Date: 2026-08-11
 """
 
@@ -28,8 +28,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0005_devices_and_notifications"
-down_revision: str | None = "0004_full_text_search"
+revision: str = "0006_devices_and_notifications"
+down_revision: str | None = "0005_child_pronouns"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

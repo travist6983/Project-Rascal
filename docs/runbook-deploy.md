@@ -146,6 +146,23 @@ fly secrets set --app rascal-api \
 **The `.p8` is downloadable exactly once.** Store it somewhere you will still have it in a
 year; regenerating means revoking the old key.
 
+**The newlines matter, and losing them is the likely mistake here.** A `.p8` is a PEM: two
+`BEGIN`/`END` lines with base64 between them. `"$(cat …)"` above preserves that. Pasting the
+file into the Fly dashboard's secret box, or into a chat window and back out, frequently does
+not. The job checks at startup rather than at send time, so a mangled key looks like this and
+costs nothing:
+
+```
+RuntimeError: APNS_PRIVATE_KEY is set but could not be used to sign a provider token:
+Unable to load PEM file. … It must be the full contents of the .p8, newlines and BEGIN/END
+lines intact. See docs/runbook-deploy.md section 4a.
+```
+
+That is deliberately a hard exit before any user is looked at. If the key were only found to
+be bad on the first send, the job would already have claimed and committed those users' days
+— they would be recorded as notified, hear nothing, and be skipped the next run as "already
+sent". Fix the secret, re-run, and everyone whose window has not gone stale still gets it.
+
 **What happens with these unset — which is the state today.** `build_push_client` returns a
 client that sends nothing and logs `push not configured` at WARNING on every attempt. That
 is deliberate: a push service that silently no-ops is indistinguishable from one that works
@@ -155,16 +172,35 @@ normally, so nothing else is blocked on this.
 ### 4b. The notification job — a second scheduled machine
 
 The send job is `python -m rascal.jobs.notify`, and like the scheduler it is **not created
-or updated by `fly deploy`**:
+or updated by `fly deploy`**. Same shape as §5's scheduler machine, and the same three
+load-bearing parts — this command was originally written in the short form that §5 records
+as having silently produced an hourly second copy of uvicorn:
 
 ```bash
-fly machine run . \
+fly machine run registry.fly.io/rascal-api:deployment-<id> \
   --app rascal-api \
   --schedule hourly \
   --region ord \
   --vm-size shared-cpu-1x \
   --vm-memory 512 \
-  --command "python -m rascal.jobs.notify"
+  --restart no \
+  --env ENVIRONMENT=prod \
+  --env S3_REGION=auto \
+  --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+  -- python -m rascal.jobs.notify
+```
+
+The `--env` flags are not optional here either: `build_push_client` reads the full
+`Settings`, so a machine without them dies on `s3_region Field required` before it looks at
+a single user — the same failure the scheduler machine hit on Aug 10. Verify the same way:
+`fly machine status <id> --display-config`, where `init.cmd` must name `rascal.jobs.notify`
+and `"init": {}` means `--command` was dropped and this machine is running uvicorn instead.
+
+A good run logs one line and stops:
+
+```
+{"logger": "rascal.notifications", "message": "notification run", "users_considered": 1, "notifications_sent": 1, ...}
+Main child exited normally with code: 0
 ```
 
 Every run is idempotent — the unique index on `(user_id, notification_date)` means a
