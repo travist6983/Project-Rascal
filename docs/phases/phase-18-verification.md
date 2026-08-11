@@ -5,14 +5,18 @@
 
 Run as its own pass after the suite was green. Every file was re-read top to bottom.
 
-**This phase is incomplete, and that is the headline finding.** The scan, the clustering, the
-dismissal store, the caching, and the `occurred_at` rule are built and tested. **Phases B and C —
-the suggestion surface and the picker/composer prefill — were not built.** See the PR's "Not
-included"; the honest statement is that this delivers the engine and not the screen.
+**Aug 11, 2026 — the surface is now built, and the earlier headline is withdrawn.** The engine
+findings below stand unchanged. What follows them is the pass over the UI.
+
+**662 tests / 79 suites**, from a baseline of 639 / 74. **Zero warnings**, measured from a deleted
+`DerivedData` — a warm build reports zero on code that has plenty, which is how the engine pass
+recorded a clean baseline that was not one. Fourteen warnings remain in
+`RascalTests/PushPermissionTests.swift`, which this phase does not touch; they are Phase 14's and
+are named here rather than absorbed into a "0 warnings" claim.
 
 ---
 
-## Findings that changed the code
+## Findings that changed the code — the engine
 
 ### 1. The month fallback would itself have been the bug it exists to prevent
 
@@ -52,28 +56,104 @@ it fail.
 
 ---
 
+## Findings that changed the code — the surface
+
+### 4. At the accessibility text sizes, the permission screen had no reachable way to grant
+
+**Assumed:** that a `VStack` of spacers in a full-height frame would compress gracefully.
+
+**Checked:** captured it at accessibility XXL. The headline ran off the top under the status bar
+and **both actions ran off the bottom entirely.** So the one screen whose whole job is asking for
+photo access had no way to grant it, no way to decline it, and no way to scroll to either —
+on a screen the parent reaches by asking for this feature.
+
+**This is the worst defect in the phase.** iOS shows its permission prompt once. A parent at
+XXL would have hit a dead end and the feature would simply never have worked for them, with
+nothing on screen explaining why.
+
+**Fixed:** `BackfillPermissionScreen` scrolls, and its actions live in a `safeAreaInset(edge:
+.bottom)` that cannot be pushed anywhere. The same pattern was wrong in
+`BackfillLimitedAccessScreen`, `BackfillNoAccessScreen` and `BackfillNothingToSuggestScreen` and
+was fixed in all four. Re-captured to confirm.
+
+### 5. A month heading broke inside the word
+
+**Assumed:** that a month and its year side by side in an `HStack` would wrap sensibly.
+
+**Checked:** at XXL, "October 2025" rendered as "**Octobe / r**" beside an untouched "2025" —
+two layout boxes, so the month was squeezed to nothing while the year kept its width.
+
+**Fixed:** concatenated into one `Text` in both `BackfillMonthCard` and the month picker's
+header, so it wraps as the phrase it is. `String(year)` rather than interpolating the `Int`,
+which a locale renders as "2,025".
+
+### 6. A day was marked "Written" before anything had been written
+
+**Assumed:** that the picker's `onUse` was a save.
+
+**Checked:** it opens a composer. The composer dismisses on **Cancel** exactly as it does on
+Save, so a parent who picked three photos, thought better of it, and swiped the sheet away came
+back to a day badged "Written" with nothing behind it — the same class of lie as a completion
+check on a prompt with no entry.
+
+**Fixed:** `confirmWritten()` asks the local store whether an entry now exists in that day's range
+and only then checks it off.
+
+### 7. The limited-access screen could never leave the scanning state
+
+**Assumed:** the stage machine was linear.
+
+**Checked:** `decideStage` set `.limited` and *then* called `rescanIfNeeded`, which sets
+`.scanning` and has no terminal stage to return to. Selected-photos access therefore hung on the
+scanning screen permanently.
+
+**Fixed:** scan first, settle the stage after.
+
+### 8. The scan was being polled on the main actor
+
+**Assumed:** `while scanner.state == .scanning { await Task.yield() }` was a cheap wait.
+
+**Checked:** it is a spin loop on the main actor for the entire length of a scan — on the one
+feature whose whole design constraint is staying cheap against a 40,000-asset library.
+
+**Fixed:** `BackfillScanner.scanAndWait` awaits the task directly.
+
+---
+
 ## Assumptions confirmed against source, not memory
 
 | Assumption | How it was confirmed |
 |---|---|
 | The share sheet's date rule falls back to `now` | Read `Share/PendingShare.swift`: `resolveOccurredAt` returns `(now, .shareTime)` when nothing carried a date. Correct there, catastrophic here — which is why this phase has its own rule rather than reusing that one. Both take the **earliest** usable date, which is the part that is shared. |
-| Reading `PHAsset.creationDate` does not trigger an iCloud download | Only `PHFetchOptions` and `PHAssetResource` metadata are touched; no `PHImageManager` request is made anywhere in this phase, and that is what would pull bytes. |
+| The composer cannot re-derive the date over the rule's answer | `ComposerView.init` sets `dateWasChosen` when a backfill prefill is present, which is the flag `adoptExifDateIfUnchosen` guards on. Without it, adding one more photo would hand `occurred_at` to `MediaDraftBuilder.suggestedOccurredAt`, whose fallback is today. Asserted at the request boundary. |
+| Reading `PHAsset.creationDate` does not trigger an iCloud download | Only `PHFetchOptions` and `PHAssetResource` metadata are touched during the scan. |
+| Nothing else downloads either | Both `PHImageManager` paths added this phase set `isNetworkAccessAllowed = false`. A cloud-only asset returns no thumbnail, is not selectable, and throws `notOnDevice` if bytes are asked for anyway. |
+| The scan does not identify individual photos | `assets(in:)` is called only from the picker and the card strip, both behind a tap. Asserted: `fetchedMonths` is empty after a full scan. |
 | The scan does not block the main thread | The PhotoKit enumeration runs inside `Task.detached(priority: .utility)`. `BackfillScanner` is `@MainActor` only for publishing state. |
 | Cancellation leaves no partial state | `state` is written only with a complete result; both post-await checkpoints return `.idle` instead. Asserted by cancelling mid-run and confirming no `.ready` is ever published. |
-| Tests never sleep a fixed interval | The `until` helper yields in a bounded loop. No `Task.sleep` anywhere in the new tests. |
+| A cache written by the previous build still decodes | `BackfillScanResult.months` is optional. A non-optional field would fail the decode, which `load()` swallows as a cache miss — a full library rescan on the first launch after the update, for every user, silently. Asserted against a hand-written legacy payload. |
+| Tests never sleep a fixed interval | The `until` helper yields in a bounded loop. The only `Task.sleep` added is the picker's self-clearing notice, in view code, not in a test. |
 | Limited authorization is a working scan | `BackfillAuthorization.canScan` is true for `.limited`, `isLimitedLibrary` is published, and the scan proceeds. Asserted. |
+| No new copy assumes the child's gender | The mockups say "He was 3 years, 4 months". Every age line written here uses `DraftAge.spoken` — "3 years, 4 months old". `CLAUDE.md` allows the *seeded library* to stay he/him and requires new copy not to be. |
+| The age shown is not the archive's | `DraftAge`, explicitly the one client-side age calculation and explicitly not for the archive. A month with no entries has no server `child_age_months` to render, because no entry exists to carry one. Never stored, never sent; the server's own number replaces it the moment an entry is saved. |
 
 ## Things I could not confirm, stated plainly
 
-- **No real camera roll was scanned.** Every scan assertion runs against a stub source of `Date`
-  values. Performance against 40,000 assets, photos with edited metadata, missing
-  `DateTimeOriginal`, and iCloud-only assets are all unmeasured — that is what
-  `docs/device-verification-backfill.md` is for.
+- **No real camera roll was scanned.** Every assertion still runs against a stub source. The
+  screenshots were taken against fabricated assets with no thumbnails, so they prove the
+  *layout* and say nothing about the flow on a phone with years of photos on it.
+  `docs/device-verification-backfill.md` is what closes this.
+- **VoiceOver was audited in code, not heard.** Labels, traits, grouping and hints were read
+  through on every new view — the offer row and the month rows combine into single elements, day
+  headers carry `.isHeader`, tiles carry `.isSelected`, and a cloud-only tile has a hint saying
+  why it cannot be picked. **No screen reader was actually run**, which needs a device.
 - **`PHAssetResource`'s `locallyAvailable` is read by KVC**, because there is no public API for
   it. It defaults to `true` when absent, so the failure mode is counting a cloud asset as
   on-device rather than the reverse. Unverified on a device.
-- **The main-thread assertion is structural, not measured.** The phase asks for it to be asserted
-  rather than eyeballed; what is asserted is that the work happens in a detached task, not a
-  measurement under a real library.
-- **No UI exists**, so the Dynamic Type and VoiceOver artifacts were not produced and are not
-  claimed.
+- **The one-day rule is asserted on the model, not through the UI.** `BackfillSelection` is unit
+  tested; that the picker wires taps to it correctly is read, not proven.
+- **Staging several full-size photos happens on tap, and its cost is unmeasured.** "Getting them
+  ready…" is on the button, but how long that takes for ten 48MP HEICs is not known.
+- **The extra tap on **+** is unmeasured.** The reversal in `docs/decisions.md` costs every entry
+  in the app one tap. Whether that is the right trade is a product question this pass cannot
+  answer, and it is the thing most worth watching after it ships.

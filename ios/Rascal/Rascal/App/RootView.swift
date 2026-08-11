@@ -17,6 +17,12 @@ struct RootView: View {
     /// Passed through to Today, which stamps it onto the widget snapshot so the widget can tell
     /// today's board from yesterday's without asking anyone.
     let familyTimezone: String
+    /// `YYYY-MM-DD`, as the gate resolved it at launch.
+    ///
+    /// Only the camera-roll backfill reads it, and only to say how old the child was in a month
+    /// that has nothing written in it — where there is no server-computed `child_age_months` to
+    /// render, because no entry exists to carry one.
+    let childBirthdate: String
     /// The zone after Settings has seen a newer one.
     ///
     /// **The gate resolves the child once, at launch, and never again for the life of the
@@ -68,6 +74,18 @@ struct RootView: View {
     @State private var thumbnails: ThumbnailStore?
     /// The one post-entry notification re-offer. See `considerNotificationReoffer`.
     @State private var showingNotificationReoffer = false
+    /// **One scanner for the process**, for the same reason there is one transcriber: a scan walks
+    /// the whole photo library, and two of them would walk it twice concurrently on a device
+    /// someone is holding. Owned here rather than by a screen because the **+** sheet needs the
+    /// answer before any backfill screen exists.
+    @State private var backfill: BackfillScanner?
+    /// The PhotoKit seam, held so the flow and the scanner share one.
+    @State private var backfillSource: (any BackfillAssetSource)?
+    /// What the **+** sheet chose, held until it has finished dismissing. Presenting from a sheet
+    /// on its way out drops the presentation, so the root acts on this in `onDismiss`.
+    @State private var pendingAdd: AddToArchiveChoice?
+    @State private var showingAddSheet = false
+    @State private var showingBackfill = false
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -76,6 +94,7 @@ struct RootView: View {
         session: AppSession,
         childId: UUID,
         familyTimezone: String,
+        childBirthdate: String,
         onSignOut: @escaping () async -> Void,
         notifications: NotificationPreference,
         pendingLink: Binding<WidgetDeepLink?>
@@ -83,6 +102,7 @@ struct RootView: View {
         self.session = session
         self.childId = childId
         self.familyTimezone = familyTimezone
+        self.childBirthdate = childBirthdate
         self.onSignOut = onSignOut
         self.notifications = notifications
         self._pendingLink = pendingLink
@@ -126,6 +146,11 @@ struct RootView: View {
             if shareDrain == nil {
                 shareDrain = ShareDrain(context: context, childId: childId)
             }
+            if backfill == nil {
+                let source = PhotoLibraryBackfillSource()
+                backfillSource = source
+                backfill = BackfillScanner(source: source)
+            }
             // The engine needs the child, which the gate has already resolved.
             if syncEngine == nil {
                 syncEngine = SyncEngine(
@@ -137,11 +162,17 @@ struct RootView: View {
                 )
             }
             await runSweep()
+            scanForBackfill()
         }
         // Entries saved while offline live in SwiftData until something re-sends them. This is
         // that something: without it, local-first saving keeps the work and never delivers it.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await runSweep() } }
+            if phase == .active {
+                Task { await runSweep() }
+                // `force: false`, so the cache does its job. A foreground is not a reason to walk
+                // forty thousand assets again.
+                scanForBackfill()
+            }
             // A tap the app never managed to act on — Today failed to load, so the board that
             // would resolve it never appeared — does not survive the app being put away. It would
             // otherwise sit there and open a composer on some later launch, for a prompt the
@@ -188,13 +219,86 @@ struct RootView: View {
             Task {
                 await runSweep()
                 considerNotificationReoffer()
+                // An entry just written may have filled a month the scan was offering. Appended to
+                // the two callers already here rather than replacing them.
+                scanForBackfill(force: true)
             }
         }) { request in
             ComposerView(request: request, api: session.api)
         }
+        .sheet(isPresented: $showingAddSheet, onDismiss: consumePendingAdd) {
+            AddToArchiveSheet(clusters: offeredClusters) { pendingAdd = $0 }
+        }
+        .fullScreenCover(isPresented: $showingBackfill) {
+            if let backfill, let backfillSource {
+                BackfillFlowView(
+                    childId: childId,
+                    childBirthdate: resolvedBirthdate,
+                    api: session.api,
+                    scanner: backfill,
+                    source: backfillSource,
+                    entryDates: { entryOccurredDates() },
+                    onComposerDismiss: {
+                        await runSweep()
+                        considerNotificationReoffer()
+                    }
+                )
+            }
+        }
         .sheet(isPresented: $showingNotificationReoffer) {
             NotificationReofferSheet(preference: notifications, familyTimezone: timezone)
         }
+    }
+
+    /// What the **+** sheet offers, if anything. Empty until a scan has produced clusters, which
+    /// is what keeps the row absent rather than present-and-empty.
+    private var offeredClusters: [BackfillCluster] {
+        guard let backfill, case .ready(let clusters) = backfill.state else { return [] }
+        return clusters
+    }
+
+    /// Acted on after the sheet has gone, never during. See `pendingAdd`.
+    private func consumePendingAdd() {
+        guard let choice = pendingAdd else { return }
+        pendingAdd = nil
+        switch choice {
+        case .compose(let opening):
+            composer = ComposerRequest(
+                childId: childId,
+                assignment: nil,
+                // `.text` as before: a freeform entry can hold photos, a voice note, or nothing
+                // but words, and the verb chosen only decides what opens on top of it.
+                mode: .text,
+                opening: opening
+            )
+        case .backfill:
+            showingBackfill = true
+        }
+    }
+
+    /// The birthdate as a day, for the flow's age lines only.
+    ///
+    /// Read through the same day-only calendar `EditChildModel` uses, so a June birthday cannot
+    /// render as May. Nil parses to no age line rather than to a wrong one.
+    private var resolvedBirthdate: Date? {
+        EditChildModel.dayFormatter.date(from: childBirthdate)
+    }
+
+    /// Every `occurred_at` this device holds.
+    ///
+    /// **Compared locally and never by asking the server** — the server has no idea what is in this
+    /// camera roll, and a round trip per month would make a forty-thousand-asset library unusable.
+    private func entryOccurredDates() -> [Date] {
+        var descriptor = FetchDescriptor<Entry>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        // Only the dates are wanted; nothing here reads a body or a relationship.
+        descriptor.propertiesToFetch = [\.occurredAt]
+        return (try? context.fetch(descriptor).map(\.occurredAt)) ?? []
+    }
+
+    private func scanForBackfill(force: Bool = false) {
+        backfill?.scan(entryDates: entryOccurredDates(), force: force)
     }
 
     /// The single permitted re-offer, after the first completed entry.
@@ -267,9 +371,11 @@ struct RootView: View {
             // Clear the floating bar so the last card is never trapped underneath it.
             .safeAreaPadding(.bottom, 84)
 
-            FloatingTabBar(selection: $tab) {
-                composer = ComposerRequest(childId: childId, assignment: nil, mode: .text)
-            }
+            // **The centre button opens a sheet rather than the composer, and that is a
+            // reversal** — see `docs/decisions.md`. It costs a tap on the way to every entry,
+            // which is the price of the camera roll having a home that is a browse action rather
+            // than a fifth capture verb buried in a form.
+            FloatingTabBar(selection: $tab) { showingAddSheet = true }
             .padding(.bottom, 4)
         }
     }

@@ -50,8 +50,21 @@ extension BackfillEntryPlan {
     ///
     /// `assignment: nil`, always, and it is not a parameter — see the type's note. The mode is
     /// `media` because a backfill is by definition a set of photos.
-    func composerRequest(childId: UUID) -> ComposerRequest {
-        ComposerRequest(childId: childId, assignment: nil, mode: .media)
+    ///
+    /// `drafts` are already staged by the picker, so the composer opens with the photos on screen.
+    /// `childBirthdate` is only for the age line under the date; it is never stored or sent, and a
+    /// nil simply drops the line.
+    func composerRequest(
+        childId: UUID,
+        drafts: [MediaDraft] = [],
+        childBirthdate: Date? = nil
+    ) -> ComposerRequest {
+        ComposerRequest(
+            childId: childId,
+            assignment: nil,
+            mode: .media,
+            backfill: BackfillPrefill(plan: self, drafts: drafts, childBirthdate: childBirthdate)
+        )
     }
 }
 #endif

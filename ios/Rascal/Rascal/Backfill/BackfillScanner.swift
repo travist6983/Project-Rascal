@@ -1,12 +1,24 @@
+import CoreGraphics
 import Foundation
 
 #if canImport(Photos)
 import Photos
 #endif
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// Where the asset dates come from. The seam that keeps PhotoKit out of every assertion.
 nonisolated protocol BackfillAssetSource: Sendable {
     func authorization() async -> BackfillAuthorization
+    /// Ask the system, once.
+    ///
+    /// **Only ever called from behind the explainer.** iOS shows its prompt a single time and a
+    /// denial is close to permanent — there is no second ask, and this app does not build one. So
+    /// the explainer earns the prompt first, and this is what it calls when the parent agrees.
+    /// Already-decided states return what was already decided without showing anything.
+    func requestAuthorization() async -> BackfillAuthorization
     /// Every asset's creation date, and which of them are not on the device.
     ///
     /// **Incremental and cancellable.** Implementations must check `Task.isCancelled` as they go
@@ -16,6 +28,32 @@ nonisolated protocol BackfillAssetSource: Sendable {
     /// Opaque token that changes when the library does, for cache invalidation. `nil` when the
     /// platform offers none.
     func libraryToken() async -> String?
+
+    /// Every asset in one month, oldest first.
+    ///
+    /// **Called only once the parent has opened a month.** The scan deliberately never asks for
+    /// this: identifying individual photos is a different act from counting them, and it does not
+    /// happen until someone has chosen to look.
+    func assets(in month: BackfillMonth) async throws -> [BackfillAsset]
+
+    /// Thumbnail bytes for one asset, or `nil` when none can be produced without going to the
+    /// network. A cloud-only asset lands here as `nil` and renders as unavailable.
+    func thumbnail(for assetId: String, maxPixel: Int) async -> Data?
+
+    /// Full-resolution bytes for one asset, on their way to `ImagePipeline`.
+    ///
+    /// **Never downloads.** Throws for an asset that is not on the device, which is why the picker
+    /// refuses to select one in the first place.
+    func imageData(for assetId: String) async throws -> Data
+}
+
+/// What went wrong reaching for a photo's bytes.
+nonisolated enum BackfillAssetError: Error, Equatable {
+    /// The asset lives only in iCloud, and this feature does not download.
+    case notOnDevice
+    /// The asset is gone, or the identifier belongs to another library.
+    case missing
+    case unreadable
 }
 
 /// The scan, as the app runs it.
@@ -41,6 +79,9 @@ final class BackfillScanner {
     /// True when the parent granted access to selected photos only. **Not an error** — the UI
     /// says what it can see rather than pretending it saw everything.
     private(set) var isLimitedLibrary = false
+    /// Every month holding a photo, for the "Every month" browse list. Unfiltered — see
+    /// `BackfillPlan.monthIndex`. Empty until a scan has run.
+    private(set) var months: [BackfillMonthSummary] = []
 
     private let source: any BackfillAssetSource
     private let dismissals: any BackfillDismissalStoring
@@ -64,6 +105,16 @@ final class BackfillScanner {
         task = Task { await run(entryDates: entryDates, now: now, force: force) }
     }
 
+    /// The same scan, awaited.
+    ///
+    /// For a screen that has to show a result rather than react to one. Awaiting the task is the
+    /// point: polling `state` in a loop would spin the main actor for the length of a scan, which
+    /// on a large library is exactly the case this feature has to stay cheap for.
+    func scanAndWait(entryDates: [Date], now: Date = Date(), force: Bool = false) async {
+        scan(entryDates: entryDates, now: now, force: force)
+        await task?.value
+    }
+
     /// **Cancellable mid-run, leaving no partial state.** The published `state` is only ever
     /// written with a complete result, so a cancelled scan leaves whatever was there before
     /// rather than a half-built list.
@@ -83,6 +134,7 @@ final class BackfillScanner {
 
         let token = await source.libraryToken()
         if !force, let cached = cache.load(), cached.isFresh(now: now, token: token) {
+            months = cached.asMonths
             state = .ready(filtered(cached.asClusters))
             return
         }
@@ -105,11 +157,17 @@ final class BackfillScanner {
             entryDates: entryDates,
             dismissed: dismissals.dismissed()
         )
+        let index = BackfillPlan.monthIndex(
+            assetDates: dates.onDevice,
+            cloudOnlyDates: dates.cloudOnly,
+            entryDates: entryDates
+        )
         guard !Task.isCancelled else {
             state = .idle
             return
         }
-        cache.save(BackfillScanResult.from(clusters, at: now, token: token))
+        cache.save(BackfillScanResult.from(clusters, months: index, at: now, token: token))
+        months = index
         state = .ready(clusters)
     }
 
@@ -126,6 +184,24 @@ final class BackfillScanner {
             state = .ready(clusters.filter { $0.month != month })
         }
     }
+
+    /// Undo a dismissal the parent has just made.
+    ///
+    /// The toast offers this for a few seconds, so the mistake is recoverable at the moment it is
+    /// noticed. Deliberately not a general "restore months" facility: a dismissal that has
+    /// survived the toast is a decision, and `dismissed()` is where it lives.
+    func restore(_ month: BackfillMonth, entryDates: [Date]) {
+        dismissals.restore(month)
+        scan(entryDates: entryDates, force: true)
+    }
+
+    /// Ask the system for access, from behind the explainer.
+    func requestAccess() async -> BackfillAuthorization {
+        let granted = await source.requestAuthorization()
+        isLimitedLibrary = granted == .limited
+        if !granted.canScan { state = .unavailable }
+        return granted
+    }
 }
 
 // MARK: - Caching
@@ -136,7 +212,9 @@ nonisolated protocol BackfillScanCaching: Sendable {
 }
 
 nonisolated struct UserDefaultsBackfillScanCache: BackfillScanCaching {
-    private let defaults: UserDefaults
+    /// `UserDefaults` is documented thread-safe but carries no `Sendable` conformance, so holding
+    /// one in a `Sendable` type needs this said out loud rather than inferred.
+    nonisolated(unsafe) private let defaults: UserDefaults
     private let key: String
 
     init(defaults: UserDefaults = .standard, key: String = "backfill.scan") {
@@ -179,7 +257,17 @@ nonisolated final class InMemoryBackfillScanCache: BackfillScanCaching, @uncheck
 nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
 
     func authorization() async -> BackfillAuthorization {
-        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        Self.map(PHPhotoLibrary.authorizationStatus(for: .readWrite))
+    }
+
+    func requestAuthorization() async -> BackfillAuthorization {
+        // `.readWrite` rather than `.addOnly`: the scan reads dates, and asking for less than the
+        // feature needs produces a prompt that grants nothing and cannot be shown again.
+        Self.map(await PHPhotoLibrary.requestAuthorization(for: .readWrite))
+    }
+
+    private static func map(_ status: PHAuthorizationStatus) -> BackfillAuthorization {
+        switch status {
         case .authorized: .authorized
         case .limited: .limited
         case .denied, .restricted: .denied
@@ -236,6 +324,132 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
         return resources.contains { resource in
             (resource.value(forKey: "locallyAvailable") as? Bool) ?? true
         }
+    }
+
+    // MARK: One month's assets
+
+    func assets(in month: BackfillMonth) async throws -> [BackfillAsset] {
+        try await Task.detached(priority: .userInitiated) {
+            let calendar = Calendar.current
+            var start = DateComponents()
+            start.year = month.year
+            start.month = month.month
+            start.day = 1
+            guard let from = calendar.date(from: start),
+                  let to = calendar.date(byAdding: .month, value: 1, to: from)
+            else { return [] }
+
+            let options = PHFetchOptions()
+            options.includeHiddenAssets = false
+            // Bounded by the fetch rather than by filtering afterwards, so a 40,000-asset library
+            // does not have to be walked to show one October.
+            options.predicate = NSPredicate(
+                format: "creationDate >= %@ AND creationDate < %@", from as NSDate, to as NSDate
+            )
+            // Oldest first: the picker reads down the month the way the month happened.
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+            let fetched = PHAsset.fetchAssets(with: .image, options: options)
+
+            var assets: [BackfillAsset] = []
+            var cancelled = false
+            fetched.enumerateObjects { asset, _, stop in
+                if Task.isCancelled {
+                    cancelled = true
+                    stop.pointee = true
+                    return
+                }
+                assets.append(
+                    BackfillAsset(
+                        id: asset.localIdentifier,
+                        creationDate: asset.creationDate,
+                        isOnDevice: Self.isOnDevice(asset)
+                    )
+                )
+            }
+            if cancelled { throw CancellationError() }
+            return assets
+        }.value
+    }
+
+    func thumbnail(for assetId: String, maxPixel: Int) async -> Data? {
+        guard let asset = Self.asset(for: assetId) else { return nil }
+        let options = PHImageRequestOptions()
+        // **The whole promise of the scan, kept here too.** A grid of forty tiles that each
+        // quietly pull from iCloud is a large download nobody asked for, on a screen someone
+        // opened to browse. A cloud-only asset returns nil and renders as unavailable.
+        options.isNetworkAccessAllowed = false
+        // One callback rather than a degraded-then-good pair, so the continuation resumes once.
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .fast
+        options.isSynchronous = false
+
+        let side = CGFloat(maxPixel)
+        return await withCheckedContinuation { continuation in
+            let resumed = ResumeGuard()
+            PHImageManager.default().requestImage(
+                for: asset,
+                targetSize: CGSize(width: side, height: side),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                guard resumed.claim() else { return }
+                #if canImport(UIKit)
+                continuation.resume(returning: image?.jpegData(compressionQuality: 0.8))
+                #else
+                _ = image
+                continuation.resume(returning: nil)
+                #endif
+            }
+        }
+    }
+
+    func imageData(for assetId: String) async throws -> Data {
+        guard let asset = Self.asset(for: assetId) else { throw BackfillAssetError.missing }
+        let options = PHImageRequestOptions()
+        // Same rule as the thumbnail, and here it is the one the picker already enforced by
+        // refusing to select a cloud-only asset. This is the backstop, not the gate.
+        options.isNetworkAccessAllowed = false
+        options.deliveryMode = .highQualityFormat
+        options.isSynchronous = false
+        // The original bytes, whatever they are. `ImagePipeline` owns the conversion to upright
+        // JPEG — doing any of it here would be a second pipeline that drifts from the first.
+        options.version = .current
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let resumed = ResumeGuard()
+            PHImageManager.default().requestImageDataAndOrientation(
+                for: asset, options: options
+            ) { data, _, _, info in
+                guard resumed.claim() else { return }
+                if let data {
+                    continuation.resume(returning: data)
+                    return
+                }
+                let inCloud = (info?[PHImageResultIsInCloudKey] as? Bool) ?? false
+                continuation.resume(throwing: inCloud ? BackfillAssetError.notOnDevice : .unreadable)
+            }
+        }
+    }
+
+    private static func asset(for identifier: String) -> PHAsset? {
+        PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil).firstObject
+    }
+}
+
+/// One-shot latch for a `PHImageManager` callback.
+///
+/// PhotoKit's result handlers are documented to fire more than once for some delivery modes, and
+/// resuming a continuation twice is a crash rather than a warning. The options above ask for a
+/// single callback; this makes a second one harmless instead of fatal.
+private nonisolated final class ResumeGuard: @unchecked Sendable {
+    private let lock = NSLock()
+    private var used = false
+
+    func claim() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if used { return false }
+        used = true
+        return true
     }
 }
 #endif

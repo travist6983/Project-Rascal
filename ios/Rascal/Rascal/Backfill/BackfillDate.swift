@@ -60,6 +60,14 @@ nonisolated struct BackfillMonth: Codable, Equatable, Hashable, Sendable, Compar
         formatter.setLocalizedDateFormatFromTemplate("yMMMM")
         return formatter.string(from: fallbackDate())
     }
+
+    /// "October", with no year. For a list already grouped under one.
+    func monthName(locale: Locale = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("MMMM")
+        return formatter.string(from: fallbackDate())
+    }
 }
 
 // MARK: - Resolving occurred_at

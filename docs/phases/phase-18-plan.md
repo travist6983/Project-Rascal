@@ -1,9 +1,24 @@
 # Phase 18 — remaining work (the UI)
 
+> **Superseded on Aug 11, 2026. Kept for the record; do not build from it.**
+>
+> Two things in this plan were reversed against `docs/mobile-app-design-composer/`, deliberately
+> and after being raised:
+>
+> - **Placement.** The suggestion does *not* live inside the composer. **+** opens an *Add to the
+>   archive* sheet, and the camera roll is a browse entry point below a divider leading to its own
+>   flow. This costs every entry one tap — see `docs/decisions.md`.
+> - **Selection.** Not month-wide multi-select with three preselected. A selection is confined to
+>   **one day** and nothing is preselected, so `occurred_at` is exact rather than the earliest of a
+>   spread.
+>
+> What shipped, and what is still unverified, is in `phase-18-verification.md`.
+
 **Branch:** `phase-18/backfill`, now based on `main` (was stacked on the blocked #42).
 **Baseline on this branch:** 639 tests / 74 suites, 0 Swift warnings.
+**Delivered:** 662 tests / 79 suites, 0 warnings measured cold.
 **Decided (2026-08-11):** the suggestion lives **inside the composer**, reached by the existing
-**+** button. See `docs/decisions.md`.
+**+** button. See `docs/decisions.md`. ← *reversed the same day; see the note above.*
 
 ## What already exists — do not rebuild it
 

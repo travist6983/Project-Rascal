@@ -25,6 +25,23 @@ nonisolated struct BackfillCluster: Equatable, Sendable, Identifiable {
     var id: String { month.key }
 }
 
+/// A month as the "Every month" browse list shows it.
+///
+/// Different from a `BackfillCluster` on purpose. A cluster is an *offer* — a month worth
+/// suggesting, filtered by the minimum count and by what the parent has already written or waved
+/// away. This is just a fact: here is a month, here is what is in it. Every month with a photo
+/// appears, including the ones already written about and the ones holding a single stray picture,
+/// because a browse list that hides months is a browse list a parent cannot trust.
+nonisolated struct BackfillMonthSummary: Equatable, Sendable, Identifiable {
+    let month: BackfillMonth
+    let assetCount: Int
+    /// Entries this device holds with an `occurred_at` in this month.
+    let entryCount: Int
+
+    var id: String { month.key }
+    var isLogged: Bool { entryCount > 0 }
+}
+
 // MARK: - The pure half
 
 nonisolated enum BackfillPlan {
@@ -71,6 +88,45 @@ nonisolated enum BackfillPlan {
             // Newest first: the month a parent is likeliest to still remember.
             .sorted { $0.month > $1.month }
     }
+
+    /// Every month that holds a photo, with what is in it and what has been written about it.
+    ///
+    /// This is the browse list behind "Every month", and it deliberately applies **none** of
+    /// `clusters`' filters: no minimum count, no exclusion of months already written about, no
+    /// dismissals. A parent who set October aside still expects to find October here — that is
+    /// what the toast means by "it's still in Every month" — and a month with two photos is still
+    /// a month they may want to wander back through.
+    ///
+    /// Newest first, same as `clusters`.
+    static func monthIndex(
+        assetDates: [Date],
+        cloudOnlyDates: [Date] = [],
+        entryDates: [Date],
+        calendar: Calendar = .current
+    ) -> [BackfillMonthSummary] {
+        var assets: [BackfillMonth: Int] = [:]
+        for date in assetDates + cloudOnlyDates {
+            guard let month = BackfillMonth(containing: date, calendar: calendar) else { continue }
+            assets[month, default: 0] += 1
+        }
+
+        var entries: [BackfillMonth: Int] = [:]
+        for date in entryDates {
+            guard let month = BackfillMonth(containing: date, calendar: calendar) else { continue }
+            entries[month, default: 0] += 1
+        }
+
+        // Keyed off the photos, not off the entries. A month with entries and no photos is not a
+        // month you can browse a camera roll for, and listing it under "Every month" would offer
+        // a door onto an empty room.
+        return assets
+            .map { month, count in
+                BackfillMonthSummary(
+                    month: month, assetCount: count, entryCount: entries[month] ?? 0
+                )
+            }
+            .sorted { $0.month > $1.month }
+    }
 }
 
 // MARK: - Dismissal
@@ -79,6 +135,8 @@ nonisolated enum BackfillPlan {
 nonisolated protocol BackfillDismissalStoring: AnyObject, Sendable {
     func dismissed() -> Set<String>
     func dismiss(_ month: BackfillMonth)
+    /// Undo a dismissal. Backs the toast's Undo and nothing else.
+    func restore(_ month: BackfillMonth)
 }
 
 nonisolated final class UserDefaultsBackfillDismissalStore: BackfillDismissalStoring, @unchecked Sendable {
@@ -99,6 +157,12 @@ nonisolated final class UserDefaultsBackfillDismissalStore: BackfillDismissalSto
         current.insert(month.key)
         defaults.set(Array(current).sorted(), forKey: key)
     }
+
+    func restore(_ month: BackfillMonth) {
+        var current = dismissed()
+        current.remove(month.key)
+        defaults.set(Array(current).sorted(), forKey: key)
+    }
 }
 
 nonisolated final class InMemoryBackfillDismissalStore: BackfillDismissalStoring, @unchecked Sendable {
@@ -116,6 +180,11 @@ nonisolated final class InMemoryBackfillDismissalStore: BackfillDismissalStoring
         lock.lock(); defer { lock.unlock() }
         months.insert(month.key)
     }
+
+    func restore(_ month: BackfillMonth) {
+        lock.lock(); defer { lock.unlock() }
+        months.remove(month.key)
+    }
 }
 
 // MARK: - The cached result
@@ -131,12 +200,26 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
     /// Opaque. `nil` where the platform gave us nothing to key on, which means the cache falls
     /// back to its age alone.
     let libraryToken: String?
+    /// The browse list behind "Every month".
+    ///
+    /// **Optional so a cache written before this existed still decodes.** A non-optional field
+    /// would fail the decode, and `load()` swallows that as a cache miss — which is a full rescan
+    /// of the library on the next launch after an update, for every user, silently. Absent here
+    /// means "written by an older build", and the next scan fills it in.
+    var months: [StoredMonth]?
 
     nonisolated struct StoredCluster: Codable, Equatable, Sendable {
         let year: Int
         let month: Int
         let assetCount: Int
         let cloudOnlyCount: Int
+    }
+
+    nonisolated struct StoredMonth: Codable, Equatable, Sendable {
+        let year: Int
+        let month: Int
+        let assetCount: Int
+        let entryCount: Int
     }
 
     var asClusters: [BackfillCluster] {
@@ -149,7 +232,22 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
         }
     }
 
-    static func from(_ clusters: [BackfillCluster], at date: Date, token: String?) -> BackfillScanResult {
+    var asMonths: [BackfillMonthSummary] {
+        (months ?? []).map {
+            BackfillMonthSummary(
+                month: BackfillMonth(year: $0.year, month: $0.month),
+                assetCount: $0.assetCount,
+                entryCount: $0.entryCount
+            )
+        }
+    }
+
+    static func from(
+        _ clusters: [BackfillCluster],
+        months: [BackfillMonthSummary] = [],
+        at date: Date,
+        token: String?
+    ) -> BackfillScanResult {
         BackfillScanResult(
             clusters: clusters.map {
                 StoredCluster(
@@ -160,7 +258,15 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
                 )
             },
             scannedAt: date,
-            libraryToken: token
+            libraryToken: token,
+            months: months.map {
+                StoredMonth(
+                    year: $0.month.year,
+                    month: $0.month.month,
+                    assetCount: $0.assetCount,
+                    entryCount: $0.entryCount
+                )
+            }
         )
     }
 

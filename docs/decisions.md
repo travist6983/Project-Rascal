@@ -672,6 +672,47 @@ scan, clustering, dismissal, caching, date resolution — is complete and tested
 region versus Moments versus its own entry point is a design decision that should be made against
 the design vocabulary rather than settled by whoever writes the view first.
 
+**Aug 11, 2026** — Phase 18's surface. Where the suggestion lives is now settled, **and the
+answer reverses the decision taken earlier the same day.**
+
+**The camera roll is a browse action with its own entry point, not a row inside the composer.**
+The morning's decision put a quiet row inside the composer on the freeform path, chosen partly
+because it cost the primary action nothing: **+** stayed one tap to a composer. The mockups in
+`docs/mobile-app-design-composer/` describe something else — **+** opens an *Add to the archive*
+sheet with four capture verbs, and the camera roll sits below a divider as a fifth thing that is
+explicitly not a verb, leading to a browse flow of its own: permission explainer, scan, suggested
+months, every month, a month picker, then the composer. The prototype carries both options and
+argues for this one, on the grounds that browsing and creating are different acts and only the
+separated version can say what is actually waiting.
+
+That was raised as a reversal rather than built quietly, and taken deliberately. **The cost is
+real and is the thing to watch: every entry now pays a tap it did not pay before**, backfill or
+not. If that tap turns out to be the wrong trade, the thing to change is the sheet, not the flow
+behind it — the flow is reachable from anywhere.
+
+**A backfill selection is confined to a single day.** The plan allowed multi-select across a whole
+month with three photos preselected. `BackfillDateRule` resolves a selection to its earliest
+plausible creation date, so a month-wide selection spanning three weeks produces a date that is
+defensible and not accurate — the entry lands on the first of those weeks and says nothing about
+the rest. Confining the selection to one day makes the resolved date *exact*, which is the only
+reason this feature is careful about `occurred_at` at all. The rule lives in `BackfillSelection`
+rather than in view state so it can be asserted. **Nothing is preselected:** choosing photos on a
+parent's behalf, in the one flow whose entire purpose is getting a date right, would be the app
+deciding what a day was about. `suggestedSelectionCount` survives as the framing it always was and
+now selects nothing.
+
+**The system photo prompt is earned before it is fired.** iOS asks once and a denial is close to
+permanent, and this app deliberately builds no retry funnel. So the explainer comes first, its
+three bullets state exactly what the scan does — dates and counts only, nothing uploaded, nothing
+added on its own — and "Not now" leaves without asking anything. Nothing in the flow requests
+authorization from anywhere else.
+
+**Nothing downloads, at any point.** Thumbnails and full-size reads both run with
+`isNetworkAccessAllowed = false`. An asset that lives only in iCloud is *counted* — so the month's
+photo count stays honest — *shown* as unavailable, and refused as a selection. Presenting one as
+available and then failing on load is worse than saying so, and quietly pulling a few hundred
+megabytes from a screen someone opened to browse would break the promise the explainer just made.
+
 **Aug 10, 2026** — Phase 15 made the prompt pool durable. Three decisions.
 
 **Suppression outranks every relaxation rule, including an empty pool.** A dismissed prompt was

@@ -1,12 +1,22 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 10, 2026**, written as the share sheet went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 11, 2026**, written as the camera-roll backfill surface went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message.
 
-**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API test count has since been re-measured** — see the row below; it was wrong. The other API-side figures — live operations, prompt counts, entries in the dev archive — were carried forward unmeasured, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
+**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API test count was not** — it is carried forward from the Aug 10 revision and the API lane has not been touched since, so treat it as one revision stale rather than as freshly checked. The previous revision's own note about it having been re-measured is left below for the record. The other API-side figures — live operations, prompt counts, entries in the dev archive — were carried forward unmeasured, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
 
 * * *
 ## The headline
+**The camera-roll backfill is complete — engine and surface — and one pull request is outstanding.** Everything else that has ever been opened is merged into `main`. Since the last snapshot: the share sheet (#35), Settings v2 (#37), push notifications (#39, #40), prompt-pool durability (#41), structured extraction (#43, #45), and video audio tracks (#42) which merged **blocked** and is documented as such.
+
+**Phase 18 reversed one of its own decisions the same day it took it, deliberately and in writing.** The plan put the backfill offer as a quiet row inside the composer, chosen partly because it cost the primary action nothing. The design export described something else — **+** opening an *Add to the archive* sheet with the camera roll as a browse entry point of its own. That gap was raised rather than built around, the design was chosen, and the cost is stated plainly in `docs/decisions.md`: **every entry in the app now pays a tap it did not pay before.** If that trade is wrong, the sheet is the thing to change, not the flow behind it.
+
+**The phase's most valuable output was four accessibility defects that only a screenshot could find**, and the worst of them was severe: at accessibility XXL the permission screen's headline ran off the top and *both* of its actions ran off the bottom, with no scroll. iOS shows its photo prompt once — a parent at that text size would have hit a permanent dead end, with nothing on screen explaining why, and the feature would simply never have worked for them. The same `VStack`-of-spacers pattern was wrong in three sibling screens. All four now scroll with their actions pinned. A month heading also broke *inside the word* — "Octobe / r" — because a month and its year sat in two layout boxes instead of one `Text`.
+
+**Two defects were caught by re-reading rather than by running.** A day was badged "Written" the moment the composer *opened*, so cancelling it left a check mark with no entry behind it — the same class of lie as a completion check on an empty prompt. And the scan was being awaited by polling `state` in a loop on the main actor, on the one feature whose whole design constraint is staying cheap against a forty-thousand-asset library.
+
+**A warm build under-reports warnings, and this phase proved it again.** The branch's recorded "0 warnings" baseline had been measured warm; a cold run surfaced pre-existing ones the moment an untouched file was forced to recompile. Worth naming twice because it is the second time: `xcodebuild build` alone does not compile the **test** target at all, so a build-only warning count omits every test file.
+
 **P0's scope list is complete, P3's headline feature is built, and both of P1's shippable retention levers now exist.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**; the iOS CI cost fix as #33; **Today v2 as #34**. **One pull request is outstanding — the share sheet target.** Every other branch that has ever been opened is merged into `main`.
 
 **The share sheet closes the last unblocked P1 item.** A photo now goes from Photos into an entry without opening the app, and the phase's real content is a date rather than a screen: a photo shared from the camera roll is almost never from today, so `occurred_at` is read from the file's own capture metadata and shown before Save. Defaulting it to now would have filed a 2019 photo under this week, and that error is invisible — the entry looks completely normal, on the wrong day, permanently. The architecture is the widget's, inverted: **the extension stages into the App Group container and exits; the app drains the queue through the pipeline the composer already uses.** No networking, no auth, and no second upload path in the extension. See `docs/reports/phase-12-share-extension.md`.
@@ -34,9 +44,9 @@ What is left is then the two things only you can unblock — Apple enrollment an
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **34** — Today v2 (#34) merged since the last snapshot. The share sheet is **open** at this snapshot |
+| Merged pull requests | **43** — nine merged since the last snapshot: the share sheet (#35), the deploy fixes (#36), Settings v2 (#37), push notifications (#39, #40), the prompt pool (#41), video audio tracks (#42, blocked on arrival), structured extraction (#43) and the tag-source unblock (#45). **One is open: #44, the camera-roll backfill** |
 | API tests | **413 passing**, 29 files — re-measured, not carried forward. The stale **315** this row used to claim was two revisions old and wrong even for `main`, which measures **339 in 25 files** from a clean worktree; push notifications add the other 74 |
-| iOS tests | **571 passing**, 56 suites, zero warnings (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 47 with the share sheet, in three new suites. No existing test was modified |
+| iOS tests | **662 passing**, 79 suites (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — up 23 with the backfill surface, in five new suites. No existing test was modified. **Zero warnings in the app target and in every file phase 18 touched**; fourteen remain in `RascalTests/PushPermissionTests.swift`, which is phase 14's and is named rather than absorbed into a clean claim |
 | Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
 | Prompt library | **113 authored, 113 active** — nothing held back |
 | Prompt candidates awaiting your review | **79** |
@@ -116,7 +126,14 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | ✅ merged |
 | **CI cost** | The iOS workflow made dispatch-only after it spent an entire month's Actions allowance in two days and took the nightly backup down with it | #33 | ✅ merged |
 | **11 (the other one) — Today v2** | The Today board rebuilt against its own design export. New compact waiting and done cards, a child switcher, swipe-to-skip with a held-request undo, and the board extracted into a previewable `TodayBoardView` | #34 | ✅ merged |
-| **12 — The share sheet** | A Share Extension target, the App Group staging queue it writes, and the drain in the app that turns it into entries through the existing pipeline. EXIF-derived `occurred_at`, one entry per share | — | **open at this snapshot** |
+| **12 — The share sheet** | A Share Extension target, the App Group staging queue it writes, and the drain in the app that turns it into entries through the existing pipeline. EXIF-derived `occurred_at`, one entry per share | #35 | ✅ merged |
+| **ops** | The two things the first real deploy broke | #36 | ✅ merged |
+| **13 — Settings v2** | The screen opens on the child; the card that could vanish | #37 | ✅ merged |
+| **14 — Push notifications** | One notification a day, the server owning the schedule, and four things it could not have survived in production | #39, #40 | ✅ merged |
+| **15 — Prompt pool durability** | Suppression outranks every relaxation rule, including an empty pool | #41 | ✅ merged |
+| **16 — Video audio tracks** | Blocked on arrival; see `docs/phases/phase-16-BLOCKED.md` | #42 | ⛔ merged blocked |
+| **17 — Structured extraction** | Plus #45, which let a tag write say who decided it | #43, #45 | ✅ merged |
+| **18 — Camera-roll backfill** | The engine (scan, clustering, dismissal, caching, the `occurred_at` rule) **and** the surface: an *Add to the archive* sheet behind **+**, a permission explainer, suggestions, an every-month browse list, a day-grouped picker, and a prefilled composer | #44 | **open at this snapshot** |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -272,7 +289,10 @@ ls api/tests/test_*.py | wc -l               # 24 files
 # `-only-testing` run had reported as zero.
 rm -rf ~/Library/Developer/Xcode/DerivedData/Rascal-*
 xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
-  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 571 iOS tests, 56 suites, zero warnings
+  -destination "id=<sim>" CODE_SIGNING_ALLOWED=NO   # 662 iOS tests, 79 suites
+# Warnings: zero in the app target. Fourteen in RascalTests/PushPermissionTests.swift, phase 14's,
+# unfixed and deliberately not counted as clean. Note `build` alone does NOT compile the test
+# target, so a build-only run reports a warning count that omits every test file.
 
 # Three targets now, and all three must carry the same App Group or the widget goes
 # neutral and the share sheet says it cannot save — in both cases with no error anywhere.

@@ -4,8 +4,16 @@
 of `Date` values, so the scan is proven as arithmetic and unproven as a thing that runs on a phone
 with years of photos on it.
 
-**Note before starting: the suggestion surface and the picker were not built.** Sections 2 and 3
-below cannot be run until they are. Sections 0, 1 and 4 can be run against the scan alone.
+**Aug 11, 2026: the surface and the picker now exist, so every section below can be run.** The
+flow is **+** → *Add to the archive* → *Browse your camera roll* → permission explainer → scan →
+suggestions → a month → pick photos from **one day** → a prefilled composer.
+
+Two things to watch for that no test can reach:
+
+- [ ] **The permission explainer is the only thing standing between you and a one-shot iOS
+      prompt.** Tap "Not now" first and confirm nothing was asked. Then reopen and grant.
+- [ ] **A month whose photos are all in iCloud.** Every tile should say so and none should be
+      selectable — and nothing should download while you sit on that screen. Watch the network.
 
 ---
 

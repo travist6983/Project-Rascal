@@ -1393,3 +1393,30 @@ Smaller calls:
   for a privacy gain that does not exist. Noted rather than acted on.
 - **`main`'s roadmap figure of 315 API tests was stale** and its own note said so. Re-measured
   from a clean worktree at `origin/main`: 339 in 25 files. This branch is 413 in 29.
+
+## Phase 18 — the backfill surface (Aug 11, 2026)
+
+- **The camera roll got its own entry point and `+` got a sheet, reversing the morning's
+  decision.** Raised as a reversal rather than built quietly, because the composer-row placement
+  had been chosen partly on the grounds that it cost the primary action nothing. It now costs one
+  tap on every entry. See `docs/decisions.md`; if that trade is wrong, the sheet is the thing to
+  change, not the flow behind it.
+- **A selection is confined to one day, and nothing is preselected.** The plan allowed month-wide
+  multi-select with three chosen for you. The earliest-date rule makes a spread selection's date
+  defensible rather than accurate, and one day makes it exact. The rule lives in
+  `BackfillSelection` rather than in `@State` so it can be asserted.
+- **`BackfillScanResult.months` is optional purely so old caches still decode.** A non-optional
+  field fails the decode, `load()` swallows that as a miss, and every device rescans its whole
+  library once after the update. Cheap to get right, invisible to get wrong.
+- **The child's birthdate travels from the gate as a parameter**, the same way `family_timezone`
+  already does and for the same stated reason. `GET /today` carries only `age_months`, which is an
+  age as of today and says nothing about a month in 2019.
+- **Ages in this flow come from `DraftAge`, the one client-side age calculation.** A month with
+  nothing written in it has no server `child_age_months` to render. Never stored, never sent, and
+  replaced by the server's number as soon as an entry exists.
+- **Nothing downloads, on any path.** Both new `PHImageManager` calls set
+  `isNetworkAccessAllowed = false`. Cloud-only assets are counted so the totals stay honest, shown
+  as unavailable, and refused as selections.
+- **Four accessibility-sized layout defects were found by screenshotting, not by reading.** The
+  worst left the permission screen with no reachable way to grant or decline at XXL — on a prompt
+  iOS only offers once. Warm builds also under-report warnings; the cold figure is the real one.
