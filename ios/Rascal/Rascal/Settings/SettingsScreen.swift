@@ -58,12 +58,14 @@ struct SettingsScreen: View {
     @State private var notice: String?
     @State private var route: Route?
     @State private var confirmingSignOut = false
-    @State private var confirmingRecompute = false
     @State private var outstanding = EntrySync.Outstanding()
     @State private var isRetrying = false
+    /// What the last "Retry now" achieved. Nil until one has been pressed.
+    @State private var retryOutcome: String?
     @State private var export: ArchiveExport?
-    @State private var recompute: RecomputeAgesModel?
     @State private var syncStatus: SyncStatusModel?
+    /// Pushes the diagnostics screen. See `diagnosticsScreen`.
+    @State private var showingDiagnostics = false
 
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
@@ -73,6 +75,17 @@ struct SettingsScreen: View {
     }
 
     var body: some View {
+        // **A stack, so `Sync diagnostics` can push rather than present.** The root's own big
+        // "Settings" title stays and the navigation bar is hidden under it; the pushed screen
+        // turns its own bar back on. Nothing else on this screen gains a chrome it did not have.
+        NavigationStack {
+            content
+                .navigationDestination(isPresented: $showingDiagnostics) { diagnosticsScreen }
+                .toolbar(.hidden, for: .navigationBar)
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Settings")
@@ -93,7 +106,6 @@ struct SettingsScreen: View {
                     )
                 }
 
-                advancedSection
                 appSection
 
                 if let notice {
@@ -102,9 +114,6 @@ struct SettingsScreen: View {
                         .foregroundStyle(Color.inkMuted)
                         .padding(.horizontal, 2)
                 }
-
-                // Irreversible, and set apart. The whitespace is the point.
-                dangerSection
 
                 signOutButton
 
@@ -118,7 +127,6 @@ struct SettingsScreen: View {
             // The only moment nothing can be referencing a staged zip. See `purgeStale`.
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
-            if recompute == nil { recompute = RecomputeAgesModel(childId: childId, api: session.api) }
             await loadChild()
         }
         // **`sync` arrives late for exactly the same reason `syncEngine` does**, and the counts
@@ -173,16 +181,6 @@ struct SettingsScreen: View {
                     session.apply(user: updated)
                 }
             }
-        }
-        .confirmationDialog(
-            "Recompute every stored age?",
-            isPresented: $confirmingRecompute,
-            titleVisibility: .visible
-        ) {
-            Button("Recompute") { Task { await runRecompute() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Every entry's age is worked out again from \(child?.name ?? "your child")'s birthday. Nothing else about your entries changes.")
         }
         .confirmationDialog(
             "Sign out?",
@@ -372,24 +370,50 @@ struct SettingsScreen: View {
                     SettingsDivider()
                     SettingsActionRow(
                         label: isRetrying ? "Retrying" : "Retry now",
+                        // What the last press achieved. Absent until there has been one, so this
+                        // is a result rather than a standing caption.
+                        detail: retryOutcome,
                         isBusy: isRetrying
                     ) { Task { await retry() } }
                 }
                 if let transcription { TranscriptionBacklogSection(queue: transcription) }
                 if let syncStatus { SyncPullSection(model: syncStatus) }
+                // **One row, inside the card the diagnostics are diagnostics *for*.** They used
+                // to be a top-level `Advanced` card, which put two tools for an unshipped
+                // sync-pull engine at the same level as the archive and the account — reading as
+                // part of ordinary use. The actions themselves are unchanged and neither is
+                // deleted: the dry run is the thing that gets read before the pull flag is
+                // flipped, and that is still ahead.
+                if syncStatus != nil {
+                    SettingsDivider()
+                    SettingsRow(label: "Sync diagnostics") { showingDiagnostics = true }
+                }
             }
         }
     }
 
+    @ViewBuilder
     private var syncHeader: some View {
         let summary = Self.syncSummary(outstanding)
-        return SettingsCardHeader(
+        SettingsCardHeader(
             eyebrow: summary.eyebrow,
             counter: summary.counter,
             headline: summary.headline,
             detail: summary.detail,
             isActive: summary.isActive
         )
+        // Its own line, under the reassuring one, because it is the part that is not reassuring.
+        // `inkMuted` rather than a red — a file that stopped trying is a fact about a connection,
+        // not an emergency, and nothing in this app turns red.
+        if let stalled = summary.stalled {
+            Text(stalled)
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Layout.cardPadding)
+                .padding(.bottom, Layout.cardPadding)
+        }
     }
 
     /// Everything the sync card's head says, in both of its states.
@@ -409,11 +433,20 @@ struct SettingsScreen: View {
         let counter: String?
         let headline: String
         let detail: String?
+        /// Files past the retry cap, said separately. Nil when there are none.
+        let stalled: String?
         /// Tints the wash and lights the dot.
         let isActive: Bool
     }
 
     /// "3 entries and 2 files still to upload." — a count, not an accusation.
+    ///
+    /// **Waiting and stalled are two sentences, and that is the fix.** The counter used to be
+    /// `outstanding.total`, which folds files past the retry cap in with files still on their
+    /// way, under a line promising they would "finish on their own when you're back on a good
+    /// connection". A `failed` row does not finish on its own — it is terminal until something
+    /// asks again — so eight stuck files read as eight patient ones, and the card was most
+    /// reassuring at precisely the moment it should not have been.
     static func syncSummary(_ outstanding: EntrySync.Outstanding) -> SyncSummary {
         guard !outstanding.isClear else {
             return SyncSummary(
@@ -421,6 +454,28 @@ struct SettingsScreen: View {
                 counter: nil,
                 headline: "Everything's uploaded.",
                 detail: nil,
+                stalled: nil,
+                isActive: false
+            )
+        }
+
+        let stalled = outstanding.failedMedia > 0
+            ? (outstanding.failedMedia == 1
+                ? "1 file stopped trying. Retry now picks it back up."
+                : "\(outstanding.failedMedia) files stopped trying. Retry now picks them back up.")
+            : nil
+
+        // Everything stalled and nothing waiting: the card must not say "still to upload" about
+        // rows that have stopped, and must not count down to a finish that will not arrive.
+        guard outstanding.waiting > 0 else {
+            return SyncSummary(
+                eyebrow: "Sync",
+                counter: nil,
+                headline: outstanding.failedMedia == 1
+                    ? "1 file didn't finish uploading."
+                    : "\(outstanding.failedMedia) files didn't finish uploading.",
+                detail: "They're still on this phone. Retry now tries again.",
+                stalled: nil,
                 isActive: false
             )
         }
@@ -428,34 +483,42 @@ struct SettingsScreen: View {
         var parts: [String] = []
         let writes = outstanding.entries + outstanding.deletions
         if writes > 0 { parts.append(writes == 1 ? "1 entry" : "\(writes) entries") }
-        if outstanding.media > 0 {
-            parts.append(outstanding.media == 1 ? "1 file" : "\(outstanding.media) files")
+        let waitingMedia = max(0, outstanding.media - outstanding.failedMedia)
+        if waitingMedia > 0 {
+            parts.append(waitingMedia == 1 ? "1 file" : "\(waitingMedia) files")
         }
         let subject = parts.joined(separator: " and ")
 
         return SyncSummary(
             eyebrow: "Uploading",
-            counter: "\(outstanding.total) left",
+            counter: "\(outstanding.waiting) left",
             headline: "\(subject) still to upload.",
             detail: "They'll finish on their own when you're back on a good connection.",
+            stalled: stalled,
             isActive: true
         )
     }
 
     // MARK: Advanced
 
-    /// The dry run and the reset, in the import's own grouping — minus the third row it puts
-    /// beside them. See `dangerSection`.
+    /// The secondary screen behind "Sync diagnostics".
     ///
-    /// Absent entirely when there is no `SyncEngine`, rather than shown as an empty labelled
-    /// shell: the screen is buildable in a test without one, and a card with nothing in it under
-    /// a rule that says "Advanced" is exactly the furniture this screen refuses everywhere else.
+    /// **The top-level `Advanced` card is gone and this is where its contents went.** The two
+    /// actions and their explanatory copy are carried over unchanged — that copy is good, and the
+    /// dry run is what gets read before the pull flag is flipped.
+    ///
+    /// **This must survive the Settings-first launch race, which is the race the screenshot
+    /// harness runs every time.** `SyncStatusModel` is built in `.onChange(of: syncEngine != nil,
+    /// initial: true)` rather than in `.task`, because `.task` fires once and `RootView` builds
+    /// the engine in *its* `.task` — so a launch that lands straight on this tab had a nil engine
+    /// when `.task` ran, and Phase 13's `Advanced` card was silently absent for the whole session.
+    /// Moving it behind a row makes that failure quieter, not safer: the row would simply never
+    /// appear. The `onChange` is what keeps both the row and this screen arriving late rather
+    /// than never.
     @ViewBuilder
-    private var advancedSection: some View {
+    private var diagnosticsScreen: some View {
         if let syncStatus {
-            section("Advanced") {
-                SettingsCard { SyncAdvancedSection(model: syncStatus) }
-            }
+            SyncDiagnosticsScreen(model: syncStatus)
         }
     }
 
@@ -467,54 +530,6 @@ struct SettingsScreen: View {
                 SettingsValueRow(label: "Version", value: Self.version)
             }
         }
-    }
-
-    // MARK: Irreversible
-
-    /// Its own card, and its own space above it. Nothing in this section is adjacent to a row
-    /// that merely edits a value.
-    private var dangerSection: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            SettingsSectionHeader("Corrections")
-            SettingsCard {
-                switch recompute?.state ?? .idle {
-                case .idle, .running:
-                    SettingsActionRow(
-                        label: "Recompute ages from birthday",
-                        detail: "Ages are saved with each entry as you write it, so fixing a birthday doesn't change them. This works them all out again.",
-                        isBusy: recompute?.isRunning ?? false
-                    ) { confirmingRecompute = true }
-
-                case .done(let updated, let birthdate):
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(RecomputeAgesModel.summary(updated: updated, birthdate: birthdate))
-                            .typeRole(.body)
-                            .foregroundStyle(Color.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Done") { recompute?.dismiss() }
-                            .typeRole(.body)
-                            .foregroundStyle(Color.terracotta)
-                    }
-                    .padding(Layout.cardPadding)
-
-                case .failed(let message):
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("That didn't finish")
-                            .typeRole(.body)
-                            .foregroundStyle(Color.ink)
-                        Text(message)
-                            .typeRole(.metadata)
-                            .foregroundStyle(Color.inkMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Try again") { confirmingRecompute = true }
-                            .typeRole(.body)
-                            .foregroundStyle(Color.terracotta)
-                    }
-                    .padding(Layout.cardPadding)
-                }
-            }
-        }
-        .padding(.top, 8)
     }
 
     /// Below everything, where it was. Terracotta is the primary action colour and signing out
@@ -617,23 +632,58 @@ struct SettingsScreen: View {
         onTimezoneResolved(updated.familyTimezone)
     }
 
-    private func runRecompute() async {
-        await recompute?.run(context: context)
-        refreshOutstanding()
-        // The corrected ages are in the archive now; reload the child so the birthday row and
-        // the greeting agree with what was just computed against.
-        await loadChild()
-    }
 
     /// The existing sweep, not a media-only path. **Entries drain before media** — a media
     /// upload against an entry the server has never seen spends an attempt on a guaranteed 404
     /// and pushes that file's backoff out for nothing.
+    /// **Reaches `MediaCoordinator.shared`, and does not build a second one.** `sync` is the
+    /// `EntrySync` `RootView` constructed with the process-wide coordinator — the same object it
+    /// assigned to `MediaCoordinator.shared` — so the sweep here and a background upload callback
+    /// are the same queue. A coordinator built locally would be a second uploader with its own
+    /// in-flight set, racing the first for the same rows.
+    ///
+    /// **It says what happened.** A primary action that disables, re-enables, and reports nothing
+    /// teaches the parent that the card is decorative — and this one is pressed at the moment
+    /// somebody is worried about whether their photos are safe.
     private func retry() async {
         guard let sync, !isRetrying else { return }
         isRetrying = true
+        retryOutcome = nil
         defer { isRetrying = false }
+
+        let before = outstanding
         await sync.sweep()
         refreshOutstanding()
+        retryOutcome = Self.retryResult(before: before, after: outstanding)
+    }
+
+    /// What the retry achieved, in one sentence, from the counts on either side of it.
+    ///
+    /// Derived from the store rather than from the sweep's return value on purpose: `sweep()`
+    /// reports entries pushed, and the thing a parent is watching is the whole number on the card
+    /// going down — which includes media, deletions, and rows that failed again.
+    static func retryResult(
+        before: EntrySync.Outstanding,
+        after: EntrySync.Outstanding
+    ) -> String {
+        if after.isClear {
+            return "Everything's uploaded."
+        }
+        let landed = max(0, before.total - after.total)
+        // **Everything left has stopped trying, so nothing is "still to go".** Same rule as the
+        // card's own headline: a number that is coming and a number that has stalled are
+        // different facts, and only one of them is a countdown.
+        let remainderStalled = after.waiting == 0 && after.failedMedia > 0
+
+        if landed == 0 {
+            return remainderStalled
+                ? "Nothing moved. They're still here — it's worth trying again on a better connection."
+                : "Nothing moved yet. It'll keep trying on its own."
+        }
+        let noun = landed == 1 ? "1 finished" : "\(landed) finished"
+        return remainderStalled
+            ? "\(noun). The rest stopped trying — worth another go on a better connection."
+            : "\(noun). \(after.total) still to go."
     }
 
     private func refreshOutstanding() {

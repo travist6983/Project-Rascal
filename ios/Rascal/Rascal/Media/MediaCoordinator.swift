@@ -261,6 +261,19 @@ final class MediaCoordinator {
             .count
     }
 
+    /// The subset of the above that is past the retry cap.
+    ///
+    /// **A count that mixes these two is reassuring about the wrong rows.** `outstandingCount`
+    /// answers "how much is not in the archive", which is the right question for Today; Settings
+    /// asks a different one, because "8 files still to upload — they'll finish on their own when
+    /// you're back on a good connection" is a promise a `failed` row does not keep. `failed` is
+    /// terminal until something asks again, and asking again is exactly what "Retry now" is for.
+    static func failedCount(in context: ModelContext) -> Int {
+        ((try? context.fetch(FetchDescriptor<Media>())) ?? [])
+            .filter { $0.deletedAt == nil && $0.state == .failed }
+            .count
+    }
+
     /// Rows that are due, **ordered by when they became due** rather than by age.
     ///
     /// Oldest-first would let one permanently failing row sit at the head forever: it is

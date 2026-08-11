@@ -10,6 +10,13 @@ struct BackfillSuggestionsScreen: View {
     let clusters: [BackfillCluster]
     let months: [BackfillMonthSummary]
     let childBirthdate: Date?
+    /// Selected-photos access. **Every count on this screen is a count of the selection**, so the
+    /// screen has to say so — a month total computed over a fraction of the library is wrong
+    /// while looking entirely normal, which is the same failure shape as a photo filed under the
+    /// wrong day.
+    var isLimited: Bool = false
+    /// Widen the selection. Nil where there is nothing to widen.
+    var onWidenSelection: (() -> Void)?
     let onOpen: (BackfillMonth) -> Void
     let onDismissMonth: (BackfillMonth) -> Void
     let onClose: () -> Void
@@ -21,11 +28,16 @@ struct BackfillSuggestionsScreen: View {
                     .typeRole(.display)
                     .foregroundStyle(Color.ink)
                     .padding(.top, 8)
-                Text("There's a lot here you haven't written about yet. Pick a month and start anywhere.")
+                Text(intro)
                     .typeRole(.body)
                     .foregroundStyle(Color.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10)
+
+                if isLimited {
+                    LimitedLibraryNotice(onWiden: onWidenSelection)
+                        .padding(.top, 18)
+                }
 
                 if !clusters.isEmpty {
                     SectionLabel("Suggested")
@@ -61,6 +73,15 @@ struct BackfillSuggestionsScreen: View {
                 Button("Done", action: onClose).foregroundStyle(Color.inkMuted)
             }
         }
+    }
+
+    /// **The opening sentence is a claim about the library, so it changes when the library is a
+    /// selection.** "There's a lot here you haven't written about yet" is only true of everything
+    /// the app can see, and under `.limited` that is whatever was shared.
+    private var intro: String {
+        isLimited
+            ? "These are the photos you've shared with Rascal. Pick a month and start anywhere."
+            : "There's a lot here you haven't written about yet. Pick a month and start anywhere."
     }
 
     /// Grouped by year, newest first. The grouping is done here rather than in the model because
@@ -283,4 +304,63 @@ struct BackfillMonthThumbnailStrip: View {
     }
 
     private var remainder: Int { max(0, total - shown) }
+}
+
+// MARK: - Limited access
+
+/// What the browse surface says when it can only see a selection.
+///
+/// **Not an error, and not a scolding.** The parent made a deliberate, reasonable choice. What it
+/// does is stop every count on the screen from reading as a complete one, because a month total
+/// computed over a fraction of the library is wrong in a way nothing on screen would reveal.
+///
+/// Two ways out, and neither is a re-prompt: widening the selection is a picker iOS will show any
+/// number of times, and Settings is the only place full access can be granted. `docs/decisions.md`
+/// records that this app builds no retry funnel, and neither of these is one — iOS's own
+/// permission prompt is never fired twice.
+struct LimitedLibraryNotice: View {
+    var onWiden: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("You've shared some of your photos")
+                .typeRole(.cardTitle)
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Counts here cover the photos you've shared, not your whole library.")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 16) {
+                if let onWiden {
+                    Button("Share more photos", action: onWiden)
+                        .typeRole(.metadata)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.terracotta)
+                }
+                SettingsLinkText()
+            }
+            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// The quiet route to the app's own Settings page, as inline text rather than a bordered button.
+struct SettingsLinkText: View {
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button("Open Settings") {
+            #if canImport(UIKit)
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+            #endif
+        }
+        .typeRole(.metadata)
+        .fontWeight(.semibold)
+        .foregroundStyle(Color.inkMuted)
+    }
 }

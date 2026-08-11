@@ -63,6 +63,14 @@ struct OnboardingProgressBar: View {
 /// The bottom third is a design-system layout rule — "primary actions live in the bottom third,
 /// one-thumb reachable" — and it is why every step puts its content in the middle and its button
 /// underneath rather than stacking everything from the top.
+///
+/// **Content scrolls; the footer is an inset that cannot be pushed anywhere.** This was a
+/// `VStack` with a `Spacer(minLength: 24)` doing the pinning, which is the same shape Phase 18
+/// found and fixed on four backfill screens — see `BackfillPermissionScreen`. A spacer only
+/// pushes while there is room to push, so at the accessibility text sizes the stack overflowed
+/// its frame and drove everything upward: at `accessibility-extra-extra-large` the birthdate step
+/// pushed the progress rail up under the Dynamic Island, and one more line of copy would have
+/// taken the headline with it. All five steps share this, so all five get the fix.
 struct OnboardingStepScaffold<Content: View, Footer: View>: View {
     let title: String
     var subtitle: String?
@@ -70,32 +78,42 @@ struct OnboardingStepScaffold<Content: View, Footer: View>: View {
     @ViewBuilder var footer: () -> Footer
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .typeRole(.screenTitle)
-                .foregroundStyle(Color.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isHeader)
-
-            if let subtitle {
-                Text(subtitle)
-                    .typeRole(.body)
-                    .foregroundStyle(Color.inkMuted)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .typeRole(.screenTitle)
+                    .foregroundStyle(Color.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 10)
+                    .accessibilityAddTraits(.isHeader)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .typeRole(.body)
+                        .foregroundStyle(Color.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 10)
+                }
+
+                content()
+                    .padding(.top, 28)
             }
-
-            content()
-                .padding(.top, 28)
-
-            Spacer(minLength: 24)
-
-            footer()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, OnboardingLayout.margin)
+            .padding(.top, OnboardingLayout.topInset)
+            .padding(.bottom, 24)
         }
+        // The rubber-band bounce reads as slack on a screen that usually has nothing to scroll.
+        .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, OnboardingLayout.margin)
-        .padding(.top, OnboardingLayout.topInset)
-        .padding(.bottom, OnboardingLayout.margin)
+        .safeAreaInset(edge: .bottom) {
+            footer()
+                .padding(.horizontal, OnboardingLayout.margin)
+                .padding(.bottom, OnboardingLayout.margin)
+                // Room for the fade to actually fade, so content scrolling underneath does not
+                // collide with the action. The same 26 the backfill action bars use.
+                .padding(.top, 26)
+                .background(PinnedActionBackdrop(tint: .canvas))
+        }
     }
 }
 

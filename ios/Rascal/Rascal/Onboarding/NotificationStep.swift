@@ -135,6 +135,12 @@ struct NotifyTimePickerSheet: View {
                     .accessibilityLabel("Minutes")
                 }
                 .frame(maxHeight: 200)
+                // The same fix `ChildSetupFlow`'s birthdate wheel carries, for the same reason
+                // and now for a second caller: Settings reaches this sheet too. The palette is
+                // fixed light-mode ink on cream with no dark variant and the app pins no scheme,
+                // so a wheel on a phone in Dark Mode resolves system colours and draws near-white
+                // rows on the canvas.
+                .environment(\.colorScheme, .light)
 
                 Spacer(minLength: 0)
             }

@@ -10,6 +10,79 @@ enum AddToArchiveChoice: Equatable {
     case backfill
 }
 
+/// What the **+** sheet shows, decided away from the view so all four authorization states can be
+/// asserted rather than looked at.
+///
+/// **The camera-roll row is unconditional, and that is the whole point of this type.** It used to
+/// be `if let offered` over the newest unlogged cluster, which read as a tidy "no row when there
+/// is nothing to offer" — but clusters only exist once a scan has run, a scan only runs with
+/// authorization, and the *only* place authorization is ever asked for is the explainer behind
+/// this row. So on a phone that had never granted access the row was absent, which meant the
+/// explainer was unreachable, which meant access was never granted, which meant the row stayed
+/// absent. The feature was sealed behind its own door.
+///
+/// `docs/decisions.md` settles that **+** opens four capture verbs with the camera roll below a
+/// divider as a fifth thing that is explicitly not a verb. That tap was paid on every entry; this
+/// is the thing it bought.
+nonisolated struct AddToArchiveModel: Equatable, Sendable {
+    /// What the scan last saw. `.notDetermined` before one has run, which is the honest default:
+    /// nothing has been counted, so nothing is claimed.
+    let authorization: BackfillAuthorization
+    /// The newest unlogged month, when there is one. Never gates the row — only its subtitle.
+    let offer: BackfillCluster?
+
+    init(authorization: BackfillAuthorization = .notDetermined, clusters: [BackfillCluster] = []) {
+        self.authorization = authorization
+        self.offer = clusters.first
+    }
+
+    /// **Always true, in every authorization state.** Asserted rather than assumed — the defect
+    /// this replaced was exactly a case-analysis bug, so the four cases are a test.
+    var includesCameraRoll: Bool { true }
+
+    var cameraRollTitle: String { "Browse your camera roll" }
+
+    /// Factual, and never a tally.
+    ///
+    /// "62 photos from October 2025" is a count of what is in the camera roll; "you've missed six
+    /// months" would be an accusation, and the app does not keep that score.
+    ///
+    /// **A count is only ever stated when it is a complete one.** Under `.limited` the scan can
+    /// see the selected photos and nothing else, so a month total computed over them is a
+    /// fraction presented as a whole — the same failure shape as a photo filed under the wrong
+    /// day, and invisible in exactly the same way. So the limited copy says whose photos it
+    /// counted, in the same breath as the number.
+    var cameraRollSubtitle: String {
+        switch authorization {
+        case .denied:
+            // One honest sentence. No retry funnel — iOS asks once and the flow behind this row
+            // offers Settings, which is the only thing that can actually change the answer.
+            return "Photo access is off. Everything else works exactly as it did."
+        case .notDetermined:
+            // Nothing has been scanned, so nothing is counted. This is an invitation, not a
+            // report, and it is the sentence that leads to the explainer.
+            return "Look back through the months you haven't written about yet."
+        case .limited:
+            guard let offer else {
+                return "Browsing the photos you've shared with Rascal."
+            }
+            return "\(Self.photos(offer.assetCount)) from \(offer.month.label()), "
+                + "out of the photos you've shared."
+        case .authorized:
+            guard let offer else {
+                // Every month with photos already has something written in it. A success, and it
+                // does not need a number to say so.
+                return "Wander back through any month."
+            }
+            return "\(Self.photos(offer.assetCount)) from \(offer.month.label()), nothing logged."
+        }
+    }
+
+    private static func photos(_ count: Int) -> String {
+        count == 1 ? "1 photo" : "\(count) photos"
+    }
+}
+
 /// The sheet behind **+**.
 ///
 /// **This replaced a one-tap composer, and that was a deliberate reversal** — see
@@ -17,40 +90,44 @@ enum AddToArchiveChoice: Equatable {
 /// and it needed a home where it could say what is actually waiting without sitting inside the
 /// form someone opened to write. The cost is a tap on the way to every entry, which is the part
 /// worth watching.
-///
-/// The backfill row is **absent entirely** when there is nothing to offer. A row that says
-/// "nothing to backfill" is noise, and this sheet is on the path to every entry the app records.
 struct AddToArchiveSheet: View {
-    let clusters: [BackfillCluster]
+    let model: AddToArchiveModel
     let onChoose: (AddToArchiveChoice) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
-    /// The newest unlogged month — the one a parent is likeliest to still remember.
-    private var offered: BackfillCluster? { Self.offer(from: clusters) }
-
-    /// What, if anything, this sheet offers.
+    /// The content's own height, which is what the sheet is sized to.
     ///
-    /// **Nil is the important answer.** The row is absent entirely rather than present and empty:
-    /// this sheet sits on the path to every entry the app records, and a permanent row reading
-    /// "nothing to backfill" would be a standing reminder of an absence. `clusters` is already
-    /// filtered by the scan — months with entries, months under the minimum, and months set aside
-    /// never reach here — so an empty list genuinely means there is nothing to offer.
-    static func offer(from clusters: [BackfillCluster]) -> BackfillCluster? {
-        clusters.first
-    }
+    /// Seeded rather than started at zero, and the seed is doing one job: it is the height of the
+    /// **first frame**, before the real measurement arrives. Starting at zero means starting on
+    /// some other detent — `.medium`, half the screen — and then resizing in front of the parent
+    /// once the content has been measured, on a sheet that opens on the way to every entry the
+    /// app records. Seeded close, the correction is a few points and invisible; the value that
+    /// actually sizes the sheet is always the measured one, at whatever text size the phone is
+    /// set to.
+    @State private var contentHeight: CGFloat = 380
 
     var body: some View {
-        // Scrollable and detent-flexible rather than a fixed height: at the largest Dynamic Type
-        // sizes four labelled tiles plus a two-line offer are considerably taller than the sheet,
-        // and a fixed detent clips the backfill row off the bottom — the one row this sheet was
-        // reversed for.
+        // Scrollable rather than a fixed height: at the largest Dynamic Type sizes four labelled
+        // tiles plus a two-line offer are considerably taller than the sheet, and a fixed detent
+        // clips the backfill row off the bottom — the one row this sheet was reversed for.
         ScrollView {
             content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color.canvas)
         .presentationDragIndicator(.visible)
-        .presentationDetents([.medium, .large])
+        // **Sized to what is in it.** `.medium` is half the screen whatever the content is, and
+        // this content is well under half a screen — so the sheet opened with a gulf of empty
+        // cream under the tiles.
+        //
+        // **Not `.presentationSizing(.fitted)`**, which is the modifier this looks like it wants:
+        // a `ScrollView` has no intrinsic height, so `.fitted` sizes it to the *proposal* and
+        // produces a near-full-screen sheet — measured, and worse than the `.medium` it replaced.
+        // `.large` stays in the set for the accessibility text sizes, where the content genuinely
+        // does exceed the screen and the sheet needs somewhere to grow.
+        .presentationDetents([.height(contentHeight), .large])
     }
 
     private var content: some View {
@@ -73,12 +150,12 @@ struct AddToArchiveSheet: View {
                 verb("Write", symbol: "pencil", opening: .writing)
             }
 
-            if let offered {
-                Divider()
-                    .overlay(Color.border)
-                    .padding(.top, 18)
-                backfillRow(offered)
-            }
+            // Below a divider, and not a fifth tile in the grid. The divider is the design's way
+            // of saying this is a different kind of thing from the four above it.
+            Divider()
+                .overlay(Color.border)
+                .padding(.top, 18)
+            backfillRow
         }
         .padding(Layout.screenMargin)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -107,13 +184,12 @@ struct AddToArchiveSheet: View {
         .buttonStyle(TapScaleButtonStyle())
     }
 
-    /// The offer.
+    /// The door to the browse flow.
     ///
-    /// **Factual, and never a tally.** "62 photos from October 2025" is a count of what is in the
-    /// camera roll; "you've missed six months" would be an accusation, and the app does not keep
-    /// that score. Only the newest month is named here — the rest are one tap further in, where
-    /// browsing is the point.
-    private func backfillRow(_ cluster: BackfillCluster) -> some View {
+    /// Tapping it always enters `BackfillFlowView`, which reads the authorization status itself
+    /// and opens on the screen that state calls for — the explainer, the limited-access screen,
+    /// the no-access screen, or the suggestions. Nothing is decided twice.
+    private var backfillRow: some View {
         Button {
             choose(.backfill)
         } label: {
@@ -131,10 +207,10 @@ struct AddToArchiveSheet: View {
                     )
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Browse your camera roll")
+                    Text(model.cameraRollTitle)
                         .typeRole(.cardTitle)
                         .foregroundStyle(Color.ink)
-                    Text(Self.offerLine(cluster))
+                    Text(model.cameraRollSubtitle)
                         .typeRole(.metadata)
                         .foregroundStyle(Color.inkMuted)
                         .multilineTextAlignment(.leading)
@@ -152,14 +228,8 @@ struct AddToArchiveSheet: View {
         }
         .buttonStyle(TapScaleButtonStyle())
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Browse your camera roll. \(Self.offerLine(cluster))")
+        .accessibilityLabel("\(model.cameraRollTitle). \(model.cameraRollSubtitle)")
         .accessibilityAddTraits(.isButton)
-    }
-
-    /// "62 photos from October 2025, nothing logged."
-    static func offerLine(_ cluster: BackfillCluster) -> String {
-        let photos = cluster.assetCount == 1 ? "1 photo" : "\(cluster.assetCount) photos"
-        return "\(photos) from \(cluster.month.label()), nothing logged."
     }
 
     private func choose(_ choice: AddToArchiveChoice) {

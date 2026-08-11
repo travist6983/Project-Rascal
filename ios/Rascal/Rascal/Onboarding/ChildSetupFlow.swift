@@ -126,9 +126,11 @@ private struct BirthdateStep: View {
 
     /// The wheel's own value. Mirrored into the draft as a `yyyy-MM-dd` string on change, which
     /// is the form that will be sent — see `OnboardingDraft.birthdate`.
+    ///
+    /// Today is the default because today is inside the picker's range. It is a placeholder a
+    /// parent always moves, and the point is that it is *valid* while they do — the first real
+    /// screen of the app must not open on an error nobody has made yet.
     @State private var date = Date()
-
-    private var check: BirthdateCheck { BirthdateRule.check(date) }
 
     private var name: String {
         let trimmed = session.draft.trimmedName
@@ -144,18 +146,34 @@ private struct BirthdateStep: View {
             subtitle: "It's what stamps every entry with an exact age, forever."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                // Deliberately **not** range-limited to the past. A picker that cannot express a
-                // wrong answer cannot tell the parent they gave one, and a mistyped year is the
-                // single likeliest mistake on this screen. So the wheel allows it and the line
-                // below says so, quietly.
+                // **Bounded at today, which is what removed the error state.** This was unbounded
+                // on the theory that a picker which cannot express a wrong answer cannot tell the
+                // parent they gave one — but the wrong answer it allowed was also *persisted*, so
+                // the screen could open already refusing to continue. A bound the parent cannot
+                // cross needs no sentence underneath it.
+                //
+                // `.environment(\.colorScheme, .light)` is the contrast fix, and it is the same
+                // one `EditChildSheet` and `ComposerView` already carry on their pickers. The
+                // palette is fixed light-mode ink on cream with no dark variant and the app pins
+                // no scheme, so on a phone in Dark Mode `UIDatePicker` resolved *system* label
+                // and fill colours for dark appearance and drew near-white rows on the cream
+                // canvas — measured at 1.03:1. Everything else on this screen was legible because
+                // everything else on this screen is an explicit `Palette` colour.
+                //
+                // Deliberately **no** `.foregroundStyle` here, unlike those two siblings: it is a
+                // no-op on `.wheel`. Bisected in the harness — foreground style alone left the
+                // rows at 1.03:1, the colour scheme alone fixed them, and the two together were
+                // indistinguishable from the colour scheme alone.
                 DatePicker(
                     "Birthdate",
                     selection: $date,
+                    in: ...Date(),
                     displayedComponents: .date
                 )
                 .datePickerStyle(.wheel)
                 .labelsHidden()
                 .frame(maxWidth: .infinity)
+                .environment(\.colorScheme, .light)
                 .onChange(of: date) { _, _ in write() }
 
                 ageEcho
@@ -163,40 +181,38 @@ private struct BirthdateStep: View {
         } footer: {
             Button("Continue") { session.advance() }
                 .buttonStyle(OnboardingPrimaryButtonStyle())
-                .disabled(check != .ok)
         }
         .task {
+            // A draft written by the build that had no bound can hold a future date, and that is
+            // exactly the state a phone in TestFlight is in. Clamping on restore corrects it
+            // rather than handing an out-of-range value to a picker that can no longer show it —
+            // and `write()` puts the corrected value back, so the bad draft does not survive.
             if let stored = session.draft.birthdate,
                let restored = EditChildModel.dayFormatter.date(from: stored) {
-                date = restored
-            } else {
-                write()
+                date = BirthdateRule.clamped(restored)
             }
+            write()
         }
     }
 
-    /// The confirmation line. This catches a mistyped year far better than validation does —
-    /// "17 years, 3 months" under a date is unmissable in a way that a valid-looking 2008 is not.
-    @ViewBuilder
+    /// The confirmation line, and now the only thing under the wheel.
+    ///
+    /// It always renders: with the picker bounded there is no invalid state left for it to
+    /// report, and this was always the better catch anyway — "17 years, 3 months" under a date is
+    /// unmissable in a way that a valid-looking 2008 is not.
     private var ageEcho: some View {
-        if let message = check.message {
-            Text(message)
-                .typeRole(.metadata)
+        HStack(spacing: 8) {
+            Text("Today")
+                .typeRole(.label)
                 .foregroundStyle(Color.inkMuted)
-        } else {
-            HStack(spacing: 8) {
-                Text("Today")
-                    .typeRole(.label)
-                    .foregroundStyle(Color.inkMuted)
-                Chip(
-                    text: DraftAge.label(from: date),
-                    foreground: .periwinkle,
-                    background: .periwinkleSoft
-                )
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Today, \(DraftAge.spoken(from: date))")
+            Chip(
+                text: DraftAge.label(from: date),
+                foreground: .periwinkle,
+                background: .periwinkleSoft
+            )
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Today, \(DraftAge.spoken(from: date))")
     }
 
     private func write() {

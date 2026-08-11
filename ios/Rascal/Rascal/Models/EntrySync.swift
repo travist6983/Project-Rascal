@@ -74,18 +74,29 @@ final class EntrySync {
         var entries: Int = 0
         /// Deletions made here that the server has not been told about.
         var deletions: Int = 0
-        /// Files whose bytes are not yet in storage.
+        /// Files whose bytes are not yet in storage. **Includes `failedMedia`** — this is "not in
+        /// the archive", which is the question Today asks.
         var media: Int = 0
+        /// The subset of `media` past the retry cap.
+        ///
+        /// Carried separately because the two need different sentences: one is waiting on a
+        /// connection and will finish by itself, the other has stopped and needs asking again.
+        /// Folding them together made the card promise that eight stuck files would "finish on
+        /// their own", which is the one thing they will not do.
+        var failedMedia: Int = 0
 
         var total: Int { entries + deletions + media }
         var isClear: Bool { total == 0 }
+        /// What is genuinely still on its way.
+        var waiting: Int { max(0, total - failedMedia) }
     }
 
     func outstanding() -> Outstanding {
         Outstanding(
             entries: (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0,
             deletions: (try? context.fetchCount(EntrySync.pendingDeletionDescriptor())) ?? 0,
-            media: MediaCoordinator.outstandingCount(in: context)
+            media: MediaCoordinator.outstandingCount(in: context),
+            failedMedia: MediaCoordinator.failedCount(in: context)
         )
     }
 

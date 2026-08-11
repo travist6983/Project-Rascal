@@ -191,3 +191,43 @@ struct SyncReportSheet: View {
         }
     }
 }
+
+// MARK: - The secondary screen
+
+/// Where the dry run and the reset live now.
+///
+/// **Moved rather than deleted, and the copy came with them unchanged.** They were a top-level
+/// `Advanced` card on the main Settings screen, which put two diagnostics for a sync-pull engine
+/// that still ships behind a flag — and has never met a real archive — at the same level as the
+/// archive and the account. That reads as part of ordinary use. One row inside the Syncing card
+/// says what they are and gets out of the way.
+///
+/// The dry run is the thing that gets read before the pull flag is flipped, and that is still
+/// ahead. Neither action is going anywhere.
+struct SyncDiagnosticsScreen: View {
+    let model: SyncStatusModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("For working out what a pull would do before turning one on. Nothing here changes your archive.")
+                    .typeRole(.body)
+                    .foregroundStyle(Color.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 4)
+
+                SettingsCard { SyncAdvancedSection(model: model) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Layout.screenMargin)
+            .padding(.bottom, 20)
+        }
+        // Filled explicitly rather than relying on the card inside to stretch the scroll view: a
+        // background that sizes to its content leaves the page in the system's own colour down
+        // both margins, which on a cream app is a white gutter.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.canvas)
+        .navigationTitle("Sync diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
