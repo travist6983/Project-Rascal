@@ -125,9 +125,10 @@ fly secrets set --app rascal-api \
 
 ### 4a. APNs — the push credentials, and where the `.p8` comes from
 
-**None of this exists yet, and nothing below can be done until Apple Developer enrollment
-completes** — the same enrollment that blocks real Sign in with Apple. See
-`docs/blocked.md` §1.
+~~**None of this exists yet, and nothing below can be done until Apple Developer enrollment
+completes**~~ — **enrollment completed Aug 10, 2026, so everything below is now available to
+do.** The key still does not exist: nobody has made the portal trip. This is the last credential
+the project is waiting on. See `docs/blocked.md` §1a.
 
 The key is created in the Apple Developer portal: **Certificates, Identifiers & Profiles →
 Keys → +**, with **Apple Push Notifications service (APNs)** enabled. That gives you a
@@ -404,9 +405,15 @@ Be suspicious of this file in proportion to this section.
 **Still not exercised by anything:**
 
 - A real multipart upload — a video over cellular. Tigris supports the API; parity with the
-  single-PUT path has not been proven end to end (`docs/blocked.md` §2).
-- Sign in with Apple against a real device token, which is blocked on enrollment
-  (`docs/blocked.md` §1). `APPLE_BUNDLE_ID` is set, but nothing has verified the `aud` claim
-  against a token Apple actually issued.
+  single-PUT path has not been proven end to end (`docs/blocked.md` §2). **Single PUT is now
+  proven from a phone in the world**: `rascal-media-prod` holds real objects uploaded from a
+  TestFlight build, not just the 75 bytes check 6 wrote.
+- ~~Sign in with Apple against a real device token, which is blocked on enrollment.~~
+  **Exercised Aug 10, 2026 at `01:06:29Z`** from a device build: `POST /v1/auth/apple → 200`,
+  with the `credentials` and `users` rows to show for it. The `aud` claim has now been verified
+  against a token Apple actually issued. `docs/blocked.md` §1.
+- **Anything APNs.** The key does not exist, so no push has been sent and the notification job
+  has no scheduled machine. §4a and §4b are both unexecuted — this is the only part of this
+  runbook that has never been run.
 - The hourly schedule *firing on its own*. The machine was created and run once by hand, and
   it exited 0 — but no unattended hourly firing has been observed yet.

@@ -1,13 +1,21 @@
 # RASCAL — where we are against the roadmap
-Snapshot: **Aug 11, 2026**, written as the camera-roll backfill surface went up for review. Measured against `docs/memory-app-roadmap.md`, not against memory.
+Snapshot: **Aug 11, 2026 (evening revision)**, written after the camera-roll backfill merged and after the two long-standing human blockers turned out to be closed. Measured against `docs/memory-app-roadmap.md`, not against memory.
 
 Everything in this file was checked by running something — the test suites, the app's own `openapi()`, the prompts table, `gh pr list` — rather than by reading a commit message.
 
-**This revision re-derived only the figures it could.** The pull-request count and the iOS test count were re-measured (`gh pr list`, and a cold `xcodebuild test` from a deleted `DerivedData`, with `CODE_SIGNING_ALLOWED=NO` for CI parity). **The API test count was not** — it is carried forward from the Aug 10 revision and the API lane has not been touched since, so treat it as one revision stale rather than as freshly checked. The previous revision's own note about it having been re-measured is left below for the record. The other API-side figures — live operations, prompt counts, entries in the dev archive — were carried forward unmeasured, because this revision was written from the iOS lane and running them needs the local Postgres up. They were last re-derived at the widget snapshot and nothing in the API has changed since; treat them as two revisions stale rather than as freshly checked.
+**This revision re-derived every API-side figure it had been carrying forward, and every one of them had drifted.** The local Postgres was up, so nothing needed to be estimated: the API suite was run (`uv run pytest`), the route count came from the app's own `openapi()`, and the prompt and entry counts came from `psql`. The stale figures were **413 API tests in 29 files** (now **446 in 33**), **32 operations across 26 paths** (now **40 across 33**) and **755 entries** (now **759**). The pull-request count was re-measured with `gh pr list`. **The iOS test count is the one figure carried forward** — 678 in 81 suites, measured on the backfill branch with `main` merged in, from a deleted `DerivedData`; that branch is now `main` unchanged, so it is current by construction rather than by re-running, and a cold iOS run was not repeated for this revision.
+
+> **The correction this revision exists to make.** The previous revision reported Apple enrollment and Fly as the two things blocking everything, and `docs/blocked.md` had recorded both as **resolved on Aug 10** — struck through, with the evidence in place. This file went on repeating the blocked version for a full day, in five separate places, including the section whose entire job is to say what to do next. It also carried "one pull request is outstanding" past that PR's merge. **Two documents disagreed and the older claim was the one being read.** Both are corrected below, and the figures that follow were re-derived rather than re-copied for exactly that reason.
 
 * * *
 ## The headline
-**The camera-roll backfill is complete — engine and surface — and one pull request is outstanding.** Everything else that has ever been opened is merged into `main`. Since the last snapshot: the share sheet (#35), Settings v2 (#37), push notifications (#39, #40), prompt-pool durability (#41), structured extraction (#43, #45), and video audio tracks (#42) which merged **blocked** and is documented as such.
+**The app is on TestFlight, against a deployed API, and nothing is open.** That is three sentences the previous eight revisions of this file could not write. Sign in with Apple runs against a real Apple-signed token, media uploads land in a production bucket from a phone in the world, and PR #44 — the camera-roll backfill — merged. **Every pull request this project has ever opened is now merged or closed; `gh pr list --state open` returns nothing.**
+
+**The shape of the work has changed, and this is the sentence to carry out of this file.** For eight revisions the answer to "what next" was *deploy, because everything is behind it*. Deploying is done. **What is in front of you now is not a build queue, it is a verification backlog: nine device checklists, 356 checkboxes, zero ticked.** Nothing on that list is a coding task, most of it was unrunnable until yesterday, and all of it is runnable tonight.
+
+**The camera-roll backfill is complete — engine and surface — and merged as #44.** Since the last snapshot: the share sheet (#35), Settings v2 (#37), push notifications (#39, #40), prompt-pool durability (#41), structured extraction (#43, #45), and video audio tracks (#42) which merged **blocked** and is documented as such.
+
+**`main`'s CI is red right now, and it is one line.** `ruff` fails with a single `E501` — `api/alembic/versions/0007_prompt_suppressions.py:82`, a 102-character `op.execute("DROP TRIGGER IF EXISTS …")` against a 100-column limit. It arrived with the phase-15 merge at 10:33Z and has been red since 10:38Z. **The `test` and `image` jobs are green** — 446 tests pass on the runner — so this is a formatting failure wearing a red X, which is the shape that teaches you to discount red. It is deliberately recorded here rather than fixed in this pass, because this pass was a documentation review and fixing it is an API-lane code change.
 
 **Phase 18 reversed one of its own decisions the same day it took it, deliberately and in writing.** The plan put the backfill offer as a quiet row inside the composer, chosen partly because it cost the primary action nothing. The design export described something else — **+** opening an *Add to the archive* sheet with the camera roll as a browse entry point of its own. That gap was raised rather than built around, the design was chosen, and the cost is stated plainly in `docs/decisions.md`: **every entry in the app now pays a tap it did not pay before.** If that trade is wrong, the sheet is the thing to change, not the flow behind it.
 
@@ -17,11 +25,11 @@ Everything in this file was checked by running something — the test suites, th
 
 **A warm build under-reports warnings, and this phase proved it again.** The branch's recorded "0 warnings" baseline had been measured warm; a cold run surfaced pre-existing ones the moment an untouched file was forced to recompile. Worth naming twice because it is the second time: `xcodebuild build` alone does not compile the **test** target at all, so a build-only warning count omits every test file.
 
-**P0's scope list is complete, P3's headline feature is built, and both of P1's shippable retention levers now exist.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**; the iOS CI cost fix as #33; **Today v2 as #34**. **One pull request is outstanding — the share sheet target.** Every other branch that has ever been opened is merged into `main`.
+**P0's scope list is complete, P3's headline feature is built, and both of P1's shippable retention levers now exist.** On-device transcription merged as PR #26; Moments v2 as #30; deploy readiness as #31; **the widget as #32**; the iOS CI cost fix as #33; **Today v2 as #34**; the share sheet as #35. Every branch that has ever been opened is merged into `main`.
 
 **The share sheet closes the last unblocked P1 item.** A photo now goes from Photos into an entry without opening the app, and the phase's real content is a date rather than a screen: a photo shared from the camera roll is almost never from today, so `occurred_at` is read from the file's own capture metadata and shown before Save. Defaulting it to now would have filed a 2019 photo under this week, and that error is invisible — the entry looks completely normal, on the wrong day, permanently. The architecture is the widget's, inverted: **the extension stages into the App Group container and exits; the app drains the queue through the pipeline the composer already uses.** No networking, no auth, and no second upload path in the extension. See `docs/reports/phase-12-share-extension.md`.
 
-Of the two remaining P1 retention levers, **push notifications is the only one left, and it is blocked where TestFlight is** — on Apple enrollment, not on code.
+Of the two remaining P1 retention levers, **push notifications is the only one left — and it is no longer blocked, only undone.** Enrollment cleared on Aug 10, so the APNs key is a portal trip you can make rather than an approval you are waiting on. Two actions, both yours: mint the `.p8` and set three Fly secrets (`docs/runbook-deploy.md` §4a), then create the notification job's scheduled machine (§4b). **The second is the one that gets forgotten and fails silently** — the API stays green, devices register, and no notification is ever sent.
 
 **Today got its design pass, and the phase's most useful output was a stop rather than a screen.** The import tripped three of the four conditions the phase was told to halt on, so Phase 1 ended in `docs/today-v2-inventory.md` — a token reconciliation and eleven open questions — before any Swift existed. The finding that decided most of them: **the design prototype disagrees with its own design system.** It hardcodes a periwinkle, a sage ink and two hairlines that its own `tokens/colors.css` does not; that token file matches `Palette.swift` exactly. So one file disagreed with two, and the palette held — the same way the Moments export was resolved in Phase 10. Paper grain, the STORIES rail, the partner avatar and a second search affordance were all dropped rather than invented. See `docs/today-v2-inventory.md` §8 and the Aug 10 entry in `docs/decisions-log.md`.
 
@@ -38,21 +46,26 @@ Of the two remaining P1 retention levers, **push notifications is the only one l
 
 **The scope gap that no phase ever owned is closed.** Sealed letters can now be written as well as read — see "The sealed letter, whole" below. What is left of it is a four-line server change, not a feature.
 
-What is left is then the two things only you can unblock — Apple enrollment and Fly — and the exit test, which is you using it for fourteen days.
+**The two things only you could unblock are unblocked.** ~~Apple enrollment~~ and ~~Fly~~ both closed on Aug 10. What is left is the exit test — you using it for fourteen days — and the verification backlog that now stands between the code and any claim that it works.
 
-**Deploying is now one command plus a documented set of secrets**, and the archive no longer depends on the scheduler having woken up. `docs/runbook-deploy.md` is the ordered zero-to-verified procedure and `api/scripts/verify_deployment.py` is a program that proves a deployment works rather than a checklist that says it should. Nothing has been deployed — the agent that wrote this has no Fly token and must not have one — so every Fly command in that runbook is still unexecuted, and its §9 says so precisely.
+**Deploying is done, not documented-as-doable.** `https://rascal-api.fly.dev` serves, `/health` returns `{"status":"ok","db":"ok"}` (checked again while writing this), `dev-login` correctly 404s in production, and `scripts/verify_deployment.py` passed **6/6** against it — including the Tigris round trip that had never once succeeded anywhere. Two machines in `ord`, an hourly scheduler machine beside them. `FLY_DEPLOY_ENABLED` is set: pushes to `main` deploy on their own, and the last four Deploy runs are green. `ios/Rascal/Config.xcconfig` points the client at `rascal-api.fly.dev` over HTTPS, which is what a TestFlight build is talking to.
+
+**Two things the first real deployment broke are in `docs/runbook-deploy.md` §9**, both silent, both fixed: `deploy.yml` failed a healthy deploy over a status string (`succeeded` vs flyctl's `complete`), and the runbook's `fly machine run` built a machine that ran the API server instead of the scheduler.
 
 |     |     |
 | --- | --- |
-| Merged pull requests | **43** — nine merged since the last snapshot: the share sheet (#35), the deploy fixes (#36), Settings v2 (#37), push notifications (#39, #40), the prompt pool (#41), video audio tracks (#42, blocked on arrival), structured extraction (#43) and the tag-source unblock (#45). **One is open: #44, the camera-roll backfill** |
-| API tests | **413 passing**, 29 files — re-measured, not carried forward. The stale **315** this row used to claim was two revisions old and wrong even for `main`, which measures **339 in 25 files** from a clean worktree; push notifications add the other 74 |
-| iOS tests | **678 passing**, 81 suites (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — the backfill surface added 23 in five suites and phase 17's extraction 16 in two, measured after merging `main`. No existing test was modified. **Zero warnings in any file phase 18 touches**; 21 remain, all inherited: 14 in `RascalTests/PushPermissionTests.swift` (phase 14), 4 in `RascalTests/ExtractionTests.swift` and **3 in `Rascal/Extraction/ExtractedDetails.swift`** (phase 17, and that last set is in the *app* target). Named rather than absorbed into a clean claim |
-| Live API operations | 32 across 26 paths (incl. `/health`, `dev-login`, and 3 local-only debug routes) |
-| Prompt library | **113 authored, 113 active** — nothing held back |
-| Prompt candidates awaiting your review | **79** |
-| Entries in the dev archive | 755 |
+| Merged pull requests | **44**, and **nothing is open.** Ten merged since the last snapshot: the share sheet (#35), the deploy fixes (#36), Settings v2 (#37), push notifications (#39, #40), the prompt pool (#41), video audio tracks (#42, blocked on arrival), structured extraction (#43), the tag-source unblock (#45) and the camera-roll backfill (#44). One PR was **closed unmerged** — #38, the first push-server attempt, superseded by #39 |
+| API tests | **446 passing on CI**, 33 files — re-derived this revision. The **413 in 29** this row used to claim was one revision stale. **Locally 444 pass and 2 fail**, both in `tests/test_restore.py`, and the cause is this machine rather than the code: Homebrew's `pg_dump` is 17.6, a 17 client writes `SET transaction_timeout` into the dump, and Postgres 16 rejects it on the way back in. CI pins 16 exactly and its `test` job is green |
+| iOS tests | **678 passing**, 81 suites (verified from a deleted `DerivedData`, `CODE_SIGNING_ALLOWED=NO`) — the backfill surface added 23 in five suites and phase 17's extraction 16 in two, measured after merging `main`. That branch is now `main` unchanged, so the figure is current without a re-run. No existing test was modified. **Zero warnings in any file phase 18 touches**; 21 remain, all inherited: 14 in `RascalTests/PushPermissionTests.swift` (phase 14), 4 in `RascalTests/ExtractionTests.swift` and **3 in `Rascal/Extraction/ExtractedDetails.swift`** (phase 17, and that last set is in the *app* target). Named rather than absorbed into a clean claim |
+| Live API operations | **40 across 33 paths** (incl. `/health`, `dev-login`, and the local-only debug routes) — re-derived; the **32 across 26** this row carried was two revisions stale, from before the avatar, pool-health, push and tag-source routes |
+| Prompt library | **113 authored, 113 active** — nothing held back. By kind: 30 question, 25 activity, 23 photo, 12 audio, 12 video, 8 letter, 3 measurement |
+| Prompt candidates awaiting your review | **79** — unchanged since Aug 4, and now carrying a tone decision they were not generated under |
+| Entries in the dev archive | **759** |
+| Device-verification checkboxes ticked | **0 of 356**, across nine checklists. The one figure in this table that has never moved |
 
-**The pull-request and iOS-test counts moved; nothing in the API lane did.** The share sheet added three suites and 47 tests and edited no existing assertion. The iOS suite was run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
+**Every API-side figure in this table moved, and the reason none of them had is worth stating.** The last three revisions were written from the iOS lane, where re-deriving them needs the local Postgres running, so each revision honestly labelled them stale and carried them forward — and "one revision stale" compounded into "two", then into numbers that were wrong by 33 tests, 8 operations and 4 entries. Labelling a figure stale is not the same as it being harmless. This revision ran them.
+
+**The pull-request and iOS-test counts also moved.** The share sheet added three suites and 47 tests and edited no existing assertion. The iOS suite was last run cold, from a deleted `DerivedData`, and the log contains zero occurrences of `: warning:` — the `Metadata extraction skipped. No AppIntents.framework dependency found.` build note that earlier snapshots called out no longer appears.
 
 **Five of the share sheet's assertions were checked by breaking the code rather than by trusting them**, which is worth naming because two of them needed it. Dropping the drain's idempotency guard fails four tests; reaping staged files before the server confirms the entry fails the confirmation test on both the record and the files; and the memory test — which measures a peak footprint while a 160MB file is staged — reports 316MB against its 40MB ceiling when the copy is replaced with a read into memory. **That last one started as a before-and-after reading and passed a mutation it should have caught**, because `Data(contentsOf:)` maps a file that size and mapped pages are not charged to `phys_footprint`. It samples a peak on a second thread now, and the mmap limit is written into the test rather than left for someone to rediscover.
 
@@ -64,7 +77,7 @@ An earlier snapshot claimed 275 iOS tests in 34 suites and 26 API test files. Al
 ## Phases at a glance
 | Phase | Roadmap window | Status |
 | --- | --- | --- |
-| **P0 — POC** | Aug 3–14 | **Scope complete, client sync built but unverified on device.** TestFlight blocked; exit test not started. Onboarding shipped |
+| **P0 — POC** | Aug 3–14 | **Scope complete and shipping to TestFlight against a deployed API.** Onboarding shipped and has been run for real. What is left of P0 is the exit test — fourteen days of use — which has not started, and the device verification that stands between "built" and "known to work" |
 | **P1 — Daily driver** | Aug 17 – Sep 11 | **Partly pre-banked** — search now has a client surface, plus moments, backups, transcode policy all done early |
 | **P2 — Family** | Sep 14 – Oct 9 | Not started. Authorization and the `guardians` table are built and tested; only the invite flow is missing |
 | **P3 — Intelligence** | Oct 12 – Nov 6 | **Item 1 built, unverified on device.** Transcription runs, persists, and survives sync. Items 2–5 not started |
@@ -89,7 +102,7 @@ Against the roadmap's own **In scope** list in §3.
 | Auto-computed child age | ✅   | Server-computed and stored, with an explicit recompute escape hatch |
 | Timeline: reverse-chron, year dividers, type filter | ✅   | PR #19 |
 | "On this day" | ✅   | Moments, incl. the warm random fallback — re-skinned against its own design in #30, with the fallback built as the primary state |
-| TestFlight to yourself | ❌ **blocked** | Apple Developer enrollment — `blocked.md` §1 |
+| TestFlight to yourself | ✅ **done** | ~~Apple Developer enrollment — `blocked.md` §1~~ — enrollment cleared Aug 10 and the app is on TestFlight against `rascal-api.fly.dev`. Sign in with Apple has run end to end from a device build: `POST /v1/auth/apple → 200`, a real `credentials` row, a real `users` row. **This closes the last ❌ in P0's scope list** |
 ### The build-order item that was outstanding — now built
 **Days 3–4 called for a sync engine: "pull-since-**`updated_at`**, push queue".** The push queue was already solid. **The pull now exists**, in `ios/Rascal/Rascal/Sync/`, and all three documented defects have a test that fails without it:
 
@@ -120,7 +133,7 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **6 — Sync pull** | Built, tested, dry-run mode, shipped with `syncPullEnabled` **off** | #24 | ✅ merged, flag off |
 | **7 — Transcription** | On-device `SpeechAnalyzer` + the search surface on Timeline | #26 | ✅ merged |
 | **Settings rebuild** | Editable child, display name, export, sync status | #20 (API), #21 (client) | ✅ merged |
-| **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27 | ✅ merged, **with red CI** — see below |
+| **8 — Onboarding** | Onboarding + account creation, `OnboardingGate` owning session state | #27, #28 | ✅ **merged and done.** ~~with red CI~~ — #28 fixed the two wall-clock transcription tests and five defects the merge shipped. **Run for real**: a first-run setup has been completed on a device against the deployed API |
 | **9 — The seal control** | The composer's half of `unlock_at_age`: shown for `letter` prompts, sealed by default, age from the prompt | #29 | ✅ merged |
 | **10 — Moments v2** | The Moments tab re-skinned against its own design export. The redirect built as the primary state, not the edge | #30 | ✅ merged |
 | **11 — The widget** | The WidgetKit extension target, and Today's mission and question on the Home Screen and Lock Screen. Reads a snapshot the app writes; no networking in the extension | #32 | ✅ merged |
@@ -133,7 +146,7 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 | **15 — Prompt pool durability** | Suppression outranks every relaxation rule, including an empty pool | #41 | ✅ merged |
 | **16 — Video audio tracks** | Blocked on arrival; see `docs/phases/phase-16-BLOCKED.md` | #42 | ⛔ merged blocked |
 | **17 — Structured extraction** | Plus #45, which let a tag write say who decided it | #43, #45 | ✅ merged |
-| **18 — Camera-roll backfill** | The engine (scan, clustering, dismissal, caching, the `occurred_at` rule) **and** the surface: an *Add to the archive* sheet behind **+**, a permission explainer, suggestions, an every-month browse list, a day-grouped picker, and a prefilled composer | #44 | **open at this snapshot** |
+| **18 — Camera-roll backfill** | The engine (scan, clustering, dismissal, caching, the `occurred_at` rule) **and** the surface: an *Add to the archive* sheet behind **+**, a permission explainer, suggestions, an every-month browse list, a day-grouped picker, and a prefilled composer | #44 | ✅ merged |
 
 **Two numbering hazards worth naming, because both have already caused a wrong assumption.**
 
@@ -144,9 +157,16 @@ The client was built in numbered phases that are **not** the roadmap's phases, a
 ### Phase 8, precisely
 Merged as **PR #27**. What shipped: **welcome → Sign in with Apple → name → birthdate → timezone → avatar → Today**, gated by an `OnboardingGate` that owns session state and hands the resolved child down to `RootView`. A returning account skips setup entirely. Two decisions worth not relitigating: the birthdate is carried as a `yyyy-MM-dd` **string** end to end so it cannot drift a day west of Greenwich, and `display_name` is **omitted rather than nulled** when Apple declines to supply one, because Apple returns `fullName` only on the first-ever authorization for an Apple ID and the server applies first-write-wins.
 
-**It merged with red CI, and that is the thing to know.** Two transcription cancellation tests ordered a race against a wall clock — `sleep(60ms)`, then assume the run is under way — and broke under the extra parallelism the onboarding suites added. The follow-up PR fixes that and five production defects found afterwards in the merged code: `RootView` re-resolving session state (which could show a production parent "the API is not running with ENVIRONMENT=local"), a sign-out that landed on a screen offering only `dev-login`, a second sign-out in one launch silently doing nothing, no way out of setup after signing in with the wrong Apple ID, and `AvatarCrop` decoding a full-resolution photo to produce 512 pixels. `docs/reports/phase-5-onboarding.md` is the full account.
+~~**It merged with red CI, and that is the thing to know.**~~ **Closed by PR #28**, which was merged as "Green main again, and five defects the onboarding merge shipped". Two transcription cancellation tests had ordered a race against a wall clock — `sleep(60ms)`, then assume the run is under way — and broke under the extra parallelism the onboarding suites added. #28 fixed that and five production defects found afterwards in the merged code: `RootView` re-resolving session state (which could show a production parent "the API is not running with ENVIRONMENT=local"), a sign-out that landed on a screen offering only `dev-login`, a second sign-out in one launch silently doing nothing, no way out of setup after signing in with the wrong Apple ID, and `AvatarCrop` decoding a full-resolution photo to produce 512 pixels. `docs/reports/phase-5-onboarding.md` is the full account.
 
-**Still unverifiable, and not by omission:** Sign in with Apple has never executed — not on a device, not once — because enrollment has not cleared (`blocked.md` §1). Everything below the credential seam is tested; the real `ASAuthorization` path is not. Separately, the avatar is captured, cropped and stored **on the device only** — there is no endpoint to upload it to, and nothing in the app renders it yet.
+~~**Still unverifiable, and not by omission:** Sign in with Apple has never executed — not on a device, not once.~~ **It has now, and the run is in `blocked.md` §1.** From a device build at `01:06:29Z` on Aug 10: `POST /v1/auth/apple → 200`, a `credentials` row with `provider=apple`, a `users` row on a `privaterelay.appleid.com` address. The `aud` check — the one thing no test could exercise, because it needs a token from an enrolled team — has a real Apple-signed token behind it.
+
+**Three things that first real sign-in produced, all worth keeping.** The **stale-session path ran unrehearsed and was correct**: the phone still held a token minted by the local API under a different `JWT_SECRET`, and it went 401 → refresh 401 → `auth/apple` 200 → `POST /children` 201 rather than stranding the parent. The account was created with **`display_name` NULL**, which is not a defect — Apple returns `fullName` only on the first-ever authorization for an Apple ID, and it had been spent against the local API. And **revocation is still unexercised**: `getCredentialState` is called on launch and no run has ever seen a parent revoke the app in Settings and come back.
+
+**Two onboarding gaps remain, and both changed status this revision.** They were recorded as blocked on Lane A; Lane A has since built both halves and nothing marked them resolved:
+
+- **The avatar is still device-only** — but the endpoints now exist. `POST /children/{id}/avatar-upload-url` and `GET /children/{id}/avatar-url` are both in `routers/children.py`. `AvatarStore.swift`'s header comment still says "nothing mints one", which was true when written. Unblocked, unstarted, iOS-lane.
+- **Onboarding still does not collect pronouns** — but `children.pronouns` exists (`models/child.py:25`, `text` + a named CHECK, on `ChildCreate`/`ChildUpdate`/`ChildOut`). The stated reason for not asking was that there was nowhere to put the answer; there is now. This is what `docs/decisions.md` open item 10 has been waiting on.
 
 * * *
 ## The sealed letter, whole
@@ -163,14 +183,74 @@ and a toggle to turn it off. Verified end to end against the local API — a rea
 (`default_unlock_age` 13) written through the client's create path came back and rendered on the
 timeline as a wash-skinned card reading "Opens at 13." with no preview.
 
-**One gap remains, and it is Lane A's.** `POST /entries` seals a letter whenever `unlock_at_age`
-arrives as `None`, and Pydantic cannot tell an omitted key from an explicit `null` — so turning
-sealing *off* cannot be expressed on create. The client sends an explicit null regardless and
-follows it with a `PATCH`, which *can* distinguish them because it dumps with `exclude_unset`. See
-`docs/blocked.md`; the fix is four lines and it deletes the workaround.
+### How you actually reach it — the thing this section never said
 
-Still absent by choice: **editing the seal on an entry that already exists.** `PATCH` supports it,
-no UI calls it.
+**Added Aug 11, 2026, because the omission caused exactly the confusion it was going to cause.**
+Every paragraph above describes a finished feature and not one of them says where the control
+appears, so the honest reading of this section was "shipped" and the honest experience of the app
+was "there is no way to write a letter." Both were true, and the missing sentence is this:
+
+> **A letter is a monthly assignment. The seal control appears on the 15th of the month, and
+> nowhere else.**
+
+Two conditions, and they are `AND`ed:
+
+- `SealControl.isOffered` is `!isEditing && assignment?.promptKind == .letter`
+  (`ios/Rascal/Rascal/Composer/SealControl.swift:42`). The composer must have been opened **from a
+  letter assignment**. A freeform entry — the **+** button — has no assignment at all, so the
+  control is never offered there.
+- `slots_for` appends the `letter` slot only `if day.day == 15`
+  (`api/src/rascal/services/scheduler.py:247`). That is the decision in `docs/decisions.md`:
+  letters get their own slot rather than sharing the 1st with the measurement mission, because
+  four items in one day breaks the two-item rule.
+
+**So on a real account the first letter arrives on the first 15th after the child is created**, sits
+in `waiting` for 14 days, and expires. The production child was created Aug 10; the first letter
+assignment it will ever see is **Aug 15, 2026**, available until Aug 29. Nothing is hidden and no UI
+is missing — the ration is monthly by design.
+
+**To see it before the 15th, locally**, the debug route exists for this and is idempotent:
+
+```bash
+# Local API only — registered when ENVIRONMENT == "local", 404 in production.
+curl -sX POST localhost:8000/v1/debug/scheduler/run \
+  -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d '{"date": "2026-08-15"}'
+```
+
+That is how the dev archive got its one letter assignment — `assigned_on 2026-08-09`, `status
+done`, `default_unlock_age 13`, the row behind the end-to-end verification described above. Point
+`API_HOST` at `localhost:8000`, run that, and the letter is on Today.
+
+**What this leaves genuinely missing is two things, and both are decisions rather than bugs** — see
+the note below and `docs/decisions.md`.
+
+~~**One gap remains, and it is Lane A's.**~~ **Closed, and verified this revision.** `POST /entries` used to seal a letter whenever `unlock_at_age` arrived as `None`, because Pydantic cannot tell an omitted key from an explicit `null`. The router now passes the field's *setness* down — `unlock_at_age_provided="unlock_at_age" in payload.model_fields_set` (`routers/entries.py:71`), read at `services/entries.py:431` — so an explicit null means "not sealed" and an absent key still keeps the prompt's default.
+
+**The client-side workaround outlived the fix and should now be deleted.** `unsealIfTheServerSealedItAnyway` is still at `ios/Rascal/Rascal/Networking/RascalAPI.swift:66`, called from line 47. It was written to be self-detecting — it fires only when the response disagrees with the request — so it is now inert rather than wrong, and it costs one comparison per create. Deleting it and its corrective round trip is an unblocked iOS-lane task.
+
+### The two things that are genuinely absent — and one of them has now been decided
+
+**1. Writing a letter on a day that is not the 15th — DECIDED Aug 11, 2026. Not designed, not
+built.** The **+** composer has no assignment, so it can never seal; a letter that occurs to you on
+the 3rd has nowhere to go. **The decision is that this should be possible: the 15th is the
+reminder, not the permission.** It does not change the scheduling decision — the letter keeps its
+own slot on the 15th and keeps its prompt — it adds a way in. See `docs/decisions.md`, where the
+reasoning and the two questions left for the design are recorded.
+
+**Design is being done in Claude Design and nothing is being built here.** Two things the design
+has to settle: whether the any-day path writes against a `letter` prompt or is freeform-plus-seal,
+and where the entry point lives — the *Add to the archive* sheet behind **+** is the obvious
+candidate, since Phase 18 already put one there and the cost of a second row in it is nothing.
+**The API needs no change**: `POST /entries` already takes `unlock_at_age` and, since the setness
+fix above, reads an explicit null correctly. This is an iOS-lane change end to end.
+
+**2. Editing the seal on an entry that already exists — still absent, still undecided.**
+`PATCH /entries/{id}` supports it; no UI calls it. `isOffered` returns false whenever `isEditing`
+is true, so reopening a letter shows no seal control at all — the age it was written with is the
+age it keeps. **The failure mode is one-way and quiet**: a letter sealed at 13 by a mis-tap on the
+stepper cannot be moved to 18 from inside the app, and nothing on the screen says the number is
+final. Raised, not chosen, and deliberately not bundled into the decision above.
 
 * * *
 ## What P1 has already banked
@@ -185,7 +265,7 @@ Work that landed early, mostly as a side effect of doing P0 properly. Worth know
 | Transcode policy (a P1 _risk_, not an item) | ✅ settled in P0 — 1080p H.264/AAC video, AAC/m4a audio, originals preserved |
 | Full export before you need it (a standing risk, "P2 at the latest") | ✅ shipped in P0 — zip with manifest, entries, and media |
 | Home Screen / Lock Screen widget | ✅ **built** — five families, five states, deep-linking into the composer. Reads a snapshot from a shared App Group container and never calls the API. **Never run by WidgetKit on a device**, which is where refresh budget and file protection are decided — `docs/device-verification-widget.md` |
-| Push notifications | ❌ blocked on Apple enrollment, in the same place TestFlight is |
+| Push notifications | ⚠️ **built, unblocked, not delivered once.** ~~blocked on Apple enrollment~~ — enrollment cleared Aug 10. The client and server are complete against a stubbed APNs client; what is missing is an APNs key (a portal trip) and the notification job's scheduled machine. **No byte has ever been sent to `api.push.apple.com` from this repository** — `docs/device-verification-push.md`, 0 of 29 |
 | Share sheet target | ✅ **built** — images and videos only, one entry per share, `occurred_at` read from the file's capture metadata. The extension stages into the App Group container and never touches the network; the app drains it on launch and foreground. **Never launched by the system** — every screenshot is the real view rendered inside the app by a harness, because a share sheet cannot be opened from a CLI, and the memory ceiling a share extension actually runs under does not exist in a simulator. `docs/device-verification-share-extension.md` |
 | **A name** (open decision #3, needed by P1) | ❌ still `RASCAL`, bundle id deliberately neutral |
 
@@ -193,30 +273,57 @@ Work that landed early, mostly as a side effect of doing P0 properly. Worth know
 ## Blocked on you, not on code
 These gate the P0 exit test and nothing else can move them.
 
-1. **Apple Developer enrollment** — blocks real Sign in with Apple and TestFlight. Everything else is built and tested against a local RSA keypair. `blocked.md` §1.
-  
-2. **Fly** — no deployed API exists. `rascal-api.fly.dev` does not resolve and every Deploy run has skipped, waiting on `FLY_API_TOKEN` and `FLY_DEPLOY_ENABLED`. `blocked.md` §3.
-  
-3. **79 prompt candidates** need a human read before they can join the library.
-  
-4. **A restore drill** — the machinery is tested, the act never performed.
-  
-5. **Device verification.** **Seven** checklists are now outstanding: `docs/device-verification-share-extension.md` (new), `docs/device-verification-widget.md` from PR #32, `docs/device-verification-today-v2.md` from PR #34, `docs/device-verification-transcription.md` from PR #26, the audio list in PR #22, `docs/device-verification-settings.md` from PR #21, and `docs/device-verification-moments.md` from PR #30. The transcription one matters most and the audio one is its prerequisite — the simulator has no microphone and no speech model, so **neither recording nor transcription has ever run against anything real.** The share-sheet one is new and is the only one with a number to write down in it: a share extension's memory ceiling is not enforced on a simulator, so the architecture built to respect it has never been tested against it.
+1. ~~**Apple Developer enrollment** — blocks real Sign in with Apple and TestFlight.~~ **DONE, Aug 10, 2026.** Enrollment cleared, the App ID carries the capability, `APPLE_BUNDLE_ID` on Fly matches the target, and a real Apple-signed token has been through `POST /v1/auth/apple`. The entitlements file carries Sign in with Apple, Push and the App Group, and they were committed. `blocked.md` §1.
+
+2. ~~**Fly** — no deployed API exists.~~ **DONE, Aug 10, 2026.** `rascal-api.fly.dev` resolves and serves; `verify_deployment.py` passes 6/6; two machines in `ord` plus an hourly scheduler; `FLY_DEPLOY_ENABLED` is set, so merges to `main` deploy themselves. `blocked.md` §3.
+
+3. **The APNs key** — *new on this list, and it replaces the two above as the only credential still outstanding.* Enrollment made it available; nobody has made the trip. Certificates, Identifiers & Profiles → Keys → + → APNs, then three Fly secrets, then the notification job's scheduled machine. `docs/runbook-deploy.md` §4a and §4b, `blocked.md` §1a. **The `.p8` downloads exactly once.**
+
+4. **79 prompt candidates** need a human read before they can join the library — and they now need reading against a tone decision that did not exist when they were generated. `docs/decisions.md` item 4 settled as **warm and cheerful** on Aug 11; these were generated with the dry seed library as their style reference. Read for warmth as well as accuracy.
+
+5. **A restore drill** — the machinery is tested, the act never performed. Note the local wrinkle this revision hit: this machine's `pg_dump` is 17.6, and a 17 client writes a dump Postgres 16 will not take back. Use the pinned 16 binaries, as `ci.yml` and `backup.yml` do.
+
+6. **Device verification — and this is now the whole game.** See the section below; it is no longer a footnote behind a deploy.
   
 
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
 
 * * *
 ## Recommended next phase
-> **This section has gone stale twice**, both times the same way: it went on recommending something the document already reported as built, a couple of sections above itself. Re-derived again from what is actually outstanding — re-checked against `main` after deploy readiness landed, again after the widget did, again once the share sheet existed, and again now that Settings has had its design pass. **Deploying is still first.**
+> **This section has gone stale three times now**, always the same way: it went on recommending something the document already reported as done, a couple of sections above itself. The third time was the worst, because the thing it kept recommending — **deploy** — had been done for a full day and recorded as done in `docs/blocked.md`, struck through, with the evidence attached.
 >
 > If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
 >
-> **Checked this revision, one line at a time (after Phase 14):** deploy — still not done, still first. Device verification — now **eight** checklists, still none run; `docs/device-verification-push.md` is new and is the first one blocked on *both* enrollment and a deployed API. Push notifications — **the client is built**; what remains is not code but a credential and a deploy, and the server half is still sitting in open PR #38. A name — still open. Structured extraction — **now blocked on an API gap**: `PATCH /v1/entries/{id}` cannot write a tag with `source = device_ai`, so the phase cannot start without an endpoint change. Video audio tracks — still gated on the transcription checklist, which still records no run. `KindBadge` contrast — still unfixed. **The line that changed state is push, and it moved from "not built" to "built and unverifiable until enrollment clears."**
->
-> **Previously checked, retained:** deploy — still not done, still first. Device verification — still seven checklists, still none run, but the Settings one has been **rewritten rather than merely re-listed**, because Phase 13 changed what is on that glass and found a bug that only a device ordering can produce. Push notifications — still blocked on enrollment. A name — still open. Structured extraction — still deliberately deferred. Video audio tracks — still gated on the audio checklist. `KindBadge` contrast — still unfixed, still a design-system decision. **The only line that changed state is Settings, and it moved to re-skinned.**
->
-> **One entry moved up.** The Settings checklist was 5th of seven and is now 3rd. Not because the redesign is risky, but because the phase found that `Advanced` — the dry run, the reset, the pull toggle — could be **silently absent for an entire session** depending on which tab the app opened on. That is fixed, and the fix is exactly the kind that wants a device to confirm: it depends on view-construction ordering that a simulator launching straight into Settings reproduces and a test does not.
+> **Checked this revision, one line at a time (Aug 11, evening):** deploy — **done**, and the four lines recommending it are struck below rather than deleted, so the mistake stays visible. Apple enrollment — **done**. TestFlight — **done**. Device verification — now **nine** checklists, **356 boxes, still zero ticked**, and no longer waiting on anything. Push — no longer blocked; it needs an APNs key and a scheduled machine. Structured extraction — ~~blocked on an API gap~~ **unblocked by #45 and shipped as #43**; the model behind the seam has still never run. Video audio tracks — still gated on the transcription checklist, which still records no run. A name — still open. `KindBadge` contrast — still unfixed. **The line that changed state is everything above device verification, and it moved to done.**
+
+### The only recommendation now: run the checklists
+**This is the whole of it.** There is no branch to open, no endpoint to add, and nothing left to deploy. Nine features have shipped that have never run against reality, and the tool for finding out is a checklist and an evening, not a compiler.
+
+#### What "device verification" actually means, since it has never been spelled out here
+Every one of these features is **tested** — 446 API tests, 678 iOS tests, all green. What a test cannot do is run the parts of iOS that only exist on a physical phone. A simulator has no microphone, no camera roll, no Apple Intelligence model, no APNs connection, no WidgetKit refresh budget, no memory ceiling on an extension, no file protection, and no thumb. So for these nine features the code has been proven **correct against a stub** and never once proven to **work**.
+
+A device-verification checklist is the thing that closes that gap. Each is a Markdown file of numbered sections; each section is a short scripted interaction — *do this on the phone, then look at this* — with checkboxes and a place to write what actually happened. **You tick a box or you write down what happened instead. A line that "seemed fine" is not ticked.** They are written to be run by a person holding a phone, in an evening, not by a developer at a keyboard.
+
+They matter more than the ratio of code-to-checklist suggests, because the failures they catch are mostly **silent**. A missing App Group does not crash the widget, it makes it render its neutral state forever. A share extension over its memory ceiling is killed by the system with no error anywhere. A photo filed under the wrong day looks completely normal, on the wrong day, permanently. None of those produce a red test or a crash log; they produce an app that quietly does the wrong thing.
+
+#### The nine, in the order to run them
+
+**Everything below is now runnable except #9**, which needs the APNs key. Two of them (#5, #6) need the phone to be on **iOS 26+**, and #8 additionally needs Apple Intelligence hardware.
+
+| # | Checklist | Boxes | Needs | Why here |
+|---|---|---|---|---|
+| 1 | `device-verification-widget.md` §1 **+** `device-verification-share-extension.md` §1 | (2 sections) | TestFlight build | **Half an hour, and do it before anything else.** Both ask the same question — does the App Group resolve on a device — and it is the single point all three targets share. If it does not, the widget is neutral forever and the share sheet says it cannot save, both **with no error anywhere**. Answering it once answers it for both. |
+| 2 | `device-verification-share-extension.md` | 45 | TestFlight build, a real camera roll | The only checklist with **a number to write down**: §3 asks you to attach Instruments and measure the extension's peak footprint against a ceiling a simulator does not enforce. §2 is the sharper one — the date rule, against real photos with edited metadata, missing `DateTimeOriginal`, and iCloud copies that are not on the phone. |
+| 3 | `device-verification-today-v2.md` | 39 | TestFlight build | The screen you open every day, and the only one with a **gesture** on it. §2 is the sharpest single question in the whole list: whether a skip can be lost or double-sent, because the undo is implemented by *not sending* a one-way request. |
+| 4 | `device-verification-settings.md` | 73 | TestFlight build | The longest, and §0 is five minutes: does the `Advanced` card actually appear. Phase 13 found it could be **silently absent for an entire session** depending on which tab the app opened on. Also §6 — the account row against your real Sign in with Apple account, which now exists. |
+| 5 | The audio list in PR #22 | — | **iOS 26+**, a quiet room | **The prerequisite for #6.** The simulator has no microphone, so nothing in the recording path has met real input. |
+| 6 | `device-verification-transcription.md` | 45 | **iOS 26+**, #5 first | **The one with the most unknown in it**, and the one whose answer could invalidate a design rather than find a bug. Its §0 is the question that matters: how well does it read a four-year-old. Nothing else in the project is waiting on this — *video audio tracks is* (`blocked.md`). |
+| 7 | `device-verification-backfill.md` | 19 | TestFlight build, a real camera roll | Newest. Every assertion runs against a stub source of `Date` values, so the scan is proven as arithmetic and unproven against a library with years of photos in it. |
+| 8 | `device-verification-extraction.md` | 19 | **iOS 26+ with Apple Intelligence** | `SystemLanguageModel.default.availability` has never returned `.available` on anything here. On hardware that cannot do it, the correct outcome is that nothing happens at all — §1 checks exactly that. |
+| 9 | `device-verification-push.md` | 29 | **The APNs key first** | The only one still gated, and on a credential you can now obtain. Was blocked on enrollment *and* a deployed API; both are done. |
+| — | The sync-pull sequence | — | TestFlight build | Not a file: Settings → dry run → read the report → flip `syncPullEnabled` → pull to refresh. Verified against fixtures including a 736-entry one, **never against the real archive**. |
+
+**Two things to know before you start.** Every checklist wants the results written into the file itself — that is what makes a tick worth anything later. And several of them note that an unsigned build cannot write to the keychain, so every request after sign-in comes back `401` and it reads as an auth bug; a TestFlight build is signed, so this is one trap you have already walked past.
 
 ### The pool cliff is now a number you can read
 Phase 15 made it observable: `GET /children/{id}/pool-health`. On the dev archive's child today
@@ -224,28 +331,14 @@ that reads **24 eligible questions, 24 days until the first repeat** — which i
 phase was written about, now visible instead of inferred. Nothing about it is urgent yet, and the
 endpoint deliberately does not fix anything.
 
-### Deploy, because everything else is waiting behind it — and now it gates a shipped feature
-**Push made this sharper rather than adding to the queue.** The client is done and cannot be
-verified at all: APNs pushes come from Apple to a deployed server, so there is no local version
-of this test. Every day the deploy waits is a day the newest feature stays entirely unproven.
+### ~~Deploy, because everything else is waiting behind it — and now it gates a shipped feature~~ — DONE
+~~**Push made this sharper rather than adding to the queue.** The client is done and cannot be verified at all: APNs pushes come from Apple to a deployed server, so there is no local version of this test.~~ **Half true, and the half that survives is now the APNs key rather than the deploy.** The server exists; the credential does not.
 
-### Deploy, because everything else is waiting behind it
-Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and five of the seven device-verification checklists below are against `localhost` today. It is now one command plus a set of secrets — `docs/runbook-deploy.md`, roughly twenty minutes — and `api/scripts/verify_deployment.py` tells you whether it worked instead of leaving you to guess. Do this first because it unblocks the rest, not because it is the most interesting thing here.
+### ~~Deploy, because everything else is waiting behind it~~ — DONE, Aug 10, 2026
+~~Nothing else on this list can be finished without a deployed API. TestFlight needs one, the fourteen-day exit test needs one, and five of the seven device-verification checklists below are against `localhost` today.~~ **All of that happened.** The runbook was executed in order, `verify_deployment.py` passed 6/6, and the checklists that were "against `localhost`" are now against `rascal-api.fly.dev`. Kept struck rather than deleted because this section recommended it for four consecutive revisions and then for one more after it was done — the failure mode is worth leaving visible.
 
 ### Then verify what is built before building more
-**Nothing here is a coding task, and that is the point.** Five features have now shipped that have never run against reality: sync pull has never touched the 755 real entries, the recording path has never met a real microphone, transcription has never produced a single word, the widget has never been rendered by WidgetKit, and **Today's swipe-to-skip has never been swiped.** Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
-
-**The list has grown by one again — to seven.** In the order they cost you least to discover something in:
-
-0. `docs/device-verification-share-extension.md` — **new, and it goes above the widget for a reason the widget's own entry explains.** The widget's four unobservables are all about rendering; the share sheet's first one is whether the process survives. **A share extension runs under a hard memory ceiling that a simulator does not enforce**, the entire stage-don't-upload architecture exists to respect it, and the number has never been measured. Its §3 asks you to attach Instruments and write one down — it would be the only real figure this feature has. Its §2 is the sharper question though: a photo filed under the wrong day looks completely normal forever, and only a real camera roll has photos with edited metadata, missing `DateTimeOriginal`, and iCloud copies that are not on the phone.
-
-1. `docs/device-verification-widget.md` — held the top until now for a structural reason rather than an urgency one. Four things the widget depends on **cannot be observed in a simulator at all**: the refresh budget, file protection on the Lock Screen, the monochrome accessory render, and whether the App Group even resolves on a device. It is also the shortest to run — and it now shares its App Group with a third target, so its §1 answers half of the share sheet's §1 for free.
-2. `docs/device-verification-today-v2.md` — new. The screen a parent opens every day now has a **gesture** on it, and a gesture is the one interaction class a simulator answers dishonestly: a trackpad swipe is not a thumb, and the full-swipe threshold, the eight-second undo window and the VoiceOver rotor action were all verified by reading rather than by touch. Its §2 is the sharpest single question in the list — whether a skip can be lost or double-sent — because the undo is implemented by *not sending* a one-way request.
-3. `docs/device-verification-settings.md` — **rewritten for Phase 13, and moved up from 5th.** It was the PR #21 checklist that had never been run; it now also covers what the design pass changed, and its §1 is the one to run first. Phase 13 found that `SyncStatusModel` was built once in `.task` and never retried, so launching straight into Settings left the whole `Advanced` card — dry run, reset, pull toggle — **absent for the life of the session with nothing saying so.** Fixed, but the fix turns on view-construction ordering, and the ordering that broke it is a real launch path rather than a contrived one.
-4. `docs/device-verification-transcription.md` — the one with the most unknown in it.
-5. The audio checklist from PR #22 — the simulator has no microphone, so **nothing in the recording path has run against real input.**
-6. The sync-pull sequence: dry run, read the report, then flip the flag. **Now one card rather than a run of rows** — the dry run and the reset live under `Advanced`, the switch stayed with the status it gates.
-7. `docs/device-verification-moments.md` from PR #30 — the cheapest of the seven, and the one with the sharpest question about content rather than mechanics: a sealed letter is surfaced by that screen at random, and only a device shows you what is actually on the glass.
+**Nothing here is a coding task, and that is the point.** Nine features have now shipped that have never run against reality: sync pull has never touched the 759 real entries, the recording path has never met a real microphone, transcription has never produced a single word, the extraction model has never once been `.available`, the widget has never been rendered by WidgetKit, the share extension has never been started by the system, the backfill scan has never met a real camera roll, **Today's swipe-to-skip has never been swiped**, and no notification has ever been delivered by Apple. Each is a checklist that takes an evening, and each one can invalidate a design rather than just find a bug.
 
 ### Then, in build terms
 - **Phase 8, onboarding and account creation** — shipped. The app now has a first-run path for a person who is not you, though Sign in with Apple itself still cannot be exercised until enrollment clears.
@@ -264,24 +357,39 @@ Nothing else on this list can be finished without a deployed API. TestFlight nee
 
   **One structural change was refused.** The import groups `Recompute ages from birthday` with the dry run and the reset under `Advanced`. It stayed in its own card with its own whitespace, because rewriting every stored age in an archive is not a neighbour of asking the server what changed.
 
-- ~~**The share sheet target**~~ — **built**, and open for review at this snapshot. The widget's extension target was indeed the pattern, down to two of the same traps in the `xcodeproj` script. What it added that the widget did not have: a **write** direction on the App Group, a queue with a version gate, and a drain that has to be idempotent under a process the system can kill at any point. See `docs/reports/phase-12-share-extension.md`.
+- ~~**The share sheet target**~~ — **built and merged** as #35. The widget's extension target was indeed the pattern, down to two of the same traps in the `xcodeproj` script. What it added that the widget did not have: a **write** direction on the App Group, a queue with a version gate, and a drain that has to be idempotent under a process the system can kill at any point. See `docs/reports/phase-12-share-extension.md`.
 
-- **Push notifications is now the only unbuilt P1 retention lever**, and it is blocked in the same place TestFlight is — it needs the Apple enrollment that `blocked.md` has been waiting on. Nothing else on P1 is waiting on code.
+- ~~**Push notifications is now the only unbuilt P1 retention lever**, and it is blocked in the same place TestFlight is~~ — **the client and the server are both built and merged** (#39, #40), and the block is gone. What is left is a credential and a machine: the APNs key from the portal, three Fly secrets, and the notification job's scheduled machine. Nothing on P1 is waiting on code.
+
+- **Four Lane A gaps this file recorded as blocking iOS work are built, and three of them leave a client-side workaround behind to delete.** Verified by reading `main` this revision: the seal's setness (`RascalAPI.unsealIfTheServerSealedItAnyway` can go), `EntryOut.prompt_body` (the composer's cache-the-body trick is no longer load-bearing), `?sealed=` (`TimelineModel.drain`'s ten-page `clientFilterPageBudget` loop can go entirely), `children.pronouns` and the avatar presign pair (both unstarted on the client). Each is small, none is blocked, and every one of them deletes more code than it adds.
 
 - **Cross-share deduplication was deliberately not built**, and it is a decision rather than an omission. Sharing the same photo twice makes two entries: an `NSItemProvider` carries no asset identifier, and content-hashing a video inside the memory-ceilinged process is precisely what the architecture exists to avoid. It is also not obviously wrong — the same photo on two days is a legitimate pair of entries — so shipping a heuristic that silently dropped one would have been worse than shipping neither. Worth revisiting only if the device checklist's §10 says a real parent trips over it.
 
 - **A name.** Open decision #1, and the widget has just made it slightly more expensive to defer: the widget gallery groups by app name, so whatever the app is called is what a parent reads when they add it. The bundle id and the URL scheme are both deliberately name-neutral, so this is still a rename and not a migration — but it is now visible in one more place.
   
-- **P3 item 2, structured extraction** (`@Generable` over the transcripts that now exist). Deliberately not done in this phase — it is a separate feature with its own schema question, and stacking it on an unverified transcriber would mean two unknowns in one branch.
+- ~~**P3 item 2, structured extraction**~~ — **built and merged** as #43, once #45 let a tag write say who decided it. The schema question it was deferred over got its answer: a tag arrives as `"beach"` or `{"name": "beach", "source": "device_ai"}`, `source` defaulting to `user`. The model behind the seam has still run zero times — `docs/device-verification-extraction.md`.
   
-- **Video audio tracks**, the one piece of this phase that was cut. Gated on the audio path being verified on a device first — see `docs/decisions.md`.
+- **Writing a letter on any day** — **decided Aug 11, 2026, design in progress in Claude Design, no code.** The seal control is complete but reachable only from a letter assignment, which exists only on the 15th; the decision is that the 15th is the reminder rather than the permission. iOS-lane end to end — the API already accepts it. See "The sealed letter, whole" above and `docs/decisions.md`. **Not a phase yet**: it is a decision waiting on a design, and it should not be numbered or started until that design exists.
+
+- **Video audio tracks**, still the one piece cut and still gated on the audio path being verified on a device first — see `docs/decisions.md` and `docs/phases/phase-16-BLOCKED.md`. This is the only item in the project whose next step is genuinely *another item's* checklist rather than work of its own.
   
 
 * * *
 ## Facts, if you want to check any of this
+Every command below was executed for this revision, and the comment on each is what it actually printed. Three of them used to print something else — they are corrected, not re-copied.
+
 ```bash
-make test                                    # 413 API tests (339 on main)
-ls api/tests/test_*.py | wc -l               # 24 files
+make test                                    # 446 pass on CI; 444 pass + 2 fail here
+ls api/tests/test_*.py | wc -l               # 33 files
+
+# The two local failures are both in tests/test_restore.py and they are this machine, not the
+# code: Homebrew's pg_dump is 17.6, a 17 client writes `SET transaction_timeout` into the dump,
+# and Postgres 16 rejects it on the way back in. CI pins 16 exactly. Check with:
+pg_dump --version                            # 17.6 here — use the pinned 16 binaries for a drill
+
+# main's CI is red on lint alone, and has been since the phase-15 merge landed at 10:33Z Aug 11.
+# One line, 102 chars against a 100-column limit. test and image are both green.
+cd api && uv run ruff check .                # E501 alembic/versions/0007_prompt_suppressions.py:82
 
 # Delete DerivedData first or the warning count is a lie: an incremental build does not
 # recompile an unchanged file, and a file that is not recompiled emits no warning. This is
@@ -297,24 +405,45 @@ xcodebuild test -project ios/Rascal/Rascal.xcodeproj -scheme Rascal \
 
 # Three targets now, and all three must carry the same App Group or the widget goes
 # neutral and the share sheet says it cannot save — in both cases with no error anywhere.
-grep -l "group.com.travisterry.childarchive" ios/Rascal/*.entitlements   # expect 3
+# The files are one directory deeper than this used to say, so the old glob matched nothing.
+find ios -name "*.entitlements" | xargs grep -l "group.com.travisterry.childarchive"   # expect 3
+
+# The app target also carries Sign in with Apple and Push now, and both were committed rather
+# than left for Xcode to re-add. aps-environment reads `development`; Xcode substitutes
+# `production` when it archives, which is what a TestFlight build registers.
+grep -E "<key>|<string>" ios/Rascal/Rascal.entitlements
 
 # Routes, without needing the API to be running.
 cd api && ENVIRONMENT=local uv run python -c "
 from rascal.main import app
 spec = app.openapi()['paths']
-print(len(spec), 'paths', sum(len(i) for i in spec.values()), 'operations')"
+print(len(spec), 'paths', sum(len(i) for i in spec.values()), 'operations')"   # 33 paths 40 operations
 
+# Note the port: this project's Postgres is on 5434. 5433 belongs to something else.
 docker exec rascal-postgres psql -U rascal -d rascal \
-  -c "select kind, active, count(*) from prompts group by 1,2 order by 1;"
+  -c "select kind, active, count(*) from prompts group by 1,2 order by 1;"   # 113, all active
 docker exec rascal-postgres psql -U rascal -d rascal \
-  -tAc "select count(*) from entries where deleted_at is null;"   # 755
+  -tAc "select count(*) from entries where deleted_at is null;"   # 759
 
 # Nothing is in review, and no branch is stranded. Both come back empty.
 gh pr list --state open
 git branch -r --no-merged origin/main
 
-# The sealed letter has a reader and no writer. First returns hits, second returns nothing.
-grep -rn "unlockAtAge" ios/Rascal/Rascal/Timeline --include="*.swift"
-grep -rn "unlockAtAge" ios/Rascal/Rascal/Composer ios/Rascal/Rascal/Today --include="*.swift"
+# The API is deployed and dev-login is correctly absent from it.
+curl -s https://rascal-api.fly.dev/health                      # {"status":"ok","db":"ok"}
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  https://rascal-api.fly.dev/v1/auth/dev-login                 # 404, which is the right answer
+
+# The production media bucket exists and soft delete is on — the one setting on this project
+# that could not have been fixed after the fact.
+tigris buckets get rascal-media-prod        # Soft Delete: Enabled (30 day retention)
+
+# The sealed letter has both halves now, and the Lane A gaps that blocked the client are built.
+grep -n "unlock_at_age_provided" api/src/rascal/routers/entries.py    # the setness fix
+grep -n "prompt_body" api/src/rascal/schemas/entry.py                 # on EntryOut
+grep -n "sealed" api/src/rascal/routers/entries.py                    # the query param
+grep -n "pronouns" api/src/rascal/models/child.py                     # the column
+
+# Zero of 356. This is the number that has never moved.
+grep -cE '^\s*-? *\[[xX]\]' docs/device-verification-*.md
 ```

@@ -5,11 +5,44 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 10, 2026** — CI is billing-blocked again; see §0. The widget adds one line to §1: the App Group has to be on the developer portal before a device build means anything.
+Last reviewed: **Aug 11, 2026** — and this was the review where most of the file stopped being
+true. Apple enrollment (§1), Fly (§3), object storage (§2) and Actions billing (§0) were already
+struck. What this pass found is that **every Lane A gap the iOS lane had recorded here has since
+been built** — the seal's setness, `children.pronouns`, the avatar presign pair, `prompt_body` on
+`EntryOut`, `?sealed=`, and the tag source that gated Phase 17 — and none of them had been marked
+resolved. They were checked by reading the merged code on `main`, one grep each, and the greps are
+in each section.
+
+**What is genuinely left on this list is three things**, and only the first is truly yours:
+the APNs key (§1a — the portal trip enrollment now permits), the notification job's scheduled
+machine (§1a, one `fly machine run`), and the multipart-over-cellular upload that has still never
+been performed (§2). Everything else below is either resolved or an iOS-lane follow-up that is now
+merely unstarted rather than blocked.
 
 ---
 
-## iOS Seal control — `POST /entries` cannot hear "do not seal this"
+## ~~iOS Seal control — `POST /entries` cannot hear "do not seal this"~~ — RESOLVED, verified Aug 11, 2026
+
+**Built.** `routers/entries.py` now passes the field's *setness* down, exactly as this section
+asked:
+
+```python
+# api/src/rascal/routers/entries.py:71
+unlock_at_age_provided="unlock_at_age" in payload.model_fields_set,
+```
+
+and `services/entries.py:431` reads `if unlock_at_age is None and not unlock_at_age_provided and
+prompt is not None:` — so an explicit null now means "not sealed" and an absent key still keeps the
+prompt's default. The two routes agree about what null means.
+
+**The client-side workaround is still in the tree and is now dead weight.**
+`unsealIfTheServerSealedItAnyway` remains at `ios/Rascal/Rascal/Networking/RascalAPI.swift:66`,
+called from line 47. It is self-detecting — it fires only when the response disagrees with the
+request, which the server no longer does — so it is costing nothing but a comparison. **It should
+be deleted with its round trip**, as this section always said it could be. That is an iOS-lane
+task, unblocked, and not a blocker.
+
+The original entry follows, because it is the reason the fix is shaped the way it is.
 
 The seal control shipped and works. This is the one thing it cannot express through the create
 route, and it is **four lines to fix in Lane A**.
@@ -55,7 +88,35 @@ sealed" and an absent key keeps the prompt default. The day that lands,
 
 ---
 
-## iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live
+## ~~iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
+
+**Both columns and both routes now exist. Neither has an iOS client yet**, which is the whole of
+what is left, and it is unstarted rather than blocked.
+
+**The avatar presign pair is built**, and it is the shape this section specified:
+
+- `POST /children/{child_id}/avatar-upload-url` — `routers/children.py:117`, "one presigned PUT —
+  never multipart, because an avatar is a small square".
+- `GET /children/{child_id}/avatar-url` — `routers/children.py:151`, and it **404s when the child
+  has no avatar** rather than returning a null URL, on the stated grounds that "this child has no
+  avatar" and "here is a URL that will not resolve" are different answers.
+
+**`children.pronouns` exists** — `models/child.py:25`, `text` + a named CHECK via
+`one_of("pronouns", PRONOUNS, name="pronouns")`, and it is on `ChildCreate`/`ChildUpdate`/`ChildOut`
+(`schemas/child.py:20`) and written by `routers/children.py:80`. `constants.py:67` already
+anticipates the consumer: pronoun substitution in prompt bodies.
+
+**What is left, and it is all iOS:**
+
+- **Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a comment.
+  The reason this section gave for not asking — "asking and then discarding would be worse than not
+  asking" — has expired, because there is now somewhere to put the answer. This is what
+  `docs/decisions.md` open item 10 has been waiting on.
+- **The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
+  mints one", which was true when it was written and is not now. `LocalAvatarStore` is the seam
+  this section named, and the crop and JPEG conversion already run.
+
+The original entry follows.
 
 Found by building first-run setup against the merged API. Neither blocks onboarding, which ships
 complete: the avatar is optional by design and a skipped one is a finished setup. Both are Lane A's
@@ -109,7 +170,26 @@ token block.
 
 ---
 
-## iOS Timeline v3 — two things the list endpoint cannot express
+## ~~iOS Timeline v3 — two things the list endpoint cannot express~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
+
+**Both were built and neither was marked here.** The client still carries the workarounds each one
+was written to justify, and both can now go.
+
+- **`EntryOut.prompt_body` exists** — `schemas/entry.py:119`. So a list row carries its own quote,
+  and the two-direction workaround (the composer writing `assignment.body` onto the row, plus the
+  local `Assignment` lookup) is no longer load-bearing. The case this section said only the server
+  could fix — *an entry written on another device, or before this build, shows no quote until the
+  parent opens it once* — is fixed.
+- **`?sealed=` exists** — `routers/entries.py:109`, `true` for sealed only, `false` for unsealed
+  only, omitted for both, and its own description makes the point this section made: "Sealing is
+  not an `entry_type`". So the Sealed chip can be a server filter.
+
+**What is left, and it is all iOS:** `TimelineModel.drain`'s paging loop and its
+`clientFilterPageBudget` (10 pages, 500 entries) exist **only** to make a client-side Sealed filter
+survive a stretch of archive with no letters in it. With `?sealed=true` the loop, the budget, and
+the "reports what it found rather than what exists" caveat all delete. Unblocked, unstarted.
+
+The original entry follows.
 
 Neither blocks the v3 skin, which shipped complete. Both are Lane A's to own, and the client
 degrades correctly without either — recorded because they were found by building the screen
@@ -380,7 +460,32 @@ anywhere.** That is a silent failure, not a crash, so it is the first section of
 first device build; this is not blocked, it is just the one thing to confirm before concluding the
 snapshot pipeline is broken.
 
-### 1a. The same enrollment also blocks push — no APNs key exists
+### 1a. Push — the enrollment cleared, so this is now the only thing on this page genuinely waiting on you
+
+**Status as of Aug 11, 2026: no longer blocked, merely not done.** §1 resolved, so the portal trip
+that mints an APNs key is available to make. Nothing is waiting on Apple's approval any more —
+this is waiting on twenty minutes and a `.p8` file.
+
+**Two actions, both yours, and the second is the one people forget:**
+
+1. **The key.** Certificates, Identifiers & Profiles → Keys → + → Apple Push Notifications service
+   (APNs). Then `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_PRIVATE_KEY` as Fly secrets —
+   `docs/runbook-deploy.md` §4a has the exact commands. **The `.p8` downloads exactly once.**
+2. **The scheduled machine** (`docs/runbook-deploy.md` §4b). It is created by hand, like the
+   scheduler's, and **nothing fails if you skip it** — the API stays green, devices register, and
+   no notification is ever sent. This matters more than it does for the scheduler, because
+   `GET /today` repairs a missed assignment and nothing repairs a missed notification.
+
+**One thing is now checkable that was not before, and it is the silent one.** A TestFlight build
+addresses **production** APNs, not sandbox. The client already gets this right —
+`ios/Rascal/Rascal/Push/PushEnvironment.swift` maps Debug to `.sandbox` and everything else to
+`.production`, and its own comment says TestFlight "ships through App Store infrastructure and
+addresses the production host". What is still wrong is the *description*: `schemas/device.py:30`
+and `docs/api-contract.md` both call `sandbox` the value for "a development or TestFlight build".
+No behaviour hangs off either string, but the first person to read them and hand-register a device
+will send the wrong environment and get silence. See the note at the end of the push section below.
+
+The original entry follows.
 
 **Not a separate blocker.** The APNs key comes from the same Apple Developer portal trip as
 the Sign in with Apple key, so this unblocks when §1 does, and it is recorded here rather
@@ -427,11 +532,25 @@ fixture account, and it works for curl and for the iOS client. It is registered 
 `ENVIRONMENT == "local"`, and there is a test that builds a production app and asserts the
 route does not exist.
 
-## 2. Object storage — resolved. Media uploads work end to end
+## 2. ~~Object storage~~ — RESOLVED. Media uploads work end to end, in production, from TestFlight
 
-**No longer blocked.** Storage is Tigris, not AWS. Nothing in this project needs an Amazon
-account: every call is plain S3 through boto3, and the `AWS_*` variable names are the S3
-protocol's convention rather than a sign of who is serving it.
+**No longer blocked, and no longer only in development.** Three separate confirmations now, each
+stronger than the last:
+
+1. Against `rascal-media-dev` on Aug 8, 2026 — the presign/PUT/complete round trip below.
+2. Against `rascal-media-prod` on Aug 10, 2026 — `scripts/verify_deployment.py` check 6, 75 bytes
+   presigned by the **deployed** app (`docs/runbook-deploy.md` §9).
+3. **From a TestFlight build, by you.** `rascal-media-prod` holds real objects under `children/`
+   as of Aug 11, 2026 — a bucket listing shows the prefix and 4.5 MB across three versions, which
+   is more than the 75-byte check wrote. The path from a phone in the world through the deployed
+   API to the production bucket is exercised, not inferred.
+
+**The one thing still unexercised is multipart** — see the end of this section. A photo is a
+single PUT; the multipart path is what a video over cellular takes, and nothing has taken it.
+
+Storage is Tigris, not AWS. Nothing in this project needs an Amazon account: every call is plain
+S3 through boto3, and the `AWS_*` variable names are the S3 protocol's convention rather than a
+sign of who is serving it.
 
 Verified against the real bucket on Aug 8, 2026, not against `moto`:
 
@@ -461,7 +580,40 @@ supports the multipart API but parity has not been proven, and `chunk_bytes` com
 on the single-PUT path — the client must read the field and tolerate null rather than
 hardcoding 8MB.
 
-## 2b. The production media bucket does not exist yet — and must not be created carelessly
+## 2b. ~~The production media bucket does not exist yet~~ — IT EXISTS, AND THE UNRECOVERABLE HALF IS DONE. Verified Aug 11, 2026
+
+**The bucket was created Aug 10, 2026 at 20:14, and soft delete is on.** This was the one item on
+this page that could not be fixed after the fact, so it was checked by reading the bucket's own
+configuration rather than by trusting the runbook:
+
+```
+$ tigris buckets get rascal-media-prod
+Name                 rascal-media-prod
+Soft Delete          Enabled (30 day retention)      <- the one that mattered
+Delete Protection    No
+Snapshots Enabled    No
+CORS Rules           (none)
+```
+
+`rascal-backups` reads identically on the line that counts (`Enabled (30 day retention)`), and
+`rascal-media-dev` still reads `Disabled`, which is the deliberate dev-bucket choice this section
+described. So the configuration is exactly what this section asked for, on all three buckets. **The
+window in which a mis-set production bucket could have quietly lost a photo is closed**, and it
+closed before any real media went in.
+
+**Two smaller things this check turned up, neither urgent, both now written down:**
+
+- **`Delete Protection` is `No`** on all three buckets. Soft delete protects *objects*; delete
+  protection protects the *bucket*. It is a different failure — one `tigris buckets delete` on the
+  wrong name — and 30-day retention on objects inside a bucket that no longer exists is not
+  obviously a rescue. Worth turning on for `rascal-media-prod` and `rascal-backups`.
+- **`rascal-media-prod` has no CORS rules at all**, where `rascal-media-dev` has one. This is
+  correct today and is the note below, inverted: the dev bucket's `AllowedOrigins: ["*"]` is the
+  thing to tighten, and the prod bucket simply needs a real origin added the day a browser first
+  loads a photo. Nothing about the native client cares either way.
+
+The original entry follows, because the reasoning is why the bucket was set up correctly, and
+because the `access-keys assign` warning still catches people.
 
 Not blocking anything today; local development runs against `rascal-media-dev`. Recorded here
 because both items below are six-weeks-from-now problems that nothing currently reminds anyone
@@ -716,7 +868,28 @@ Everything below was on this list on Aug 3 and is now closed.
 
 ---
 
-## Push notifications — signing now needs the Push capability (Phase 14, Aug 10 2026)
+## ~~Push notifications — signing now needs the Push capability~~ (Phase 14, Aug 10 2026) — UNBLOCKED Aug 11, 2026
+
+**Enrollment cleared, and the entitlements file has the registration in it.**
+`ios/Rascal/Rascal.entitlements` now declares all three things a device build needs, and they were
+committed rather than left for Xcode to re-add:
+
+```
+aps-environment                     development
+com.apple.developer.applesignin     Default
+com.apple.security.application-groups   group.com.travisterry.childarchive
+```
+
+That closes the note in §1 asking for the Sign in with Apple entitlement to be let in and committed
+— it is in. `aps-environment` reading `development` in the file is correct and not a bug: Xcode
+substitutes `production` when it archives for distribution, which is why a TestFlight build
+registers a production token. See §1a.
+
+**What remains is not signing.** It is the APNs key and the scheduled machine in §1a, and
+`docs/device-verification-push.md` — which is no longer blocked on both open items, because both
+are closed. It is runnable as soon as the key exists.
+
+The original entry follows.
 
 **What changed.** `ios/Rascal/Rascal.entitlements` gained `aps-environment`. Without it
 `registerForRemoteNotifications()` fails on a real device with "no valid aps-environment
@@ -765,7 +938,23 @@ ordinary voice notes.
 
 ---
 
-## Phase 17 (structured extraction) — the API cannot record a tag's source (Aug 10 2026)
+## ~~Phase 17 (structured extraction) — the API cannot record a tag's source~~ (Aug 10 2026) — RESOLVED Aug 11, 2026
+
+**Unblocked by PR #45 and the phase then shipped as PR #43.** The API change is the one this
+section specified rather than the narrower alternative: `schemas/entry.py` now takes a tag on the
+wire as `"beach"` **or** `{"name": "beach", "source": "device_ai"}`, with `source` defaulting to
+`user` — the file says so in as many words at line 23, "a bare string still means exactly what it
+meant before", so no existing client changed.
+
+The reasoning that made this a hard gate held up and is worth keeping: writing model tags as `user`
+is unrecoverable, because the information needed to undo it is never stored.
+
+**Still true, and it is the next thing this feature needs:** the model behind the seam has run zero
+times. `docs/device-verification-extraction.md` records **0 of 19** checkboxes, and its own opening
+says `SystemLanguageModel.default.availability` has never returned `.available` on anything here.
+That is a device checklist, not a blocker.
+
+The original entry follows.
 
 **Not started. No code was written.** This is the phase's own Phase A gate, and it is a hard one.
 

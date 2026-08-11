@@ -1420,3 +1420,51 @@ Smaller calls:
 - **Four accessibility-sized layout defects were found by screenshotting, not by reading.** The
   worst left the permission screen with no reachable way to grant or decline at XXL — on a prompt
   iOS only offers once. Warm builds also under-report warnings; the cold figure is the real one.
+
+## Documentation reconciliation (Aug 11, 2026, evening)
+
+- **`roadmap-status.md` was a day behind `blocked.md` on the two facts that mattered most**, and
+  the stale one was the one being read. Enrollment and Fly were struck through as resolved on Aug 10
+  in one file and reported as blocking everything in five places in the other. Corrected by
+  striking rather than deleting, so the failure stays visible in the section that produced it.
+- **Every API-side figure the status file had been carrying forward was wrong.** Three consecutive
+  revisions labelled them stale and carried them anyway; "one revision stale" compounded into 33
+  missing tests, 8 missing operations and 4 missing entries. Re-derived, not re-copied. The lesson
+  written into the file: labelling a figure stale is not the same as it being harmless.
+- **Six Lane A gaps recorded in `blocked.md` had been built and none were marked resolved** — the
+  seal's setness, `children.pronouns`, both avatar routes, `EntryOut.prompt_body`, `?sealed=`, and
+  the tag `source`. Checked by grepping merged code on `main`, one grep per claim, with the greps
+  left in the file so the next reader can repeat them.
+- **Three client-side workarounds outlived the server fixes that justified them** and are now
+  recorded as deletions rather than as blockers: `unsealIfTheServerSealedItAnyway`, the composer's
+  prompt-body cache, and `TimelineModel.drain`'s ten-page `clientFilterPageBudget` loop.
+- **`main` is red on one `ruff` E501** (`0007_prompt_suppressions.py:82`) with `test` and `image`
+  green. Recorded rather than fixed: this pass was a documentation review, and the fix is an
+  API-lane code change that nobody asked for.
+- **The production media bucket was verified by reading its configuration, not the runbook.** Soft
+  delete is on with 30-day retention — the one setting on this project that could not have been
+  corrected after the fact. Delete protection is off on all three buckets, which is a different and
+  smaller risk, now written down.
+- **Four open decisions were answered by the owner** (tone, notification time, second child, did-it
+  entries in the book). Tone is the only one with downstream cost: the 79 unreviewed candidates were
+  generated against the dry library, and `generate_prompts.py` reads the library as its style
+  reference every run, so warm prompts have to reach the library before generation compounds the
+  old voice. The seeded 113 are deliberately **not** being rewritten.
+
+## The letter, and the day you are allowed to write one (Aug 11, 2026)
+
+- **Decided: a letter can be written on any day. The 15th is the reminder, not the permission.**
+  Design is being done in Claude Design; nothing was built, planned, or scaffolded here. The API
+  needs no change — `POST /entries` already takes `unlock_at_age` and reads its setness correctly
+  since the create-route fix.
+- **The scheduling decision is untouched.** Letters keep their own slot on the 15th, for the
+  original reason: the money letter must not lose a monthly coin flip to a height measurement.
+  What changed is that the slot was acting as a ration, and that was never decided.
+- **This came out of a documentation defect, which is worth recording as one.** "The sealed letter,
+  whole" described a finished feature across four paragraphs and never said where the control
+  appears. The section read as *shipped*; the app read as *there is no way to write a letter*. Both
+  were accurate. A feature section that does not say how the feature is reached cannot be checked
+  against the app by the person reading it, and that is now written into the section itself.
+- **Left open deliberately, not bundled in:** editing the seal on an entry that already exists.
+  `PATCH` supports it, no UI calls it, and `isOffered` is false while editing — so an age set by a
+  stepper mis-tap is permanent from inside the app, quietly. Raised, not chosen.

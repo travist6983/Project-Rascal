@@ -2,7 +2,7 @@
 
 Read this before proposing anything. Settled decisions are settled; don't relitigate them without new information.
 
-Last updated: **Aug 10, 2026**
+Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one unblocked (10).
 
 ---
 
@@ -23,6 +23,10 @@ Last updated: **Aug 10, 2026**
 | Sealed entries with `unlock_at_age` | Letters written *to* him. Impossible to retrofit at 500 entries. |
 | Backdating is a core flow, not a setting | Camera-roll backfill is a whole mission category. |
 | Kid gets access "later" — mechanism TBD | See open items. |
+| **Mission tone is warm and cheerful** — settled Aug 11, 2026, closing open item 4 | The seed library leans dry-and-specific and that was never confirmed as a choice, only as a habit. Warm is the answer, and it is the same voice the app already speaks in everywhere else — the design direction is "warm, friendly, polished", the completion motion is "satisfying, quiet", and there are no streaks and no guilt copy. A dry library inside a warm app is two products. **Warm is not the same as cute, and it is not the same as vague:** the thing that makes these prompts work is that they ask for one concrete observable thing, and specificity survives the tone change intact. "What noise in the house makes him look up right now?" is already both. The consequence is forward-looking rather than retroactive — see the changelog entry; the 113 seeded prompts are not being rewritten for tone. |
+| **One notification a day, at a time the parent sets, defaulting to 19:00** — settled Aug 11, 2026, closing open item 6 | The question was "what time actually works", and the answer is that the product should not need to know. What shipped is already right: one a day, `notification_time` on the user, 19:00 as the default, and every user free to move it. 19:00 keeps its rationale — early evening, parent and child together, a question answered over dinner, a mission that stacks to tomorrow at no cost. This closes the item as *the existing design is the answer*, not as a new decision. |
+| **A second child is P2 work, taken up when P2 is** — settled Aug 11, 2026, closing open item 7 | Not a question any more and not a thing to solve early. The schema has supported multiple children since the first migration and the client already has a switcher from Today v2, so nothing is being deferred that would be expensive to add later. The remaining cost is per-child scheduling and the UI around it, and that is P2's to pay when P2 starts. Do not build toward it in P0 or P1. |
+| **The printed book includes did-it entries** — settled Aug 11, 2026, closing open item 8 | Yes, unreservedly. This is rule 4 of the standing rules applied to the artifact: "get on the floor for ten minutes" is a complete, legitimate entry, and a book that silently dropped every entry without a photo would tell a version of the childhood filtered by whether someone happened to have a camera out. The worry the item recorded — that a page of behaviours may read empty — is a **layout** problem and gets a layout answer: did-it entries are set as text, grouped, with the date and the prompt they answered, rather than as photo pages with a hole where the photo goes. P4 owns that design; what is settled is that they are in. |
 | **One notification a day. Not two, under any name** | No reminder, no digest, no weekly summary, no "you have 3 waiting". The roadmap says one and it means one. A second daily notification is the point at which a warm app becomes a nagging one, and there is no path through the send job that can produce two. |
 | **A finished day is silent** | If every item for today is done, nothing is sent — no "great job", no summary, no streak. A parent who completed the day should not be pinged about it, and a congratulation is still an interruption. This is the no-guilt rule applied correctly, and it is the rule most likely to be eroded by a well-meaning addition. |
 | **The notification carries the mission, and never the archive** | The mission body, optionally the child's first name, and the assignment id for the deep link. Never entry content, never anything from a sealed entry, never a count of waiting or missed items. It renders on a lock screen other people can see: a sealed letter is addressed to one person eighteen years from now, and a backlog number there is a guilt engine you cannot look away from. The message type has no field that could carry any of it, so this is enforced by the shape rather than by care. |
@@ -63,6 +67,7 @@ Last updated: **Aug 10, 2026**
 | `entry_type` describes the artifact | In order: attached media wins (its kind); else a `did_it`-mode mission stays `did_it` however much you wrote about it; else any title or body makes it `text`; else `did_it`. Denormalizing the prompt's kind made the Voice filter surface entries with no audio; deriving purely from content pushed noted did-its out of the Did it filter. Both are the same lie in opposite directions. What was asked is still reachable through `assignment_id` → `prompt.kind`. |
 | Deleting an entry releases its assignment | "Wrong photo, redo it" happens in week one. A mission stranded `done` with nothing to show for it loses the slot for the day. |
 | Letters get their own slot, on the 15th | Sharing `monthly` with the measurement mission meant the money letter could lose that coin flip every month for years. The 15th rather than the 1st because four items in one day breaks the two-item rule. |
+| **A letter can be written on any day. The 15th is the reminder, not the permission** — settled Aug 11, 2026. **Decided, not yet designed or built** | The seal control shipped complete and reachable only from a `letter` assignment, which the scheduler creates only on the 15th (`SealControl.isOffered` requires `promptKind == .letter`; `slots_for` appends `letter` only when `day.day == 15`). That made the monthly *slot* into a monthly *ration*, which was never the decision — the slot exists so a letter cannot lose a coin flip to a height measurement, and nothing about that reasoning says the thought has to wait twelve days for the form. A letter that occurs to you on the 3rd currently has nowhere to go: the **+** composer has no assignment, so it can never seal, and the entry is readable immediately. **This does not change the scheduling decision above** — the 15th keeps its slot and its prompt. It adds a way in. Design is being done in Claude Design; the API needs no change, because `POST /entries` already accepts `unlock_at_age` and now reads its setness correctly. Two things left open for the design to answer: whether the any-day path writes against a `letter` prompt or is freeform-plus-seal, and where the entry point lives — the *Add to the archive* sheet behind **+** is the obvious candidate, since Phase 18 already put one there. |
 | Sync returns a 30-second overlap window; clients upsert by id | `now()` is transaction-start time, so a slow transaction can commit a row already behind another device's cursor and lose it forever. Re-delivery is free — entries are last-write-wins on a client UUID. A sequence has the identical race for a migration's cost. |
 | Scheduler runs hourly and filters on local time | One daily cron is 5am in exactly one timezone and drifts an hour against DST twice a year. 24 wakeups a day is nothing, and the job is already idempotent. |
 | Video is transcoded to 1080p H.264/AAC in MP4 before upload; the original is written back to the camera roll, never discarded | Same reasoning as HEIC→JPEG: the archive has to open in 2040 in something that isn't Apple, and H.264/MP4 is the most universally decodable video there is. 1080p is what these are actually watched at, and it is roughly a fifth the bytes of 4K — ~70MB/min against ~375MB/min, which over eighteen years and two children is the difference between about 130GB and 650GB. Transcoding is lossy and irreversible, so an in-app capture saves its original to the user's photo library first: the archive stays lean without anything being destroyed to achieve it. |
@@ -125,16 +130,62 @@ Last updated: **Aug 10, 2026**
 | 1 | The name | P1 | RASCAL is a placeholder. Needed for the widget, TestFlight, and the app icon. Alternates: SMALL FRY, SIDEKICK, HOLLER. |
 | 2 | Handoff age — 10, 13, 16, or 18? | P4 | This is a *default* for `unlock_at_age`, set per-entry, so it isn't a lock-in. But it changes how you write. |
 | 3 | What the handoff actually *is* — an account, an export, a device, a printed set? | P5 | Worth deciding before writing 500 entries addressed to someone. |
-| 4 | Mission tone — warm, plain, or dry? | P1 | Set it before authoring 200 more prompts, not during. The seed library leans dry-and-specific; confirm that's right. |
-| 6 | Push notification time | P1 | One per day, silenceable. What time actually works? |
-| 7 | Second kid — when? | P2 | Model already supports it. UI cost is a switcher plus per-child scheduling. |
-| 8 | Does the printed book include did-it entries? | P4 | A page of behaviors with no photos may read beautifully or may read empty. |
+| ~~4~~ | ~~Mission tone — warm, plain, or dry?~~ | ~~P1~~ | ✅ **Answered Aug 11, 2026 — warm and cheerful.** Settled above. Applies to prompts authored from here on, including the 79 candidates awaiting review; the seeded 113 are not being rewritten for tone. |
+| ~~6~~ | ~~Push notification time~~ | ~~P1~~ | ✅ **Answered Aug 11, 2026 — one a day, parent-settable, 19:00 default.** Settled above. What shipped was already the answer; no code changes. |
+| ~~7~~ | ~~Second kid — when?~~ | ~~P2~~ | ✅ **Answered Aug 11, 2026 — when P2 comes up, not before.** Settled above. Do not build toward it in P0 or P1. |
+| ~~8~~ | ~~Does the printed book include did-it entries?~~ | ~~P4~~ | ✅ **Answered Aug 11, 2026 — yes.** Settled above. The "may read empty" worry is a layout question for P4, not a question about whether they belong. |
 | 9 | Full export format | P2 | Folder of files + JSON manifest. Build it before you'd need it. |
-| 10 | **Pronouns, and where the child's name appears in prompts** | **Blocked on a `children.pronouns` column** — onboarding shipped Aug 9 and could not close this; there is nowhere to store the answer, and the column is a Lane A change. See `docs/blocked.md`. | The library is written he/him and stays that way for now — see the changelog entry below, this is deliberate, not an oversight. Onboarding is the unlock: once it collects the child's pronouns, prompts should render with the right ones, and the name should appear where it reads warmer than "your child". Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
+| 10 | **Pronouns, and where the child's name appears in prompts** | P1 — **no longer blocked.** `children.pronouns` was built in Lane A and verified present Aug 11, 2026 (`models/child.py:25`, `text` + a named CHECK, on `ChildCreate`/`ChildUpdate`/`ChildOut`). What is left is iOS: **onboarding still does not ask.** | The library is written he/him and stays that way until the answer is being collected — see the changelog entry below, this is deliberate, not an oversight. The unlock has arrived: there is now somewhere to store the answer, so the reason onboarding gave for not asking ("asking and then discarding would be worse") has expired. Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
 
 ---
 
 ## Changelog
+
+**Aug 11, 2026** — **Four open items answered by the owner, and one unblocked.** Items 4, 6, 7 and
+8 are now settled rows above and struck through in the Open table. The two that change future work
+are worth stating plainly, because neither is a no-op and neither is retroactive.
+
+**Mission tone is warm and cheerful (item 4), and the library it was measured against is not.** The
+item's own note said the seed library "leans dry-and-specific; confirm that's right" — and the
+answer is that it is half right. The specificity is the thing that makes a prompt work and it
+stays; the dryness was never chosen. **The 113 seeded prompts are not being rewritten**, for the
+same reason the he/him decision holds: a bulk rewrite of the library is a large, risky, low-value
+edit to content that is already serving, and `test_seeding.py` asserts a coverage table that a
+sweeping edit would have to be reconciled with by hand. The decision binds what is authored next.
+
+**That makes the 79 unreviewed candidates the first thing this decision touches.** They were
+generated with `docs/mission-library.md` as the style reference — that is, against the dry
+library — so they inherit the tone that was just changed, and they are sitting in
+`docs/prompt-candidates/` waiting on a human read that has not happened. Read them for warmth as
+well as for accuracy. `scripts/generate_prompts.py` reads the library as its style reference on
+every run, so the tone of future batches will drift toward whatever the library actually contains:
+the warm prompts have to get *into* it before generation compounds the old voice.
+
+**The printed book includes did-it entries (item 8)**, which is rule 4 of the standing rules
+reaching P4 intact. The recorded worry — that a page of behaviours with no photos may read empty —
+is answered as a layout constraint rather than an inclusion question: they are set as text with
+their date and the prompt they answered, not as photo pages missing a photo.
+
+**Item 6 closed as "what shipped is the answer"** — one a day, `notification_time` on the user,
+19:00 default, every user free to move it. **Item 7 closed as scheduling rather than design**: the
+schema and the Today v2 switcher already carry a second child, so P2 pays the remaining cost when
+P2 starts and nothing in P0 or P1 should build toward it.
+
+**A letter can be written on any day** — decided the same evening, and it came out of reading this
+file rather than the app. "The sealed letter, whole" in `docs/roadmap-status.md` described a
+finished feature and never said where the control appears, so the section read as *shipped* while
+the app read as *there is no way to write a letter*. Both were true: it is offered only from a
+`letter` assignment, and the scheduler creates one only on the 15th. The scheduling decision is
+sound and stands; what was never decided is that **writing** one has to wait for it. It does not.
+Design is being done in Claude Design, nothing is built, and the API needs no change. The
+roadmap file's own omission is recorded there as the defect it was.
+
+**Item 10 is no longer blocked**, which is a correction rather than a decision. It has read
+"blocked on a `children.pronouns` column" since onboarding shipped on Aug 9; the column exists, and
+so do `POST /children/{id}/avatar-upload-url` and its read-back route, `EntryOut.prompt_body`,
+`?sealed=` and the tag `source` that gated Phase 17. Lane A built all of them and nothing marked
+them resolved. The remaining half of item 10 is iOS: onboarding still does not ask for pronouns.
+See `docs/blocked.md`, which was corrected in the same pass.
 
 **Aug 10, 2026** — Settings v2, built against the design export at
 `docs/mobile-app-design-settings/`. The last screen still wearing its PR #21 scaffolding, and the
