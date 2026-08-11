@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+@font-face{font-family:'Nunito';font-style:normal;font-weight:600 800;font-display:swap;src:url('fonts/nunito-var-latin.woff2') format('woff2');}
+@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:400 600;font-display:swap;src:url('fonts/source-sans-3-var-latin.woff2') format('woff2');}
+body{margin:0;background:#EFE9DF;font-family:'Source Sans 3',system-ui,sans-serif;}
+a{color:#C05A2B;text-decoration:none}a:hover{color:#23253C;text-decoration:underline}
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:30px;padding:44px 40px 90px;background:#EFE9DF;min-width:max-content">
+
+<div style="display:flex;align-items:baseline;gap:16px">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:19px;letter-spacing:.14em;color:#23253C">RASCAL</span>
+<span style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6E6A63">Timeline v3 — entry card rebuilt around the prompt</span>
+</div>
+
+<div style="display:flex;gap:26px;align-items:flex-start">
+<sc-for list="{{ screens }}" as="sc" hint-placeholder-count="3">
+<div style="display:flex;flex-direction:column;gap:12px;flex:none">
+<div style="max-width:393px">
+<p style="margin:0 0 3px;font-family:'Nunito',sans-serif;font-weight:800;font-size:16px;letter-spacing:-.01em;color:#23253C">{{ sc.label }}</p>
+<p style="margin:0;font-size:13px;line-height:1.45;color:#6E6A63;text-wrap:pretty">{{ sc.note }}</p>
+</div>
+
+<div style="position:relative;width:413px;height:872px;padding:10px;border-radius:56px;background:#23253C;box-shadow:0 24px 60px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.12);flex:none">
+<div style="position:relative;width:393px;height:852px;border-radius:47px;overflow:hidden;background-color:#FDFAF4;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E&quot;);display:flex;flex-direction:column">
+
+<div style="position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px;z-index:40;pointer-events:none">
+<span style="font-weight:600;font-size:16px;color:#23253C">9:04</span>
+<span style="display:flex;align-items:center;gap:6px">
+<span style="display:flex;align-items:flex-end;gap:2px;height:11px"><span style="width:3px;height:4px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:6px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:8px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:11px;border-radius:1px;background:#23253C"></span></span>
+<span style="width:15px;height:11px;border-radius:2px;border:1.4px solid #23253C;position:relative;display:inline-block"><span style="position:absolute;inset:1.4px;background:#23253C;border-radius:1px"></span></span>
+</span>
+</div>
+<div style="position:absolute;top:20px;left:50%;transform:translateX(-50%);width:118px;height:33px;border-radius:20px;background:#23253C;z-index:45"></div>
+
+<sc-if value="{{ sc.isList }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;top:54px;left:0;right:0;z-index:36;padding:10px 0 12px;background:rgba(253,250,244,.94);backdrop-filter:blur(12px)">
+<div style="display:flex;align-items:baseline;justify-content:space-between;padding:0 16px 10px">
+<h1 style="margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:29px;letter-spacing:-.02em;color:#23253C">Timeline</h1>
+<span style="font-size:13px;color:#6E6A63">{{ sc.count }}</span>
+</div>
+<div style="display:flex;gap:8px;padding:0 16px;overflow:hidden">
+<sc-for list="{{ sc.filters }}" as="f" hint-placeholder-count="6">
+<span style="{{ f.style }}">{{ f.label }}</span>
+</sc-for>
+</div>
+</div>
+
+<div style="flex:1;min-height:0;overflow-y:auto;padding:174px 16px 112px;display:flex;flex-direction:column;gap:22px">
+<sc-for list="{{ sc.groups }}" as="g" hint-placeholder-count="3">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:10px;padding:0 2px">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.01em;color:#6E6A63">{{ g.day }}</span>
+<span style="font-size:15px;color:#6E6A63">{{ g.month }}</span>
+<span style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">{{ g.weekday }}</span>
+<span style="margin-left:auto;padding:3px 10px;border-radius:99px;background:#E9EBFB;font-size:11.5px;font-weight:600;letter-spacing:.03em;color:#5566D6">{{ g.age }}</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{ g.entries }}" as="e" hint-placeholder-count="2">
+<div style="{{ e.cardStyle }}">
+<sc-if value="{{ e.hasMedia }}" hint-placeholder-val="{{ false }}">
+<div style="{{ e.mediaStyle }}">
+<sc-for list="{{ e.tiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.style }}">
+<sc-if value="{{ t.hasOverlay }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.overlayStyle }}">{{ t.overlay }}</span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasAudio }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#E9EBFB;margin-bottom:13px">
+<span style="width:34px;height:34px;border-radius:99px;background:#5566D6;display:grid;place-items:center;flex:none"><span style="width:0;height:0;border-left:10px solid #FDFAF4;border-top:6.5px solid transparent;border-bottom:6.5px solid transparent;margin-left:3px;display:block"></span></span>
+<span style="display:flex;align-items:center;gap:3px;flex:1;height:26px">
+<sc-for list="{{ e.wave }}" as="w" hint-placeholder-count="24">
+<span style="{{ w }}"></span>
+</sc-for>
+</span>
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5566D6;flex:none">{{ e.audioDur }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasPrompt }}" hint-placeholder-val="{{ true }}">
+<div style="{{ e.promptStyle }}">{{ e.prompt }}</div>
+</sc-if>
+<sc-if value="{{ e.hasTitle }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+<sc-if value="{{ e.isDid }}" hint-placeholder-val="{{ false }}">
+<span style="width:19px;height:19px;border-radius:99px;background:#4B7A4F;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:8px;height:4px;border-left:2px solid #E8F0E6;border-bottom:2px solid #E8F0E6;transform:rotate(-45deg) translate(1px,-1px)"></span></span>
+</sc-if>
+<sc-if value="{{ e.isSealed }}" hint-placeholder-val="{{ false }}">
+<span style="width:17px;height:19px;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:12px;height:9px;border-radius:2px;background:#C05A2B;position:relative"><span style="position:absolute;left:2.5px;top:-5px;width:7px;height:6px;border:2px solid #C05A2B;border-bottom:none;border-radius:4px 4px 0 0"></span></span></span>
+</sc-if>
+<p style="{{ e.titleStyle }}">{{ e.title }}</p>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasBody }}" hint-placeholder-val="{{ true }}">
+<p style="{{ e.bodyStyle }}">{{ e.body }}</p>
+</sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
+<sc-for list="{{ e.chips }}" as="c" hint-placeholder-count="2">
+<span style="{{ c.style }}">{{ c.label }}</span>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+<p style="margin:6px 2px 0;font-size:13px;line-height:1.5;color:#B4ADA3;text-wrap:pretty">{{ sc.footer }}</p>
+</div>
+</sc-if>
+
+<sc-if value="{{ sc.isDetail }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;min-height:0;overflow-y:auto;padding:66px 0 40px">
+<div style="display:flex;align-items:center;justify-content:space-between;padding:0 16px 14px">
+<span style="font-size:16px;font-weight:600;color:#C05A2B">Timeline</span>
+<span style="font-size:16px;font-weight:600;color:#C05A2B">Edit</span>
+</div>
+<div style="padding:0 16px">
+<div style="{{ sc.heroStyle }}">
+<sc-if value="{{ sc.heroIsAudio }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:16px;padding:24px 20px">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="width:52px;height:52px;border-radius:99px;background:#5566D6;display:grid;place-items:center;flex:none"><span style="width:0;height:0;border-left:15px solid #FDFAF4;border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px;display:block"></span></span>
+<span style="display:flex;align-items:center;gap:3px;flex:1;height:44px">
+<sc-for list="{{ sc.wave }}" as="w" hint-placeholder-count="30">
+<span style="{{ w }}"></span>
+</sc-for>
+</span>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5566D6">
+<span>0:00</span><span>1:47</span>
+</div>
+</div>
+</sc-if>
+</div>
+<div style="{{ sc.promptBlockStyle }}">
+<p style="margin:0 0 7px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">{{ sc.promptDate }}</p>
+<p style="margin:0;font-size:16px;line-height:1.45;color:#6E6A63;text-wrap:pretty">{{ sc.prompt }}</p>
+</div>
+<h2 style="margin:20px 0 8px;font-family:'Nunito',sans-serif;font-weight:800;font-size:26px;line-height:1.15;letter-spacing:-.02em;color:#23253C;text-wrap:pretty">{{ sc.title }}</h2>
+<p style="{{ sc.bodyStyle }}">{{ sc.body }}</p>
+<sc-if value="{{ sc.hasTranscript }}" hint-placeholder-val="{{ false }}">
+<p style="margin:14px 0 0;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">Transcript</p>
+<p style="margin:8px 0 0;font-size:16px;line-height:1.5;color:#23253C;text-wrap:pretty">{{ sc.transcript }}</p>
+</sc-if>
+<div style="margin-top:24px;padding-top:18px;border-top:1px solid #EDE5DA;display:flex;flex-direction:column;gap:11px">
+<sc-for list="{{ sc.meta }}" as="m" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;justify-content:space-between">
+<span style="font-size:14px;color:#6E6A63">{{ m.k }}</span>
+<span style="{{ m.style }}">{{ m.v }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:16px">
+<sc-for list="{{ sc.tags }}" as="c" hint-placeholder-count="3">
+<span style="{{ c.style }}">{{ c.label }}</span>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ sc.isList }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;left:14px;right:14px;bottom:14px;height:66px;border-radius:34px;background:#FFFDF9;box-shadow:0 4px 20px rgba(0,0,0,.10);display:flex;align-items:center;justify-content:space-around;padding:0 8px;z-index:50">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<span style="{{ t.style }}">{{ t.label }}</span>
+</sc-for>
+<div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:62px;height:62px;border-radius:99px;background:#C05A2B;display:grid;place-items:center;color:#FDFAF4;font-size:32px;font-weight:300;box-shadow:0 4px 14px rgba(192,90,43,.34)">+</div>
+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+</sc-for>
+
+<div style="display:flex;flex-direction:column;gap:12px;flex:none;width:820px">
+<div>
+<p style="margin:0 0 3px;font-family:'Nunito',sans-serif;font-weight:800;font-size:16px;letter-spacing:-.01em;color:#23253C">5 · EntryCard component sheet</p>
+<p style="margin:0;font-size:13px;line-height:1.45;color:#6E6A63">Every media count and every kind, at real card width (361px). Zones drop out when empty; the card stays deliberate at every level of fill.</p>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,393px);gap:18px;padding:26px;border-radius:28px;background:#FDFAF4;border:1px solid #E3DACB">
+<sc-for list="{{ sheet }}" as="s" hint-placeholder-count="9">
+<div style="display:flex;flex-direction:column;gap:8px">
+<p style="margin:0;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">{{ s.label }}</p>
+<div style="{{ s.e.cardStyle }}">
+<sc-if value="{{ s.e.hasMedia }}" hint-placeholder-val="{{ false }}">
+<div style="{{ s.e.mediaStyle }}">
+<sc-for list="{{ s.e.tiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.style }}">
+<sc-if value="{{ t.hasOverlay }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.overlayStyle }}">{{ t.overlay }}</span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ s.e.hasAudio }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#E9EBFB;margin-bottom:13px">
+<span style="width:34px;height:34px;border-radius:99px;background:#5566D6;display:grid;place-items:center;flex:none"><span style="width:0;height:0;border-left:10px solid #FDFAF4;border-top:6.5px solid transparent;border-bottom:6.5px solid transparent;margin-left:3px;display:block"></span></span>
+<span style="display:flex;align-items:center;gap:3px;flex:1;height:26px">
+<sc-for list="{{ s.e.wave }}" as="w" hint-placeholder-count="24">
+<span style="{{ w }}"></span>
+</sc-for>
+</span>
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5566D6;flex:none">{{ s.e.audioDur }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ s.e.hasPrompt }}" hint-placeholder-val="{{ true }}">
+<div style="{{ s.e.promptStyle }}">{{ s.e.prompt }}</div>
+</sc-if>
+<sc-if value="{{ s.e.hasTitle }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+<sc-if value="{{ s.e.isDid }}" hint-placeholder-val="{{ false }}">
+<span style="width:19px;height:19px;border-radius:99px;background:#4B7A4F;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:8px;height:4px;border-left:2px solid #E8F0E6;border-bottom:2px solid #E8F0E6;transform:rotate(-45deg) translate(1px,-1px)"></span></span>
+</sc-if>
+<sc-if value="{{ s.e.isSealed }}" hint-placeholder-val="{{ false }}">
+<span style="width:17px;height:19px;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:12px;height:9px;border-radius:2px;background:#C05A2B;position:relative"><span style="position:absolute;left:2.5px;top:-5px;width:7px;height:6px;border:2px solid #C05A2B;border-bottom:none;border-radius:4px 4px 0 0"></span></span></span>
+</sc-if>
+<p style="{{ s.e.titleStyle }}">{{ s.e.title }}</p>
+</div>
+</sc-if>
+<sc-if value="{{ s.e.hasBody }}" hint-placeholder-val="{{ true }}">
+<p style="{{ s.e.bodyStyle }}">{{ s.e.body }}</p>
+</sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
+<sc-for list="{{ s.e.chips }}" as="c" hint-placeholder-count="2">
+<span style="{{ c.style }}">{{ c.label }}</span>
+</sc-for>
+</div>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<p style="margin:0;max-width:960px;font-size:13px;line-height:1.55;color:#6E6A63;text-wrap:pretty">Media wells are placeholders — flat warm tints standing in for real photographs, sized and inset exactly as the shipped mosaics will be. Send me the real frames and I'll drop them in.</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:1000}}">
+const TINTS=["#E5D8C6","#DCCFBE","#EEE1D0","#D6CBBB","#E9DBC9","#D2C7B7","#E2D4C2"];
+const wave=(n,color,alpha)=>Array.from({length:n},(_,i)=>{
+  const h=6+((i*29)%18);
+  return "width:3px;height:"+h+"px;border-radius:99px;background:"+color+";opacity:"+(i<n*0.36?1:alpha)+";flex:none";
+});
+const chip=(label,tone)=>{
+  const map={terracotta:["#FBEDE2","#C05A2B"],peri:["#E9EBFB","#5566D6"],sage:["#DCE8DA","#4B7A4F"],plain:["#F4EEE5","#6E6A63"]};
+  const [bg,fg]=map[tone]||map.plain;
+  return {label,style:"padding:5px 11px;border-radius:99px;background:"+bg+";color:"+fg+";font-size:12px;font-weight:600;letter-spacing:.03em"};
+};
+const clamp=(n)=>"display:-webkit-box;-webkit-line-clamp:"+n+";-webkit-box-orient:vertical;overflow:hidden;";
+
+const ENTRIES={
+  cookies:{kind:"photo",media:4,extra:6,prompt:"Photograph the mess he made. Don't clean it up first.",
+    title:"The kitchen after cookies",body:"Flour on the ceiling. Genuinely the ceiling.",tags:["Photo","Kitchen"]},
+  dino:{kind:"voice",dur:"1:47",prompt:"Record him telling you a story. Any story. Don't correct the words he says wrong.",
+    title:"The one about the dinosaur bus",body:"\u201cand then the dinosaur he goed to the bus stop but the bus was a\u2026\u201d",italic:true,tags:["Voice","His words"]},
+  hug:{kind:"did",prompt:"Never let go of the hug first today. Let him be the one to pull away.",
+    title:"Held on for a while",body:"He hung on way past when I would have let go. Nine seconds. I counted.",tags:["Did it"]},
+  burger:{kind:"written",prompt:"What did he say this week that you want to remember exactly?",
+    title:"Hangaburger",body:"He's called it a hangaburger for three months and I'm not correcting it. Not this year, not next year. One day he'll say hamburger and I won't be able to remember when it changed.",tags:["Written","His words"]},
+  report:{kind:"video",dur:"0:21",media:1,prompt:"Film him telling you about his day. Don't prompt him.",
+    title:"Full report, unprompted",tags:["Video"]},
+  lake:{kind:"photo",media:4,extra:3,title:"First morning at the lake",tags:["Photo","Lake"]},
+  sealed:{kind:"sealed",prompt:"Write him something about money that you wish someone had told you at nineteen.",
+    title:"Sealed until 18",body:"Opens 12 June 2040.",tags:["Letter","Sealed"]},
+  floor:{kind:"did",prompt:"Get on the floor for ten minutes. That's the whole mission.",
+    title:"Ten minutes, no phone",body:"He built a tower and knocked it down eleven times. I stayed for all eleven.",tags:["Did it"]},
+  walk:{kind:"did",prompt:"Take the longer route home and let him set the pace.",
+    title:"Walked the long way",body:"Forty minutes to go four blocks. He stopped at every drain to check for the sea.",tags:["Did it"]},
+  lose:{kind:"did",prompt:"Lose at something on purpose. Don't announce it.",
+    title:"Let him win",body:"He noticed anyway. He said \u201cyou're getting better though.\u201d",tags:["Did it"]},
+  breakfast:{kind:"did",prompt:"Let him decide what breakfast is today. Don't negotiate.",
+    title:"Breakfast, his rules",body:"Toast with jam and a single olive on the side. He ate the olive first.",tags:["Did it"]}
+};
+
+class Component extends DCLogic {
+  card(key,seed){
+    const d=ENTRIES[key], k=d.kind;
+    const sealed=k==="sealed", did=k==="did";
+    const bg=did?"#E8F0E6":(sealed?"linear-gradient(135deg,#FDE8DC 0%,#F7DDE8 52%,#FBF6EF 100%)":"#FFFDF9");
+    const e={
+      cardStyle:"padding:16px;border-radius:20px;background:"+bg+";border:1px solid "+(did?"#D8E4D5":(sealed?"#F0DFD5":"#EDE5DA"))+";box-shadow:0 2px 8px rgba(0,0,0,.04)",
+      hasMedia:false,hasAudio:false,tiles:[],
+      hasPrompt:!!d.prompt,prompt:d.prompt,
+      promptStyle:"margin:0 0 9px;padding-left:11px;border-left:2px solid "+(did?"#B7CDB3":(k==="voice"||k==="written"?"#C6CCF2":"#EBD8C8"))+";font-size:14px;line-height:1.4;color:#6E6A63;font-style:italic;text-wrap:pretty;"+clamp(2),
+      hasTitle:true,title:d.title,isDid:did,isSealed:sealed,
+      titleStyle:"margin:0;font-family:'Nunito',sans-serif;font-weight:700;font-size:17px;line-height:1.28;letter-spacing:-.01em;color:#23253C;text-wrap:pretty",
+      hasBody:!!d.body,body:d.body,
+      bodyStyle:"margin:0;font-size:16px;line-height:1.45;color:"+(sealed?"#A79A92":"#6E6A63")+";"+(d.italic?"font-style:italic;":"")+(sealed?"filter:blur(3.5px);user-select:none;":"")+"text-wrap:pretty;"+clamp(k==="written"?3:2),
+      chips:d.tags.map((t,i)=>chip(t,i===0?(did?"sage":(k==="voice"||k==="written"?"peri":"terracotta")):"plain"))
+    };
+    if(k==="voice"){ e.hasAudio=true; e.audioDur=d.dur; e.wave=wave(26,"#5566D6",.34); }
+    if(d.media){
+      e.hasMedia=true;
+      const n=d.media, g="display:grid;gap:4px;margin-bottom:13px;border-radius:14px;overflow:hidden;";
+      const tile=(i,h,extra)=>{
+        const t={style:"position:relative;background:"+TINTS[(seed+i)%TINTS.length]+";"+(h?"height:"+h+"px;":"")+extra,hasOverlay:false};
+        return t;
+      };
+      if(n===1){
+        e.mediaStyle=g+"grid-template-columns:1fr";
+        const t=tile(0,k==="video"?196:242,"");
+        if(k==="video"){ t.hasOverlay=true; t.overlay=d.dur;
+          t.overlayStyle="position:absolute;right:9px;bottom:9px;padding:4px 10px;border-radius:99px;background:rgba(35,37,60,.62);color:#FDFAF4;font-family:ui-monospace,Menlo,monospace;font-size:11.5px";
+        }
+        e.tiles=[t];
+      } else if(n===2){
+        e.mediaStyle=g+"grid-template-columns:1fr 1fr";
+        e.tiles=[tile(0,164,""),tile(1,164,"")];
+      } else if(n===3){
+        e.mediaStyle=g+"grid-template-columns:62% 1fr;grid-template-rows:repeat(2,1fr);height:216px";
+        e.tiles=[tile(0,0,"grid-row:span 2"),tile(1,0,""),tile(2,0,"")];
+      } else {
+        e.mediaStyle=g+"grid-template-columns:1fr 1fr;grid-template-rows:repeat(2,108px)";
+        e.tiles=[tile(0),tile(1),tile(2),tile(3)];
+        if(d.extra){
+          const last=e.tiles[3];
+          last.hasOverlay=true; last.overlay="+"+d.extra;
+          last.overlayStyle="position:absolute;inset:0;display:grid;place-items:center;background:rgba(192,90,43,.30);color:#FDFAF4;font-family:'Nunito',sans-serif;font-weight:800;font-size:22px;letter-spacing:-.01em";
+        }
+      }
+    }
+    if(k==="video"){ e.hasBody=false; }
+    return e;
+  }
+  filters(active){
+    return ["All","Photos","Video","Voice","Written","Did it","Sealed"].map(l=>({
+      label:l,
+      style:"flex:none;padding:8px 15px;border-radius:99px;font-size:13.5px;font-weight:600;white-space:nowrap;"+
+        (l===active?"background:#C05A2B;color:#FDFAF4;border:1px solid #C05A2B":"background:#FFFDF9;color:#6E6A63;border:1px solid #EDE5DA")
+    }));
+  }
+  renderVals(){
+    const c=(k,s)=>this.card(k,s);
+    const screens=[
+      {label:"1 · Year three",note:"Three date groups, all seven kinds. Card height follows content — that variation is the only rhythm the screen needs.",
+       isList:true,isDetail:false,count:"412 entries",filters:this.filters("All"),
+       groups:[
+        {day:"9",month:"August 2026",weekday:"Sun",age:"4y 2m",entries:[c("cookies",0),c("hug",1)]},
+        {day:"6",month:"August 2026",weekday:"Thu",age:"4y 2m",entries:[c("dino",2),c("burger",3)]},
+        {day:"2",month:"August 2026",weekday:"Sun",age:"4y 1m",entries:[c("report",4),c("lake",1),c("sealed",6)]}
+       ],
+       footer:"Keep scrolling and he gets younger."},
+      {label:"2 · Week one",note:"Five entries. The prompt block and generous did-it cards carry the screen, so a new archive reads considered rather than empty.",
+       isList:true,isDetail:false,count:"5 entries",filters:this.filters("All"),
+       groups:[
+        {day:"9",month:"August 2026",weekday:"Sun",age:"4y 2m",entries:[c("cookies",0),c("hug",1)]},
+        {day:"7",month:"August 2026",weekday:"Fri",age:"4y 2m",entries:[c("dino",2)]},
+        {day:"5",month:"August 2026",weekday:"Wed",age:"4y 2m",entries:[c("burger",3),c("floor",5)]}
+       ],
+       footer:"Six days in. Nothing is counting."},
+      {label:"3 · \u201cDid it\u201d filter",note:"Nothing but sage. No media anywhere, so the prompt becomes the loudest thing on each card — which is the right answer for entries that produced no artifact.",
+       isList:true,isDetail:false,count:"38 entries",filters:this.filters("Did it"),
+       groups:[
+        {day:"9",month:"August 2026",weekday:"Sun",age:"4y 2m",entries:[c("hug",1),c("floor",5)]},
+        {day:"4",month:"August 2026",weekday:"Tue",age:"4y 1m",entries:[c("walk",2),c("lose",3)]},
+        {day:"29",month:"July 2026",weekday:"Wed",age:"4y 1m",entries:[c("breakfast",4)]}
+       ],
+       footer:"Thirty-eight afternoons that left no file behind."},
+      {label:"4 · Detail — photo",note:"Media large and inset, the originating prompt quoted with the date it was assigned, then the parent's words.",
+       isList:false,isDetail:true,
+       heroStyle:"border-radius:18px;overflow:hidden;background:#E5D8C6;height:300px;border:1px solid #EDE5DA",
+       heroIsAudio:false,
+       promptBlockStyle:"margin-top:18px;padding:15px 16px;border-radius:16px;background:#FBEDE2",
+       promptDate:"Assigned Sun 9 Aug, 7:00am",
+       prompt:"Photograph the mess he made. Don't clean it up first.",
+       title:"The kitchen after cookies",
+       bodyStyle:"margin:0;font-size:16px;line-height:1.5;color:#23253C;text-wrap:pretty",
+       body:"Flour on the ceiling. Genuinely the ceiling. He'd got the bag between his knees and was using both hands like a shovel, and when I came in he looked up and said \u201cI'm helping the flour.\u201d Ten photos before I said anything about the mess.",
+       hasTranscript:false,
+       meta:[{k:"Age at the time",v:"4 years, 2 months",style:"padding:3px 10px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6"},
+             {k:"Date",v:"Sunday 9 August 2026, 4:12pm",style:"font-size:14px;color:#23253C"},
+             {k:"Photos",v:"10",style:"font-size:14px;color:#23253C"}],
+       tags:[chip("Photo","terracotta"),chip("Kitchen","plain"),chip("Add tag","plain")]},
+      {label:"5 · Detail — voice",note:"Player in place of media, then the full transcript as readable body — his words are the artifact, so they get body type, not caption type.",
+       isList:false,isDetail:true,
+       heroStyle:"border-radius:18px;overflow:hidden;background:#E9EBFB;border:1px solid #DADDF7",
+       heroIsAudio:true,wave:wave(34,"#5566D6",.32),
+       promptBlockStyle:"margin-top:18px;padding:15px 16px;border-radius:16px;background:#E9EBFB",
+       promptDate:"Assigned Thu 6 Aug, 7:00am",
+       prompt:"Record him telling you a story. Any story. Don't correct the words he says wrong.",
+       title:"The one about the dinosaur bus",
+       bodyStyle:"margin:0;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty",
+       body:"He talked for nearly two minutes without stopping. I have no idea where the bus came from.",
+       hasTranscript:true,
+       transcript:"\u201cand then the dinosaur he goed to the bus stop but the bus was a big one, a really big one, and the driver was also a dinosaur but a nice one, and they goed to the shops and buyed all the leaves\u2026\u201d",
+       meta:[{k:"Age at the time",v:"4 years, 2 months",style:"padding:3px 10px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6"},
+             {k:"Date",v:"Thursday 6 August 2026, 7:41pm",style:"font-size:14px;color:#23253C"},
+             {k:"Length",v:"1:47",style:"font-size:14px;color:#23253C"}],
+       tags:[chip("Voice","peri"),chip("His words","plain"),chip("Add tag","plain")]}
+    ];
+    const sheet=[
+      {label:"1 photo",e:c("report",1)},
+      {label:"2 photos",e:(()=>{const e=c("cookies",2);return e;})()},
+      {label:"3 photos",e:c("lake",3)},
+      {label:"4+ with overflow",e:c("cookies",0)},
+      {label:"Video",e:c("report",4)},
+      {label:"Audio",e:c("dino",2)},
+      {label:"Written \u2014 three body lines",e:c("burger",3)},
+      {label:"Did it \u2014 designed as the hero",e:c("hug",1)},
+      {label:"Sealed letter",e:c("sealed",6)}
+    ];
+    sheet[0].e=(()=>{const d=ENTRIES.report;const e=c("report",1);e.hasOverlay=false;return e;})();
+    sheet[1].e=(()=>{const e=this.card2("cookies",2,2);return e;})();
+    sheet[2].e=(()=>{const e=this.card2("lake",3,3);return e;})();
+    return {
+      screens,sheet,
+      tabs:[["Today",false],["Timeline",true],["",false],["Moments",false],["Settings",false]].map(t=>({
+        label:t[0],
+        style:"font-family:'Nunito',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:"+(t[1]?"#C05A2B":"#6E6A63")+";min-width:52px;text-align:center"}))
+    };
+  }
+  card2(key,seed,count){
+    const saved=ENTRIES[key];
+    const clone=Object.assign({},saved,{media:count,extra:count>=4?saved.extra:0});
+    ENTRIES.__tmp=clone;
+    const e=this.card("__tmp",seed);
+    delete ENTRIES.__tmp;
+    return e;
+  }
+}
+</script>
+</body>
+</html>

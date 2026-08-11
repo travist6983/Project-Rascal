@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+@font-face{font-family:'Nunito';font-style:normal;font-weight:600 800;font-display:swap;src:url('fonts/nunito-var-latin.woff2') format('woff2');}
+@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:400 600;font-display:swap;src:url('fonts/source-sans-3-var-latin.woff2') format('woff2');}
+body{margin:0;background:#EFE9DF;font-family:'Source Sans 3',system-ui,sans-serif;}
+a{color:#C05A2B;text-decoration:none}a:hover{color:#23253C;text-decoration:underline}
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:30px;padding:44px 40px 90px;background:#EFE9DF;min-width:max-content">
+
+<div style="display:flex;align-items:baseline;gap:16px">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:19px;letter-spacing:.14em;color:#23253C">RASCAL</span>
+<span style="font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6E6A63">Moments v1 — On This Day, built on the Timeline card</span>
+</div>
+
+<div style="display:flex;gap:26px;align-items:flex-start">
+<sc-for list="{{ screens }}" as="sc" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;gap:12px;flex:none">
+<div style="max-width:393px">
+<p style="margin:0 0 3px;font-family:'Nunito',sans-serif;font-weight:800;font-size:16px;letter-spacing:-.01em;color:#23253C">{{ sc.label }}</p>
+<p style="margin:0;font-size:13px;line-height:1.45;color:#6E6A63;text-wrap:pretty">{{ sc.note }}</p>
+</div>
+
+<div style="position:relative;width:413px;height:872px;padding:10px;border-radius:56px;background:#23253C;box-shadow:0 24px 60px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.12);flex:none">
+<div style="position:relative;width:393px;height:852px;border-radius:47px;overflow:hidden;background-color:#FDFAF4;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E&quot;);display:flex;flex-direction:column">
+
+<div style="position:absolute;top:0;left:0;right:0;height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 30px 0 34px;z-index:40;pointer-events:none">
+<span style="font-weight:600;font-size:16px;color:#23253C">9:04</span>
+<span style="display:flex;align-items:center;gap:6px">
+<span style="display:flex;align-items:flex-end;gap:2px;height:11px"><span style="width:3px;height:4px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:6px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:8px;border-radius:1px;background:#23253C"></span><span style="width:3px;height:11px;border-radius:1px;background:#23253C"></span></span>
+<span style="width:15px;height:11px;border-radius:2px;border:1.4px solid #23253C;position:relative;display:inline-block"><span style="position:absolute;inset:1.4px;background:#23253C;border-radius:1px"></span></span>
+</span>
+</div>
+<div style="position:absolute;top:20px;left:50%;transform:translateX(-50%);width:118px;height:33px;border-radius:20px;background:#23253C;z-index:45"></div>
+
+<div style="flex:1;min-height:0;overflow-y:auto;padding:66px 0 112px;display:flex;flex-direction:column;gap:20px">
+
+<div style="flex:none;padding:0 16px">
+<h1 style="margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:31px;letter-spacing:-.02em;line-height:1.1;color:#23253C">Moments</h1>
+<p style="margin:5px 0 0;font-size:15px;line-height:1.4;color:#6E6A63;text-wrap:pretty">{{ sc.subtitle }}</p>
+</div>
+
+<sc-if value="{{ sc.hasCarousel }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;flex:none;gap:12px;padding:0 16px;overflow-x:auto;overflow-y:visible">
+<sc-for list="{{ sc.throwbacks }}" as="tb" hint-placeholder-count="3">
+<div style="{{ tb.style }}">
+<div style="{{ tb.scrimStyle }}"></div>
+<div style="position:relative;z-index:2;display:flex;flex-direction:column;gap:3px;padding:14px 15px">
+<span style="{{ tb.eyebrowStyle }}">{{ tb.eyebrow }}</span>
+<span style="{{ tb.lineStyle }}">{{ tb.line }}</span>
+</div>
+<sc-if value="{{ tb.hasBadge }}" hint-placeholder-val="{{ false }}">
+<span style="{{ tb.badgeStyle }}">{{ tb.badge }}</span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ sc.hasEmpty }}" hint-placeholder-val="{{ false }}">
+<div style="{{ sc.emptyStyle }}">
+<div style="width:66px;height:66px;border-radius:99px;background:linear-gradient(140deg,#FBEDE2 0%,#F7DDE8 100%);display:grid;place-items:center">
+<span style="display:block;width:26px;height:26px;background:#C05A2B;clip-path:polygon(50% 0%,60% 40%,100% 50%,60% 60%,50% 100%,40% 60%,0% 50%,40% 40%)"></span>
+</div>
+<h2 style="margin:20px 0 0;font-family:'Nunito',sans-serif;font-weight:800;font-size:23px;line-height:1.2;letter-spacing:-.02em;color:#23253C;text-wrap:pretty">{{ sc.emptyTitle }}</h2>
+<p style="margin:9px 0 0;font-size:15.5px;line-height:1.5;color:#6E6A63;max-width:270px;text-wrap:pretty">{{ sc.emptyBody }}</p>
+<span style="margin-top:22px;padding:14px 26px;border-radius:99px;background:#C05A2B;color:#FDFAF4;font-family:'Nunito',sans-serif;font-weight:700;font-size:16px;box-shadow:0 4px 14px rgba(192,90,43,.28)">{{ sc.emptyCta }}</span>
+</div>
+</sc-if>
+
+<sc-for list="{{ sc.sections }}" as="g" hint-placeholder-count="2">
+<div style="display:flex;flex:none;flex-direction:column;gap:10px;padding:0 16px">
+<div style="display:flex;align-items:center;gap:10px;padding:0 2px">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.01em;color:#6E6A63">{{ g.head }}</span>
+<span style="font-size:15px;color:#6E6A63">{{ g.date }}</span>
+<span style="margin-left:auto;padding:3px 10px;border-radius:99px;background:#E9EBFB;font-size:11.5px;font-weight:600;letter-spacing:.03em;color:#5566D6">{{ g.age }}</span>
+</div>
+<sc-if value="{{ g.hasNote }}" hint-placeholder-val="{{ false }}">
+<p style="margin:-2px 2px 2px;font-size:14px;line-height:1.45;color:#6E6A63;font-style:italic;text-wrap:pretty">{{ g.note }}</p>
+</sc-if>
+<div style="display:flex;flex-direction:column;gap:12px">
+<sc-for list="{{ g.entries }}" as="e" hint-placeholder-count="2">
+<div style="{{ e.cardStyle }}">
+<sc-if value="{{ e.hasMedia }}" hint-placeholder-val="{{ false }}">
+<div style="{{ e.mediaStyle }}">
+<sc-for list="{{ e.tiles }}" as="t" hint-placeholder-count="4">
+<div style="{{ t.style }}">
+<sc-if value="{{ t.hasOverlay }}" hint-placeholder-val="{{ false }}">
+<span style="{{ t.overlayStyle }}">{{ t.overlay }}</span>
+</sc-if>
+</div>
+</sc-for>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasAudio }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:#E9EBFB;margin-bottom:13px">
+<span style="width:34px;height:34px;border-radius:99px;background:#5566D6;display:grid;place-items:center;flex:none"><span style="width:0;height:0;border-left:10px solid #FDFAF4;border-top:6.5px solid transparent;border-bottom:6.5px solid transparent;margin-left:3px;display:block"></span></span>
+<span style="display:flex;align-items:center;gap:3px;flex:1;height:26px">
+<sc-for list="{{ e.wave }}" as="w" hint-placeholder-count="24">
+<span style="{{ w }}"></span>
+</sc-for>
+</span>
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#5566D6;flex:none">{{ e.audioDur }}</span>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasPrompt }}" hint-placeholder-val="{{ true }}">
+<div style="{{ e.promptStyle }}">{{ e.prompt }}</div>
+</sc-if>
+<sc-if value="{{ e.hasTitle }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:5px">
+<sc-if value="{{ e.isDid }}" hint-placeholder-val="{{ false }}">
+<span style="width:19px;height:19px;border-radius:99px;background:#4B7A4F;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:8px;height:4px;border-left:2px solid #E8F0E6;border-bottom:2px solid #E8F0E6;transform:rotate(-45deg) translate(1px,-1px)"></span></span>
+</sc-if>
+<sc-if value="{{ e.isSealed }}" hint-placeholder-val="{{ false }}">
+<span style="width:17px;height:19px;display:grid;place-items:center;flex:none;margin-top:2px"><span style="display:block;width:12px;height:9px;border-radius:2px;background:#C05A2B;position:relative"><span style="position:absolute;left:2.5px;top:-5px;width:7px;height:6px;border:2px solid #C05A2B;border-bottom:none;border-radius:4px 4px 0 0"></span></span></span>
+</sc-if>
+<p style="{{ e.titleStyle }}">{{ e.title }}</p>
+</div>
+</sc-if>
+<sc-if value="{{ e.hasBody }}" hint-placeholder-val="{{ true }}">
+<p style="{{ e.bodyStyle }}">{{ e.body }}</p>
+</sc-if>
+<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
+<sc-for list="{{ e.chips }}" as="c" hint-placeholder-count="2">
+<span style="{{ c.style }}">{{ c.label }}</span>
+</sc-for>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-for>
+
+<sc-if value="{{ sc.hasFooter }}" hint-placeholder-val="{{ true }}">
+<p style="margin:2px 18px 0;font-size:13px;line-height:1.5;color:#B4ADA3;text-wrap:pretty">{{ sc.footer }}</p>
+</sc-if>
+
+</div>
+
+<div style="position:absolute;left:14px;right:14px;bottom:14px;height:66px;border-radius:34px;background:#FFFDF9;box-shadow:0 4px 20px rgba(0,0,0,.10);display:flex;align-items:center;justify-content:space-around;padding:0 8px;z-index:50">
+<sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+<span style="{{ t.style }}">{{ t.label }}</span>
+</sc-for>
+<div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:62px;height:62px;border-radius:99px;background:#C05A2B;display:grid;place-items:center;color:#FDFAF4;font-size:32px;font-weight:300;box-shadow:0 4px 14px rgba(192,90,43,.34)">+</div>
+</div>
+
+</div>
+</div>
+</div>
+</sc-for>
+
+<div style="display:flex;flex-direction:column;gap:12px;flex:none;width:560px">
+<div>
+<p style="margin:0 0 3px;font-family:'Nunito',sans-serif;font-weight:800;font-size:16px;letter-spacing:-.01em;color:#23253C">5 · ThrowbackCard sheet</p>
+<p style="margin:0;font-size:13px;line-height:1.45;color:#6E6A63;text-wrap:pretty">232×148, one per years-ago section. Cover photo under a scrim when the section has a picture; the gradient wash stands alone when it doesn't. Kind badge only when the section leads with voice, video, or a sealed letter.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:18px;padding:26px;border-radius:28px;background:#FDFAF4;border:1px solid #E3DACB">
+<sc-for list="{{ sheet }}" as="s" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:18px">
+<div style="{{ s.tb.style }}">
+<div style="{{ s.tb.scrimStyle }}"></div>
+<div style="position:relative;z-index:2;display:flex;flex-direction:column;gap:3px;padding:14px 15px">
+<span style="{{ s.tb.eyebrowStyle }}">{{ s.tb.eyebrow }}</span>
+<span style="{{ s.tb.lineStyle }}">{{ s.tb.line }}</span>
+</div>
+<sc-if value="{{ s.tb.hasBadge }}" hint-placeholder-val="{{ false }}">
+<span style="{{ s.tb.badgeStyle }}">{{ s.tb.badge }}</span>
+</sc-if>
+</div>
+<div style="flex:1">
+<p style="margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">{{ s.label }}</p>
+<p style="margin:0;font-size:14px;line-height:1.45;color:#6E6A63;text-wrap:pretty">{{ s.note }}</p>
+</div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+
+<p style="margin:0;max-width:960px;font-size:13px;line-height:1.55;color:#6E6A63;text-wrap:pretty">Media wells and throwback covers are placeholders — flat warm tints at the exact shipped geometry. Send real frames and I'll drop them in. Moments deliberately borrows Timeline's EntryCard unchanged: same padding, same prompt rule, same chips — the only new component on this screen is the ThrowbackCard.</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:1000}}">
+const TINTS=["#E5D8C6","#DCCFBE","#EEE1D0","#D6CBBB","#E9DBC9","#D2C7B7","#E2D4C2"];
+const wave=(n,color,alpha)=>Array.from({length:n},(_,i)=>{
+  const h=6+((i*29)%18);
+  return "width:3px;height:"+h+"px;border-radius:99px;background:"+color+";opacity:"+(i<n*0.36?1:alpha)+";flex:none";
+});
+const chip=(label,tone)=>{
+  const map={terracotta:["#FBEDE2","#C05A2B"],peri:["#E9EBFB","#5566D6"],sage:["#DCE8DA","#4B7A4F"],plain:["#F4EEE5","#6E6A63"]};
+  const [bg,fg]=map[tone]||map.plain;
+  return {label,style:"padding:5px 11px;border-radius:99px;background:"+bg+";color:"+fg+";font-size:12px;font-weight:600;letter-spacing:.03em"};
+};
+const clamp=(n)=>"display:-webkit-box;-webkit-line-clamp:"+n+";-webkit-box-orient:vertical;overflow:hidden;";
+
+const ENTRIES={
+  cookies:{kind:"photo",media:4,extra:6,prompt:"Photograph the mess he made. Don't clean it up first.",
+    title:"The kitchen after cookies",body:"Flour on the ceiling. Genuinely the ceiling.",tags:["Photo","Kitchen"]},
+  dino:{kind:"voice",dur:"1:47",prompt:"Record him telling you a story. Any story. Don't correct the words he says wrong.",
+    title:"The one about the dinosaur bus",body:"\u201cand then the dinosaur he goed to the bus stop but the bus was a\u2026\u201d",italic:true,tags:["Voice","His words"]},
+  hug:{kind:"did",prompt:"Never let go of the hug first today. Let him be the one to pull away.",
+    title:"Held on for a while",body:"He hung on way past when I would have let go. Nine seconds. I counted.",tags:["Did it"]},
+  shop:{kind:"written",prompt:"What did he say this week that you want to remember exactly?",
+    title:"Told the whole shop his name",body:"Unprompted, to a queue of six people. \u201cI'm Rowan and I am THREE.\u201d The woman behind us said congratulations and he took it as his due.",tags:["Written","Out and about"]},
+  paddling:{kind:"photo",media:2,title:"Paddling pool, first go",body:"Sat down in it fully clothed within about four seconds.",tags:["Photo","Garden"]},
+  first:{kind:"video",dur:"0:14",media:1,prompt:"Film him doing the thing he's just learned. It won't look like this for long.",
+    title:"Four steps and a sit down",tags:["Video"]},
+  crab:{kind:"photo",media:3,extra:0,prompt:"Take one photo you would not post anywhere.",
+    title:"Not scared of the crab, apparently",body:"Held it at arm's length and called it \u201cmy friend the pinch\u201d.",tags:["Photo","Beach"]},
+  letter:{kind:"sealed",prompt:"Write him something you can't say out loud yet.",
+    title:"Sealed until 18",body:"Opens 12 June 2040.",tags:["Letter","Sealed"]},
+  bath:{kind:"did",prompt:"Let bathtime run twenty minutes over. Don't check the clock in front of him.",
+    title:"Stayed in until the water went cold",body:"He was narrating a war between two ducks. I wasn't going to interrupt that.",tags:["Did it"]}
+};
+
+class Component extends DCLogic {
+  card(key,seed,mediaOverride){
+    const src=ENTRIES[key];
+    const d=mediaOverride?Object.assign({},src,{media:mediaOverride}):src;
+    const k=d.kind;
+    const sealed=k==="sealed", did=k==="did";
+    const bg=did?"#E8F0E6":(sealed?"linear-gradient(135deg,#FDE8DC 0%,#F7DDE8 52%,#FBF6EF 100%)":"#FFFDF9");
+    const e={
+      cardStyle:"padding:16px;border-radius:20px;background:"+bg+";border:1px solid "+(did?"#D8E4D5":(sealed?"#F0DFD5":"#EDE5DA"))+";box-shadow:0 2px 8px rgba(0,0,0,.04)",
+      hasMedia:false,hasAudio:false,tiles:[],
+      hasPrompt:!!d.prompt,prompt:d.prompt,
+      promptStyle:"margin:0 0 9px;padding-left:11px;border-left:2px solid "+(did?"#B7CDB3":(k==="voice"||k==="written"?"#C6CCF2":"#EBD8C8"))+";font-size:14px;line-height:1.4;color:#6E6A63;font-style:italic;text-wrap:pretty;"+clamp(2),
+      hasTitle:true,title:d.title,isDid:did,isSealed:sealed,
+      titleStyle:"margin:0;font-family:'Nunito',sans-serif;font-weight:700;font-size:17px;line-height:1.28;letter-spacing:-.01em;color:#23253C;text-wrap:pretty",
+      hasBody:!!d.body,body:d.body,
+      bodyStyle:"margin:0;font-size:16px;line-height:1.45;color:"+(sealed?"#A79A92":"#6E6A63")+";"+(d.italic?"font-style:italic;":"")+(sealed?"filter:blur(3.5px);user-select:none;":"")+"text-wrap:pretty;"+clamp(k==="written"?3:2),
+      chips:d.tags.map((t,i)=>chip(t,i===0?(did?"sage":(k==="voice"||k==="written"?"peri":"terracotta")):"plain"))
+    };
+    if(k==="voice"){ e.hasAudio=true; e.audioDur=d.dur; e.wave=wave(26,"#5566D6",.34); }
+    if(d.media){
+      e.hasMedia=true;
+      const n=d.media, g="display:grid;gap:4px;margin-bottom:13px;border-radius:14px;overflow:hidden;";
+      const tile=(i,h,extra)=>({style:"position:relative;background:"+TINTS[(seed+i)%TINTS.length]+";"+(h?"height:"+h+"px;":"")+(extra||""),hasOverlay:false});
+      if(n===1){
+        e.mediaStyle=g+"grid-template-columns:1fr";
+        const t=tile(0,k==="video"?196:242,"");
+        if(k==="video"){ t.hasOverlay=true; t.overlay=d.dur;
+          t.overlayStyle="position:absolute;right:9px;bottom:9px;padding:4px 10px;border-radius:99px;background:rgba(35,37,60,.62);color:#FDFAF4;font-family:ui-monospace,Menlo,monospace;font-size:11.5px";
+        }
+        e.tiles=[t];
+      } else if(n===2){
+        e.mediaStyle=g+"grid-template-columns:1fr 1fr";
+        e.tiles=[tile(0,164,""),tile(1,164,"")];
+      } else if(n===3){
+        e.mediaStyle=g+"grid-template-columns:62% 1fr;grid-template-rows:repeat(2,1fr);height:216px";
+        e.tiles=[tile(0,0,"grid-row:span 2"),tile(1,0,""),tile(2,0,"")];
+      } else {
+        e.mediaStyle=g+"grid-template-columns:1fr 1fr;grid-template-rows:repeat(2,108px)";
+        e.tiles=[tile(0),tile(1),tile(2),tile(3)];
+        if(d.extra){
+          const last=e.tiles[3];
+          last.hasOverlay=true; last.overlay="+"+d.extra;
+          last.overlayStyle="position:absolute;inset:0;display:grid;place-items:center;background:rgba(192,90,43,.30);color:#FDFAF4;font-family:'Nunito',sans-serif;font-weight:800;font-size:22px;letter-spacing:-.01em";
+        }
+      }
+    }
+    if(k==="video"){ e.hasBody=false; }
+    return e;
+  }
+
+  throwback(o){
+    const cover=!!o.tint;
+    const base="position:relative;flex:none;width:232px;height:148px;border-radius:20px;overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end;border:1px solid "+(cover?"rgba(35,37,60,.08)":"#F2DFE4")+";box-shadow:0 2px 10px rgba(0,0,0,.06);";
+    const bg=cover?"background:"+o.tint+";":"background:linear-gradient(140deg,#FBEDE2 0%,#F7DDE8 55%,#FBF6EF 100%);";
+    return {
+      style:base+bg,
+      scrimStyle:cover
+        ?"position:absolute;inset:0;background:linear-gradient(to top,rgba(35,37,60,.62) 0%,rgba(35,37,60,.18) 46%,rgba(35,37,60,0) 72%);z-index:1"
+        :"position:absolute;inset:0;z-index:1",
+      eyebrow:o.eyebrow,
+      eyebrowStyle:"font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;letter-spacing:-.01em;color:"+(cover?"#FDFAF4":"#23253C"),
+      line:o.line,
+      lineStyle:"font-size:13.5px;line-height:1.35;color:"+(cover?"rgba(253,250,244,.86)":"#6E6A63")+";"+clamp(2),
+      hasBadge:!!o.badge,badge:o.badge,
+      badgeStyle:"position:absolute;top:11px;left:12px;z-index:2;padding:4px 10px;border-radius:99px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;background:"+(cover?"rgba(253,250,244,.92)":"#FFFDF9")+";color:"+(o.badgeTone||"#C05A2B")
+    };
+  }
+
+  renderVals(){
+    const c=(k,s,m)=>this.card(k,s,m);
+    const tb=(o)=>this.throwback(o);
+
+    const screens=[
+      {label:"1 · Hit — four years back",
+       note:"Carousel first, then the same sections vertically as full EntryCards. Nearest year leads. The subtitle carries the date so the title never has to.",
+       subtitle:"On this day · Sunday 9 August",
+       hasCarousel:true,hasEmpty:false,hasFooter:true,
+       throwbacks:[
+         tb({eyebrow:"1 year ago",line:"Told the whole shop his name, unprompted",badge:"Written",badgeTone:"#5566D6"}),
+         tb({eyebrow:"3 years ago",line:"The kitchen after cookies",tint:TINTS[0]}),
+         tb({eyebrow:"6 years ago",line:"Four steps and a sit down",tint:TINTS[3],badge:"Video"})
+       ],
+       sections:[
+         {head:"1 year ago",date:"9 Aug 2025",age:"3y 2m",hasNote:false,entries:[c("shop",2),c("bath",5)]},
+         {head:"3 years ago",date:"9 Aug 2023",age:"1y 2m",hasNote:false,entries:[c("cookies",0),c("dino",2)]},
+         {head:"6 years ago",date:"9 Aug 2020",age:"2m",hasNote:false,entries:[c("first",3)]}
+       ],
+       footer:"Six years of the ninth of August. Nothing else today."},
+
+      {label:"2 · Miss — the archive stands in",
+       note:"Nothing landed on this date, so the server sends five real entries at random. The line above the section says so plainly; it never reports what the parent failed to do.",
+       subtitle:"On this day · Tuesday 11 August",
+       hasCarousel:true,hasEmpty:false,hasFooter:true,
+       throwbacks:[
+         tb({eyebrow:"From the archive",line:"Not scared of the crab, apparently",tint:TINTS[4]}),
+         tb({eyebrow:"From the archive",line:"The one about the dinosaur bus",badge:"Voice",badgeTone:"#5566D6"}),
+         tb({eyebrow:"From the archive",line:"Paddling pool, first go",tint:TINTS[1]})
+       ],
+       sections:[
+         {head:"From the archive",date:"Five at random",age:"4y 2m",hasNote:true,
+          note:"Nothing from 11 August yet. Here's one from the archive instead.",
+          entries:[c("crab",4),c("dino",2),c("paddling",1),c("hug",5),c("letter",6)]}
+       ],
+       footer:"Come back tomorrow — 12 August has three."},
+
+      {label:"3 · First run",
+       note:"An invitation, not an audit. One button, and it opens the composer rather than explaining the feature.",
+       subtitle:"On this day · Sunday 9 August",
+       hasCarousel:false,hasEmpty:true,hasFooter:false,
+       emptyStyle:"display:flex;flex:none;flex-direction:column;align-items:center;text-align:center;padding:78px 30px 0",
+       emptyTitle:"The first one becomes a memory",
+       emptyBody:"Nothing to look back on yet. A year from now this screen is where today ends up.",
+       emptyCta:"Capture something",
+       sections:[]},
+
+      {label:"4 · One hit, no picture",
+       note:"The real shape of most days early on: a single written entry. The throwback falls back to the gradient wash and the section keeps the card at full size rather than shrinking it to fill less space.",
+       subtitle:"On this day · Sunday 9 August",
+       hasCarousel:true,hasEmpty:false,hasFooter:true,
+       throwbacks:[tb({eyebrow:"1 year ago",line:"Told the whole shop his name, unprompted",badge:"Written",badgeTone:"#5566D6"})],
+       sections:[{head:"1 year ago",date:"9 Aug 2025",age:"3y 2m",hasNote:false,entries:[c("shop",2)]}],
+       footer:"One year down. This gets fuller."}
+    ];
+
+    const sheet=[
+      {label:"Cover photo",note:"Scrim from 62% at the base to nothing at 72% height — the eyebrow stays legible on any frame.",
+       tb:tb({eyebrow:"3 years ago",line:"The kitchen after cookies",tint:TINTS[0]})},
+      {label:"No picture in the section",note:"Gradient wash standing alone, dark type. Kind badge names what's inside so it doesn't read as a missing image.",
+       tb:tb({eyebrow:"1 year ago",line:"Told the whole shop his name, unprompted",badge:"Written",badgeTone:"#5566D6"})},
+      {label:"Video cover",note:"Same cover treatment, badge in the corner. Duration lives on the card below, not here.",
+       tb:tb({eyebrow:"6 years ago",line:"Four steps and a sit down",tint:TINTS[3],badge:"Video"})},
+      {label:"Archive fallback",note:"Identical card, different eyebrow. The miss state never gets its own visual language.",
+       tb:tb({eyebrow:"From the archive",line:"Not scared of the crab, apparently",tint:TINTS[4]})}
+    ];
+
+    return {
+      screens,sheet,
+      tabs:[["Today",false],["Timeline",false],["",false],["Moments",true],["Settings",false]].map(t=>({
+        label:t[0],
+        style:"font-family:'Nunito',sans-serif;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:"+(t[1]?"#C05A2B":"#6E6A63")+";min-width:52px;text-align:center"}))
+    };
+  }
+}
+</script>
+</body>
+</html>

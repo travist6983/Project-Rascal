@@ -298,7 +298,42 @@ as CI was down, and it is the kind of test that reports a number nobody should t
 only thing that would catch a Dockerfile-level break. It has never had anything to do with the
 iOS lane.
 
-## 1. Apple Developer enrollment — blocks real Sign in with Apple
+## 1. ~~Apple Developer enrollment — blocks real Sign in with Apple~~ — RESOLVED Aug 10, 2026
+
+**Verified end to end against production**, from a device build, at `01:06:29Z`. Not inferred
+from a green test — the rows are in the archive:
+
+```
+POST /v1/auth/apple  ->  200
+credentials: provider=apple  subject_id=001022.97b033a…
+users:       mpnkj8g55n@privaterelay.appleid.com
+```
+
+The enrollment is done, the App ID carries the capability, and `APPLE_BUNDLE_ID` on Fly is
+`com.travisterry.childarchive`, matching the target's `PRODUCT_BUNDLE_IDENTIFIER`. The `aud`
+check — the one thing no test could exercise, because it needs a token from an enrolled team —
+now has a real Apple-signed token behind it.
+
+**Three things that run happened on the way there and are worth keeping.**
+
+- **The stale-session path ran for real, unrehearsed, and was correct.** The phone still held a
+  token minted by the local API under a different `JWT_SECRET`. It went
+  `GET /v1/children` → 401, `POST /v1/auth/refresh` → 401, `POST /v1/auth/apple` → 200,
+  `POST /v1/children` → 201. Refusing a foreign token and falling back to Apple rather than
+  stranding the parent is exactly the designed behaviour, and nobody had ever seen it happen.
+- **The account was created with `display_name` NULL**, and that is not a defect here — it is
+  Apple's one-shot `fullName`, already spent by an earlier sign-in against the local API. The
+  name is per (Apple ID, App ID) and does not reset on reinstall. Settings → Your name fixes it
+  through `PATCH /me`. Worth knowing before the *next* person's first sign-in: revoke under
+  Settings → Apple ID → Sign-In & Security first, or the first real account has no name.
+- **The parent chose Hide My Email**, so the owner record is a `privaterelay.appleid.com`
+  address. Nothing in the API cares, but it is what any future email path would have to send to.
+
+**Still not exercised:** revocation. `getCredentialState` is called on launch, and no test and
+no run has ever seen a parent revoke the app in Settings and come back.
+
+The original entry follows, because the second paragraph is still the accurate description of
+what the verification code does.
 
 `POST /v1/auth/apple` is fully implemented and tested: it fetches and caches Apple's JWKS,
 verifies the signature, and checks `iss`, `aud` against `APPLE_BUNDLE_ID`, and `exp`. The

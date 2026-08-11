@@ -5,14 +5,21 @@ import SwiftUI
 ///
 /// **Settings is not a control panel.** It is the same warm, quiet app one screen deeper, so it
 /// uses the app's own shapes rather than the system's grouped list, and it says nothing in red
-/// however irreversible a row is. There are no preferences here because none exist — no toggles,
-/// no notification section, no theme. A settings screen full of controls that do nothing is
-/// worse than a short one that is true.
+/// however irreversible a row is. There are no preferences here because none exist — no
+/// notification section, no theme. A settings screen full of controls that do nothing is worse
+/// than a short one that is true.
+///
+/// **The screen opens on the child, not on configuration.** That is the design import's argument
+/// and this phase adopted it: `ChildHeroCard` takes the place of the old `Name` row, and the
+/// small-caps labels beneath it now carry a rule out to the trailing edge so nine stacked blocks
+/// read as nine groups rather than one column.
 ///
 /// The one structural rule worth stating out loud: **irreversible actions live in their own card
 /// at the bottom, separated by whitespace, never adjacent to an ordinary edit row.** A divider
 /// between two rows says "these belong together"; a gap says "these do not". Recomputing every
-/// stored age in an archive is not a neighbour of changing a name.
+/// stored age in an archive is not a neighbour of changing a name — which is why the import's
+/// `Advanced` group, which lists recompute third under a dry run, was split rather than adopted.
+/// See `docs/settings-v2-inventory.md`, D8.
 struct SettingsScreen: View {
     let childId: UUID
     let session: AppSession
@@ -63,14 +70,18 @@ struct SettingsScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 18) {
                 Text("Settings")
                     .typeRole(.display)
                     .foregroundStyle(Color.ink)
 
+                ChildHeroCard(child: child) { openChild() }
+
                 archiveSection
                 accountSection
-                yourDataSection
+                exportSection
+                syncSection
+                advancedSection
                 appSection
 
                 if let notice {
@@ -84,6 +95,8 @@ struct SettingsScreen: View {
                 dangerSection
 
                 signOutButton
+
+                closingNote
             }
             .padding(Layout.screenMargin)
             .padding(.bottom, 20)
@@ -94,9 +107,32 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if recompute == nil { recompute = RecomputeAgesModel(childId: childId, api: session.api) }
-            if syncStatus == nil, let syncEngine { syncStatus = SyncStatusModel(engine: syncEngine) }
-            refreshOutstanding()
             await loadChild()
+        }
+        // **`sync` arrives late for exactly the same reason `syncEngine` does**, and the counts
+        // are worse than the rows when they are wrong: with no `EntrySync` the default
+        // `Outstanding` is all zeroes, which `syncSummary` reads as clear — so the card said
+        // "Everything's uploaded." on the strength of never having looked. That was survivable
+        // when it was a quiet row and is not now that it is the headline of a card.
+        //
+        // Counted once on appear and again the moment the sweep exists.
+        .onChange(of: sync != nil, initial: true) { _, _ in refreshOutstanding() }
+        // **Not in `.task`, because `.task` runs once and the engine can arrive after it.**
+        //
+        // `RootView` builds the `SyncEngine` in its own `.task`, and this screen is handed
+        // whatever that property holds at the moment it renders. Landing here first — a launch
+        // straight onto this tab — meant `syncEngine` was still nil when `.task` fired, so
+        // `syncStatus` was never built and never retried: the pull rows, the dry run and the
+        // reset were all silently absent for the life of the session, with nothing on screen
+        // saying so. The redesign made that failure louder rather than safer, because `Advanced`
+        // is now a whole labelled card that simply is not there.
+        //
+        // `initial: true` covers the ordinary case where the engine already exists on first
+        // render, so this replaces the `.task` line rather than racing it.
+        .onChange(of: syncEngine != nil, initial: true) { _, _ in
+            if syncStatus == nil, let syncEngine {
+                syncStatus = SyncStatusModel(engine: syncEngine)
+            }
         }
         // Leaving the tab tears this view down while the download would carry on writing to a
         // file nobody is going to open. Cancelled rather than orphaned.
@@ -150,17 +186,14 @@ struct SettingsScreen: View {
 
     // MARK: Archive
 
+    /// **`Name` is not here — `ChildHeroCard` is the name row now.** It opens the same sheet these
+    /// two do, so nothing moved further away; one row left the list and the child gained a face.
     private var archiveSection: some View {
-        section("Archive") {
+        section("The archive") {
             SettingsCard {
                 // `openChild()` rather than assigning the route directly: the sheet needs a
                 // child to build its model from, and tapping a row while the fetch is still in
                 // flight would present an empty sheet you have to dismiss.
-                SettingsRow(
-                    label: "Name",
-                    value: child?.name
-                ) { openChild() }
-                SettingsDivider()
                 SettingsRow(
                     label: "Birthday",
                     value: child.map { formattedBirthdate($0.birthdate) }
@@ -177,7 +210,7 @@ struct SettingsScreen: View {
     // MARK: Account
 
     private var accountSection: some View {
-        section("Account") {
+        section("You") {
             SettingsCard {
                 // Three states, not two. "Not set" is a claim about the server, and the app can
                 // now make it: the record is stored between launches and re-read from `GET /me`
@@ -186,16 +219,14 @@ struct SettingsScreen: View {
                 // shows no value at all rather than asserting something it has not checked.
                 SettingsRow(
                     label: "Your name",
-                    value: accountNameValue,
-                    valueIsMuted: session.user?.displayName == nil
+                    value: accountNameValue
                 ) { route = .editProfile }
                 SettingsDivider()
                 // Read-only and nil-safe: Apple's relay addresses are unreliable and the column
                 // is nullable, so this is words in both states rather than a blank.
                 SettingsValueRow(
                     label: "Email",
-                    value: session.user?.email ?? AppConfig.devLoginEmail,
-                    valueIsMuted: session.user?.email == nil
+                    value: session.user?.email ?? AppConfig.devLoginEmail
                 )
             }
         }
@@ -214,30 +245,47 @@ struct SettingsScreen: View {
         return user.displayName ?? "Not set"
     }
 
-    // MARK: Your data
+    // MARK: Keep a copy
 
-    private var yourDataSection: some View {
-        section("Your data") {
-            VStack(spacing: Layout.cardSpacing) {
-                SettingsCard { exportRow }
-                SettingsCard {
-                    syncRows
-                    if let transcription { TranscriptionBacklogSection(queue: transcription) }
-                    if let syncStatus { SyncPullSection(model: syncStatus) }
-                }
-            }
+    private var exportSection: some View {
+        section("Keep a copy") {
+            SettingsCard { exportRow }
         }
     }
 
+    /// Four states, of which the design import drew one.
+    ///
+    /// Idle is a card rather than a row now — a terracotta headline over a sentence, which is what
+    /// makes the export read as a keepsake instead of a menu item. The import's third line, `Last
+    /// export — never`, is not built: nothing records when an export last ran, and inventing a
+    /// timestamp is worse than leaving the line out. See `docs/settings-v2-inventory.md`, Q13.
+    ///
+    /// The other three are unchanged. The import shows no in-flight, ready or failed treatment for
+    /// anything on this screen, and a mockup that omits a state is not a mockup that removes one.
     @ViewBuilder
     private var exportRow: some View {
         let state = export?.state ?? .idle
         switch state {
         case .idle:
-            SettingsActionRow(
-                label: "Export archive",
-                detail: "Every entry and every photo, as a zip you can keep."
-            ) { export?.start(childId: childId) }
+            Button { export?.start(childId: childId) } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Export the archive")
+                        .typeRole(.cardTitle)
+                        .foregroundStyle(Color.terracotta)
+                    Text("Every entry, photo and recording, as a zip you can keep forever.")
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(Layout.cardPadding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(TapScaleButtonStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Export the archive. Every entry, photo and recording, as a zip you can keep forever.")
+            .accessibilityAddTraits(.isButton)
 
         case .running(let fraction):
             VStack(alignment: .leading, spacing: 10) {
@@ -300,36 +348,71 @@ struct SettingsScreen: View {
         }
     }
 
-    /// Counts, and one action. Never a badge, never red, never a nudge — a photo that has not
-    /// uploaded yet is a fact about the network, and the app does not imply otherwise.
-    @ViewBuilder
-    private var syncRows: some View {
-        if outstanding.isClear {
-            SettingsValueRow(label: "Sync", value: "Everything's uploaded")
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(waitingSummary)
-                    .typeRole(.body)
-                    .foregroundStyle(Color.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("They'll finish on their own when you're back on a good connection.")
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Button(isRetrying ? "Retrying" : "Retry now") { Task { await retry() } }
-                        .typeRole(.body)
-                        .foregroundStyle(isRetrying ? Color.inkMuted : Color.terracotta)
-                        .disabled(isRetrying)
-                    if isRetrying { ProgressView().tint(.terracotta) }
+    // MARK: Syncing
+
+    private var syncSection: some View {
+        section("Syncing") {
+            SettingsCard {
+                syncHeader
+                // Only when there is something to retry. A row that reads "Retry now" beside
+                // "Everything's uploaded" is furniture, and this screen has none.
+                if !outstanding.isClear {
+                    SettingsDivider()
+                    SettingsActionRow(
+                        label: isRetrying ? "Retrying" : "Retry now",
+                        isBusy: isRetrying
+                    ) { Task { await retry() } }
                 }
+                if let transcription { TranscriptionBacklogSection(queue: transcription) }
+                if let syncStatus { SyncPullSection(model: syncStatus) }
             }
-            .padding(Layout.cardPadding)
         }
     }
 
-    /// "3 items waiting to upload" — a count, not an accusation.
-    private var waitingSummary: String {
+    private var syncHeader: some View {
+        let summary = Self.syncSummary(outstanding)
+        return SettingsCardHeader(
+            eyebrow: summary.eyebrow,
+            counter: summary.counter,
+            headline: summary.headline,
+            detail: summary.detail,
+            isActive: summary.isActive
+        )
+    }
+
+    /// Everything the sync card's head says, in both of its states.
+    ///
+    /// A value rather than a view body, for the same reason `TranscriptionBacklogSection.summary`
+    /// and `RecomputeAgesModel.summary` are: these are sentences a parent reads at the one moment
+    /// they are worried about whether their photos are safe, and a sentence that can only be
+    /// checked by looking at a simulator is a sentence nothing checks.
+    ///
+    /// Never a badge, never red, never a nudge — a photo that has not uploaded yet is a fact about
+    /// the network, and the app does not imply otherwise. The wash the design import puts behind
+    /// the active state is the same terracotta the app uses for everything else in progress; it
+    /// means live, not wrong.
+    struct SyncSummary: Equatable {
+        let eyebrow: String
+        /// Absent when there is nothing to count — never the string "0".
+        let counter: String?
+        let headline: String
+        let detail: String?
+        /// Tints the wash and lights the dot.
+        let isActive: Bool
+    }
+
+    /// "3 entries and 2 files still to upload." — a count, not an accusation.
+    static func syncSummary(_ outstanding: EntrySync.Outstanding) -> SyncSummary {
+        guard !outstanding.isClear else {
+            return SyncSummary(
+                eyebrow: "Sync",
+                counter: nil,
+                headline: "Everything's uploaded.",
+                detail: nil,
+                isActive: false
+            )
+        }
+
         var parts: [String] = []
         let writes = outstanding.entries + outstanding.deletions
         if writes > 0 { parts.append(writes == 1 ? "1 entry" : "\(writes) entries") }
@@ -337,7 +420,31 @@ struct SettingsScreen: View {
             parts.append(outstanding.media == 1 ? "1 file" : "\(outstanding.media) files")
         }
         let subject = parts.joined(separator: " and ")
-        return "\(subject) still to upload."
+
+        return SyncSummary(
+            eyebrow: "Uploading",
+            counter: "\(outstanding.total) left",
+            headline: "\(subject) still to upload.",
+            detail: "They'll finish on their own when you're back on a good connection.",
+            isActive: true
+        )
+    }
+
+    // MARK: Advanced
+
+    /// The dry run and the reset, in the import's own grouping — minus the third row it puts
+    /// beside them. See `dangerSection`.
+    ///
+    /// Absent entirely when there is no `SyncEngine`, rather than shown as an empty labelled
+    /// shell: the screen is buildable in a test without one, and a card with nothing in it under
+    /// a rule that says "Advanced" is exactly the furniture this screen refuses everywhere else.
+    @ViewBuilder
+    private var advancedSection: some View {
+        if let syncStatus {
+            section("Advanced") {
+                SettingsCard { SyncAdvancedSection(model: syncStatus) }
+            }
+        }
     }
 
     // MARK: App
@@ -355,9 +462,8 @@ struct SettingsScreen: View {
     /// Its own card, and its own space above it. Nothing in this section is adjacent to a row
     /// that merely edits a value.
     private var dangerSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel("Corrections")
-                .padding(.horizontal, 2)
+        VStack(alignment: .leading, spacing: 9) {
+            SettingsSectionHeader("Corrections")
             SettingsCard {
                 switch recompute?.state ?? .idle {
                 case .idle, .running:
@@ -421,10 +527,24 @@ struct SettingsScreen: View {
         _ title: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(title).padding(.horizontal, 2)
+        VStack(alignment: .leading, spacing: 9) {
+            SettingsSectionHeader(title)
             content()
         }
+    }
+
+    /// The line the import closes the screen on.
+    ///
+    /// Adopted because it is true and because it is the one sentence on this screen that explains
+    /// why none of the rest of it is alarming. Set `inkMuted`, not the import's `inkFaint`: that
+    /// measures 2.13:1 on the canvas, and this is a sentence meant to be read.
+    private var closingNote: some View {
+        Text("Rascal writes to this phone first. Everything you see here exists whether or not the network does.")
+            .typeRole(.metadata)
+            .foregroundStyle(Color.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 2)
+            .padding(.top, 4)
     }
 
     private static var version: String {

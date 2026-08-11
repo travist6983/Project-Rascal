@@ -126,6 +126,49 @@ Last updated: **Aug 9, 2026**
 
 ## Changelog
 
+**Aug 10, 2026** — Settings v2, built against the design export at
+`docs/mobile-app-design-settings/`. The last screen still wearing its PR #21 scaffolding, and the
+phase is mostly about which of the design's claims the app can actually make.
+
+**Settings opens on the child.** `ChildHeroCard` replaces the `Name` row with a terracotta avatar
+disc, the name, the age and the born date, and it opens the same sheet the `Birthday` and
+`Timezone` rows do — so the sheet kept all three of its entry points and one row left the list.
+Section labels now run a hairline out to the trailing edge, which is what stops nine stacked cards
+from reading as one column.
+
+**Three of the design's elements need numbers the API does not serve, and were dropped rather than
+faked**: the hero's `412 entries · 1,204 photos · 3 sealed` strip, the `First entry` row, and the
+sync card's progress bar. The local cache is paged and partial by construction, so counting it
+answers "how much of the archive has this phone paged in" — and `design-system.md` already settles,
+for `TimelineHeader`, that the client never claims to know the size of the archive. A
+`GET /children/{id}/stats` would restore all three; that is an API-lane conversation, not a patch.
+
+**`Recompute ages` was refused a seat in the design's `Advanced` group.** It rewrites
+`child_age_months` across the whole archive, and it keeps its own card, its own label, and its own
+whitespace. A divider between two rows says these belong together; a gap says they do not. The rest
+of the grouping was adopted verbatim — the dry run and the reset moved out of the tail of the sync
+card into an `Advanced` card of their own, which is a genuine improvement on where they were.
+
+**The gradient behind the hero lost on contrast before it lost on principle.** The palette's
+`Gradients.wash` is reserved for emotional beats, and whether the child card counts as one is a
+real argument — but `inkMuted` over that gradient measures 4.22:1 on its middle stop, under AA, so
+the question never had to be settled. The hero is `terracottaSoft`, which is the design's own first
+gradient stop to the digit and measures 4.69:1.
+
+**The design's own `tokens/colors.css` agreed with `Palette.swift` exactly, for the third phase
+running.** Eleven values hardcoded in the prototype appear in neither. All eleven snapped to
+existing tokens; no `Palette` constant was added. **Paper grain was dropped for the third time and
+deliberately not resolved** — it remains a three-way disagreement between the bundle,
+`design-system.md`, and two decisions files that do not mention it.
+
+**One latent defect, found by running the app rather than reading it.** `SyncStatusModel` was built
+in `.task`, which runs once, and `RootView` builds the `SyncEngine` in *its* `.task` — so a render
+that reached Settings first left the engine nil and the model was never retried. The dry run, the
+reset, the pull toggle and the position rows were then absent for the life of the session with
+nothing on screen saying so. Pre-existing since PR #21; the redesign made it worse by turning those
+rows into a whole labelled card that simply was not there. Now rebuilt on
+`.onChange(of: syncEngine != nil, initial: true)`.
+
 **Aug 10, 2026** — The share sheet. A photo goes from Photos into an entry without opening the app,
 and the phase is mostly about a date rather than about a screen.
 

@@ -25,6 +25,14 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- Only Release is ever uploaded, so this key does nothing here. It is present because
+	     this file's contract is "every key identical to Info.plist plus the ATS exception",
+	     and the one key that exists in one plist and not the other is how that contract stops
+	     being true. See Info.plist for what it means. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

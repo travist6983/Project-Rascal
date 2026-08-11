@@ -1193,3 +1193,103 @@ only what the run decided, or got wrong — the procedure itself is `docs/runboo
   default and `min_machines_running = 1` is a floor rather than a count. Roughly $6/month
   instead of $3. Flagged rather than silently halved: the redundancy is real, and the call is
   the account holder's.
+
+## Phase 13 — Settings v2 (design import)
+
+- **The Settings export renders one direction, not the two it advertises.** Its header says
+  "two directions" and `b1` is fully authored — a navy card, an amber progress bar, dot
+  swatches, a periwinkle label tag — but `renderVals()` returns `1a` alone, so `b1` is dead
+  code in the prototype. Built `1a`. Implementing a constant the designer's own file never
+  draws would be building something nobody has looked at.
+- **`tokens/colors.css` matched `Palette.swift` exactly for the third phase running.** Eleven
+  hardcoded values in the prototype appear in neither file. Snapped all eleven, added no token.
+  The rule settled after Moments and Today did not need relitigating and did not get it.
+- **The hero is `terracottaSoft`, not `Gradients.wash`.** The import puts a three-stop gradient
+  behind the child card and the palette has its own version of it — but `inkMuted` over that
+  gradient measures **4.22:1** on the middle stop, under AA, and the wash is reserved for
+  emotional beats besides. `terracottaSoft` is the import's own first stop to the digit, is the
+  tinted fill `PromptCard` already pairs with the cream hairline, and measures 4.69:1. The
+  "is the child an emotional beat?" argument never had to be had.
+- **The export card's photo-stack motif is three rotated cards, which is a named anti-pattern.**
+  `transform:rotate(-9deg)`, `rotate(5deg)`, `rotate(-2deg)`. `design-system.md` lists "passport
+  stamps, receipt-spike stacks, rotated cards" and says "rejected twice already". Dropped rather
+  than softened — the bullet names the exact construction.
+- **Three elements were dropped for want of a number rather than for taste.** The hero's stats
+  strip, the `First entry` row, and the sync progress bar all need archive-wide counts. No
+  endpoint serves them, and the local cache is paged and partial by construction, so any figure
+  would be a claim about how much of the archive this phone happens to hold. `design-system.md`
+  already settles that exact rule for `TimelineHeader`.
+- **`Recompute ages` was refused a seat in `Advanced`.** The import groups it with the dry run
+  and the reset. It kept its own card and its own whitespace: a divider between two rows says
+  "these belong together", and rewriting every stored age in an archive is not a neighbour of
+  asking the server what changed. Everything else about the grouping was adopted verbatim.
+- **The section label stayed `inkMuted` and the closing note did too.** The import sets both
+  `inkFaint`, which measures **2.13:1** on the canvas. `design-system.md` settles section
+  headers as `inkMuted`, and `SectionLabel` is shared with three other screens — restyling it
+  here would have restyled them.
+- **Chevrons stayed `inkMuted`.** The import's `#C4BAAE` measures 1.88:1 on `surface` and even
+  `inkFaint` measures 2.19:1, both under the 3:1 a non-text control is asked for. A chevron
+  carries nothing VoiceOver needs, but taking a control *down* toward 2:1 to match a mockup is
+  the `KindBadge` mistake in a new surface.
+- **A flag that had never changed a pixel was removed rather than revived.** `valueIsMuted` on
+  `SettingsRow` and `SettingsValueRow` resolved to `inkMuted` in both branches, and both call
+  sites passed it. The import settles the question it was reaching for: every trailing value in
+  it is `#6E6A63`, and the two toned variants its own row helper supports are never invoked.
+- **`SyncStatusModel` was being built in `.task`, which runs once.** `RootView` builds the
+  `SyncEngine` in *its* `.task`, so a render reaching Settings first left the engine nil, and
+  `syncStatus` was then never retried — the dry run, the reset and the pull toggle absent for
+  the whole session with nothing on screen saying so. Pre-existing since PR #21; found by
+  running the app rather than reading it, because the screenshot harness launches straight into
+  Settings and that *is* the race. Now `.onChange(of: syncEngine != nil, initial: true)`.
+- **The hero's padding lives inside its button.** `cardSurface` pads and then fills, which put
+  a 16pt ring of card outside the tap target — including the corner a thumb reaching for the
+  avatar lands on. `SettingsCard` gained a `fill` instead, so the content pads itself, which is
+  how every row on the screen already worked.
+- **Paper grain: still out, still unresolved.** Third phase to drop it and decline to settle it.
+  The bundle calls it mandatory identity, `design-system.md` opens its anti-patterns with
+  screen-print texture, and neither decisions file mentions grain at all.
+
+## Aug 10, 2026 — closing the five gaps the iOS lane was working around
+
+Everything here was open in `docs/blocked.md` as "the client shipped a workaround rather than
+a patch to the backend". The workarounds were the specification.
+
+- **`unlock_at_age` now distinguishes an absent key from an explicit null**, via
+  `model_fields_set` rather than a sentinel value. A sentinel would have had to travel through
+  the service signature and the sync schema as a third state nothing else in the codebase uses;
+  setness is what `PATCH` already gets free from `exclude_unset`, and the two routes disagreeing
+  about what null meant was the actual defect.
+- **The same fix went into `/sync/push`, which nobody asked for.** The blocked entry only named
+  `POST /entries`. But `_apply_entry` creates entries through the same service, and that is the
+  path a letter written offline takes — arriving hours later, with the parent long gone from the
+  screen where they turned sealing off. It is the worse of the two to get wrong.
+- **`prompt_body` is the assignment's `resolved_body`, not `prompts.body`.** A parent-authored
+  `custom_body` wins, because the point is to quote what was on screen. Using the raw prompt
+  would have quoted the sentence the parent replaced.
+- **`sealed` is its own query parameter, not a seventh `entry_type`.** Sealing and artifact kind
+  are orthogonal — a sealed photo is possible and has to stay findable as a photo — so folding
+  them into one enum would have made the two mutually exclusive.
+- **`_loaded` became public `loaded`, and `/sync` now uses it.** Sync selected entries itself and
+  restated the eager-load list by hand, so every field `to_entry_out` learned to read had to be
+  remembered in two places. `Entry.assignment` is `lazy="raise"`, which turns that miss into a
+  500 on the sync path alone — invisible to every timeline test. There is now a test that pulls
+  `/sync` and asserts `prompt_body`, and it fails if the shared helper is bypassed.
+- **`Entry.assignment` is `viewonly=True`.** Deleting an entry must not touch its assignment —
+  `release_assignment` puts it back to `pending`, which is the opposite of a cascade.
+- **The avatar presign stores nothing.** It returns a key; `PATCH /children/{id}` commits it
+  after the PUT succeeds. The alternative — writing `avatar_key` at presign time — makes an
+  abandoned upload into a child record pointing at bytes that never arrived, and only that
+  failure is visible to a parent. A fresh UUID per presign rather than a stable `avatar.jpg`,
+  so a replaced avatar is never indistinguishable from a corrupted one.
+- **`GET /avatar-url` 404s rather than returning a null URL.** "No avatar" and "a URL that will
+  not resolve" are different answers, and only the first lets a client draw initials without a
+  round trip that fails.
+- **`children.pronouns` is a closed set of three, and null means unanswered.** Free text would
+  not survive its only consumer: pronoun substitution has to enumerate the forms it writes.
+  Widening the set is a migration; storing text nothing can render is not undoable by one.
+  Null deliberately does not mean `they/them` — a parent who skipped the question said nothing,
+  and `decisions.md` open item 10 is about prompts reading correctly rather than confidently.
+- **The three assertions that mattered were checked by breaking the code**, not by trusting a
+  green run: dropping the setness guard fails both sealing tests, and reverting `/sync` to its
+  hand-written eager loads fails the sync serialization test with a lazy-load error. All 24 new
+  tests passed on first run, which is exactly when they are least trustworthy.

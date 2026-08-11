@@ -8,16 +8,21 @@ import uuid
 from sqlalchemy import Date, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from rascal.constants import GUARDIAN_ROLES, GuardianRole
+from rascal.constants import GUARDIAN_ROLES, PRONOUNS, GuardianRole, Pronouns
 from rascal.models.base import Base, created, one_of, optional_moment, updated, uuid_pk
 
 
 class Child(Base):
     __tablename__ = "children"
+    __table_args__ = (one_of("pronouns", PRONOUNS, name="pronouns"),)
 
     id: Mapped[uuid_pk]
     name: Mapped[str] = mapped_column(Text)
     birthdate: Mapped[dt.date] = mapped_column(Date)
+    # Nullable, and null means unanswered rather than "they/them". Onboarding may skip the
+    # question, and a renderer has to be able to fall back rather than assert something the
+    # parent never said. See docs/decisions.md open item 10.
+    pronouns: Mapped[Pronouns | None] = mapped_column(Text, nullable=True)
     avatar_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     # IANA, e.g. America/Detroit. The scheduler's definition of "today" — without it the 5am
     # job hands you tomorrow's mission at 9pm.
