@@ -723,3 +723,39 @@ async def test_a_five_item_day_still_produces_exactly_one_notification(
     carried = await session.get(Assignment, sends[0].assignment_id)
     assert carried is not None
     assert carried.slot == "mission"
+
+
+async def test_the_notification_falls_back_to_mission_b_when_the_photo_pool_is_empty(
+    session: AsyncSession,
+) -> None:
+    """The push ladder's second rung, on the day it actually gets used.
+
+    `mission` draws the photo pool, which is the thinnest of the three, so an empty `mission`
+    is a recurring case rather than a hypothetical. The notification should carry the second
+    mission rather than skipping past both doing-slots to the question — which is what would
+    happen if `mission_b` were missing from the ladder.
+
+    The widget has the same fallback for the same reason, and the two must agree about which
+    item is "the" mission today.
+    """
+    user = await make_user(session, notify_enabled=True, notify_local_time=dt.time(19, 0))
+    child = await make_child(session, name="Miles", timezone=DETROIT)
+    await grant(session, user, child, "parent")
+    await make_prompt(session, kind="question", cadence="daily", body=QUESTION)
+    await make_prompt(
+        session, kind="activity", cadence="daily", completion_mode="did_it", body=MISSION_B
+    )
+    # Deliberately no daily photo prompt, so `mission` is left empty and logged.
+    await make_device(session, user)
+    await session.commit()
+
+    run, push = await _run(session, at=_utc(DAY, dt.time(19, 5), DETROIT))
+
+    assert run.sent == 1
+    assert len(push.sent) == 1
+    assert push.sent[0].body == MISSION_B, "the question was carried instead of the mission"
+
+    sends = await _sends(session)
+    carried = await session.get(Assignment, sends[0].assignment_id)
+    assert carried is not None
+    assert carried.slot == "mission_b"

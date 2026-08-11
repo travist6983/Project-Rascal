@@ -543,9 +543,12 @@ def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
     stacking them means the letter is the one that goes.
     """
     for day in (FIRST, FIFTEENTH):
+        # Both fixtures are Tuesdays. Stated rather than assumed: on a Saturday the count below
+        # would be five and the test would look broken when it was only badly dated.
+        assert day.weekday() != 5, f"{day} is a Saturday; this test's count assumes it is not"
         slots = slots_for(day)
         assert not {"monthly", "letter"} <= set(slots)
-        # Three daily plus at most one occasional, on these two days.
+        # Three daily plus exactly one occasional.
         assert len(slots) == 4
 
 
@@ -1064,3 +1067,41 @@ def test_slots_for_never_invents_a_slot_the_schema_would_reject() -> None:
     assert produced <= set(SLOTS), f"slots_for produced unknown slots: {produced - set(SLOTS)}"
     # And over a year it should actually exercise all six, or this proves less than it looks.
     assert produced == set(SLOTS)
+
+
+async def test_the_debug_board_route_can_serve_one_of_every_kind(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The local fixture route that the iOS build uses to exercise every capture path.
+
+    It had no test and a hardcoded list of three "spare" slots, which meant it could not place
+    five kinds and knew nothing about `mission_b`. The slot list is derived from `SLOTS` now, so
+    this asserts the whole default board lands rather than that a particular spread does — the
+    spread is an implementation detail, one-assignment-per-kind is the promise.
+    """
+    user = await make_user(session)
+    child = await make_child(session)
+    await grant(session, user, child, "parent")
+    for kind in ("question", "photo", "video", "audio", "activity"):
+        await make_prompt(session, kind=kind, cadence="daily", theme=f"t-{kind}")
+    await session.commit()
+
+    response = await client.post(
+        "/v1/debug/board",
+        json={"child_id": str(child.id)},
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["unavailable"] == [], "every default kind should have found a home"
+    assert sorted(body["created"]) == ["activity", "audio", "photo", "question", "video"]
+
+    rows = (
+        (await session.execute(sa.select(Assignment.slot).where(Assignment.child_id == child.id)))
+        .scalars()
+        .all()
+    )
+    # Five kinds, five distinct slots — the unique index is what forces the spread.
+    assert len(rows) == 5
+    assert len(set(rows)) == 5

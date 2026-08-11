@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from pydantic import Field
 from sqlalchemy import delete, select
 
+from rascal.constants import SLOTS
 from rascal.deps import ChildAccess, CurrentUser, SessionDep, child_access_from_body
 from rascal.errors import not_authorized
 from rascal.models import Assignment, Guardian, Prompt
@@ -114,7 +115,7 @@ async def reset_today(
 class BoardResetRequest(ApiModel):
     child_id: uuid.UUID
     kinds: list[str] = Field(
-        default_factory=lambda: ["question", "photo", "video", "activity"],
+        default_factory=lambda: ["question", "photo", "video", "audio", "activity"],
         description="One pending assignment per kind, in this order.",
     )
 
@@ -131,8 +132,8 @@ class BoardResetResponse(ApiModel):
     response_model=BoardResetResponse,
     summary="Reset today to exactly one assignment per kind",
     description=(
-        "A test fixture, not a scheduler. The real scheduler fills slots — one question, one "
-        "mission, one weekly — so it cannot produce one of every *kind* on demand, and "
+        "A test fixture, not a scheduler. The real scheduler fills slots — a question, a photo "
+        "mission, a second mission — so it cannot produce one of every *kind* on demand, and "
         "exercising the photo and video paths meant hand-editing rows. This does that in one "
         "call. Local only, like every route in this file."
     ),
@@ -159,7 +160,11 @@ async def reset_board(
     # "one child, one slot, one date" signature in docs/data-model.md. A test board wanting one
     # of every *kind* therefore has to spread them across slots, because photo, video and
     # activity would otherwise all want `mission` and the second insert would fail.
-    spare_slots = ["mission", "weekly", "monthly"]
+    #
+    # Derived from `SLOTS` rather than listed, because a hardcoded copy is one more place a new
+    # slot has to be remembered — and this one was already missing `mission_b` and `letter`.
+    # `question` and `letter` are excluded because the two branches below claim them by kind.
+    spare_slots = [slot for slot in SLOTS if slot not in ("question", "letter")]
 
     for kind in payload.kinds:
         prompt = await session.scalar(
@@ -169,7 +174,8 @@ async def reset_board(
             .limit(1)
         )
         if prompt is None:
-            # An inactive kind — audio today — has no prompt to serve. Saying so beats
+            # A kind with no daily prompt to serve. Nothing is inactive today — video came
+            # back with multipart upload and audio with the recorder — but saying so beats
             # silently returning a shorter board than was asked for.
             unavailable.append(kind)
             continue

@@ -48,7 +48,7 @@ MISSION_KINDS = ("photo", "video", "audio", "activity", "measurement")
 # The two daily doing-slots, split so a photo mission and a longer one can both be served.
 # `mission` narrowed to photo without being renamed — see docs/decisions.md; rows written
 # before migration 0008 hold other kinds here and are correct for the day they were served.
-MISSION_KINDS_PHOTO = ("photo",)
+PHOTO_MISSION_KINDS = ("photo",)
 MISSION_B_KINDS = ("video", "audio", "activity")
 
 
@@ -60,7 +60,7 @@ class SlotSpec:
 
 SLOT_SPECS: dict[Slot, SlotSpec] = {
     "question": SlotSpec(cadence="daily", kinds=("question",)),
-    "mission": SlotSpec(cadence="daily", kinds=MISSION_KINDS_PHOTO),
+    "mission": SlotSpec(cadence="daily", kinds=PHOTO_MISSION_KINDS),
     "mission_b": SlotSpec(cadence="daily", kinds=MISSION_B_KINDS),
     "weekly": SlotSpec(cadence="weekly", kinds=None),
     # Measurement and the camera-roll backfill, never a letter — letters have their own slot

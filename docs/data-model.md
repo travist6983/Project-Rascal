@@ -102,7 +102,6 @@ What the scheduler served on a given day.
 | `prompt_id` | uuid FK | nullable if `custom_body` set |
 | `custom_body` | text | nullable — parent-authored one-offs |
 | `slot` | text | `question` \| `mission` \| `mission_b` \| `weekly` \| `monthly` \| `letter` |
-| | | `mission` is **photo-only** from migration 0008; `mission_b` takes video, audio and activity. Rows written before 0008 hold other kinds in `mission` and are correct for the day they were served — see `docs/decisions.md`. |
 | `assigned_on` | date | in family timezone |
 | `expires_on` | date | `assigned_on + 14` |
 | `status` | text | `pending` \| `done` \| `dismissed` \| `expired` |
@@ -110,6 +109,8 @@ What the scheduler served on a given day.
 | `created_at` / `updated_at` | timestamptz | |
 
 **Unique index on `(child_id, assigned_on, slot)`.** This is what makes the scheduler idempotent — reruns must be free.
+
+**On `slot` values.** `mission` is **photo-only** as of migration `0008`, and `mission_b` takes the video, audio and activity kinds it used to share. The slot narrowed without being renamed, so **rows written before `0008` hold non-photo prompts in `mission` and are correct for the day they were served** — see `docs/decisions.md`. A slot name is an identifier for a position in the day, not a description of the kind that fills it.
 
 ### `entries`
 | Column | Type | Notes |
