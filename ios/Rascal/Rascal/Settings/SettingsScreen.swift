@@ -50,6 +50,10 @@ struct SettingsScreen: View {
     /// the old one — and a staleness check run against the wrong zone is exactly how yesterday's
     /// mission ends up on the Home Screen presented as today's.
     var onTimezoneResolved: (String) -> Void = { _ in }
+    /// The child's name and pronouns, whenever this screen learns a fresher pair — from the
+    /// fetch, and from a save. Pushed up so every already-rendered prompt re-renders without a
+    /// relaunch; see `RootView.resolvedPromptSubject`.
+    var onPromptSubjectChanged: (PromptSubject) -> Void = { _ in }
 
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
@@ -207,6 +211,18 @@ struct SettingsScreen: View {
                 SettingsRow(
                     label: "Birthday",
                     value: child.map { formattedBirthdate($0.birthdate) }
+                ) { openChild() }
+                SettingsDivider()
+                // **A null pronoun shows no value, not "Not set".** The same call the `Your name`
+                // row makes above, and for the same reason: rendering "Not set" is a claim, and
+                // the correct display for an unanswered optional is an empty trailing value.
+                //
+                // `child?.pronounSet?.label` collapses two nils that mean different things —
+                // "not fetched" and "not answered" — and that is deliberate here: both render as
+                // nothing, and the row is not the place to distinguish them.
+                SettingsRow(
+                    label: "Pronouns",
+                    value: child?.pronounSet?.label
                 ) { openChild() }
                 SettingsDivider()
                 SettingsRow(
@@ -606,6 +622,9 @@ struct SettingsScreen: View {
             // Also covers a change made on another device: this is the freshest the client ever
             // sees the zone, whether or not it was edited here.
             if let zone = child?.familyTimezone { onTimezoneResolved(zone) }
+            // Also covers a pronoun changed on another device, for the same reason the zone does:
+            // this fetch is the freshest the client ever sees either value.
+            if let child { onPromptSubjectChanged(child.promptSubject) }
             notice = nil
         } catch let error as APIError {
             // The screen still shows the account, the version, and the sync state. Offline is
@@ -623,6 +642,10 @@ struct SettingsScreen: View {
             id: existing.id,
             name: updated.name,
             birthdate: updated.birthdate,
+            // From the response, not carried over from `existing`. `PATCH` returns the row it
+            // wrote, so this is the one value on screen guaranteed to match the column —
+            // including when the save cleared it back to unanswered.
+            pronouns: updated.pronouns,
             familyTimezone: updated.familyTimezone,
             // Unchanged on purpose. `age_months` is the server's, `PATCH` does not return it,
             // and inventing one here would be the client deciding something it does not own.
@@ -630,6 +653,7 @@ struct SettingsScreen: View {
             role: existing.role
         )
         onTimezoneResolved(updated.familyTimezone)
+        onPromptSubjectChanged(child?.promptSubject ?? .unknown)
     }
 
 

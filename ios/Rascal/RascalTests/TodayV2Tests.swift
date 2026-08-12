@@ -145,8 +145,8 @@ struct TodayV2Tests {
 
     @Test("the skipped toast quotes the prompt without running off the screen")
     func skipLabels() {
-        func label(_ body: String) -> String {
-            TodayModel.PendingSkip(assignment: assignment(body: body)).label
+        func label(_ body: String, for subject: PromptSubject = .unknown) -> String {
+            TodayModel.PendingSkip(assignment: assignment(body: body)).label(for: subject)
         }
         #expect(label("Photograph the mess.") == "Skipped “Photograph the mess”")
         #expect(label("No trailing period") == "Skipped “No trailing period”")
@@ -159,6 +159,17 @@ struct TodayV2Tests {
 
         let oneWord = String(repeating: "x", count: 200)
         #expect(label(oneWord).count < 80, "including a body with nowhere to break")
+
+        // The toast quotes the sentence the card was showing a moment ago, so it renders tokens
+        // too — and it substitutes *before* truncating, or the braces would count towards the 60.
+        #expect(
+            label("Photograph {their} mess.", for: PromptSubject(name: "Ada", pronouns: .sheHer))
+                == "Skipped “Photograph her mess”"
+        )
+        #expect(
+            label("Photograph {their} mess.") == "Skipped “Photograph their mess”",
+            "an unanswered pronoun reads the they/them column here as everywhere else"
+        )
     }
 }
 

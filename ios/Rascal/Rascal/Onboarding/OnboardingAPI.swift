@@ -16,19 +16,27 @@ extension APIClient {
     func createChild(
         name: String,
         birthdate: String,
-        familyTimezone: String
+        familyTimezone: String,
+        pronouns: PronounSet?
     ) async throws -> ChildResponse {
         try await send(
             .post, "v1/children",
             body: ChildCreateRequest(
                 name: name,
                 birthdate: birthdate,
-                familyTimezone: familyTimezone
+                familyTimezone: familyTimezone,
+                pronouns: pronouns
             )
         )
     }
 }
 
+/// **The synthesized encoder is correct here, unlike on `ChildUpdateRequest`.**
+///
+/// A nil `pronouns` is omitted rather than sent as `null`, and on a create the two are the same
+/// thing: `ChildCreate.pronouns` defaults to `None` and the column is nullable, so an absent key
+/// and an explicit null both store unanswered. The distinction only matters on `PATCH`, where an
+/// absent key means "leave it alone" and there is an existing value to leave.
 private nonisolated struct ChildCreateRequest: Encodable {
     let name: String
     /// `yyyy-MM-dd`. A **calendar day, not an instant** — a string for the same reason
@@ -40,4 +48,6 @@ private nonisolated struct ChildCreateRequest: Encodable {
     /// the scheduler's entire definition of "today", so a wrong value here hands someone
     /// tomorrow's prompt at 9pm.
     let familyTimezone: String
+    /// Nil when the parent skipped the question, which is a finished setup.
+    let pronouns: PronounSet?
 }

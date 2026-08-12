@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The four steps between signing in and Today: name, birthdate, timezone, avatar.
+/// The steps between signing in and Today: name, birthdate, pronouns, timezone, avatar,
+/// notifications.
 ///
 /// Every step writes the draft through on change, so a kill anywhere in here resumes on the same
 /// screen with the same input. The child itself is created once, at the very end — see
@@ -45,6 +46,7 @@ struct ChildSetupFlow: View {
         switch session.draft.step {
         case .name: ChildNameStep(session: session)
         case .birthdate: BirthdateStep(session: session)
+        case .pronouns: PronounsStep(session: session)
         case .timezone: TimezoneStep(session: session)
         case .avatar: AvatarStep(session: session)
         case .notifications: NotificationStep(session: session)
@@ -218,6 +220,111 @@ private struct BirthdateStep: View {
     private func write() {
         session.draft.birthdate = EditChildModel.dayFormatter.string(from: date)
         session.persist()
+    }
+}
+
+// MARK: - Pronouns
+
+/// The third step, and the second optional one.
+///
+/// **The design export has no pronouns screen.** The closest single-choice screen it does have is
+/// the "What made you download this?" fork, and this adapts that one to the digit: a left-aligned
+/// full-width row per choice at `cardRadius`, `surface` on `border` unselected, `terracottaSoft`
+/// on `terracotta` selected. The one place it deliberately departs is the footer — the fork
+/// disables Continue until something is picked, and this must not. See below.
+///
+/// **Nothing is preselected and Continue is never gated.** A preselected he/him would be an
+/// assumption wearing a default's clothes, and a parent tapping past it would not have answered.
+/// Skipping stores `null`, which is a finished setup exactly as a skipped avatar is —
+/// `docs/decisions.md` item 10 settles both halves.
+///
+/// The copy asks and stops. It does not explain the question and it does not apologise for it;
+/// the one supporting line says what the answer is *for*, which is the only thing a parent needs
+/// in order to decide whether to bother.
+private struct PronounsStep: View {
+    @Bindable var session: OnboardingSession
+
+    private var name: String {
+        let trimmed = session.draft.trimmedName
+        return trimmed.isEmpty ? "your kid" : trimmed
+    }
+
+    var body: some View {
+        OnboardingStepScaffold(
+            title: "What are \(name)'s pronouns?",
+            subtitle: "Prompts will use them."
+        ) {
+            VStack(spacing: 12) {
+                ForEach(PronounSet.allCases, id: \.self) { set in
+                    choice(set)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } footer: {
+            VStack(spacing: 6) {
+                Button("Continue") { session.advance() }
+                    .buttonStyle(OnboardingPrimaryButtonStyle())
+                    .disabled(session.isWorking)
+
+                // Mirrors `AvatarStep` exactly, including that "Skip for now" and "Continue" do
+                // the same thing when nothing is chosen. The redundancy is the point: an enabled
+                // Continue under an empty list reads as a button somebody forgot to disable, and
+                // this is the sentence that says the question is genuinely optional.
+                if session.draft.pronouns == nil {
+                    OnboardingSecondaryButton(title: "Skip for now") {
+                        session.advance()
+                    }
+                    .disabled(session.isWorking)
+                } else {
+                    // The way back to unanswered. `null` is a real state the column holds and
+                    // Settings renders as an empty row, so it has to be reachable from the screen
+                    // that first offers an answer — otherwise a mis-tap is permanent until the
+                    // parent finds Settings.
+                    OnboardingSecondaryButton(title: "Clear") {
+                        session.draft.pronouns = nil
+                        session.persist()
+                    }
+                    .disabled(session.isWorking)
+                }
+            }
+        }
+    }
+
+    private func choice(_ set: PronounSet) -> some View {
+        let selected = session.draft.pronouns == set
+        return Button {
+            // Tapping the chosen row again clears it. The same reason "Clear" exists: an answer
+            // given by accident must be undoable without leaving the screen.
+            session.draft.pronouns = selected ? nil : set
+            session.persist()
+        } label: {
+            // The label is the wire value. `he/him` is what the picker shows and exactly what it
+            // sends, so there is no mapping to get wrong — see `PronounSet.label`.
+            Text(set.label)
+                .typeRole(.cardTitle)
+                .foregroundStyle(Color.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 18)
+                .padding(.horizontal, 20)
+                .background(
+                    RoundedRectangle(cornerRadius: Layout.cardRadius)
+                        .fill(selected ? Color.terracottaSoft : Color.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Layout.cardRadius)
+                        .strokeBorder(
+                            selected ? Color.terracotta : Color.border,
+                            lineWidth: selected ? 1.5 : Layout.borderWidth
+                        )
+                )
+                .contentShape(RoundedRectangle(cornerRadius: Layout.cardRadius))
+        }
+        .buttonStyle(TapScaleButtonStyle())
+        .disabled(session.isWorking)
+        // `.isSelected` rather than a checkmark glyph: VoiceOver announces the state, Switch
+        // Control gets it, and nothing on the row is carrying meaning by colour alone.
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(selected ? "Chosen. Tap to clear." : "")
     }
 }
 

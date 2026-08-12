@@ -19,7 +19,13 @@ enum WidgetSnapshotBuilder {
     /// the moment it is finished, but every candidate is filtered on `assignedOn == board.date`
     /// first: an item assigned on Tuesday and finished on Wednesday belongs to Tuesday, and
     /// showing it as today's mission is presenting the wrong day.
-    static func snapshot(from board: TodayBoard, familyTimezone: String) -> WidgetSnapshot {
+    /// **`subject` renders the prompt bodies here rather than in the extension.** The widget reads
+    /// this file and does no networking, so it cannot substitute a token — see `WidgetSnapshotSync`.
+    static func snapshot(
+        from board: TodayBoard,
+        familyTimezone: String,
+        subject: PromptSubject = .unknown
+    ) -> WidgetSnapshot {
         let candidates = (board.today + board.doneToday)
             .filter { $0.assignment.assignedOn == board.date }
 
@@ -35,9 +41,9 @@ enum WidgetSnapshotBuilder {
             // thinnest of the three, so the days it comes back empty are the days this matters:
             // without the second lookup the widget would show no mission at all while one was
             // sitting on the Today board.
-            mission: item(in: candidates, slot: .mission)
-                ?? item(in: candidates, slot: .missionB),
-            question: item(in: candidates, slot: .question)
+            mission: item(in: candidates, slot: .mission, subject: subject)
+                ?? item(in: candidates, slot: .missionB, subject: subject),
+            question: item(in: candidates, slot: .question, subject: subject)
         )
     }
 
@@ -45,7 +51,8 @@ enum WidgetSnapshotBuilder {
     /// parent already said no to one of them, and the app never mentions the other again.
     private static func item(
         in candidates: [TodayBoard.BoardItem],
-        slot: Slot
+        slot: Slot,
+        subject: PromptSubject
     ) -> WidgetSnapshot.Item? {
         guard let found = candidates.first(where: {
             $0.assignment.slotKind == slot
@@ -60,9 +67,14 @@ enum WidgetSnapshotBuilder {
         // being asked, not the answer — which is the line the privacy rule actually draws, and
         // nothing here can reach an entry. Worth knowing, though, that a custom prompt can be more
         // personal than a library one, and this is the surface where it reaches a Lock Screen.
+        // **Rendered, custom bodies included.** A custom prompt is still the question being asked,
+        // it arrives in the same field, and it is shown in the same place as a library one — so
+        // rendering one and not the other is the "same sentence reads differently depending on the
+        // screen" defect arriving through the back door. Invariant 3 covers the parent who typed a
+        // brace and meant it: anything outside the fourteen tokens stays literal.
         return WidgetSnapshot.Item(
             assignmentId: found.assignment.id,
-            body: found.assignment.body,
+            body: PromptTokens.render(found.assignment.body, for: subject),
             kind: found.assignment.kind,
             isDone: found.isDone
         )

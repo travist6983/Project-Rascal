@@ -32,6 +32,7 @@ struct EditChildSheet: View {
                 VStack(alignment: .leading, spacing: 22) {
                     nameField
                     birthdayField
+                    pronounsField
                     timezoneField
                     if let notice = model.notice { noticeLine(notice) }
                 }
@@ -120,6 +121,65 @@ struct EditChildSheet: View {
                 recomputeCheckbox
             }
         }
+    }
+
+    /// The same three choices onboarding offers, in the same order, sending the same strings.
+    ///
+    /// **Tapping the chosen row clears it**, which is the only way back to unanswered and is a
+    /// state the column genuinely holds. There is no "Prefer not to say" row: that would be a
+    /// fourth value the CHECK constraint does not accept, and it would render as an answer in a
+    /// place the design says renders as nothing.
+    private var pronounsField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel("Pronouns")
+            VStack(spacing: 8) {
+                ForEach(PronounSet.allCases, id: \.self) { set in
+                    pronounRow(set)
+                }
+            }
+
+            Text("Prompts will use them.")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+        }
+    }
+
+    private func pronounRow(_ set: PronounSet) -> some View {
+        let selected = model.pronouns == set
+        return Button {
+            model.pronouns = selected ? nil : set
+        } label: {
+            HStack(spacing: 10) {
+                // The label is the wire value, so the row shows exactly what gets stored.
+                Text(set.label)
+                    .typeRole(.body)
+                    .foregroundStyle(Color.ink)
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.terracotta)
+                }
+            }
+            .padding(12)
+            .background(
+                Color.surface,
+                in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Layout.mediaInsetRadius)
+                    .strokeBorder(
+                        selected ? Color.terracotta : Color.border,
+                        lineWidth: Layout.borderWidth
+                    )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(TapScaleButtonStyle())
+        // The checkmark is not the only carrier of the state — VoiceOver and Switch Control read
+        // the trait, and colour alone never means anything in this app.
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityHint(selected ? "Chosen. Tap to clear." : "")
     }
 
     private var timezoneField: some View {

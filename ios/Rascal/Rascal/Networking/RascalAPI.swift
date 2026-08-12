@@ -69,9 +69,23 @@ nonisolated struct ChildResponse: Decodable, Identifiable, Equatable, Sendable {
     let id: UUID
     let name: String
     let birthdate: String
+    /// `he/him` · `she/her` · `they/them`, or nil for unanswered — which is a finished setup and
+    /// not a missing one. See `docs/decisions.md` item 10.
+    ///
+    /// **Decoded as `String?` rather than as `PronounSet` on purpose.** This type arrives on the
+    /// launch path, so a value outside the three — a widened CHECK shipped ahead of a client
+    /// release — would fail the decode and take out `GET /children`, and with it the whole app,
+    /// rather than one row of Settings. `pronounSet` narrows it, and anything unrecognised reads
+    /// as unanswered.
+    let pronouns: String?
     let familyTimezone: String
     let ageMonths: Int
     let role: String
+
+    var pronounSet: PronounSet? { PronounSet(wire: pronouns) }
+
+    /// What the renderer needs, and nothing else.
+    var promptSubject: PromptSubject { PromptSubject(name: name, pronouns: pronounSet) }
 }
 
 // MARK: - Media

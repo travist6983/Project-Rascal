@@ -15,7 +15,12 @@ struct WaitingCard: View {
     let today: String
     let onOpen: () -> Void
 
+    @Environment(\.promptSubject) private var promptSubject
+
     private var assignment: AssignmentResponse { item.assignment }
+
+    /// One reading of the body, shared by the card and its VoiceOver label.
+    private var prompt: String { PromptTokens.render(assignment.body, for: promptSubject) }
 
     var body: some View {
         Button(action: onOpen) {
@@ -23,7 +28,7 @@ struct WaitingCard: View {
                 glyphTile
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(assignment.body)
+                    Text(prompt)
                         .typeRole(.body)
                         .foregroundStyle(Color.ink)
                         .multilineTextAlignment(.leading)
@@ -82,7 +87,7 @@ struct WaitingCard: View {
     }
 
     private var accessibilityText: String {
-        var parts = [assignment.promptKind.badgeText, assignment.body]
+        var parts = [assignment.promptKind.badgeText, prompt]
         if let chipText { parts.append(chipText) }
         return parts.joined(separator: ". ")
     }

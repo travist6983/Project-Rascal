@@ -325,7 +325,12 @@ final class OnboardingSession {
             let child = try await account.api.createChild(
                 name: draft.trimmedName,
                 birthdate: birthdate,
-                familyTimezone: draft.timezone
+                familyTimezone: draft.timezone,
+                // Nil when the parent skipped the question, and a skip is a finished setup.
+                // Sent on the create rather than PATCHed a moment later: the answer is already
+                // in hand, and asking on one screen to write it from another is a second round
+                // trip for nothing.
+                pronouns: draft.pronouns
             )
             finish(with: child)
         } catch {
@@ -477,11 +482,15 @@ struct OnboardingGate: View {
                 // backfill says how old the child was in a month with nothing written in it, and
                 // `GET /today` carries only `age_months` — an age as of today, which says nothing
                 // about a month in 2019. The gate holds the whole `ChildResponse` already.
+                // The name and pronouns ride along on the same argument, at the same cost and for
+                // the same reason: every prompt body is rendered for this child at the moment it
+                // is shown, and the alternative is a second request from four different screens.
                 RootView(
                     session: session.account,
                     childId: child.id,
                     familyTimezone: child.familyTimezone,
                     childBirthdate: child.birthdate,
+                    promptSubject: child.promptSubject,
                     onSignOut: { await session.signOut() },
                     notifications: session.notifications,
                     pendingLink: $pendingLink

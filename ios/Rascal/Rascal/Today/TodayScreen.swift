@@ -32,8 +32,12 @@ final class TodayModel {
     struct PendingSkip: Equatable {
         let assignment: AssignmentResponse
 
-        var label: String {
-            let body = assignment.body
+        /// **Takes the subject rather than reading one**, because this is a model type inside an
+        /// `@Observable` and there is no environment here to read. The toast quotes a prompt back
+        /// at the parent, so it has to be the same sentence the card was showing a moment ago —
+        /// and truncating before substituting would count the braces towards the 60.
+        func label(for subject: PromptSubject) -> String {
+            let body = PromptTokens.render(assignment.body, for: subject)
             // Sentences end in more than a full stop. A quarter of the seeded library asks a
             // question, and splitting on "." alone runs those straight into the next sentence.
             let end = body.firstIndex { ".?!".contains($0) }
@@ -186,6 +190,8 @@ struct TodayScreen: View {
     let model: TodayModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var context
+    /// The child every prompt on this board is about.
+    @Environment(\.promptSubject) private var promptSubject
 
     /// Local completions and their media, merged over the server's board every render.
     /// Queried rather than held, so this survives a relaunch — the board is rebuilt from
@@ -248,7 +254,7 @@ struct TodayScreen: View {
             TodayBoardView(
                 board: board,
                 notice: model.notice,
-                pendingSkip: model.pendingSkip?.label,
+                pendingSkip: model.pendingSkip?.label(for: promptSubject),
                 completedAt: completedAt,
                 failures: failures,
                 onOpen: { open($0.assignment) },

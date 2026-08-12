@@ -26,7 +26,12 @@ struct DoneCard: View {
     var onRetry: (Media) -> Void = { _ in }
     var onRetryAll: () -> Void = {}
 
+    @Environment(\.promptSubject) private var promptSubject
+
     private var assignment: AssignmentResponse { item.assignment }
+
+    /// One reading of the body, shared by the card and its VoiceOver label.
+    private var prompt: String { PromptTokens.render(assignment.body, for: promptSubject) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -53,7 +58,7 @@ struct DoneCard: View {
             completionMark
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(assignment.body)
+                Text(prompt)
                     .typeRole(.body)
                     .foregroundStyle(Color.inkMuted)
                     .multilineTextAlignment(.leading)
@@ -123,7 +128,7 @@ struct DoneCard: View {
     }
 
     private var accessibilityText: String {
-        var parts = [assignment.body, metaText, "Done"]
+        var parts = [prompt, metaText, "Done"]
         if let progress = item.mediaProgress, !progress.isFinished {
             parts.append("\(progress.remaining) still uploading")
         }

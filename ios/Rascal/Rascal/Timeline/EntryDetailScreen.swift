@@ -17,6 +17,8 @@ struct EntryDetailScreen: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    /// The child the quoted prompt is about.
+    @Environment(\.promptSubject) private var promptSubject
 
     @Query private var entries: [Entry]
     @Query private var media: [Media]
@@ -155,10 +157,21 @@ struct EntryDetailScreen: View {
     /// as the server records it. The assignment is what the timeline card quoted a moment ago,
     /// and using it here means the block does not disappear when the detail fetch has not landed
     /// yet, which would read as the screen losing something on the way in.
+    ///
+    /// **Rendered here, at the last moment before a human reads it.** Both sources hold the body
+    /// with its tokens intact — `Entry.promptBody` and `Assignment.body` are caches of what the
+    /// server serves, not of what was once displayed — which is what lets an entry written three
+    /// years ago re-render correctly when the answer changes today.
     private func displayPrompt(_ entry: Entry) -> String? {
-        if let cached = entry.promptBody, !cached.isEmpty { return cached }
-        guard let assignmentId = entry.assignmentId else { return nil }
-        return assignments.first { $0.id == assignmentId }?.body
+        let raw: String?
+        if let cached = entry.promptBody, !cached.isEmpty {
+            raw = cached
+        } else if let assignmentId = entry.assignmentId {
+            raw = assignments.first { $0.id == assignmentId }?.body
+        } else {
+            raw = nil
+        }
+        return raw.map { PromptTokens.render($0, for: promptSubject) }
     }
 
     /// Photos and video. Audio is not here — it gets a player of its own below the text.

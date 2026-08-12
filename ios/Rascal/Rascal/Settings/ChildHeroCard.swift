@@ -51,7 +51,7 @@ struct ChildHeroCard: View {
                 .buttonStyle(TapScaleButtonStyle())
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(child))
-                .accessibilityHint("Opens name, birthday and timezone")
+                .accessibilityHint("Opens name, birthday, pronouns and timezone")
                 .accessibilityAddTraits(.isButton)
             } else {
                 placeholder
