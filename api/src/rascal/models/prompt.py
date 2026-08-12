@@ -120,6 +120,4 @@ class PromptSuppression(Base):
     # The soft delete. Named `revoked_at` rather than `deleted_at` because the row is not
     # deleted data — it is a decision the parent withdrew, and `/sync` treats the two the same
     # way regardless.
-    revoked_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

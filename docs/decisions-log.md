@@ -1516,3 +1516,32 @@ Smaller calls:
   meant a refused *toggle* reported the send time back, naming the one value nobody was changing.
 - **`BackfillActionBackdrop` → `PinnedActionBackdrop`.** Giving `OnboardingStepScaffold` a pinned
   footer made all five onboarding steps depend on a type whose name said "backfill".
+- **The readable archive ships inside the same zip, not as a second export.** `index.html` reads
+  the bytes `entries.json` already contains, so the viewer cannot disagree with the backup and
+  there is nothing to keep in sync. If it is ever wrong you regenerate it from a zip you have.
+- **`entries.js` exists because `file://` origins are opaque.** A double-clicked page may not
+  `fetch()` a file beside it, and may load one with a `<script>` tag. The payload is duplicated
+  rather than the constraint worked around at read time — 9KB compressed on a real archive,
+  because the two files deflate nearly identically.
+- **Two wrapper files, not one combined object.** `entries.js` and `manifest.js` each wrap their
+  own sibling verbatim, so stripping the assignment gives the `.json` back byte for byte and a
+  test can assert exactly that. A combined `{manifest, entries}` object would be a third shape
+  matching neither file.
+- **`</` is escaped to `<\/` in the `.js` files only.** A parent can type `</script>` in an entry
+  body, and unescaped it would truncate the archive at that character. `\/` and `\u2028`/`\u2029`
+  are JSON escapes, so the value on the other side is identical — asserted, not assumed.
+- **The viewer's manifest assertion warns and renders, never refuses.** A format version it has
+  never heard of gets a banner and the archive underneath it. An archive that shows nothing
+  because it is too new is the failure the whole design exists to avoid.
+- **Dates render in `family_timezone`, not the reader's.** `occurred_at` is serialized in UTC, so
+  a reader in another zone would see evening entries land on the following day.
+- **A card is a `<div role="link">`, not a `<button>`.** Cards contain `<audio controls>`, and
+  interactive content inside a button is invalid HTML — today it renders, and in 2040 it is a
+  play button that cannot be pressed. The delegated click stops at the first element that owns
+  it, so pressing play does not also open the entry.
+- **Media that will not load degrades to metadata with a note, in both directions.** A null path
+  means the export never had the bytes; an `error` event means the folder changed afterwards.
+  Both render as words. A broken-image icon reads as "this archive is damaged", and neither is.
+- **`ruff check` failing was hiding five `ruff format` failures.** A make recipe aborts on its
+  first failing line, so the one recorded, deliberately-unfixed `E501` on `main` meant nobody had
+  seen the format check's output in weeks.

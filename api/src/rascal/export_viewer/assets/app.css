@@ -1,0 +1,499 @@
+/*
+ * The archive, read from disk.
+ *
+ * Values come from docs/design-system.md so this reads as the same product as the app:
+ * cream canvas, navy-charcoal ink, terracotta for missions and photos, periwinkle for
+ * questions and voice, sage for did-it, a soft wash for sealed.
+ *
+ * No @import, no font file, no url() pointing anywhere. System fonts only. Every rule in
+ * here has to still work on a browser nobody has written yet.
+ */
+
+:root {
+  --terracotta: #C05A2B;
+  --terracotta-soft: #FBEDE2;
+  --terracotta-deep: #9A431E;
+
+  --periwinkle: #5566D6;
+  --periwinkle-soft: #E9EBFB;
+  --periwinkle-border: #DADDF7;
+
+  --ink: #23253C;
+  --ink-muted: #6E6A63;
+  --ink-faint: #B4ADA3;
+
+  --canvas: #FDFAF4;
+  --surface: #FFFDF9;
+  --border: #EDE5DA;
+  --chip-plain: #F4EEE5;
+
+  --sage: #E8F0E6;
+  --sage-border: #D8E4D5;
+  --sage-ink: #4B7A4F;
+  --sage-soft: #DCE8DA;
+
+  --sealed-border: #F0DFD5;
+  --sealed-ink: #A79A92;
+
+  --rule-terracotta: #EBD8C8;
+  --rule-periwinkle: #C6CCF2;
+  --rule-sage: #B7CDB3;
+
+  --shadow: 0 2px 8px rgba(35, 37, 60, 0.04);
+  --radius-card: 20px;
+  --radius-media: 14px;
+  --radius-quote: 16px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+/* The pre-JavaScript and no-JavaScript note. Deliberately plain. */
+.bare {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 3rem 1.25rem;
+}
+.bare h1 { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.75rem; }
+.bare p { color: var(--ink-muted); margin: 0 0 0.75rem; }
+.bare code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--chip-plain);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+
+/* --- Shell ------------------------------------------------------------------------- */
+
+.wrap {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1rem 5rem;
+}
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(253, 250, 244, 0.94);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.masthead-inner {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 0.75rem;
+}
+
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.15rem;
+}
+
+.masthead h1 {
+  font-size: 1.65rem;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.masthead h1 .accent { color: var(--terracotta); }
+
+.masthead-meta {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  margin: 0.2rem 0 0.75rem;
+}
+
+.controls { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+.search {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.9375rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+}
+.search::placeholder { color: var(--ink-faint); }
+.search:focus { outline: 2px solid var(--periwinkle-border); outline-offset: 1px; }
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input { margin: 0; accent-color: var(--terracotta); }
+
+.result-note {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  margin: 0.65rem 0 0;
+}
+
+/* A format the viewer was not written for. Loud, but never in place of the archive. */
+.banner {
+  background: var(--terracotta-soft);
+  border: 1px solid var(--sealed-border);
+  border-radius: var(--radius-media);
+  padding: 0.75rem 1rem;
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+  color: var(--terracotta-deep);
+}
+
+/* --- Day groups -------------------------------------------------------------------- */
+
+.year-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 2.25rem 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.year-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin: 1.5rem 0 0.6rem;
+}
+.day-num { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
+.day-month { font-size: 1.05rem; color: var(--ink-muted); }
+.day-weekday {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.day-age {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--periwinkle);
+  background: var(--periwinkle-soft);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  white-space: nowrap;
+}
+
+/* --- Cards -------------------------------------------------------------------------- */
+
+.card {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 1rem;
+  margin: 0 0 0.75rem;
+  cursor: pointer;
+}
+.card:hover { border-color: var(--rule-terracotta); }
+.card:focus-visible { outline: 2px solid var(--periwinkle); outline-offset: 2px; }
+
+.card.is-didit { background: var(--sage); border-color: var(--sage-border); }
+.card.is-sealed {
+  background: linear-gradient(135deg, #FDE8DC 0%, #F7DDE8 55%, #FBF6EF 100%);
+  border-color: var(--sealed-border);
+}
+.card.is-deleted { opacity: 0.72; border-style: dashed; }
+
+.card > * + * { margin-top: 0.55rem; }
+
+.card-title { font-size: 1.0625rem; font-weight: 600; margin: 0; }
+.card-body { color: var(--ink-muted); margin: 0; white-space: pre-wrap; overflow-wrap: break-word; }
+.card-body.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The quoted prompt: a 2px rule tinted to the prompt's kind, and the ask set italic. */
+.quote {
+  border-left: 2px solid var(--rule-terracotta);
+  padding-left: 0.7rem;
+  font-size: 0.875rem;
+  font-style: italic;
+  color: var(--ink-muted);
+  margin: 0;
+}
+.quote.k-question, .quote.k-audio { border-left-color: var(--rule-periwinkle); }
+.quote.k-activity { border-left-color: var(--rule-sage); }
+
+/* --- Chips -------------------------------------------------------------------------- */
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+.chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  background: var(--chip-plain);
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.chip.t-photo, .chip.t-video { background: var(--terracotta-soft); color: var(--terracotta-deep); }
+.chip.t-audio { background: var(--periwinkle-soft); color: var(--periwinkle); }
+.chip.t-did_it { background: var(--sage-soft); color: var(--sage-ink); }
+.chip.t-sealed { background: rgba(255, 255, 255, 0.6); color: var(--terracotta-deep); }
+.chip.t-removed { background: transparent; color: var(--ink-faint); border: 1px dashed var(--ink-faint); }
+
+/* --- Media -------------------------------------------------------------------------- */
+
+.media-grid {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr;
+}
+.media-grid.n-2, .media-grid.n-4 { grid-template-columns: 1fr 1fr; }
+.media-grid.n-3 { grid-template-columns: 1fr 1fr; }
+.media-grid.n-3 > :first-child { grid-row: span 2; }
+
+.media-grid img,
+.media-grid video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 15rem;
+  object-fit: cover;
+  background: var(--chip-plain);
+  border-radius: var(--radius-media);
+}
+.detail .media-grid img,
+.detail .media-grid video {
+  max-height: none;
+  object-fit: contain;
+  height: auto;
+}
+
+/* Voice. The periwinkle band, and the transcript that outlives the codec. */
+.voice {
+  background: var(--periwinkle-soft);
+  border: 1px solid var(--periwinkle-border);
+  border-radius: var(--radius-media);
+  padding: 0.75rem;
+}
+.voice audio { display: block; width: 100%; }
+.voice-meta {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--periwinkle);
+  margin: 0 0 0.5rem;
+}
+
+.transcript {
+  margin: 0.6rem 0 0;
+  padding-left: 0.7rem;
+  border-left: 2px solid var(--rule-periwinkle);
+  font-size: 0.9375rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.transcript-label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 0.15rem;
+}
+
+/* Bytes that never made it into the zip. Metadata and a plain sentence, never a broken
+   image icon — the icon reads as "the archive is damaged", which is not what happened. */
+.absent {
+  border: 1px dashed var(--ink-faint);
+  border-radius: var(--radius-media);
+  padding: 0.75rem;
+  background: transparent;
+}
+.absent p { margin: 0; font-size: 0.875rem; color: var(--ink-muted); }
+.absent .absent-key {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+  margin-top: 0.35rem;
+}
+
+/* --- Sealed ------------------------------------------------------------------------- */
+
+.seal { text-align: center; padding: 0.5rem 0 0.25rem; }
+.seal-mark { font-size: 1.5rem; line-height: 1; }
+.seal-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--terracotta-deep);
+  margin: 0.35rem 0 0;
+}
+.seal-note { font-size: 0.875rem; color: var(--sealed-ink); margin: 0.25rem 0 0; }
+
+.seal-open {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--terracotta-deep);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--sealed-border);
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  margin: 0.75rem auto 0;
+  display: block;
+  cursor: pointer;
+}
+.seal-open:hover { background: rgba(255, 255, 255, 0.9); }
+
+.opened-note {
+  font-size: 0.8125rem;
+  color: var(--sealed-ink);
+  font-style: italic;
+  margin: 0;
+}
+
+/* --- Detail ------------------------------------------------------------------------- */
+
+.back {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--terracotta-deep);
+  background: none;
+  border: none;
+  padding: 0.5rem 0;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+}
+.back:hover { text-decoration: underline; }
+
+.detail { padding-top: 0.5rem; }
+.detail .card { cursor: default; }
+.detail .card:hover { border-color: var(--border); }
+.detail-title { font-size: 1.6rem; font-weight: 700; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+.detail-date { font-size: 0.875rem; color: var(--ink-muted); margin: 0 0 1rem; }
+.detail-body {
+  font-size: 1.0625rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  margin: 0;
+}
+
+.detail-facts {
+  margin: 1.5rem 0 0;
+  padding: 0.9rem 1rem;
+  background: var(--chip-plain);
+  border-radius: var(--radius-quote);
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}
+.detail-facts dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.75rem; }
+.detail-facts dt { font-weight: 600; color: var(--ink-faint); }
+.detail-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.quote-block {
+  background: var(--terracotta-soft);
+  border-radius: var(--radius-quote);
+  padding: 0.85rem 1rem;
+  margin: 0 0 1rem;
+  font-style: italic;
+  color: var(--terracotta-deep);
+}
+.quote-block.k-question, .quote-block.k-audio {
+  background: var(--periwinkle-soft);
+  color: var(--periwinkle);
+}
+.quote-block .quote-label {
+  display: block;
+  font-style: normal;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 0.2rem;
+}
+
+/* --- Odds and ends ------------------------------------------------------------------ */
+
+mark { background: #FBE7C6; color: inherit; border-radius: 3px; padding: 0 0.1em; }
+
+.empty {
+  text-align: center;
+  color: var(--ink-muted);
+  padding: 4rem 1rem;
+}
+
+.colophon {
+  margin: 3.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+  line-height: 1.6;
+}
+.colophon code { font-family: var(--font-mono); font-size: 0.9em; }
+
+@media (max-width: 30rem) {
+  .masthead h1 { font-size: 1.4rem; }
+  .detail-title { font-size: 1.35rem; }
+  .day-age { font-size: 0.6875rem; }
+}
+
+@media print {
+  .masthead, .controls, .back, .seal-open { display: none !important; }
+  .card { break-inside: avoid; box-shadow: none; }
+}

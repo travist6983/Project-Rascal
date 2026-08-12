@@ -321,6 +321,12 @@ The whole archive, in a format that outlives this API:
 manifest.json            format version, child, counts, media that could not be fetched
 entries.json             every entry, oldest first, with its prompt, tags, and media rows
 media/YYYY/MM/<id>.<ext> the objects themselves, foldered by occurred_at
+
+index.html               the readable layer — double-click it, no server, no internet
+assets/app.css           constant for every export; copied from the repo, never generated
+assets/app.js            likewise
+entries.js               entries.json's bytes as `window.RASCAL_ENTRIES = …;`
+manifest.js              manifest.json's bytes as `window.RASCAL_MANIFEST = …;`
 ```
 
 - **Soft-deleted rows are included** and carry `is_deleted: true` with a `deleted_at`. An
@@ -333,6 +339,19 @@ media/YYYY/MM/<id>.<ext> the objects themselves, foldered by occurred_at
   `content-length` is exact, so a client can show real progress.
 
 The zip is assembled on disk and streamed back, so memory is bounded regardless of size.
+
+**The readable layer is the same data, not a second export.** `entries.js` and `manifest.js`
+are the `.json` files' own bytes with `window.<NAME> = ` prepended and `;` appended — strip
+those and you have the JSON back verbatim, with the sole exception of `</` written as `<\/`
+and U+2028/U+2029 written as their `\u2028`/`\u2029` escapes. All three are JSON escapes
+that parse to the same value, and all three exist so that a body somebody typed cannot
+close the script tag or trip an older JavaScript engine.
+
+The `.js` files exist at all because **a page opened from a `file://` path cannot `fetch()`
+a file next to it** — the origin is opaque and the request is blocked — while a
+`<script src>` tag works. Nothing about the viewer is per-child or per-export, and nothing about it is
+stored: `index.html`, `assets/app.css` and `assets/app.js` are constant bytes copied out of
+`api/src/rascal/export_viewer/` during the same assembly pass that writes the manifest.
 
 ---
 
