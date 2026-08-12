@@ -2,20 +2,23 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-/// Where a child's avatar lives.
+/// Where a child's avatar lives **on this device** — the cache in front of the server's copy.
 ///
-/// **On this device and nowhere else, for now.** The API has an `children.avatar_key` column and
-/// `PATCH /children/{id}` accepts a key, but nothing mints one: `POST /media/upload-url` requires
-/// an `entry_id` and creates a media row against an entry, so there is no route that presigns an
-/// upload for a child. Sending avatar bytes through the entry-scoped route would put a picture of
-/// a child into the archive as an entry's artifact, which is a worse outcome than not uploading
-/// it. See `docs/blocked.md` for the endpoint this needs.
+/// `POST /children/{id}/avatar-upload-url` mints a presigned PUT for a child, so an avatar is no
+/// longer device-only: it is written here first and then uploaded, and `children.avatar_key` is
+/// what the archive keeps. This file used to say that nothing minted one, which was true when it
+/// was written and stopped being true when Lane A built the pair. `AvatarSync` owns the upload and
+/// the read-back; this owns the bytes on disk.
+///
+/// **Local first, and local is still the fast path.** A read serves from here immediately and only
+/// falls back to a presigned GET when the file is absent — which after a fresh install is once,
+/// and after normal use is never.
 ///
 /// Deliberately **not** `StagingStore`. That directory is excluded from iCloud backup because it
 /// holds transient copies of photos the library already has, and re-uploading a video into
-/// someone's iCloud quota is waste. This is the opposite case: an avatar is a crop that exists in
-/// no other place, and until there is somewhere to upload it, a backup is the only thing standing
-/// between it and a lost phone. So the same directory conventions, and the reverse backup flag.
+/// someone's iCloud quota is waste. An avatar is a crop that exists in no other place on the
+/// phone, and a backup is one of the two things standing between it and a lost handset — the
+/// server copy is now the other. So the same directory conventions, and the reverse backup flag.
 nonisolated protocol AvatarStoring: Sendable {
     func save(_ jpeg: Data, for childId: UUID)
     func load(for childId: UUID) -> Data?
@@ -36,8 +39,19 @@ nonisolated struct LocalAvatarStore: AvatarStoring {
         return base.appending(path: "avatars", directoryHint: .isDirectory)
     }
 
+    /// **`isExcludedFromBackup = false`, stated rather than inherited.**
+    ///
+    /// This is the exact inverse of `StagingStore.prepare`, which sets it to `true` two files
+    /// away, and the header above has always claimed "the reverse backup flag" — while the code
+    /// set nothing at all and merely inherited the default. The behaviour was right by accident.
+    /// Saying it out loud is what keeps it right if these two ever grow a shared helper, which is
+    /// the only realistic way an avatar directory quietly stops being backed up.
     private static func prepare(_ url: URL) throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        var resource = URLResourceValues()
+        resource.isExcludedFromBackup = false
+        var mutable = url
+        try? mutable.setResourceValues(resource)
     }
 
     func url(for childId: UUID) -> URL {

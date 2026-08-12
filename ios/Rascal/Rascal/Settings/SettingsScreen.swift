@@ -31,6 +31,10 @@ struct SettingsScreen: View {
     /// The app's one sync, so the status section reads the same numbers the sweep acts on rather
     /// than inventing a second source of truth for upload state.
     let sync: EntrySync?
+    /// Reads the child's avatar back — local file first, a presigned GET only if there is none.
+    /// Optional for the same reason `sync` is: without one the hero renders its initials disc,
+    /// which is also what it renders for a child who has no avatar.
+    var avatarSync: AvatarSync?
     /// The pull half. Optional for the same reason `sync` is: the screen is buildable in a test
     /// without one, and it renders the upload rows and nothing else when it has none.
     var syncEngine: SyncEngine?
@@ -59,6 +63,9 @@ struct SettingsScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var child: ChildResponse?
+    /// The avatar's bytes once something has them. Nil covers every no-picture case — no avatar,
+    /// no connection on a fresh install, a key that 404s — and all of them render the same disc.
+    @State private var avatar: Data?
     @State private var notice: String?
     @State private var route: Route?
     @State private var confirmingSignOut = false
@@ -96,7 +103,7 @@ struct SettingsScreen: View {
                     .typeRole(.display)
                     .foregroundStyle(Color.ink)
 
-                ChildHeroCard(child: child) { openChild() }
+                ChildHeroCard(child: child, avatar: avatar) { openChild() }
 
                 archiveSection
                 accountSection
@@ -158,6 +165,12 @@ struct SettingsScreen: View {
                 syncStatus = SyncStatusModel(engine: syncEngine)
             }
         }
+        // **Keyed on all three inputs rather than fired once**, which is the same trap `syncEngine`
+        // fell into directly above: `avatarSync` is built in `RootView`'s `.task` and can arrive
+        // after this screen first renders, and `child` arrives later still from `loadChild`. A
+        // plain `.task` would run while both were nil and never look again, so a parent landing
+        // straight on this tab would see initials for the life of the session.
+        .task(id: avatarLoadKey) { await loadAvatar() }
         // Leaving the tab tears this view down while the download would carry on writing to a
         // file nobody is going to open. Cancelled rather than orphaned.
         .onDisappear { export?.cancel() }
@@ -635,6 +648,28 @@ struct SettingsScreen: View {
         }
     }
 
+    /// Everything the avatar read depends on, in one value `.task(id:)` can compare.
+    ///
+    /// The `avatarSync != nil` term is the load-bearing one — see the modifier's own comment.
+    private var avatarLoadKey: String {
+        [
+            child?.id.uuidString ?? "-",
+            child?.avatarKey ?? "-",
+            avatarSync == nil ? "0" : "1",
+        ].joined(separator: "|")
+    }
+
+    /// Local file first; a presigned GET only when there is no local copy and the server says
+    /// there is something to get. Nil is the ordinary answer for a child with no avatar and is
+    /// never surfaced as a failure.
+    private func loadAvatar() async {
+        guard let child, let avatarSync else {
+            avatar = nil
+            return
+        }
+        avatar = await avatarSync.avatarData(for: child.id, remoteKey: child.avatarKey)
+    }
+
     /// Fold the saved child back into the row values without a refetch.
     private func apply(_ updated: ChildUpdateResponse) {
         guard let existing = child else { return }
@@ -646,6 +681,11 @@ struct SettingsScreen: View {
             // wrote, so this is the one value on screen guaranteed to match the column —
             // including when the save cleared it back to unanswered.
             pronouns: updated.pronouns,
+            // From the response for the same reason `pronouns` is: `PATCH` returns the row it
+            // wrote. The edit sheet cannot change the avatar — `updateChild` omits `avatar_key`
+            // entirely — but a save made while an upload was landing would otherwise put a stale
+            // nil back on screen and hide an avatar that had just arrived.
+            avatarKey: updated.avatarKey,
             familyTimezone: updated.familyTimezone,
             // Unchanged on purpose. `age_months` is the server's, `PATCH` does not return it,
             // and inventing one here would be the client deciding something it does not own.

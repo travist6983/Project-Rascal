@@ -62,7 +62,10 @@ final class OnboardingSession {
     private let drafts: OnboardingDraftStoring
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
-    private let avatars: AvatarStoring
+
+    /// Saves the crop locally **and** owes it to the server. Setup is the only place in the app
+    /// that produces an avatar, so this is the only place that enqueues one.
+    private let avatarSync: AvatarSync
     /// Signing out has to reach the Home Screen too. The widget's snapshot holds a child's first
     /// name and today's prompts, and it outlives the session unless something removes it — a
     /// signed-out phone with the child's name still on its Lock Screen is the visible version of
@@ -84,6 +87,7 @@ final class OnboardingSession {
         appleIDs: AppleUserIDStoring = UserDefaultsAppleUserIDStore(),
         credentials: AppleCredentialChecking = LiveAppleCredentialCheck(),
         avatars: AvatarStoring = LocalAvatarStore(),
+        pendingAvatars: PendingAvatarUploadStoring = UserDefaultsPendingAvatarUploadStore(),
         widget: WidgetSnapshotPublisher = .live,
         notifications: NotificationPreference? = nil
     ) {
@@ -91,7 +95,10 @@ final class OnboardingSession {
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
-        self.avatars = avatars
+        // Built here rather than injected whole so the two stores stay separately substitutable —
+        // a test asserting where the bytes landed passes `avatars`, and one asserting what is
+        // still owed passes `pendingAvatars`.
+        self.avatarSync = AvatarSync(api: account.api, store: avatars, pending: pendingAvatars)
         self.widget = widget
         self.draft = drafts.load() ?? OnboardingDraft()
         self.notifications = notifications ?? NotificationPreference(
@@ -375,8 +382,14 @@ final class OnboardingSession {
     /// stale local one could only contradict it.
     private func finish(with child: ChildResponse) {
         if let avatar {
-            avatars.save(avatar, for: child.id)
+            // Saves locally first, then records what the server is owed. Neither step touches the
+            // network, so setup finishes at the same speed it always did.
+            avatarSync.enqueue(avatar, for: child.id)
             self.avatar = nil
+            // One prompt first attempt, detached so a slow upload cannot hold the parent on the
+            // last screen of setup. **Not a retry loop** — if this fails, the record stays and the
+            // next foreground sweep picks it up, which is the mechanism rather than a spinner.
+            Task { [avatarSync] in await avatarSync.sweep() }
         }
         drafts.clear()
         notice = nil

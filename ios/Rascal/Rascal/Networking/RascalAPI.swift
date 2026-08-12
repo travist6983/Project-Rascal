@@ -78,6 +78,19 @@ nonisolated struct ChildResponse: Decodable, Identifiable, Equatable, Sendable {
     /// rather than one row of Settings. `pronounSet` narrows it, and anything unrecognised reads
     /// as unanswered.
     let pronouns: String?
+
+    /// The storage key for this child's avatar, or nil when there is none.
+    ///
+    /// **The server has always sent this; the client used to decode it and throw it away.** It is
+    /// declared on `ChildOut`, which `ChildWithRole` extends, so `GET /children` carries it on the
+    /// launch path at no extra request — which is exactly what lets a child with no avatar render
+    /// initials without a round trip that 404s.
+    ///
+    /// Read as a *fact*, never as a location. The bucket is private, so the key is not fetchable
+    /// on its own; `GET /children/{id}/avatar-url` mints a short-lived URL and that URL is never
+    /// persisted. See `AvatarSync.avatarData(for:remoteKey:)`.
+    let avatarKey: String?
+
     let familyTimezone: String
     let ageMonths: Int
     let role: String
