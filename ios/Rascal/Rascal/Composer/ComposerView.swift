@@ -89,6 +89,7 @@ struct ComposerView: View {
     /// The child the quoted prompt is about.
     @Environment(\.promptSubject) private var promptSubject
     @Environment(\.personalization) private var personalization
+    @Environment(\.childAgeMonths) private var childAgeMonths
 
     /// Backdating is a first-class flow, so this is a real choice and not a hidden setting.
     @State private var occurredAt = Date()
@@ -629,18 +630,32 @@ struct ComposerView: View {
     }
 
     private func quotedPrompt(_ assignment: AssignmentResponse) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        let canonical = PromptTokens.render(assignment.body, for: promptSubject)
+        return HStack(alignment: .top, spacing: 10) {
             Rectangle()
                 .fill(Color.terracotta.opacity(0.35))
                 .frame(width: 3)
                 .clipShape(Capsule())
-            Text(personalization.text(for: assignment.id, canonical: PromptTokens.render(assignment.body, for: promptSubject)))
+            Text(personalization.text(for: assignment.id, canonical: canonical))
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .background(Color.surface, in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius))
+        // **Asks as well as reads.** Today usually got here first and this is a cache hit — but a
+        // composer opened straight from a widget tap or a notification has no board behind it, and
+        // reading a cache nobody filled would mean the composer was the one listed surface where
+        // personalization never happened. The center de-duplicates, so the common case costs
+        // nothing and the uncommon one works.
+        .task(id: canonical) {
+            await personalization.request(
+                assignmentId: assignment.id,
+                canonical: canonical,
+                subject: promptSubject,
+                ageMonths: childAgeMonths
+            )
+        }
     }
 
     // MARK: Saving

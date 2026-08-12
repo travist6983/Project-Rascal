@@ -135,6 +135,28 @@ struct PersonalizationGuardTests {
         #expect(rejection("Record him telling you about his day.") == .nameAbsent)
     }
 
+    /// **A substring is not a mention.** `contains` accepts a model that changed nothing whenever
+    /// the library happens to hold the name inside another word — Sam in "the same thing", Al in
+    /// "always", Bo in "both" — and caches a personalization that personalized nothing.
+    @Test("the name must appear as a word, not as a substring")
+    func nameMustBeAWholeWord() {
+        #expect(PersonalizationGuard.mentions("Sam", in: "the same thing") == false)
+        #expect(PersonalizationGuard.mentions("Al", in: "always ask") == false)
+        #expect(PersonalizationGuard.mentions("Bo", in: "both of them") == false)
+        // A possessive is still a mention: an apostrophe is not a word character.
+        #expect(PersonalizationGuard.mentions("Sam", in: "Sam's hands"))
+        #expect(PersonalizationGuard.mentions("Sam", in: "Photograph Sam."))
+
+        // And the rule that uses it: canonical contains "same", the model changed nothing.
+        #expect(
+            PersonalizationGuard.rejection(
+                personalized: "What is the same thing he does every morning?",
+                canonical: "What is the same thing he does every morning?",
+                subject: sam
+            ) == .nameAbsent
+        )
+    }
+
     @Test("a new instruction verb is rejected")
     func newImperativeIsRejected() {
         // Same length, same sentence count, name present — only the task changed.
@@ -247,6 +269,34 @@ struct PersonalizationCenterTests {
         #expect(stub.callCount == 1)
     }
 
+    /// **Concurrent renders, which is the real case.** `oncePerAssignment` above calls in
+    /// sequence, and a sequential test cannot see a claim made across a suspension point.
+    ///
+    /// Two cards for the same assignment — or one card whose body re-runs while the first request
+    /// is still out — both reach `request` before either has finished. If the in-flight claim is
+    /// made *after* an `await`, both pass the check and both call the model. This is the bug
+    /// `APIClient.refreshSession` documents at length and `SyncEngine` cites: an async function
+    /// may suspend between statements containing no visible `await`, so a check-then-act written
+    /// across a suspension point is not atomic however atomic it reads.
+    @Test("concurrent requests for one assignment still call the model once")
+    func concurrentRequestsCallOnce() async {
+        let stub = StubPersonalizer(reply: { _ in "Record Sam telling you about his day." })
+        let center = PersonalizationCenter(personalizer: stub)
+        let id = UUID()
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<6 {
+                group.addTask { @MainActor in
+                    await center.request(
+                        assignmentId: id, canonical: self.canonical, subject: sam, ageMonths: 49
+                    )
+                }
+            }
+        }
+
+        #expect(stub.callCount == 1, "the model was asked \(stub.callCount) times for one assignment")
+    }
+
     /// **The canonical body is part of the key.** A library edit must not render yesterday's
     /// sentence for today's prompt.
     @Test("a changed canonical body invalidates the cached personalization")
@@ -304,6 +354,57 @@ struct PersonalizationCenterTests {
         await center.request(assignmentId: UUID(), canonical: canonical, subject: sam, ageMonths: nil)
 
         #expect(center.rejectionRate == 1.0)
+    }
+}
+
+// MARK: - One board, one sentence
+
+@MainActor
+@Suite("Personalization — the board agrees with itself")
+struct PersonalizationConsistencyTests {
+
+    /// **The undo toast quotes the sentence the card was showing**, which since this phase may be
+    /// the personalized one. Its own comment says so: "it has to be the same sentence the card was
+    /// showing a moment ago".
+    @Test("the skip toast quotes the personalized sentence, not the library's")
+    func toastQuotesWhatWasOnScreen() throws {
+        let assignment = try APIClient.decoder.decode(
+            AssignmentResponse.self,
+            from: Data("""
+            {"id":"\(UUID().uuidString)","prompt_id":"\(UUID().uuidString)","slot":"mission",
+             "body":"Record him telling you about his day.","kind":"audio",
+             "completion_mode":"audio","status":"open","assigned_on":"2026-08-11",
+             "expires_on":"2026-08-18","is_custom":false,"unlock_at_age":null}
+            """.utf8)
+        )
+        let skip = TodayModel.PendingSkip(assignment: assignment)
+
+        #expect(skip.label(for: sam).contains("him"), "with nothing personalized it is the library's")
+        #expect(
+            skip.label(for: sam, personalized: "Record Sam telling you about his day.")
+                == "Skipped “Record Sam telling you about his day”"
+        )
+    }
+
+    /// Truncation happens **after** personalization, never before — shortening first would count
+    /// the library's words towards the 60 and quote back a sentence nobody saw.
+    @Test("a long personalized sentence is truncated after substitution")
+    func truncationFollowsPersonalization() throws {
+        let long = String(repeating: "a", count: 80)
+        let assignment = try APIClient.decoder.decode(
+            AssignmentResponse.self,
+            from: Data("""
+            {"id":"\(UUID().uuidString)","prompt_id":"\(UUID().uuidString)","slot":"mission",
+             "body":"short body","kind":"audio","completion_mode":"audio","status":"open",
+             "assigned_on":"2026-08-11","expires_on":"2026-08-18","is_custom":false,
+             "unlock_at_age":null}
+            """.utf8)
+        )
+        let label = TodayModel.PendingSkip(assignment: assignment)
+            .label(for: sam, personalized: long)
+
+        #expect(label.contains("…"), "the personalized string was the one measured")
+        #expect(label.contains(String(repeating: "a", count: 57)))
     }
 }
 
@@ -384,6 +485,43 @@ struct PersonalizationPersistenceTests {
         }
         // And the row still carries the library's own sentence.
         #expect(EntryCache.entry(id: entryId, in: context)?.promptBody == canonical)
+    }
+
+    /// **A sealed letter still shows the prompt it answered** — phase 22 pinned that, and it is
+    /// deliberate: the prompt is the library's sentence, not the sealed content. But it must not be
+    /// *personalized*, because personalization is scoped to assignments a parent is being asked to
+    /// act on today, and an entry's stored prompt is archive text.
+    ///
+    /// Structurally this cannot happen: `EntryCardModel` is a pure value type with no environment
+    /// and no center, so it has nowhere to call. This pins the behaviour so that wiring one in
+    /// later has to break a test with the reason written on it.
+    @Test("an entry's prompt is never personalized, sealed or otherwise")
+    func entryPromptsAreNeverPersonalized() async throws {
+        let stub = StubPersonalizer(reply: { _ in "Record Sam \(StubPersonalizer.sentinel)." })
+        let center = PersonalizationCenter(personalizer: stub)
+        let canonicalPrompt = "Write him one thing about money you wish you had been told."
+
+        let sealed = try cachedEntry(
+            type: "text", body: "Money is mostly patience.", title: "A letter",
+            unlockAtAge: 18, prompt: canonicalPrompt
+        )
+        let ordinary = try cachedEntry(
+            type: "text", body: "He called it a hangaburger.", prompt: canonicalPrompt
+        )
+
+        let sealedCard = EntryCardModel(entry: sealed, media: [])
+        let ordinaryCard = EntryCardModel(entry: ordinary, media: [])
+
+        // The library's own sentence, on both, untouched.
+        #expect(sealedCard.prompt == canonicalPrompt)
+        #expect(ordinaryCard.prompt == canonicalPrompt)
+        #expect(sealedCard.prompt?.contains(StubPersonalizer.sentinel) == false)
+        // And the sealed one is still sealed, so nothing else about it leaked either.
+        #expect(sealedCard.isSealed)
+        #expect(sealedCard.preview == nil)
+        // Nothing asked the model. Card models have no route to one.
+        #expect(stub.callCount == 0)
+        #expect(center.isPersonalized(UUID(), canonical: canonicalPrompt) == false)
     }
 
     /// The widget snapshot is a **file** in the App Group, which is disk — so it carries canonical

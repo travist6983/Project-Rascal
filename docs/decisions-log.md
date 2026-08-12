@@ -1833,3 +1833,30 @@ Two documentation defects the same pass found, both of the kind this project tre
   request site is safe (the center dedupes) but buys little, and the shared cache is the point.
 - **iOS suite 772/96 → 796/100**, warnings unchanged at 21 and none in a touched file, cold from a
   deleted `DerivedData`. Two assertions verified by breaking the code, one of them never-persisted.
+
+### Phase 23 — the audit pass, and four things it changed
+
+- **A concurrency defect: the in-flight claim was made across a suspension point.** `request` checked
+  `inFlight` at the top, `await`ed the availability check, and *then* inserted — so six concurrent
+  renders of one card produced six model calls. Sequential tests could not see it. **This is the
+  hazard `APIClient.refreshSession` documents at length and `SyncEngine` cites verbatim**; the fix
+  is the one they already prescribe, claiming synchronously before the first `await`. Being on
+  `@MainActor` does not help — the actor is released at every suspension, which is the point of it.
+  Caught by a `withTaskGroup` test that fails at 6 calls on the old code.
+- **The name check matched substrings.** `contains("Sam")` is satisfied by "the **sam**e thing",
+  Al by "**al**ways", Bo by "**bo**th — so a model that changed nothing was *accepted* whenever the
+  library happened to hold the name inside another word, caching a personalization that
+  personalized nothing. Now a whole-word match, with the trailing boundary still allowing a
+  possessive because an apostrophe is not a word character.
+- **Three Today surfaces were unwired, and that was an inconsistency rather than an omission.**
+  `DoneCard`, `WaitingCard` and the skip-undo toast all render the same prompt bodies as
+  `PromptCard` on the same board. A mission personalized while open would have snapped back to the
+  library's wording the moment it was done — precisely the defect `PromptSubject`'s own comment
+  exists to prevent. All three now read the same seam, and the toast personalizes **before**
+  truncating, since shortening first would quote back a sentence nobody saw.
+- **The composer now requests as well as reads.** It was a cache reader only, which meant a
+  composer opened straight from a widget tap or a notification — with no board behind it — was the
+  one listed surface where personalization never happened.
+- **The cache key is the canonical body, not its hash.** Hashing bought nothing on a handful of
+  one-line prompts and a collision would render one prompt's personalization under another's text.
+- **iOS suite 772/96 → 801/101** after the audit, warnings unchanged at 21, none in a touched file.

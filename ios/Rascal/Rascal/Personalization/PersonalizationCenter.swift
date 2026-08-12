@@ -32,11 +32,15 @@ final class PersonalizationCenter {
 
     /// **The canonical body is part of the key, not just the assignment id.** A prompt whose text
     /// the library changed is a different prompt, and reusing yesterday's personalization for it
-    /// would render a sentence the server no longer serves. Hashing rather than storing the body
-    /// keeps the key small; a collision renders canonical, which is the safe direction.
+    /// would render a sentence the server no longer serves.
+    ///
+    /// The body itself rather than its hash. Hashing was the first version and it bought nothing:
+    /// a board holds a handful of one-line prompts, so the memory is irrelevant, while a hash
+    /// collision would render one prompt's personalization under another prompt's text — rare
+    /// enough never to be found and wrong enough to matter if it were.
     private struct Key: Hashable {
         let assignmentId: UUID
-        let canonicalHash: Int
+        let canonical: String
     }
 
     private var cache: [Key: String] = [:]
@@ -62,12 +66,12 @@ final class PersonalizationCenter {
 
     /// What to draw right now. Never nil, never a wait.
     func text(for assignmentId: UUID, canonical: String) -> String {
-        cache[Key(assignmentId: assignmentId, canonicalHash: canonical.hashValue)] ?? canonical
+        cache[Key(assignmentId: assignmentId, canonical: canonical)] ?? canonical
     }
 
     /// Whether this assignment has already been personalized, for tests and for the debug board.
     func isPersonalized(_ assignmentId: UUID, canonical: String) -> Bool {
-        cache[Key(assignmentId: assignmentId, canonicalHash: canonical.hashValue)] != nil
+        cache[Key(assignmentId: assignmentId, canonical: canonical)] != nil
     }
 
     // MARK: Requesting — the other half, and it may take as long as it likes
@@ -83,17 +87,28 @@ final class PersonalizationCenter {
         subject: PromptSubject,
         ageMonths: Int?
     ) async {
-        let key = Key(assignmentId: assignmentId, canonicalHash: canonical.hashValue)
+        let key = Key(assignmentId: assignmentId, canonical: canonical)
         guard cache[key] == nil, !inFlight.contains(key) else { return }
         // Nothing to substitute. The model would return the canonical sentence and the guard
         // would reject it for exactly that, so the round trip is skipped rather than spent.
         guard !subject.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        if availability == nil { availability = await personalizer.availability() }
-        guard availability == .available else { return }
-
+        // **Claimed here, synchronously, before the first `await` in this function.**
+        //
+        // The claim used to sit below the availability check — after a suspension point — and six
+        // concurrent renders of one card produced six model calls, because all six passed the
+        // guard above before any of them reached the insert. This is the hazard
+        // `APIClient.refreshSession` documents at length and `SyncEngine` cites in the same words:
+        // an async function may suspend between statements that contain no visible `await`, so a
+        // check-then-act written across one is not atomic however atomic it reads.
+        //
+        // Being on `@MainActor` does not help — the actor is released at every suspension, which
+        // is the whole point of it.
         inFlight.insert(key)
         defer { inFlight.remove(key) }
+
+        if availability == nil { availability = await personalizer.availability() }
+        guard availability == .available else { return }
 
         do {
             let raw = try await personalizer.personalize(

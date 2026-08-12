@@ -89,7 +89,7 @@ nonisolated enum PersonalizationGuard {
 
         // **Only when there was a name to substitute.** A child whose name has not loaded yet is
         // not a rejection reason; there is simply nothing to check.
-        if !name.isEmpty, !candidate.localizedCaseInsensitiveContains(name) { return .nameAbsent }
+        if !name.isEmpty, !mentions(name, in: candidate) { return .nameAbsent }
 
         let introduced = words(of: lowered)
             .filter { instructionVerbs.contains($0) }
@@ -125,6 +125,20 @@ nonisolated enum PersonalizationGuard {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         return max(parts.count, text.isEmpty ? 0 : 1)
+    }
+
+    /// Whether the child is actually named, as a **whole word**.
+    ///
+    /// `contains` is wrong here and the failure is quiet: a child called Sam matches "the **sam**e
+    /// thing", Al matches "**al**ways", Bo matches "**bo**th. So a model that returned the
+    /// canonical sentence untouched would be *accepted* whenever the library happened to contain
+    /// the name as a substring — caching a personalization that personalized nothing.
+    ///
+    /// Word boundaries on both sides. The trailing one still allows a possessive, because an
+    /// apostrophe is not a word character: `\bSam\b` matches "Sam's" and does not match "same".
+    static func mentions(_ name: String, in text: String) -> Bool {
+        let pattern = "\\b\(NSRegularExpression.escapedPattern(for: name))\\b"
+        return text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private static func words(of lowercased: String) -> Set<String> {
