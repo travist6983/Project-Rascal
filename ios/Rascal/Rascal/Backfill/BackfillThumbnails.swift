@@ -3,10 +3,14 @@ import SwiftUI
 /// The contact-sheet grid's geometry, in one place so a tile's rect is arithmetic rather than a
 /// consequence of how SwiftUI happened to resolve an aspect ratio.
 ///
-/// The numbers are `docs/design-system.md`'s **Backfill photo grid**: three flexible columns, 3pt
-/// gutters both ways, square tiles at radius 2, screen-margin sides. They are deliberately not the
+/// The numbers are `docs/design-system.md`'s **Backfill photo grid**: three columns, 3pt gutters
+/// both ways, square tiles at radius 2, screen-margin sides. They are deliberately not the
 /// mosaic's — "tight gutters and square corners are what make a month scan as a contact sheet;
 /// mosaic rounding at this density reads as forty separate cards."
+///
+/// The columns are `.fixed(tileSide)` rather than `.flexible()`: one number then decides the tile's
+/// frame, its clip and the pixel size asked of PhotoKit, instead of the view having to guess at a
+/// width the grid resolved for itself.
 nonisolated enum BackfillGrid {
     static let columns = 3
     static let gutter: CGFloat = 3
@@ -98,26 +102,54 @@ final class BackfillThumbnailLoader {
 
     /// Warm the window the parent is about to reach, and let go of the one behind them.
     ///
-    /// Straight through to `PHCachingImageManager`, which decodes ahead on its own queue. The
-    /// loader's own dictionary is the second tier — this one keeps the *next* rows ready, that one
-    /// keeps the bytes for rows already seen.
-    func startCaching(_ assetIds: [String], pixelSize: Int) {
+    /// **The loader remembers what each window was started with, and stops it with exactly that.**
+    /// `PHCachingImageManager` releases a window only when `stop` is given the same assets at the
+    /// same target size, and the caller cannot be trusted to hand back the same size it handed in:
+    /// the picker seeds its width and corrects it in the same layout pass, so a day whose `onAppear`
+    /// fired against the seed and whose `onDisappear` fires against the real width would stop a
+    /// window that was never started — leaving the started one decoded for the life of the screen,
+    /// which is the exact memory this caching is here to bound.
+    ///
+    /// The loader's own dictionary is the second tier: this one keeps the *next* rows ready, that
+    /// one keeps the bytes for rows already seen.
+    private var cachingWindows: [String: (ids: [String], pixelSize: Int)] = [:]
+
+    func startCaching(_ assetIds: [String], pixelSize: Int, forWindow key: String) {
+        if let existing = cachingWindows[key] {
+            // Already warm at this size. Re-warming would double the manager's book-keeping for
+            // one window, and only one `stop` is ever going to arrive.
+            guard existing.pixelSize != pixelSize else { return }
+            source.stopCachingThumbnails(existing.ids, maxPixel: existing.pixelSize)
+        }
+        cachingWindows[key] = (assetIds, pixelSize)
         source.startCachingThumbnails(assetIds, maxPixel: pixelSize)
     }
 
-    func stopCaching(_ assetIds: [String], pixelSize: Int) {
-        source.stopCachingThumbnails(assetIds, maxPixel: pixelSize)
+    func stopCaching(forWindow key: String) {
+        guard let window = cachingWindows.removeValue(forKey: key) else { return }
+        source.stopCachingThumbnails(window.ids, maxPixel: window.pixelSize)
     }
 
     /// Everything, on the way out of the picker. A caching manager left holding a month of photos
-    /// keeps them decoded for the life of the process.
+    /// keeps them decoded for the life of the process. This is also the backstop for a window whose
+    /// `onDisappear` never arrived, which is what a dismissed screen does to its children.
     func stopCachingEverything() {
+        cachingWindows.removeAll()
         source.stopCachingAllThumbnails()
     }
 
+    /// How many windows are warm. Test-facing: the pairing is invisible from the outside otherwise,
+    /// and an unpaired `start` is a leak that nothing on screen reveals.
+    var warmWindowCount: Int { cachingWindows.count }
+
     private func store(_ data: Data, for key: String) {
+        // **Appended only when the key is new.** There is an `await` between the cache check and
+        // this call, so two tiles asking for the same photograph at the same size both miss and
+        // both land here — and a key recorded twice in `order` evicts its `cache` entry on the
+        // first pass and then removes nothing on the second. The cache would quietly hold fewer
+        // than `limit` thumbnails, refetching pictures it had already paid for.
+        if cache[key] == nil { order.append(key) }
         cache[key] = data
-        order.append(key)
         while order.count > limit, let oldest = order.first {
             order.removeFirst()
             cache.removeValue(forKey: oldest)

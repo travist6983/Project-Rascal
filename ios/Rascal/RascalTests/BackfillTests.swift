@@ -1341,3 +1341,357 @@ struct BackfillSingleDaySurvivalTests {
         #expect(selection.count == 2)
     }
 }
+
+// MARK: - The thumbnail loader, and the window it has to hand back
+
+/// A source that records what the loader asked PhotoKit for.
+///
+/// The caching window is the thing worth pinning: `PHCachingImageManager` releases a window only
+/// when `stop` names the same assets at the same target size, and neither the pairing nor its
+/// failure is visible from outside — an unpaired `start` is a leak with nothing on screen to show
+/// for it.
+@MainActor
+private final class RecordingThumbnailSource: BackfillAssetSource, @unchecked Sendable {
+    nonisolated(unsafe) var thumbnailCalls: [(id: String, maxPixel: Int)] = []
+    nonisolated(unsafe) var started: [(ids: [String], maxPixel: Int)] = []
+    nonisolated(unsafe) var stopped: [(ids: [String], maxPixel: Int)] = []
+    nonisolated(unsafe) var stoppedAll = 0
+    /// Assets that have nothing local, mirroring PhotoKit with network access off.
+    nonisolated(unsafe) var missing: Set<String> = []
+
+    nonisolated func authorization() async -> BackfillAuthorization { .authorized }
+    nonisolated func requestAuthorization() async -> BackfillAuthorization { .authorized }
+    nonisolated func libraryToken() async -> String? { nil }
+    nonisolated func creationDates() async throws -> (onDevice: [Date], cloudOnly: [Date]) { ([], []) }
+    nonisolated func assets(in month: BackfillMonth) async throws -> [BackfillAsset] { [] }
+    nonisolated func imageData(for assetId: String) async throws -> Data { Data() }
+
+    nonisolated func thumbnail(for assetId: String, maxPixel: Int) async -> Data? {
+        thumbnailCalls.append((assetId, maxPixel))
+        guard !missing.contains(assetId) else { return nil }
+        return Data([UInt8(truncatingIfNeeded: maxPixel)])
+    }
+
+    nonisolated func startCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        started.append((assetIds, maxPixel))
+    }
+
+    nonisolated func stopCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        stopped.append((assetIds, maxPixel))
+    }
+
+    nonisolated func stopCachingAllThumbnails() { stoppedAll += 1 }
+}
+
+@MainActor
+@Suite("Backfill — the thumbnail loader")
+struct BackfillThumbnailLoaderTests {
+
+    /// **A window is stopped with the size it was started with, not with whatever the caller holds
+    /// now.** The picker seeds its width and corrects it in the same layout pass, so a day whose
+    /// `onAppear` fired against the seed and whose `onDisappear` fires against the real width would
+    /// otherwise stop a window that was never started — and leave the started one decoded for the
+    /// life of the screen, which is the memory this caching exists to bound.
+    @Test("A caching window is released with the size it was warmed at, not the current one")
+    func windowStopsWithTheSizeItStarted() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+        let ids = ["a", "b", "c"]
+
+        loader.startCaching(ids, pixelSize: 354, forWindow: "day-1")
+        #expect(loader.warmWindowCount == 1)
+
+        // The screen has since measured itself and the tiles are bigger.
+        loader.stopCaching(forWindow: "day-1")
+
+        #expect(source.started.count == 1)
+        #expect(source.started[0].maxPixel == 354)
+        #expect(source.stopped.count == 1)
+        #expect(source.stopped[0].maxPixel == 354, "stopped at the size it started at")
+        #expect(source.stopped[0].ids == ids)
+        #expect(loader.warmWindowCount == 0)
+    }
+
+    @Test("Warming the same window at a new size releases the old one first")
+    func rewarmingReleasesTheOldWindow() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["a"], pixelSize: 363, forWindow: "day-1")
+
+        #expect(source.stopped.count == 1)
+        #expect(source.stopped[0].maxPixel == 354)
+        #expect(source.started.map(\.maxPixel) == [354, 363])
+        #expect(loader.warmWindowCount == 1)
+    }
+
+    @Test("Warming a window that is already warm at that size does nothing twice")
+    func rewarmingAtTheSameSizeIsANoOp() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+
+        #expect(source.started.count == 1)
+        #expect(source.stopped.isEmpty)
+    }
+
+    @Test("Stopping a window that was never warmed asks PhotoKit for nothing")
+    func stoppingAnUnknownWindowIsSilent() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.stopCaching(forWindow: "never-started")
+
+        #expect(source.stopped.isEmpty)
+    }
+
+    /// The backstop for a window whose `onDisappear` never arrived, which is what a dismissed
+    /// screen does to its children.
+    @Test("Leaving the picker releases every window, warmed or not")
+    func leavingReleasesEverything() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["b"], pixelSize: 354, forWindow: "day-2")
+        loader.stopCachingEverything()
+
+        #expect(source.stoppedAll == 1)
+        #expect(loader.warmWindowCount == 0)
+        // And a stop arriving afterwards does not double-release.
+        loader.stopCaching(forWindow: "day-1")
+        #expect(source.stopped.isEmpty)
+    }
+
+    /// **Keyed on the size as well as the asset.** The suggested-month strip asks for 320 and the
+    /// grid asks for its own tile side; an asset-only key hands the grid whichever landed first and
+    /// the tile renders upscaled for no reason anyone can see.
+    @Test("The same photograph at two sizes is two cache entries, not one")
+    func cacheIsKeyedOnSizeAsWellAsAsset() async {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        let strip = await loader.thumbnail(for: "a", pixelSize: 320)
+        let grid = await loader.thumbnail(for: "a", pixelSize: 354)
+        #expect(source.thumbnailCalls.map(\.maxPixel) == [320, 354])
+        #expect(strip != grid)
+
+        // Both are now cached, each at its own size, and neither refetches.
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        _ = await loader.thumbnail(for: "a", pixelSize: 354)
+        #expect(source.thumbnailCalls.count == 2)
+    }
+
+    /// Availability is a fact about the asset, not about the size asked for — so one refusal is
+    /// enough and a cloud-only tile does not retry at every size the screen happens to want.
+    @Test("An asset with nothing local is refused once, at every size")
+    func unavailableIsRememberedAcrossSizes() async {
+        let source = RecordingThumbnailSource()
+        source.missing = ["cloud"]
+        let loader = BackfillThumbnailLoader(source: source)
+
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 320) == nil)
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 354) == nil)
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 320) == nil)
+
+        #expect(source.thumbnailCalls.count == 1, "asked once, refused for good")
+    }
+
+    /// The eviction list holds one entry per cached key. A key recorded twice evicts its bytes on
+    /// the first pass and removes nothing on the second, so the cache quietly holds fewer than its
+    /// limit and refetches pictures it had already paid for.
+    @Test("A cached thumbnail is recorded once in the eviction order, not once per request")
+    func evictionOrderHoldsNoDuplicates() async {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source, maxPixel: 320, limit: 2)
+
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        _ = await loader.thumbnail(for: "b", pixelSize: 320)
+        // `a` again from cache — must not take a second slot in the order.
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        // A third distinct key evicts exactly one entry, and it is `a` rather than nothing.
+        _ = await loader.thumbnail(for: "c", pixelSize: 320)
+
+        #expect(source.thumbnailCalls.count == 3)
+        // `b` and `c` survive; `a` was the oldest and went.
+        _ = await loader.thumbnail(for: "b", pixelSize: 320)
+        _ = await loader.thumbnail(for: "c", pixelSize: 320)
+        #expect(source.thumbnailCalls.count == 3, "b and c were still cached")
+    }
+}
+
+// MARK: - Month arithmetic across a year boundary
+
+/// `BackfillMonth` is two integers on purpose, and the two places that walk it — one year back for
+/// `SUGGESTED`, one month back for `EVERY MONTH`'s ceiling — both cross a year boundary in January.
+/// A parent browsing on New Year's Day is the case nobody tests by hand.
+@Suite("Backfill — month arithmetic")
+struct BackfillMonthArithmeticTests {
+
+    @Test("The month before January is December of the year before")
+    func previousCrossesTheYear() {
+        #expect(BackfillMonth(year: 2026, month: 1).previous() == BackfillMonth(year: 2025, month: 12))
+        #expect(BackfillMonth(year: 2026, month: 3).previous() == BackfillMonth(year: 2026, month: 2))
+        #expect(BackfillMonth(year: 2026, month: 12).previous() == BackfillMonth(year: 2026, month: 11))
+    }
+
+    @Test("Subtracting years keeps the month, including January")
+    func subtractingYearsKeepsTheMonth() {
+        #expect(BackfillMonth(year: 2026, month: 1).subtracting(years: 1) == BackfillMonth(year: 2025, month: 1))
+        #expect(BackfillMonth(year: 2026, month: 1).subtracting(years: 5) == BackfillMonth(year: 2021, month: 1))
+        #expect(BackfillMonth(year: 2026, month: 12).subtracting(years: 3) == BackfillMonth(year: 2023, month: 12))
+    }
+
+    /// Browsing on the 1st of January: the candidates are the five Januaries before this one, and
+    /// `EVERY MONTH` runs to the December just gone rather than stopping a year short.
+    @Test("A January browse offers Januaries and browses back through December")
+    func januaryBrowse() {
+        let thisMonth = BackfillMonth(year: 2026, month: 1)
+
+        let suggested = BackfillPlan.suggested(
+            thisMonth: thisMonth,
+            birthMonth: BackfillMonth(year: 2020, month: 6),
+            photoCounts: Dictionary(uniqueKeysWithValues: (2021...2025).map {
+                (BackfillMonth(year: $0, month: 1), 4)
+            })
+        )
+        #expect(suggested.map(\.key) == ["2025-01", "2024-01", "2023-01", "2022-01", "2021-01"])
+
+        let index = BackfillPlan.monthIndex(
+            assetDates: [date(2026, 1, 3), date(2025, 12, 20), date(2020, 6, 30), date(2020, 5, 30)],
+            entryDates: [],
+            calendar: calendar
+        )
+        let browsable = BackfillPlan.browsable(
+            index, birthMonth: BackfillMonth(year: 2020, month: 6), thisMonth: thisMonth
+        )
+        #expect(browsable.map(\.month.key) == ["2025-12", "2020-06"])
+    }
+
+    /// A leap day is a calendar day like any other here — the birth month is read out of the
+    /// string, so February 29th is February and nothing has to know the year was a leap year.
+    @Test("A leap-day birthdate reads as February")
+    func leapDayBirthdate() {
+        #expect(BackfillMonth(calendarDay: "2024-02-29") == BackfillMonth(year: 2024, month: 2))
+    }
+
+    /// Five candidates is a ceiling, and a shorter reach is honoured rather than clamped up.
+    @Test("The reach back is a ceiling, and asking for fewer years gives fewer candidates")
+    func yearsBackIsHonoured() {
+        let counts = Dictionary(uniqueKeysWithValues: (2021...2025).map {
+            (BackfillMonth(year: $0, month: 8), 4)
+        })
+        let two = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: nil, photoCounts: counts, yearsBack: 2
+        )
+        #expect(two.map(\.key) == ["2025-08", "2024-08"])
+        #expect(BackfillPlan.suggestedYearsBack == 5)
+    }
+}
+
+// MARK: - One in-flight thumbnail, and the three things racing to end it
+
+#if canImport(Photos)
+import Photos
+
+/// PhotoKit's result handler, the task's cancellation, and the closure still assembling the request
+/// all race to finish the same continuation. A `CheckedContinuation` resumed twice is a crash; one
+/// resumed zero times is a tile whose task never ends and which never draws anything again.
+///
+/// **The interesting assertion is that cancellation resumes the continuation itself** rather than
+/// waiting for PhotoKit to call back. `cancelImageRequest` is documented to deliver a final
+/// cancelled callback and in practice does — but "in practice" is not a property a scrolling grid
+/// should depend on, and every test here would still pass if that callback never came.
+@Suite("Backfill — the in-flight thumbnail request")
+struct ThumbnailRequestTests {
+
+    @Test("An ordinary request resumes once, with its bytes")
+    func normalFinish() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            #expect(request.store(3) == nil)
+            request.finish(Data([1, 2]))
+            // PhotoKit is documented to call a result handler more than once for some delivery
+            // modes. The second one must be dropped rather than crash.
+            request.finish(Data([9]))
+        }
+        #expect(result == Data([1, 2]))
+    }
+
+    /// **No callback is ever delivered here.** If cancellation waited for one, this test would hang
+    /// rather than fail — which is exactly what the tile would do.
+    @Test("Cancellation ends the request without waiting for PhotoKit")
+    func cancelResumesWithoutACallback() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            #expect(request.store(42) == nil)
+            // The id comes back so the caller can cancel it at PhotoKit.
+            #expect(request.cancel() == 42)
+        }
+        #expect(result == nil)
+    }
+
+    /// `withTaskCancellationHandler` may run its handler before the operation has built anything.
+    /// The request then has no continuation to resume and no id to hand back, and both arrive after.
+    @Test("Cancellation arriving before the continuation still ends the request")
+    func cancelBeforeAttach() async {
+        let request = ThumbnailRequest()
+        #expect(request.cancel() == nil, "nothing outstanding at PhotoKit yet")
+
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            // Already cancelled, so the id is handed straight back for the caller to cancel —
+            // otherwise this request would run to completion with nobody holding its id.
+            #expect(request.store(7) == 7)
+        }
+        #expect(result == nil)
+    }
+
+    @Test("A callback arriving after cancellation is dropped rather than resuming twice")
+    func callbackAfterCancelIsDropped() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            _ = request.store(1)
+            _ = request.cancel()
+            // PhotoKit's cancelled callback. Resuming here would be a crash.
+            request.finish(Data([9]))
+        }
+        #expect(result == nil)
+    }
+
+    @Test("Cancelling twice hands the id back once")
+    func cancellingTwiceIsIdempotent() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            _ = request.store(5)
+            #expect(request.cancel() == 5)
+            #expect(request.cancel() == nil, "already taken")
+        }
+        #expect(result == nil)
+    }
+
+    /// A `.fastFormat` request can answer on the calling thread before `requestImage` has returned
+    /// an id at all, so the request finishes before it is fully assembled.
+    @Test("A synchronous answer before the id exists still resumes exactly once")
+    func synchronousAnswerBeforeStore() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            request.finish(Data([4]))
+            // The id turns up afterwards, for a request that is already done.
+            #expect(request.store(11) == nil)
+            // And a cancellation that lands after the answer must not resume anything.
+            _ = request.cancel()
+        }
+        #expect(result == Data([4]))
+    }
+}
+#endif

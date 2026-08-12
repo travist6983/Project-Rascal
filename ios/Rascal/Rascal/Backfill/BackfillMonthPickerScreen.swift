@@ -226,6 +226,11 @@ struct BackfillMonthPickerScreen: View {
                 repeating: GridItem(.fixed(tileSide), spacing: BackfillGrid.gutter),
                 count: BackfillGrid.columns
             ),
+            // `.leading`, because `.fixed` columns do not consume the leftover width and the grid's
+            // own alignment decides where the slack goes. It is under a point at every phone width,
+            // but a centred grid puts that half-point between the tiles and the screen margin the
+            // day header is aligned to, and "under a point" is not the same as stated.
+            alignment: .leading,
             spacing: BackfillGrid.gutter
         ) {
             ForEach(group.assets) { asset in
@@ -239,8 +244,15 @@ struct BackfillMonthPickerScreen: View {
         // decodes ahead on its own queue, and a `LazyVStack` mounts a section shortly before it is
         // reached — so the day the parent is scrolling towards is warm by the time it arrives, and
         // the one behind them is released rather than held for the life of the screen.
-        .onAppear { loader.startCaching(group.assets.map(\.id), pixelSize: tilePixelSize) }
-        .onDisappear { loader.stopCaching(group.assets.map(\.id), pixelSize: tilePixelSize) }
+        //
+        // The window is named rather than described: the loader stops it with the size it was
+        // started with, because `tilePixelSize` can change between these two calls.
+        .onAppear {
+            loader.startCaching(
+                group.assets.map(\.id), pixelSize: tilePixelSize, forWindow: group.id.description
+            )
+        }
+        .onDisappear { loader.stopCaching(forWindow: group.id.description) }
     }
 
     /// One photograph, and whether it is picked.

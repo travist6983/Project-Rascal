@@ -463,30 +463,29 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
         // the `await` — the request went on resolving, decoding a picture for a tile that no longer
         // existed. A fast flick through a month left hundreds of those in flight at once, which is
         // the memory the grid could not afford.
-        let box = RequestBox()
+        let request = ThumbnailRequest()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                let resumed = ResumeGuard()
+                request.attach(continuation)
                 let id = Self.caching.requestImage(
                     for: asset,
                     targetSize: CGSize(width: side, height: side),
                     contentMode: .aspectFill,
                     options: Self.thumbnailOptions()
                 ) { image, _ in
-                    guard resumed.claim() else { return }
                     #if canImport(UIKit)
-                    continuation.resume(returning: image?.jpegData(compressionQuality: 0.8))
+                    request.finish(image?.jpegData(compressionQuality: 0.8))
                     #else
                     _ = image
-                    continuation.resume(returning: nil)
+                    request.finish(nil)
                     #endif
                 }
-                // Cancelled between entering the handler and getting an id: cancel it immediately
-                // rather than leaving one request per abandoned tile running to completion.
-                if box.store(id) { Self.caching.cancelImageRequest(id) }
+                // Cancellation can arrive before the request has an id to cancel. `store` says so,
+                // and this is the only place that id will ever be seen again.
+                if let orphan = request.store(id) { Self.caching.cancelImageRequest(orphan) }
             }
         } onCancel: {
-            if let id = box.claimForCancellation() { Self.caching.cancelImageRequest(id) }
+            if let id = request.cancel() { Self.caching.cancelImageRequest(id) }
         }
     }
 
@@ -567,30 +566,81 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
 /// PhotoKit's result handlers are documented to fire more than once for some delivery modes, and
 /// resuming a continuation twice is a crash rather than a warning. The options above ask for a
 /// single callback; this makes a second one harmless instead of fatal.
-/// The `PHImageRequestID` of one in-flight thumbnail, and who gets to cancel it.
+/// One in-flight thumbnail request: its continuation, its `PHImageRequestID`, and the guarantee
+/// that exactly one thing ends it.
 ///
-/// A request id only exists *after* `requestImage` returns, and cancellation can arrive before
-/// that. Both sides go through this box: whichever arrives second learns the other already
-/// happened, so the request is neither cancelled twice nor left running with nobody holding its id.
-private nonisolated final class RequestBox: @unchecked Sendable {
+/// Three events race here — PhotoKit's result handler, the task's cancellation, and the closure
+/// that is still assembling the request — and a `CheckedContinuation` resumed twice is a crash
+/// rather than a warning while one resumed zero times is a task that never ends.
+///
+/// **Cancellation resumes the continuation itself rather than waiting for PhotoKit to call back.**
+/// `cancelImageRequest` is documented to deliver a final cancelled callback, and in practice it
+/// does — but a tile whose task can only finish when a callback arrives is a tile that hangs
+/// forever if one ever does not, and that is not a risk worth carrying for a picture. Resuming here
+/// makes the hang structurally impossible: a later callback finds the request already done and is
+/// dropped. The request is still cancelled at PhotoKit, so nothing goes on decoding.
+///
+/// The awkward case is cancellation arriving *before* the continuation exists, which
+/// `withTaskCancellationHandler` permits — `cancel` leaves the request unfinished when it has
+/// nothing to resume, and `attach` finishes it the moment it does.
+nonisolated final class ThumbnailRequest: @unchecked Sendable {
     private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Never>?
     private var id: PHImageRequestID?
-    private var cancelled = false
+    private var done = false
+    private var cancelRequested = false
 
-    /// Records the id. Returns true when cancellation got here first and the caller should cancel.
-    func store(_ id: PHImageRequestID) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        if cancelled { return true }
-        self.id = id
-        return false
+    /// Hand over the continuation, resuming it at once if cancellation already arrived.
+    func attach(_ continuation: CheckedContinuation<Data?, Never>) {
+        lock.lock()
+        if cancelRequested, !done {
+            done = true
+            lock.unlock()
+            continuation.resume(returning: nil)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
     }
 
-    /// The id to cancel, or nil when there is not one yet — in which case `store` will cancel.
-    func claimForCancellation() -> PHImageRequestID? {
+    /// Record the request id. Returns it when cancellation got here first, in which case the caller
+    /// is the only one who can still cancel it.
+    func store(_ newId: PHImageRequestID) -> PHImageRequestID? {
         lock.lock(); defer { lock.unlock() }
-        cancelled = true
-        defer { id = nil }
-        return id
+        if cancelRequested { return newId }
+        id = newId
+        return nil
+    }
+
+    /// PhotoKit answered. Silent if the request already ended.
+    func finish(_ data: Data?) {
+        lock.lock()
+        guard !done else { lock.unlock(); return }
+        done = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: data)
+    }
+
+    /// The task was cancelled. Returns the id still outstanding at PhotoKit, if there is one.
+    func cancel() -> PHImageRequestID? {
+        lock.lock()
+        cancelRequested = true
+        let outstanding = id
+        id = nil
+        var resuming: CheckedContinuation<Data?, Never>?
+        // **`done` is only set when there is something to resume.** Setting it unconditionally
+        // would tell a later `attach` the request had already finished, and that continuation would
+        // never be resumed by anybody — the exact hang this type exists to rule out.
+        if !done, let continuation {
+            done = true
+            resuming = continuation
+            self.continuation = nil
+        }
+        lock.unlock()
+        resuming?.resume(returning: nil)
+        return outstanding
     }
 }
 
