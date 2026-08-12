@@ -21,12 +21,26 @@ struct PromptCard: View {
 
     /// The child this prompt is about, set once in `RootView` above every tab.
     @Environment(\.promptSubject) private var promptSubject
+    @Environment(\.personalization) private var personalization
+    @Environment(\.childAgeMonths) private var childAgeMonths
 
     private var assignment: AssignmentResponse { item.assignment }
 
     /// **The only place this card reads a prompt body.** One property so the card and its
     /// VoiceOver label cannot end up saying different sentences.
-    private var prompt: String { PromptTokens.render(assignment.body, for: promptSubject) }
+    /// Tokens first, then the model.
+    ///
+    /// **The order is the contract, not a preference.** `PromptTokens` is the exact, server-agreed
+    /// substitution and it is authoritative; personalization is best-effort on whatever is left,
+    /// and it is validated against this string rather than against the raw body. Personalizing
+    /// first would hand the guard a sentence the app never intended to show.
+    private var prompt: String {
+        personalization.text(for: assignment.id, canonical: canonicalPrompt)
+    }
+
+    private var canonicalPrompt: String {
+        PromptTokens.render(assignment.body, for: promptSubject)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -57,6 +71,20 @@ struct PromptCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
         .accessibilityHint(isDone ? (onEdit == nil ? "" : "Edit this entry") : assignment.completion.actionText)
+        // **The card is already drawn by the time this runs, and it stays drawn if this never
+        // finishes.** `.task` rather than anything the body awaits: the canonical sentence is on
+        // screen from the first frame, and a personalized one replaces it later or not at all.
+        //
+        // Keyed on the assignment so paging between two cards asks for each once, and re-keyed by
+        // the canonical text so a library edit invalidates rather than reuses.
+        .task(id: canonicalPrompt) {
+            await personalization.request(
+                assignmentId: assignment.id,
+                canonical: canonicalPrompt,
+                subject: promptSubject,
+                ageMonths: childAgeMonths
+            )
+        }
     }
 
     // MARK: Zones

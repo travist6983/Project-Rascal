@@ -1805,3 +1805,31 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **iOS suite 758/95 → 768/96**, warnings unchanged at 21 and none in a touched file, cold from a
   deleted `DerivedData`. Two assertions verified by breaking the code: the sealed-backdrop ordering
   and the `occurred_at` rule.
+
+## Phase 23 — device-side personalization (Aug 11, 2026)
+
+- **The finding this phase turns on: the library is not tokenized.** `PromptTokens.render` ships
+  and is wired at eight call sites, but **113 prompt bodies carry 0 `{tokens}` and 99 of them say
+  `he`, `him` or `his` literally.** So the deterministic renderer is currently an identity function
+  on the real library, and a child whose pronouns are she/her or they/them **is misgendered on
+  every screen today, on every device**. Personalization does not fix that in general — it only
+  runs where the model is available. **Tokenizing `api/seeds/prompts.yaml` is a Lane A change, is
+  out of scope here, and is strictly better than a model for this specific job.** Recorded in the
+  PR as the top recommendation.
+- **Order is tokens first, then the model.** `PromptTokens` is the exact server-agreed
+  substitution and is authoritative; the model is best-effort on what remains, and is validated
+  against the token-rendered string rather than the raw body.
+- **The guard's false-rejection rate against the shipped library is 0%** — 99 of 99 personalizable
+  prompts survive an ideal mechanical substitution. Pinned as an equality in
+  `PersonalizationLibraryTests` so tightening a rule shows up as a number that moved.
+- **The instruction verb set is read out of the library**, not invented: `record take photograph
+  write film ask let go get use trace tell spend show say put measure`, from the 83
+  instruction-shaped prompts.
+- **Phase E found one thing.** `ComposerView` renders the personalized header three lines above
+  `entry.promptBody = assignment.body`, and that field syncs. The write is correct; the adjacency
+  is not obviously safe to the next editor. Commented at the write site and pinned by a test.
+- **The composer reads the shared cache and does not request.** A composer opened without Today
+  having personalized that assignment shows canonical, which is correct. Judgment call: a second
+  request site is safe (the center dedupes) but buys little, and the shared cache is the point.
+- **iOS suite 772/96 → 796/100**, warnings unchanged at 21 and none in a touched file, cold from a
+  deleted `DerivedData`. Two assertions verified by breaking the code, one of them never-persisted.

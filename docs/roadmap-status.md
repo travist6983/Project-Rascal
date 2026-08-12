@@ -306,13 +306,14 @@ These gate the P0 exit test and nothing else can move them.
 
 ### Two recommendations now, and the first is one question, not a branch
 
-**1. ~~Answer the full-bleed question.~~ Answered — yes, and Entry Detail v2 is built.** Media
-runs to the screen edges on that screen and nowhere else; the rejection in `decisions.md` still
-names the *timeline* and still stands. Frosted glass resolved toward the design system rather than
-the export. Paper grain settled as rejected and named explicitly, so the next import closes it by
-reading. **Nothing here is outstanding** — what is left of that design is the list of things
-deliberately not built (immersive mode, the expanding sheet, Share, Add tag, the scrubber, the
-thumbnail strip), each of which is new functionality rather than a design pass.
+**1. Tokenize the prompt library. It is a Lane A change and it outranks everything on this list.**
+Phase 23 measured it: **113 prompt bodies ship, 0 carry a `{token}`, and 99 say `he`, `him` or
+`his` literally.** The fourteen-token contract exists, `PromptTokens.render` is wired at eight call
+sites, and it is currently an **identity function on the real library** — so a child whose pronouns
+are she/her or they/them is misgendered on every screen, on every device, today. Device-side
+personalization narrows that only where Apple Intelligence is available; **converting
+`api/seeds/prompts.yaml` fixes it everywhere, with no model, forever.** One pass over the library
+by whoever owns the copy.
 
 **2. Run the checklists.** Unchanged, and still the larger body of work. Ten features have shipped
 that have never run against reality, and the tool for finding out is a checklist and an evening,
