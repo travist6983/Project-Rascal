@@ -175,12 +175,16 @@ Body: `{ "token": "…", "platform": "ios", "environment": "production" }` → t
   `(token, environment)` pair updates the existing row and refreshes `last_seen_at` rather
   than creating a second one — a client that grew a row per launch would, within a month,
   send one parent thirty copies of the same notification.
-- **`environment` is required and has no default.** `sandbox` for a development or
-  TestFlight build, `production` for the App Store. A sandbox token and a production token
-  are different tokens addressed to different APNs hosts, and sending to the wrong one
-  **fails silently** — this is the single most common way push works in development and not
-  in TestFlight. The same token string may legitimately exist as both a sandbox and a
-  production row, and they do not collide.
+- **`environment` is required and has no default.** It follows the `aps-environment`
+  entitlement in the embedded provisioning profile, **not the distribution channel**.
+  `sandbox` for a build signed with a development profile — an Xcode-installed build.
+  `production` for anything signed with a distribution profile, which is **TestFlight and
+  the App Store alike**: TestFlight ships through App Store infrastructure and there is no
+  separate TestFlight APNs host. A sandbox token and a production token are different tokens
+  addressed to different APNs hosts, and sending to the wrong one **fails silently** — this
+  is the single most common way push works in development and not in TestFlight. The same
+  token string may legitimately exist as both a sandbox and a production row, and they do
+  not collide.
 - **One user, many devices.** Phone today, iPad later. Every live token receives the day's
   one notification, collapsed by APNs so it is one row on each lock screen.
 - A token that was revoked at sign-out comes back live when it re-registers, on the row it
