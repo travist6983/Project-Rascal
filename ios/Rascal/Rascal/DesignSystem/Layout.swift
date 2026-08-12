@@ -16,14 +16,36 @@ enum Layout {
     static let quoteBlockRadius: CGFloat = 16
 
     /// Entry Detail's reading sheet — the cream surface that carries everything that is not the
-    /// artifact. One step softer than `cardRadius`, for the same reason app prompt cards are:
-    /// it holds the emotional content. The import specifies 26; 24 keeps it on the 4pt step this
-    /// file already uses and is indistinguishable at that radius.
-    static let sheetRadius: CGFloat = 24
+    /// artifact.
+    ///
+    /// **26, which is what the design file draws.** This was 24, on the argument that it kept the
+    /// radius on a 4pt step and was indistinguishable anyway. The second half of that is true and
+    /// the first half is not a rule this file actually holds — `heroRadius` is 18, `quoteBlockRadius`
+    /// 16, `glyphTile` 11 and 10. There was no step to stay on, so the file's number wins.
+    static let sheetRadius: CGFloat = 26
 
-    /// How far the sheet rides up over the layer behind it, so it reads as resting on the picture
-    /// rather than butting against it.
-    static let sheetOverlap: CGFloat = 24
+    /// The grabber above a sheet's content: 38 × 5, centred, 14 clear beneath it.
+    ///
+    /// A sheet the parent can drag has to say so before they touch it, and this is the one shape
+    /// in the app that says it. Not in `docs/design-system.md` yet — proposed there in this
+    /// pass's report rather than added silently.
+    enum Grabber {
+        static let width: CGFloat = 38
+        static let height: CGFloat = 5
+        static let clearance: CGFloat = 14
+    }
+
+    /// A floating chrome control over an artifact — the back chip, the overflow, the expand.
+    ///
+    /// 40pt is the drawn circle; the tap target is brought back to 44 at the use site. Also not
+    /// yet in `docs/design-system.md`, and proposed there rather than added silently.
+    enum Chrome {
+        static let diameter: CGFloat = 40
+        static let tapTarget: CGFloat = 44
+        /// Down from the top safe area, and in from the sides.
+        static let inset: CGFloat = 16
+    }
+
     static let borderWidth: CGFloat = 1
 
     /// Internal card padding.
@@ -104,6 +126,75 @@ struct Chip: View {
                     Capsule().strokeBorder(Color.border, lineWidth: Layout.borderWidth)
                 }
             }
+    }
+}
+
+/// A row of chips that **wraps rather than clipping or truncating.**
+///
+/// An `HStack` of chips is right until the text scales or the archive has four tags, at which
+/// point the last chip is cut in half — and a truncated chip reads as a rendering fault rather
+/// than as a tag. That is the same failure `PromptCard`'s footer stacks vertically to avoid.
+///
+/// A `Layout` rather than a chunked `VStack` of `HStack`s, because chip widths are not known
+/// until they are measured, and a hand-chunked version has to guess them.
+///
+/// **`SwiftUI.Layout` spelled out, and it has to be.** This file's own `enum Layout` shadows the
+/// protocol inside this module, so the bare name resolves to the token enum and the conformance
+/// fails with "inheritance from non-protocol type". The same trap waits for anything else in this
+/// codebase that ever writes a custom layout.
+struct FlowRow: SwiftUI.Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews: subviews, width: proposal.width ?? .infinity)
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) {
+        var y = bounds.minY
+        for row in arrange(subviews: subviews, width: bounds.width) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func arrange(subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var current = Row()
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            let extended = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+            // A chip wider than the row on its own still gets its own row rather than none —
+            // it overflows visibly, which is a thing somebody can see and fix.
+            if !current.indices.isEmpty, extended > width {
+                rows.append(current)
+                current = Row(indices: [index], width: size.width, height: size.height)
+            } else {
+                current.indices.append(index)
+                current.width = extended
+                current.height = max(current.height, size.height)
+            }
+        }
+        if !current.indices.isEmpty { rows.append(current) }
+        return rows
     }
 }
 

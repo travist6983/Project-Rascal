@@ -112,6 +112,48 @@ nonisolated enum DayHeaderText {
         date.formatted(.dateTime.day().month(.abbreviated).year())
     }
 
+    /// "Monday 10 August 2026" — the date under an entry, day before month and no comma.
+    ///
+    /// **Separate from `full`, which stays as it was.** `full` is the spoken form the timeline
+    /// and the card hand to VoiceOver, and reordering it there would restyle two accessibility
+    /// labels on screens this pass is not touching. This one is the printed date on Entry
+    /// Detail and nothing else reads it.
+    ///
+    /// **The parts are joined by hand rather than ordered by a locale.** Asking `Date.FormatStyle`
+    /// for weekday-day-month-year gives whatever punctuation the locale wants — `en_US` returns
+    /// "Monday, August 10, 2026" and even `en_GB` keeps the comma after the weekday. The names
+    /// still come from the device's locale; only the order and the spacing are ours, which is
+    /// what the surrounding hard-coded English sentences already assume.
+    static func entryDate(_ date: Date) -> String {
+        let weekday = date.formatted(.dateTime.weekday(.wide))
+        let day = date.formatted(.dateTime.day())
+        let month = date.formatted(.dateTime.month(.wide))
+        let year = date.formatted(.dateTime.year())
+        return "\(weekday) \(day) \(month) \(year)"
+    }
+
+    /// The same date carrying the time it happened: "Monday 10 August 2026, 10:04am".
+    ///
+    /// A clock time is formatted at the use site in the device's zone, per
+    /// `docs/design-system.md`: `occurred_at` is a genuine instant and the phone in the parent's
+    /// hand is the right frame for one. **The device's 12/24-hour setting is honoured too** — a
+    /// phone set to a 24-hour clock gets "17:20" rather than the design's "5:20pm", because a
+    /// hard 12-hour format would print a time in a shape its owner has explicitly turned off.
+    static func entryDateAndTime(_ date: Date) -> String {
+        "\(entryDate(date)), \(entryTime(date))"
+    }
+
+    /// "10:04am", or "10:04" on a phone set to a 24-hour clock.
+    ///
+    /// The meridiem is closed up and lowercased, because the design sets it as part of the
+    /// number rather than as a shout after it.
+    static func entryTime(_ date: Date) -> String {
+        date
+            .formatted(.dateTime.hour(.defaultDigits(amPM: .abbreviated)).minute())
+            .replacingOccurrences(of: "\u{202F}", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+    }
 }
 
 /// A calendar day the server named — `YYYY-MM-DD`, computed in the child's `family_timezone`.

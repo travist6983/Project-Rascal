@@ -21,10 +21,11 @@ struct MomentsScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.thumbnails) private var thumbnails
     @State private var model: MomentsModel?
-    @State private var path: [UUID] = []
+    /// The memory being read, or nil. Presented, never pushed.
+    @State private var opened: EntryDetailRequest?
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
@@ -36,21 +37,21 @@ struct MomentsScreen: View {
             .background(Color.canvas)
             .refreshable { await model?.refresh(thumbnails: thumbnails) }
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: UUID.self) { id in
-                EntryDetailScreen(
-                    entryId: id,
-                    childId: childId,
-                    api: api,
-                    openComposer: openComposer,
-                    onDeleted: {
-                        path.removeAll { $0 == id }
-                        // The section this memory was in may now be empty. Rebuilt rather than
-                        // left showing a card for a row that is gone.
-                        Task { await model?.load() }
-                    }
-                )
-            }
         }
+        // Presented over the window rather than pushed, for the reason the modifier gives: the
+        // floating tab bar is a sibling of this screen and a push cannot hide it.
+        .entryDetail(
+            $opened,
+            childId: childId,
+            api: api,
+            openComposer: openComposer,
+            onDeleted: { _ in
+                opened = nil
+                // The section this memory was in may now be empty. Rebuilt rather than left
+                // showing a card for a row that is gone.
+                Task { await model?.load() }
+            }
+        )
         .task {
             if model == nil {
                 model = MomentsModel(childId: childId, api: api, context: context)
@@ -163,7 +164,7 @@ struct MomentsScreen: View {
                         badge: throwback.badge?.label,
                         badgeTint: throwback.badge?.tint ?? .terracotta
                     ) {
-                        path.append(throwback.id)
+                        opened = EntryDetailRequest(id: throwback.id)
                     }
                 }
             }
@@ -219,7 +220,7 @@ struct MomentsScreen: View {
                     }
                     VStack(alignment: .leading, spacing: Layout.cardSpacing) {
                         ForEach(section.cards) { card in
-                            Button { path.append(card.id) } label: {
+                            Button { opened = EntryDetailRequest(id: card.id) } label: {
                                 EntryCard(model: card)
                             }
                             .buttonStyle(TapScaleButtonStyle())
