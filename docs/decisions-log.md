@@ -1660,3 +1660,61 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **The iOS test figure was corrected from 705/86 to 714/87**, and the claim that "Phase 19's iOS
   half has never been compiled" was removed — it was true when written and false the same day. The
   trail is measured at every step rather than carried: 678/81 → 705/86 → 714/87.
+
+## Aug 11, 2026 — phase 20 (pronouns): collecting them, and rendering them
+
+- **The contract says fourteen tokens and lists thirteen.** `docs/api-contract.md` and
+  `docs/decisions.md` both carry the sentence "Fourteen tokens, one dictionary, no logic" over a
+  table of thirteen rows — nine lowercase, three capitalised, and `{name}`. **Thirteen is
+  implemented.** The table is the substance; the count is a description of it, and a client that
+  invented a fourteenth token to make the sentence true would be adding to a wire format a browser
+  client, an export and a printed book must also honour. The two candidates a reader would guess,
+  `{Theirs}` and `{Themself}`, are exactly the capitalised forms the table looks to have omitted on
+  purpose, since neither plausibly opens a sentence. Reconciling the prose is an API-lane edit and
+  was not made from this lane.
+- **The renderer runs at the view layer, not in the models.** `Assignment.body` and
+  `Entry.promptBody` keep storing the raw tokenised text and every `Text(...)` renders. This is the
+  contract's own rule — render at the last moment before a human sees the sentence — and it is also
+  what makes "a pronoun change takes effect without a relaunch" need **no cache invalidation at
+  all**: nothing cached is rendered, so the next redraw is simply correct. An entry written in 2029
+  re-renders when the answer changes in 2034.
+- **The widget is the one place that renders before storing**, because the extension reads a file
+  out of the App Group and does no networking. The subject is part of the snapshot's identity, so a
+  pronoun changed in Settings republishes rather than leaving last week's answer on the Home Screen.
+- **`entry.body` is never rendered, and the risk is that it sits one character from
+  `entry.promptBody`.** Prompt bodies are the question; `entry.body` is the parent's answer. A
+  parent who typed `{they}` literally, or wrote about a game with braces in its name, must get
+  their sentence back byte for byte.
+- **Custom prompts render like library ones.** `assignment.body` carries `custom_body` when
+  `is_custom`, so it is the parent's own *question*. Rendering it in the composer but not the
+  widget — or the reverse — is the "same sentence reads differently depending on the screen" defect
+  arriving through the back door, and invariant 3 already protects a brace somebody meant literally.
+- **The sync dry run deliberately does not render, and it is reachable today.** `SyncPlan`'s
+  change preview reports what a `/sync` pull *would* write, so it shows the wire's own bytes;
+  substituting into it would make the diagnostic disagree with the payload it is describing.
+  **It is not behind the pull flag** — `SyncEngine.dryRun()` says outright that it "works
+  regardless of the flag", so any parent can reach it from Settings and see `{their}` in a debug
+  report. That is the intended reading of a debug report, but it is a judgment call rather than a
+  dead code path. (The `syncPullEnabled` named in several comments no longer exists; the property
+  is `SyncEngine.pullEnabled`, backed by `UserDefaults.bool`, so it does still default false —
+  that staleness is pre-existing and was not touched here.)
+- **`ChildUpdateRequest` is hand-encoded for one property.** Swift's synthesized encoder omits a
+  nil optional rather than sending `null`, which `updateMe` already documents — and notes is
+  harmless there because none of its columns is nullable. `children.pronouns` is the exception:
+  the server reads `model_fields_set`, so only an explicit `null` clears it, and without the
+  hand-written encoder Clear would have silently no-opped.
+- **`ChildResponse.pronouns` decodes as `String?` and is narrowed afterwards.** This type is on the
+  launch path, so a value outside the three — a widened CHECK shipped ahead of a client release —
+  would otherwise fail the decode and take out `GET /children`, and with it the app, rather than
+  one row of Settings. An unrecognised set reads as unanswered, which renders they/them.
+- **Nothing preselects a pronoun and Continue is never gated on one.** The design export's closest
+  screen — the "What made you download this?" fork — *does* disable Continue until something is
+  picked, and this deliberately departs from it. A skipped pronoun is a finished setup, and the
+  onboarding step mirrors `AvatarStep` down to offering both Continue and "Skip for now".
+- **Phase 20 now means two things**, and that was a deliberate call rather than an oversight:
+  `docs/decisions.md:188` said this work had no number and `roadmap-status.md:172` says collisions
+  are never renumbered. Raised before the branch was cut and confirmed. The ledger stays the
+  disambiguator.
+- **iOS suite 714/87 → 730/88**, warnings unchanged at 21, measured from a deleted `DerivedData`.
+  The spec's `iPhone 15 Pro Max` is not installed on this machine; the run used `iPhone 17 Pro Max`
+  on OS 26.4.1.

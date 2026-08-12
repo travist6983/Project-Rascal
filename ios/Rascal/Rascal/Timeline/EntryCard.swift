@@ -15,6 +15,16 @@ import SwiftUI
 struct EntryCard: View {
     let model: EntryCardModel
 
+    /// The child the quoted prompt is about.
+    @Environment(\.promptSubject) private var promptSubject
+
+    /// **`EntryCardModel.prompt` holds the raw body and this renders it**, rather than the model
+    /// rendering on the way in. The model is built from a SwiftData row in a `@Query`, where there
+    /// is no environment to read — and rendering at display is the contract's own rule anyway.
+    private var prompt: String? {
+        model.prompt.map { PromptTokens.render($0, for: promptSubject) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !model.thumbnails.isEmpty {
@@ -25,7 +35,7 @@ struct EntryCard: View {
                 EntryAudioRow(durationSeconds: voice.durationSeconds)
                     .padding(.bottom, 13)
             }
-            if let prompt = model.prompt {
+            if let prompt {
                 PromptQuote(text: prompt, rule: ruleColor)
                     .padding(.bottom, 9)
             }
@@ -167,7 +177,7 @@ struct EntryCard: View {
     /// which VoiceOver reads as noise.
     private var accessibilityLabel: String {
         var parts: [String] = []
-        if let prompt = model.prompt { parts.append("Prompt: \(prompt)") }
+        if let prompt { parts.append("Prompt: \(prompt)") }
         parts.append(titleText)
         if let line = model.bodyLine { parts.append(line.text) }
         if model.isSealed {

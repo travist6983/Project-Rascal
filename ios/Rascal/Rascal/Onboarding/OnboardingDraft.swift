@@ -8,8 +8,12 @@ import Foundation
 
 // MARK: - Steps
 
-/// The five screens between "signed in" and "has a child". Ordered, and the order is the
+/// The six screens between "signed in" and "has a child". Ordered, and the order is the
 /// progress bar's denominator.
+///
+/// `pronouns` sits **after birthdate and before timezone** because name and birthdate are facts
+/// about the child and timezone is a fact about the household — the pronoun belongs with the
+/// first group. See `docs/decisions.md` item 10.
 ///
 /// `notifications` is last on purpose. It is the only step that spends something irreversible —
 /// iOS shows the system permission prompt once, ever — and putting it after the parent has
@@ -18,6 +22,7 @@ import Foundation
 nonisolated enum OnboardingStep: String, CaseIterable, Codable, Equatable, Sendable {
     case name
     case birthdate
+    case pronouns
     case timezone
     case avatar
     case notifications
@@ -47,6 +52,18 @@ nonisolated struct OnboardingDraft: Codable, Equatable, Sendable {
     /// as a `Date` so what is persisted is exactly what will be sent — a draft that round-trips
     /// through a timezone on its way to disk is a birthdate that can drift by a day.
     var birthdate: String?
+    /// What the parent chose on the pronouns step, or nil because they skipped it.
+    ///
+    /// **Optional, and nothing preselects it.** A skipped pronoun is a finished setup exactly as
+    /// a skipped avatar is; a default of he/him would be an assumption wearing a default's
+    /// clothes, and the parent who tapped past it would not have answered. Nil and "they/them"
+    /// stay distinguishable all the way to the column, which is what lets Settings show an empty
+    /// row rather than claiming an answer nobody gave.
+    ///
+    /// Optional also means a draft written by the previous build still decodes — the same reason
+    /// `notifyTime` is optional. A non-optional property with a default is still read with
+    /// `decode` rather than `decodeIfPresent`, and would throw on every draft already on disk.
+    var pronouns: PronounSet?
     /// Defaults to the device zone at the point the draft is created, not at the point it is
     /// read, so a parent who starts setup on a plane does not get a different answer on landing.
     var timezone: String = TimeZoneCatalog.deviceZone

@@ -19,6 +19,17 @@ import SwiftUI
 struct WidgetSnapshotSync: View {
     let model: TodayModel
     let familyTimezone: String
+    /// **Prompt bodies are rendered here, before the file is written.**
+    ///
+    /// The extension reads a snapshot out of the App Group and does no networking, so it has no
+    /// child, no environment and no way to substitute a token — the braces have to be gone by the
+    /// time the bytes land. Rendering there would also repeat on every timeline refresh; rendering
+    /// here happens once per change.
+    ///
+    /// It participates in `snapshot`'s identity, which is what makes a pronoun changed in Settings
+    /// republish rather than leaving last week's answer on the Home Screen until the board next
+    /// moves on its own.
+    var subject: PromptSubject = .unknown
     var widget: WidgetSnapshotPublisher = .live
 
     /// The same two queries Today merges, for the same reason: a completion — or its removal — is
@@ -35,7 +46,8 @@ struct WidgetSnapshotSync: View {
         guard case .loaded(let response) = model.state else { return nil }
         return WidgetSnapshotBuilder.snapshot(
             from: TodayBoard.merge(response: response, entries: entries, media: media),
-            familyTimezone: familyTimezone
+            familyTimezone: familyTimezone,
+            subject: subject
         )
     }
 

@@ -34,6 +34,10 @@ final class EditChildModel {
     var name: String
     var birthdate: Date
     var timezone: String
+    /// Nil is unanswered, and it is a value the parent can choose — not just a starting state.
+    /// The sheet offers a way back to it, because `children.pronouns` is nullable precisely so a
+    /// parent who answered and then changed their mind can un-answer.
+    var pronouns: PronounSet?
 
     private(set) var isSaving = false
     /// The server's own words when a write is refused. Nil until something is refused.
@@ -41,7 +45,7 @@ final class EditChildModel {
 
     private let childId: UUID
     private let api: APIClient
-    private let original: (name: String, birthdate: String, timezone: String)
+    private let original: (name: String, birthdate: String, timezone: String, pronouns: PronounSet?)
 
     init(child: ChildResponse, api: APIClient) {
         self.childId = child.id
@@ -49,7 +53,8 @@ final class EditChildModel {
         self.name = child.name
         self.timezone = child.familyTimezone
         self.birthdate = Self.dayFormatter.date(from: child.birthdate) ?? Date()
-        self.original = (child.name, child.birthdate, child.familyTimezone)
+        self.pronouns = child.pronounSet
+        self.original = (child.name, child.birthdate, child.familyTimezone, child.pronounSet)
     }
 
     var birthdateString: String { Self.dayFormatter.string(from: birthdate) }
@@ -61,6 +66,10 @@ final class EditChildModel {
         trimmedName != original.name
             || birthdateString != original.birthdate
             || timezone != original.timezone
+            // Includes answered → unanswered. Clearing a pronoun is a change like any other, and
+            // a `hasChanges` that ignored the nil direction would leave Save disabled on the one
+            // edit the parent cannot make any other way.
+            || pronouns != original.pronouns
     }
 
     /// A name is required — the server enforces `min_length=1` and a blank one is not a name.
@@ -115,7 +124,11 @@ final class EditChildModel {
                 id: childId,
                 name: trimmedName,
                 birthdate: birthdateString,
-                familyTimezone: timezone
+                familyTimezone: timezone,
+                // Always sent, `nil` included — `ChildUpdateRequest` encodes it as an explicit
+                // `null` so the column actually clears. Sending nothing would mean "no opinion",
+                // and the parent who just tapped Clear has one.
+                pronouns: pronouns
             )
         } catch let error as APIError {
             // Switched on `code`, never on message text — messages are copy and will change.

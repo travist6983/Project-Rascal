@@ -256,8 +256,34 @@ band, and ask for 20 candidates at a time. Reject anything that:
 > he/him, and several say *his mom* — a gender and a household shape. It is left that way while
 > the app is developed live against one child, and it is **not** a licence for new prompts: the
 > generator's filters still apply, and nothing written from here on should assume either.
-> Unblocked by onboarding, once it collects pronouns. See `docs/decisions.md` open item 10 and
-> the Aug 8 2026 changelog entry for the reasoning and the order of operations.
+> See `docs/decisions.md` open item 10 and the Aug 8 2026 changelog entry for the reasoning.
+>
+> **The unblock has happened, and it does not touch these 113.** Onboarding and Settings now
+> collect `children.pronouns`, and clients render the token table below. The existing prompts
+> contain no tokens, so they render exactly as they read here — byte for byte, asserted in
+> `RascalTests/PronounRenderingTests`. Tokenised and literal prompts coexist permanently and
+> there is no migration. **Do not bulk-rewrite the library**; write new prompts with tokens.
+
+### Pronoun and name tokens
+
+New prompts may use the token table in `docs/api-contract.md` — `{they}`, `{them}`, `{their}`,
+`{theirs}`, `{themself}`, the four verb compounds `{they_are}` / `{they_were}` / `{they_have}` /
+`{they_do}`, the three capitalised forms `{They}` / `{Them}` / `{Their}`, and `{name}`. They-forms
+are the keys because they/them is the only English pronoun set whose five slots are five distinct
+words. Capitalisation is explicit — write `{They}` at the start of a sentence, never `{they}`.
+
+An unanswered pronoun renders the they/them column, so a tokenised prompt is grammatical for every
+child including one whose parent skipped the question.
+
+> A prompt may use `{name}` at most once, and only where a parent would naturally say the child's
+> name aloud — usually the opening. "What made {name} laugh today?" reads warm. "What did {name}
+> do when {name}'s cousin arrived?" reads like a mail merge. Pronoun tokens carry every other
+> reference.
+
+**This rule is authored, not enforced.** The four rejection rules above are implemented in
+`api/scripts/generate_prompts.py` and tested; the `{name}` rule is not, and constrains new batches
+only through this file being the generator's style reference. A reviewer reading a candidate
+worksheet is what actually catches a mail merge.
 
 **This is built.** `api/scripts/generate_prompts.py` does exactly the above — including all
 four rejection rules, implemented in code and tested in `api/tests/test_generate_prompts.py`

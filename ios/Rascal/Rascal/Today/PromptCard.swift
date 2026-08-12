@@ -19,13 +19,20 @@ struct PromptCard: View {
     var onRetry: (Media) -> Void = { _ in }
     var onRetryAll: () -> Void = {}
 
+    /// The child this prompt is about, set once in `RootView` above every tab.
+    @Environment(\.promptSubject) private var promptSubject
+
     private var assignment: AssignmentResponse { item.assignment }
+
+    /// **The only place this card reads a prompt body.** One property so the card and its
+    /// VoiceOver label cannot end up saying different sentences.
+    private var prompt: String { PromptTokens.render(assignment.body, for: promptSubject) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
 
-            Text(assignment.body)
+            Text(prompt)
                 .typeRole(.promptBody)
                 .foregroundStyle(isDone ? Color.inkMuted : Color.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -158,7 +165,7 @@ struct PromptCard: View {
     }
 
     private var accessibilityText: String {
-        var parts = [assignment.promptKind.badgeText, assignment.body]
+        var parts = [assignment.promptKind.badgeText, prompt]
         if let expiryText { parts.append(expiryText) }
         if isDone {
             parts.append("Done")

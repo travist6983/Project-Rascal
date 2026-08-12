@@ -86,6 +86,8 @@ struct ComposerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The child the quoted prompt is about.
+    @Environment(\.promptSubject) private var promptSubject
 
     /// Backdating is a first-class flow, so this is a real choice and not a hidden setting.
     @State private var occurredAt = Date()
@@ -631,7 +633,7 @@ struct ComposerView: View {
                 .fill(Color.terracotta.opacity(0.35))
                 .frame(width: 3)
                 .clipShape(Capsule())
-            Text(assignment.body)
+            Text(PromptTokens.render(assignment.body, for: promptSubject))
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)

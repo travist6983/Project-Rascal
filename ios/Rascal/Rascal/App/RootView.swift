@@ -34,6 +34,23 @@ struct RootView: View {
     @State private var resolvedTimezone: String?
 
     private var timezone: String { resolvedTimezone ?? familyTimezone }
+
+    /// The child's name and pronouns, as the gate resolved them at launch.
+    ///
+    /// **There is no stored fallback and none is needed.** The gate cannot reach `.ready` without
+    /// a successful `GET /children`, so by the time any prompt is on screen this is already the
+    /// server's answer — there is no window in which a body would render they/them and then flip.
+    let initialPromptSubject: PromptSubject
+    /// The subject after Settings has written a newer one.
+    ///
+    /// Same reason `resolvedTimezone` exists: the gate resolves the child once per session, so a
+    /// pronoun changed in Settings would otherwise not reach a single prompt until relaunch. The
+    /// spec's requirement that a change take effect on already-rendered prompts is satisfied here
+    /// and nowhere else — everything downstream reads the environment, so `@Observable` redraws
+    /// every card the moment this changes.
+    @State private var resolvedPromptSubject: PromptSubject?
+
+    private var promptSubject: PromptSubject { resolvedPromptSubject ?? initialPromptSubject }
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
@@ -111,6 +128,7 @@ struct RootView: View {
         childId: UUID,
         familyTimezone: String,
         childBirthdate: String,
+        promptSubject: PromptSubject,
         onSignOut: @escaping () async -> Void,
         notifications: NotificationPreference,
         pendingLink: Binding<WidgetDeepLink?>
@@ -119,6 +137,7 @@ struct RootView: View {
         self.childId = childId
         self.familyTimezone = familyTimezone
         self.childBirthdate = childBirthdate
+        self.initialPromptSubject = promptSubject
         self.onSignOut = onSignOut
         self.notifications = notifications
         self._pendingLink = pendingLink
@@ -133,7 +152,16 @@ struct RootView: View {
             signedIn(childId: childId)
             // Draws nothing. Holds the queries that keep the widget's snapshot in step with the
             // archive whichever tab is showing.
-            WidgetSnapshotSync(model: todayModel, familyTimezone: timezone)
+            WidgetSnapshotSync(
+                model: todayModel,
+                familyTimezone: timezone,
+                // **Rendered before the snapshot is written, not in the extension.** The widget
+                // reads a file and does no networking, so it has no child and no environment —
+                // the tokens have to be gone by the time the bytes land in the App Group. This is
+                // also why a pronoun change has to republish, which it does: the subject is part
+                // of the snapshot's identity, so `onChange` fires.
+                subject: promptSubject
+            )
         }
         .task {
             if thumbnails == nil {
@@ -383,7 +411,8 @@ struct RootView: View {
                         syncEngine: syncEngine,
                         transcription: transcription,
                         notifications: notifications,
-                        onTimezoneResolved: { resolvedTimezone = $0 }
+                        onTimezoneResolved: { resolvedTimezone = $0 },
+                        onPromptSubjectChanged: { resolvedPromptSubject = $0 }
                     )
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,
@@ -399,6 +428,11 @@ struct RootView: View {
                 }
             }
             .environment(\.thumbnails, thumbnails)
+            // Set once, above every tab. A prompt body reaches a human on Today, in the composer,
+            // on a timeline card and on Entry Detail, and all four have to read the same answer —
+            // a renderer applied in three of them produces an archive where the same sentence
+            // depends on which screen you opened it from.
+            .promptSubject(promptSubject)
             // **Clear the floating bar so the last card is never trapped underneath it — by what
             // the bar actually measures, not by a number kept in step by hand.**
             //

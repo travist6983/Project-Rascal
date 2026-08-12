@@ -339,6 +339,11 @@ struct OnboardingSessionTests {
 
         session.advance()
         #expect(session.draft.step == .birthdate)
+        // Pronouns sit between birthdate and timezone: name and birthdate are facts about the
+        // child, timezone is a fact about the household, and the pronoun belongs with the first
+        // group. `docs/decisions.md` item 10.
+        session.advance()
+        #expect(session.draft.step == .pronouns)
         session.advance()
         #expect(session.draft.step == .timezone)
         session.advance()
@@ -366,6 +371,8 @@ struct OnboardingSessionTests {
         first.draft.name = "Milo"
         first.draft.birthdate = "2022-06-12"
         first.draft.timezone = "Europe/Lisbon"
+        first.draft.pronouns = .theyThem
+        first.advance()
         first.advance()
         first.advance()
 
@@ -378,6 +385,10 @@ struct OnboardingSessionTests {
         #expect(relaunched.draft.name == "Milo")
         #expect(relaunched.draft.birthdate == "2022-06-12")
         #expect(relaunched.draft.timezone == "Europe/Lisbon")
+        // The new field survives the kill like every other one. It is optional so that a draft
+        // written by the previous build still decodes — a non-optional with a default would be
+        // read with `decode` rather than `decodeIfPresent` and would throw on every draft on disk.
+        #expect(relaunched.draft.pronouns == .theyThem)
     }
 
     @Test("the draft is cleared once the child exists")
@@ -619,6 +630,11 @@ struct OnboardingSessionTests {
 
         session.draft.birthdate = "2022-06-12"
         session.persist()
+        session.advance()
+        #expect(session.draft.step == .pronouns)
+
+        // Left unanswered on purpose: skipping is a finished setup, and the create below must
+        // still go out with exactly one POST.
         session.advance()
         #expect(session.draft.step == .timezone)
 

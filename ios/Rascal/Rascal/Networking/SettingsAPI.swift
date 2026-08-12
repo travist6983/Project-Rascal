@@ -8,9 +8,14 @@ extension APIClient {
 
     /// `PATCH /v1/children/{id}` — parent only.
     ///
-    /// Sends exactly the three fields the sheet edits. `avatar_key` is deliberately absent:
+    /// Sends exactly the four fields the sheet edits. `avatar_key` is deliberately absent:
     /// the server uses `exclude_unset`, so a key that is not sent is not touched, and avatar
     /// belongs with the media path rather than here.
+    ///
+    /// **`pronouns` has no default and every caller must state one.** It is the only nullable
+    /// column here, so it is the only one where "send nothing" and "send null" differ — and a
+    /// convenience default would let a future caller clear a parent's answer by not mentioning
+    /// it. Pass the current value to leave it alone.
     ///
     /// **This does not recompute stored ages, and must not.** `entries.child_age_months` is
     /// computed at write and stored precisely so a birthdate typo cannot silently reshape five
@@ -21,14 +26,16 @@ extension APIClient {
         id: UUID,
         name: String,
         birthdate: String,
-        familyTimezone: String
+        familyTimezone: String,
+        pronouns: PronounSet?
     ) async throws -> ChildUpdateResponse {
         try await send(
             .patch, "v1/children/\(id.uuidString.lowercased())",
             body: ChildUpdateRequest(
                 name: name,
                 birthdate: birthdate,
-                familyTimezone: familyTimezone
+                familyTimezone: familyTimezone,
+                pronouns: pronouns
             )
         )
     }
@@ -79,6 +86,16 @@ extension APIClient {
 
 // MARK: - Wire models
 
+/// **Encoded by hand, for one property.**
+///
+/// `updateMe` explains that Swift's synthesized encoder uses `encodeIfPresent` for optionals, so
+/// a nil is *omitted* rather than sent as `null`, and notes that none of its columns is nullable
+/// so there is no unset to express. `children.pronouns` is the case that note excludes: it is
+/// nullable, and clearing it is a real flow — a parent who answered and then changed their mind
+/// gets back to unanswered. The server reads `model_fields_set`, so an omitted key is "no
+/// opinion" and only an explicit `null` clears the column.
+///
+/// The synthesized encoder cannot express that difference, which is why this one is written out.
 private nonisolated struct ChildUpdateRequest: Encodable {
     let name: String
     /// `yyyy-MM-dd`. A **calendar day, not an instant** — sent as a string rather than a `Date`
@@ -87,6 +104,23 @@ private nonisolated struct ChildUpdateRequest: Encodable {
     /// Greenwich.
     let birthdate: String
     let familyTimezone: String
+    let pronouns: PronounSet?
+
+    /// `convertToSnakeCase` still applies to these, exactly as it did to the synthesized keys —
+    /// `familyTimezone` goes on the wire as `family_timezone`.
+    enum CodingKeys: String, CodingKey {
+        case name, birthdate, familyTimezone, pronouns
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(birthdate, forKey: .birthdate)
+        try container.encode(familyTimezone, forKey: .familyTimezone)
+        // `encode`, never `encodeIfPresent`. The whole reason this file has a hand-written
+        // encoder is that a nil here must arrive as `"pronouns": null` and clear the column.
+        try container.encode(pronouns, forKey: .pronouns)
+    }
 }
 
 /// All three optional, so the encoder omits whatever the caller had no opinion about. See
@@ -109,10 +143,15 @@ nonisolated struct ChildUpdateResponse: Decodable, Sendable {
     let id: UUID
     let name: String
     let birthdate: String
+    /// Same `String?`-then-narrow treatment as `ChildResponse.pronouns`, and for the same reason:
+    /// an unrecognised value must cost one row of Settings, not the response.
+    let pronouns: String?
     let avatarKey: String?
     let familyTimezone: String
     let createdAt: Date
     let updatedAt: Date
+
+    var pronounSet: PronounSet? { PronounSet(wire: pronouns) }
 }
 
 nonisolated struct RecomputeAgesResponse: Decodable, Sendable {
