@@ -164,6 +164,15 @@ Three invariants, all of which are assertions:
 ### Rejected — do not revisit
 
 - Risograph, halftone, misregistration, screen-print aesthetics
+- **Paper grain — the tiling `feTurbulence` noise overlay, named explicitly as of Aug 11, 2026.**
+  Three design exports in a row (Today v2, Settings v2, Entry Detail v2) have shipped it as
+  `--rascal-grain` and described it as mandatory identity — *"A RASCAL screen without grain looks
+  wrong."* Three importers in a row dropped it and left it open, because the line above says
+  "screen-print texture" and a reader deciding about a 5%-opacity noise layer does not reliably
+  see themselves in that phrase. **It is the same rejection. It is now written in the words the
+  exports actually use, so the next import can close it by reading rather than by asking.**
+  The exports will keep carrying it; that is a property of the design system they come from, not a
+  new argument.
 - Condensed poster type, rotated headlines, type breaking the grid
 - Passport-stamp completion, receipt-spike card stacks
 - Full-bleed edge-to-edge photo timeline as the primary view

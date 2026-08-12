@@ -1048,3 +1048,49 @@ clobber a `user` row, so no new merge logic is required. A dedicated
 `PATCH /v1/entries/{id}/derived` mirroring the media one is the narrower alternative.
 
 Full detail, including the exact source lines: `docs/phases/phase-17-BLOCKED.md`.
+
+---
+
+## Phase 22 — Entry Detail v2: two design questions that are not the agent's to answer (Aug 11, 2026)
+
+Not blocked on a credential. Blocked on a **design decision**, which is why the phase stopped with
+an inventory rather than a screen. Full analysis: `docs/entry-detail-inventory.md`.
+
+### 1. Is full-bleed media allowed on Entry Detail? **Blocking.**
+
+The whole grammar of the import is *"Media fills the screen. Everything else lives in a cream sheet
+resting on top of it."* Against that:
+
+- `docs/design-system.md`, Layout: *"Photos sit inset with padding and rounded corners; **they
+  rarely bleed to the screen edge**."*
+- `docs/decisions.md`, Rejected — do not revisit: *"Full-bleed edge-to-edge photo **timeline** as
+  the primary view."*
+- `docs/decisions.md`, Settled: *"Timeline is a scannable date-grouped card list… **Not a full-bleed
+  story feed.**"*
+
+**Both rejections name the timeline, not the detail screen, and "rarely" is not "never."** So it is
+not a literal conflict — Entry Detail is plausibly the rare case, and it is the one screen whose
+entire job is looking at one artifact. But it is one step from a twice-rejected direction, on the
+screen the phase brief calls *"in 2040, this is the product."*
+
+**What is needed: yes or no.** Everything else in the import is downstream of it — the sheet, the
+scrim, where the prompt and transcript live, and whether the metadata compresses to one line.
+
+### 2. Frosted glass — the export contradicts its own design system
+
+Every sheet is `background: rgba(253,250,244,.88); backdrop-filter: blur(26px) saturate(1.25)`,
+while the design project's own `readme.md` states: *"Transparency & blur — used in exactly two
+places… **Frosted-glass panels are not part of this brand.**"*
+
+Resolved toward the README (opaque `surface`, hairline, resting shadow, no blur) — but recorded
+because it changes how the sheet reads over a photo and is coupled to question 1.
+
+### Still open, carried forward rather than resolved
+
+- ~~**Paper grain.**~~ **CLOSED Aug 11, 2026.** Settled as rejected and written into
+  `docs/decisions.md` in the words the exports actually use (`feTurbulence`, "paper grain"), because
+  the existing "screen-print texture" line is what three importers in a row read past. The exports
+  will keep carrying it; that is a property of their design system, not a new argument.
+- **`KindBadge` contrast** (~3.3–3.7:1, below AA). Untouched, per the brief. The import does not
+  reuse the component, but its chips are the same shape of pairing — `#5566D6` on `#E9EBFB` is the
+  one to measure first in any new surface.

@@ -1718,3 +1718,90 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **iOS suite 714/87 → 730/88**, warnings unchanged at 21, measured from a deleted `DerivedData`.
   The spec's `iPhone 15 Pro Max` is not installed on this machine; the run used `iPhone 17 Pro Max`
   on OS 26.4.1.
+
+## Phase 22 — Entry Detail v2 design import (Aug 11, 2026)
+
+- **The design import is read through `DesignSync`'s read methods, not the `claude_design` MCP.**
+  That MCP is not connected to this session; `get_project` / `list_files` / `get_file` against
+  project `e227a63f-…` reach the same files. The import **succeeded** — no fallback to
+  `docs/entry-detail/` was needed. The skill the project ships (`SKILL.md` → `rascal-design`) and
+  its `readme.md` were read as part of it, and `readme.md` is treated as a second authority
+  alongside `docs/design-system.md`.
+- **Fourth consecutive export to hardcode values its own `tokens/colors.css` does not contain.**
+  Reconciled by the standing rule — tokens + `Palette.swift` win, no new `Palette` constants.
+  The substitutions: `#5E7A57`→`sageInk`, `#A8A096`→`inkFaint`, `#F2EBE0`→`chipPlain`,
+  `#DCD2C4`/`#E6DCCE`→`border`, `#F0E2D4`→`sealedBorder`. Full table in
+  `docs/entry-detail-inventory.md`.
+- **The sealed gradient needed nothing.** `Gradients.wash` is already exactly
+  `#FDE8DC → #F7DDE8 → #FBF6EF`, the export's sealed wash, digit for digit.
+- **The voice and did-it washes are dropped to flat tints** (`periwinkleSoft`, `sage`). Neither
+  gradient is in `tokens/colors.css` or `Palette`, and `Gradients.wash` is the *sealed* treatment —
+  reusing it there or adding two more would be inventing a second and third gradient, which the
+  phase brief forbids.
+- **Paper grain dropped again, and still not resolved.** The export calls it mandatory identity;
+  `docs/decisions.md` lists screen-print texture under *Rejected — do not revisit*. Third export in
+  a row to carry it, third time dropped, deliberately with no compromise invented.
+- **Frosted glass dropped — the export contradicts its own design system.** Every sheet is
+  `backdrop-filter: blur(26px)`, while the project's own `readme.md` says "Frosted-glass panels are
+  not part of this brand." Resolved toward the README.
+- **The export's sealed copy is not adoptable.** It says the letter opens on the child's eighteenth
+  birthday "and not before — not even for you", and offers no **Open it**. The shipped reader
+  deliberately lets the author open it. Kept ours; the envelope motif is skin only.
+- **The run stopped at the end of §1 with the inventory**, which the brief pre-blesses. One
+  question is not the agent's to answer: whether full-bleed media is allowed on Entry Detail, given
+  `design-system.md` says photos "rarely bleed to the screen edge" and `decisions.md` rejects a
+  full-bleed *timeline*. Neither forbids it here; both are one step away. Logged in
+  `docs/blocked.md`.
+- **The seal's primary test is weaker than it reads.** `SealControlTests.sealedEntryRendersSealed`
+  asserts `card.preview == nil` against a fixture built with `media: []`, so the assertion holds
+  whether or not the seal does anything. No defect in the shipped gate; a gap in the evidence.
+  Recorded for 22b, which the brief already requires to assert against a sealed fixture carrying
+  both a photo and a body.
+- **Preflight deviation: the zero-warning precondition does not hold on `main`.** 21 pre-existing
+  warnings (`ExtractedDetails.swift` ×3, `PushPermissionTests` ×14, `ExtractionTests` ×4), none in
+  an Entry Detail file. Recorded rather than treated as a stop. iOS suite **756/95**, green, cold.
+- **Paper grain closed, Aug 11, 2026.** Settled as rejected. It had stayed open across three phases
+  because `decisions.md` said "screen-print texture" and every importer deciding about a
+  5%-opacity `feTurbulence` layer read past it. Now named explicitly in the exports' own
+  vocabulary so the next import closes it by reading. **Also settled: the exports will keep
+  shipping it, and that is not a new argument each time.**
+- **Correction to this phase's own seal finding.** The inventory implied the seal's evidence was
+  thin overall. It is not — `TimelineViewTests`, `MomentsV2Tests` and `TimelineSearchTests` all
+  assert it with media present and all fail when the gate is deleted. One badly-shaped test is not
+  a badly-defended invariant. The genuinely uncovered channel was **voice/transcript**, found by
+  breaking the gate, and it is closed by PR #55.
+
+## Phase 22b — Entry Detail v2 built (Aug 11, 2026)
+
+- **Full-bleed media on Entry Detail: allowed.** Settled by the founder. `decisions.md` rejects a
+  full-bleed *timeline* and `design-system.md` says photos "rarely bleed to the screen edge" —
+  Entry Detail is the rare one, being the single screen whose whole job is looking at one artifact.
+  Scoped to this screen; it is **not** a licence for the timeline, which the rejection still names.
+- **Frosted glass resolved toward the design system, not the export.** The sheet is opaque
+  `surface` with no `backdrop-filter`, because the design project's own README says frosted-glass
+  panels are not part of the brand. The export contradicted itself here.
+- **The backdrop is an enum, not a colour.** `EntryDetailScreen.Backdrop` +
+  `static func backdrop(...)`, so "which ground does this entry get" is a rule with tests rather
+  than a computed property that can only be looked at. Same move `transcript(in:)` already made.
+  **Sealed is checked before media is ever read** — ordering is the safety property, and breaking
+  it fails a test.
+- **`factsSentence` takes the whole `Entry`, deliberately.** The obvious signature takes a `Date`,
+  which moves the choice of `occurred_at` vs `created_at` to the caller where no test can see it.
+  Taking the entry is what makes "the date is `occurred_at`" able to fail.
+- **The key/value metadata list became one sentence** — `[age chip] date · 10 photos`. **The sync
+  line was kept out of it on purpose**: "Here — it'll sync when you're back on" is a state, not a
+  fact about the entry, and folding it in would have been the tidy way to lose the only place this
+  screen admits an entry has not left the phone.
+- **`DetailMediaView` gained `bleeds:` rather than a fork.** One call site, and everything except
+  the shape is identical.
+- **Dropped as new functionality, per scope:** immersive mode, the expanding sheet, Share, Add tag,
+  the video scrubber, the thumbnail strip, "Read the whole thing". Multi-media is still a paged
+  `TabView`.
+- **Adversarial finding, pre-existing and not fixed here: Edit reaches a sealed letter's body
+  without going through Open it.** `edit()` opens the composer, which renders the body, and the
+  toolbar offers it on a sealed entry. It is defensible — the author is deliberately not locked out
+  — but "Open it" is a conscious act and tapping Edit is not. Flagged rather than changed, because
+  changing it is behaviour rather than a design pass.
+- **iOS suite 758/95 → 768/96**, warnings unchanged at 21 and none in a touched file, cold from a
+  deleted `DerivedData`. Two assertions verified by breaking the code: the sealed-backdrop ordering
+  and the `occurred_at` rule.

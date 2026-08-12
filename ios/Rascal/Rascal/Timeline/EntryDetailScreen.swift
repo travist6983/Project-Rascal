@@ -60,18 +60,25 @@ struct EntryDetailScreen: View {
         ScrollView {
             if let entry {
                 content(entry)
-                    .padding(Layout.screenMargin)
             } else {
                 // The row is gone — deleted here or on another phone. Said plainly.
                 missing
             }
         }
-        .background(Color.canvas)
+        // **The backdrop is the layer that changes; the sheet on top of it does not.** That is the
+        // v2 grammar in one line — seven kinds of entry, one reading surface, and what sits behind
+        // it is the only thing that varies.
+        .background(backdrop.ignoresSafeArea())
+        // Over a photo the bar has to get out of the way: no cream fill, no date repeated (the
+        // sheet carries it), and light controls because they sit on the scrim. Everywhere else the
+        // bar is unchanged, which is why this is conditional rather than a new default.
+        .toolbarBackground(hasFullBleedMedia ? .hidden : .automatic, for: .navigationBar)
+        .toolbarColorScheme(hasFullBleedMedia ? .dark : nil, for: .navigationBar)
         // The day it happened, in the bar. The timeline's root hides its bar, so without a title
         // this screen's back chevron and menu float as bare circles on cream — chrome that looks
         // accidental rather than designed. The date is also the one thing worth keeping visible
         // once the metadata row has scrolled away, and it is `occurred_at`, never `created_at`.
-        .navigationTitle(entry.map { DayHeaderText.compact($0.occurredAt) } ?? "")
+        .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task(id: entryId) { await load() }
@@ -104,30 +111,172 @@ struct EntryDetailScreen: View {
     /// type bolted to a control.
     @ViewBuilder
     private func content(_ entry: Entry) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if entry.unlockAtAge != nil, !unsealed {
-                sealedCard(entry)
-            } else {
+        if entry.unlockAtAge != nil, !unsealed {
+            // **Nothing below this branch runs for a sealed entry.** Not the hero, not the sheet,
+            // not the prompt, not the transcript. The single gate is the whole seal, and keeping
+            // it as one branch rather than a condition repeated per-section is what makes that
+            // readable — and what a new section cannot accidentally sit outside of.
+            sealedCard(entry)
+            noticeLine
+        } else {
+            VStack(spacing: 0) {
                 hero
-                if let prompt = displayPrompt(entry) {
-                    promptBlock(prompt, on: entry.occurredAt)
-                        .padding(.top, heroIsPresent ? 18 : 0)
-                }
-                writtenContent(entry)
-                if let transcript = Self.transcript(in: media) {
-                    transcriptSection(transcript)
-                }
-                metadata(entry)
-                tags(entry)
-            }
-            if let notice {
-                Text(notice)
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-                    .padding(.top, 16)
+                sheet(entry)
+                noticeLine
             }
         }
+    }
+
+    /// Offline, or a fetch that failed over content already on screen. Quiet, and never a dialog.
+    @ViewBuilder
+    private var noticeLine: some View {
+        if let notice {
+            Text(notice)
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Layout.screenMargin)
+                .padding(.top, 16)
+        }
+    }
+
+    /// Everything that is not the artifact, on one cream surface.
+    ///
+    /// **One sheet for all six unsealed shapes.** A photo entry and a did-it entry differ in what
+    /// is behind this, not in how what is written gets read — which is the design's whole argument
+    /// and the reason a no-artifact entry cannot look like a broken one: it is the same finished
+    /// surface either way, with a tint behind it instead of a picture.
+    private func sheet(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            writtenContent(entry)
+            if let prompt = displayPrompt(entry) {
+                promptBlock(prompt, on: entry.occurredAt)
+                    .padding(.top, 18)
+            }
+            if let transcript = Self.transcript(in: media) {
+                transcriptSection(transcript)
+            }
+            factsLine(entry)
+            tags(entry)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Layout.screenMargin)
+        .padding(.top, 22)
+        .padding(.bottom, 28)
+        .background(
+            Color.surface,
+            in: UnevenRoundedRectangle(
+                topLeadingRadius: Layout.sheetRadius,
+                topTrailingRadius: Layout.sheetRadius,
+                style: .continuous
+            )
+        )
+        // Rides up over whatever is behind it, so the sheet reads as resting on the layer rather
+        // than sitting beneath it. Only where there is something to overlap.
+        .padding(.top, heroIsPresent ? -Layout.sheetOverlap : 0)
+    }
+
+    /// What sits behind the sheet — **the one thing that varies across the seven shapes.**
+    ///
+    /// An enum rather than a `Color`, and a static function rather than a computed property, for
+    /// the reason `transcript(in:)` gives two hundred lines up: it is the difference between a
+    /// layout decision that can be asserted and one that can only be looked at. The mapping to
+    /// paint happens in the view; *which* backdrop an entry gets is a rule, and rules get tests.
+    nonisolated enum Backdrop: Equatable {
+        /// A picture, running to the screen edges.
+        case picture
+        /// No artifact — the tint is the picture. Flat, not the export's gradients: neither of
+        /// those exists in `Palette`, and `Gradients.wash` is the *sealed* treatment, so reusing
+        /// it here or adding two more would give a one-wash system three.
+        case voice
+        case didIt
+        /// A written entry, and the fallback. The sheet is the whole screen.
+        case canvas
+        /// Sealed. The wash, and nothing behind it to describe.
+        case sealed
+    }
+
+    /// **Sealed is checked first and returns before anything reads the media.** Ordering is the
+    /// safety property here: a sealed letter with a photo must not reach `.picture`, and the only
+    /// way to guarantee that structurally is for the seal to answer before the question is asked.
+    nonisolated static func backdrop(
+        unlockAtAge: Int?,
+        unsealed: Bool,
+        type: EntryType?,
+        pictureCount: Int
+    ) -> Backdrop {
+        if unlockAtAge != nil, !unsealed { return .sealed }
+        if pictureCount > 0 { return .picture }
+        switch type {
+        case .audio: return .voice
+        case .didIt: return .didIt
+        default: return .canvas
+        }
+    }
+
+    /// Where a did-it entry's completion mark goes — **and it goes exactly one place.**
+    ///
+    /// The v2 hero puts a 64pt mark on sage when there is no artifact. That is the common did-it
+    /// entry and it is the better treatment. But a did-it entry can have a photograph or a voice
+    /// note, and then the hero slot is taken — so the mark falls back beside the title, which is
+    /// where it lived before this redesign.
+    ///
+    /// **Losing it entirely is the bug this enum exists to prevent**, and it is the one this pass
+    /// shipped for a few hours: the hero stopped drawing the check when a picture was present and
+    /// the inline one had already been deleted as a duplicate, so "you did this" quietly vanished
+    /// from exactly the did-it entries someone had bothered to photograph.
+    nonisolated enum CompletionMark: Equatable {
+        case none
+        /// 64pt, centred on the tint. No artifact competing with it.
+        case hero
+        /// 22pt, on the title's baseline. Something else is using the hero.
+        case inline
+    }
+
+    nonisolated static func completionMark(
+        type: EntryType?,
+        pictureCount: Int,
+        hasVoice: Bool
+    ) -> CompletionMark {
+        guard type == .didIt else { return .none }
+        return pictureCount == 0 && !hasVoice ? .hero : .inline
+    }
+
+    private var completionMark: CompletionMark {
+        Self.completionMark(
+            type: entry?.type,
+            pictureCount: pictures.count,
+            hasVoice: voiceMedia != nil
+        )
+    }
+
+    private var backdropKind: Backdrop {
+        Self.backdrop(
+            unlockAtAge: entry?.unlockAtAge,
+            unsealed: unsealed,
+            type: entry?.type,
+            pictureCount: pictures.count
+        )
+    }
+
+    private var backdrop: Color {
+        switch backdropKind {
+        case .picture: .ink
+        case .voice: .periwinkleSoft
+        case .didIt: .sage
+        case .canvas, .sealed: .canvas
+        }
+    }
+
+    /// The one case the navigation bar has to get out of the way for.
+    private var hasFullBleedMedia: Bool { backdropKind == .picture }
+
+    /// The date lives in the sheet once a picture is behind the bar, so the bar does not say it
+    /// twice over a photograph. Everywhere else it is the one thing worth keeping visible after
+    /// the facts line has scrolled away — and it is `occurred_at`, never `created_at`.
+    private var navigationTitle: String {
+        guard let entry, !hasFullBleedMedia else { return "" }
+        return DayHeaderText.compact(entry.occurredAt)
     }
 
     /// The top block: pictures if there are any, else the voice player, else nothing.
@@ -138,6 +287,12 @@ struct EntryDetailScreen: View {
     private var hero: some View {
         if !pictures.isEmpty {
             gallery
+                // **Edge to edge, and only here.** `design-system.md` says photos "rarely bleed to
+                // the screen edge"; this is the rare one — the single screen whose whole job is
+                // looking at one artifact. Settled Aug 11, 2026; `decisions.md` rejects a
+                // full-bleed *timeline*, which this is not.
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .top) { topScrim }
         } else if let voice = voiceMedia {
             VoicePlayerView(
                 mediaId: voice.id,
@@ -146,10 +301,37 @@ struct EntryDetailScreen: View {
                 localFile: stagedOriginal(voice),
                 api: api
             )
+            .padding(.horizontal, Layout.screenMargin)
+            .padding(.top, 8)
+            .padding(.bottom, Layout.sheetOverlap + 18)
+        } else if completionMark == .hero {
+            // **The did-it hero, and the reason this screen has one at all.** An entry with no
+            // artifact is complete, not deficient — so it gets a deliberate mark on a sage ground
+            // rather than the empty space where a picture would have been.
+            CompletionCheck(isComplete: true, diameter: 64, tint: .sageInk, check: .sage)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 24)
+                .padding(.bottom, Layout.sheetOverlap + 24)
         }
     }
 
-    private var heroIsPresent: Bool { !pictures.isEmpty || voiceMedia != nil }
+    /// Ink fading to nothing over the top of a photograph, so the bar's controls stay legible on
+    /// whatever is behind them. Only over pictures — nothing else puts content under the bar.
+    private var topScrim: some View {
+        LinearGradient(
+            colors: [Color.ink.opacity(0.45), .clear],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(height: 132)
+        .allowsHitTesting(false)
+    }
+
+    /// Whether anything sits behind the sheet's top edge. A written entry has nothing, and its
+    /// sheet starts flush rather than overlapping cream with cream.
+    private var heroIsPresent: Bool {
+        !pictures.isEmpty || voiceMedia != nil || entry?.type == .didIt
+    }
 
     /// The cached prompt, falling back to the assignment this entry completed.
     ///
@@ -207,18 +389,28 @@ struct EntryDetailScreen: View {
         if pictures.count == 1, let only = pictures.first {
             detailMedia(only)
         } else {
+            // **Still a paged TabView, not the import's thumbnail strip.** The strip is a new
+            // control and this is a design pass; paging is what multi-media has done since phase
+            // 4 and every existing assertion about it still holds.
             TabView {
                 ForEach(pictures, id: \.id) { item in
-                    detailMedia(item).padding(.bottom, 28)
+                    detailMedia(item).padding(.bottom, 30)
                 }
             }
             .tabViewStyle(.page)
-            .frame(height: galleryHeight)
+            // **Sized from its own width, not from the screen's.** A `TabView` needs a concrete
+            // height, and the two obvious ways to give it one are both wrong: a fixed number is
+            // a different crop on every device, and `UIScreen.main.bounds.width` is a global
+            // reached from inside a view — the only one that would exist in this codebase, and
+            // wrong the first time this app is ever asked to run at any size but full screen.
+            // `aspectRatio` asks the container instead, which is the thing that actually knows.
+            .aspectRatio(Self.galleryAspect, contentMode: .fit)
         }
     }
 
-    /// 4:3 plus room for the page dots, which sit inside the TabView's own frame.
-    private var galleryHeight: CGFloat { 300 }
+    /// 4:3, the shape `DetailMediaView` gives a single picture, so a one-photo entry and a
+    /// ten-photo entry open at the same height rather than jumping when you page.
+    nonisolated static let galleryAspect: CGFloat = 4.0 / 3.0
 
     private func detailMedia(_ item: Media) -> some View {
         DetailMediaView(
@@ -226,7 +418,8 @@ struct EntryDetailScreen: View {
             kind: item.mediaKind,
             durationSeconds: item.durationSeconds,
             api: api,
-            localFile: stagedOriginal(item)
+            localFile: stagedOriginal(item),
+            bleeds: true
         ) {
             viewing = ViewerRequest(
                 id: item.id,
@@ -275,7 +468,10 @@ struct EntryDetailScreen: View {
         VStack(alignment: .leading, spacing: 8) {
             if let title = entry.title, !title.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    if entry.type == .didIt {
+                    // Only when the hero is not already carrying it — see `completionMark`. A
+                    // did-it entry with a photograph has a taken hero, so the mark comes back
+                    // here rather than disappearing.
+                    if completionMark == .inline {
                         CompletionCheck(isComplete: true, diameter: 22, tint: .sageInk, check: .sage)
                             .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
                     }
@@ -284,15 +480,10 @@ struct EntryDetailScreen: View {
                         .foregroundStyle(Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-            if let body = entry.body, !body.isEmpty {
-                Text(body)
-                    .typeRole(.body)
-                    .foregroundStyle(Color.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else if entry.title == nil, media.isEmpty {
-                // A did-it entry with no note. Complete, and it says so rather than rendering
-                // as a screen with nothing on it.
+            } else if completionMark == .inline {
+                // A did-it entry that was photographed but never titled. The hero is holding the
+                // picture, so the mark has no title to sit beside — it gets the same sentence the
+                // untitled did-it entry gets, and keeps the check with it.
                 HStack(spacing: 10) {
                     CompletionCheck(isComplete: true, diameter: 26, tint: .sageInk, check: .sage)
                     Text("We did it")
@@ -300,8 +491,21 @@ struct EntryDetailScreen: View {
                         .foregroundStyle(Color.ink)
                 }
             }
+            if let body = entry.body, !body.isEmpty {
+                Text(body)
+                    .typeRole(.body)
+                    .foregroundStyle(Color.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if entry.title == nil, media.isEmpty {
+                // A did-it entry with no note and no artifact. Complete, and it says so rather
+                // than rendering as a screen with nothing on it. The mark is overhead in the
+                // hero; this is the sentence under it.
+                Text("We did it")
+                    .typeRole(.detailTitle)
+                    .foregroundStyle(Color.ink)
+            }
         }
-        .padding(.top, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// What was actually said, under a quiet label.
@@ -322,13 +526,24 @@ struct EntryDetailScreen: View {
         .padding(.top, 14)
     }
 
-    /// The facts, as a key-and-value list above the tags.
-    private func metadata(_ entry: Entry) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            Divider().overlay(Color.border).padding(.bottom, 7)
-
-            if let months = entry.childAgeMonths {
-                metaRow("Age at the time") {
+    /// The facts, as one sentence rather than a key-and-value list.
+    ///
+    /// **The import's best idea after the backdrop.** The old list spent five rows and a divider
+    /// saying what fits on one line — `[4 years, 1 month]  Sunday 9 August 2026 · 10 photos` — and
+    /// a list of keys reads like a form about a memory rather than a caption under one.
+    ///
+    /// The age keeps its periwinkle capsule: it is the one fact this product is actually about,
+    /// and it is the same chip the timeline and the card already use.
+    ///
+    /// **The sync line is not in here, and that is deliberate.** "Here — it'll sync when you're
+    /// back on" is a *state*, not a fact about the entry, and it is the only place this screen
+    /// tells a parent their words have not left the phone. Folding it into a metadata sentence
+    /// would have been the tidy way to lose it — so it keeps its own line below.
+    @ViewBuilder
+    private func factsLine(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 10) {
+                if let months = entry.childAgeMonths {
                     Text(AgeText.long(months))
                         .typeRole(.metadata)
                         .fontWeight(.semibold)
@@ -337,46 +552,63 @@ struct EntryDetailScreen: View {
                         .padding(.vertical, 3)
                         .background(Color.periwinkleSoft, in: Capsule())
                 }
+                Text(factsSentence(entry))
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            metaRow("Date") { metaValue(DayHeaderText.full(entry.occurredAt)) }
-            if pictures.count > 1 {
-                metaRow(picturesLabel) { metaValue("\(pictures.count)") }
-            }
-            if let seconds = voiceMedia?.durationSeconds {
-                metaRow("Length") { metaValue(DurationText.clock(seconds)) }
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             if entry.sync != .synced {
                 // A network fact, not an error and not a loss.
-                metaRow("Saved") { metaValue("Here — it'll sync when you're back on") }
+                Text("Here — it'll sync when you're back on")
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
             }
         }
-        .padding(.top, 24)
+        .accessibilityElement(children: .combine)
+        .padding(.top, 22)
+    }
+
+    private func factsSentence(_ entry: Entry) -> String {
+        Self.factsSentence(for: entry, media: media)
+    }
+
+    /// "Sunday 9 August 2026 · 10 photos", or "· 0:42" for a recording.
+    ///
+    /// The count is only worth saying when there is more than one thing to count, and the length
+    /// only when there is something with a length. A single photo says neither, because the
+    /// picture is right there.
+    ///
+    /// **This takes the whole entry, and reads `occurred_at` from it, on purpose.**
+    ///
+    /// The obvious signature is `(occurredAt: Date, media: [Media])` — and it is worse, because it
+    /// moves the choice of field to the caller, where no test can see it. A caller handing over
+    /// `entry.createdAt` would satisfy every assertion about this function while filing a
+    /// backfilled photograph under the evening it was added. Taking the entry is what makes
+    /// "the date is `occurred_at`" a thing that can actually fail.
+    nonisolated static func factsSentence(for entry: Entry, media: [Media]) -> String {
+        let occurredAt = entry.occurredAt
+        let live = media.filter { $0.deletedAt == nil }
+        let pictures = live.filter { $0.mediaKind == .photo || $0.mediaKind == .video }
+        var parts = [DayHeaderText.full(occurredAt)]
+        if pictures.count > 1 {
+            parts.append("\(pictures.count) \(Self.picturesLabel(for: pictures).lowercased())")
+        }
+        if let seconds = live.first(where: { $0.mediaKind == .audio })?.durationSeconds {
+            parts.append(DurationText.clock(seconds))
+        }
+        return parts.joined(separator: " · ")
     }
 
     /// "Photos", "Videos", or "Items" when the entry holds both. Never "Media", which is a word
     /// for the people who build the app rather than the people who use it.
-    private var picturesLabel: String {
+    private var picturesLabel: String { Self.picturesLabel(for: pictures) }
+
+    nonisolated static func picturesLabel(for pictures: [Media]) -> String {
         if pictures.allSatisfy({ $0.mediaKind == .photo }) { return "Photos" }
         if pictures.allSatisfy({ $0.mediaKind == .video }) { return "Videos" }
         return "Items"
-    }
-
-    private func metaRow<Value: View>(_ key: String, @ViewBuilder value: () -> Value) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(key)
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-            Spacer(minLength: 8)
-            value()
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private func metaValue(_ text: String) -> some View {
-        Text(text)
-            .typeRole(.metadata)
-            .foregroundStyle(Color.ink)
-            .multilineTextAlignment(.trailing)
     }
 
     @ViewBuilder
@@ -397,6 +629,13 @@ struct EntryDetailScreen: View {
     /// Calm and deliberate. It says what it is, when it opens, and that the parent may open it
     /// anyway — because they wrote it, and a lock the author cannot pick is a lock on the wrong
     /// person.
+    ///
+    /// **Unchanged by the v2 pass, on purpose.** The import redraws this as an envelope with a wax
+    /// seal and drops **Open it** entirely — its copy reads "it opens on his eighteenth birthday
+    /// and not before — not even for you", which is the opposite of what this app decided. The one
+    /// thing worth taking from it was the gradient, and `Gradients.wash` already *is* that
+    /// gradient: `#FDE8DC → #F7DDE8 → #FBF6EF`, digit for digit. So there was nothing to change,
+    /// and every word here is the vocabulary phase 4 settled.
     private func sealedCard(_ entry: Entry) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "lock")
@@ -420,6 +659,10 @@ struct EntryDetailScreen: View {
         .frame(maxWidth: .infinity)
         .padding(28)
         .background(Gradients.wash, in: RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
+        // The screen margin used to come from `content`, which applied one padding to everything.
+        // v2 pads per-section instead, because the picture must reach the edge and the sheet must
+        // not — so the two states that are still cards carry their own.
+        .padding(Layout.screenMargin)
     }
 
     private var missing: some View {
