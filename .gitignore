@@ -232,4 +232,10 @@ ios/**/Config.xcconfig
 # committed deliberately — listed here only to say the omission is on purpose.
 # ios/Fixtures/
 
+# --- Review tooling -----------------------------------------------------------------------
+# Output of /rascal-review: one folder per branch, rewritten on every run. The skill, the
+# specialist agents, and the false-positive history under .claude/ are deliberately NOT
+# ignored — those are the tool, and they are worth committing.
+.claude/reviews/
+
 .DS_Store

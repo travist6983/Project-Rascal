@@ -302,10 +302,27 @@ These gate the P0 exit test and nothing else can move them.
 >
 > If you are editing this file after landing a branch, this section is the part to rewrite, not the part to leave.
 >
-> **Checked this revision, one line at a time (Aug 11, evening):** deploy — **done**, and the four lines recommending it are struck below rather than deleted, so the mistake stays visible. Apple enrollment — **done**. TestFlight — **done**. Device verification — now **nine** checklists, **356 boxes, still zero ticked**, and no longer waiting on anything. Push — no longer blocked; it needs an APNs key and a scheduled machine. Structured extraction — ~~blocked on an API gap~~ **unblocked by #45 and shipped as #43**; the model behind the seam has still never run. Video audio tracks — still gated on the transcription checklist, which still records no run. A name — still open. `KindBadge` contrast — still unfixed. **The line that changed state is everything above device verification, and it moved to done.**
+> **Checked this revision, one line at a time (Aug 11, late evening — rewritten after phase 22):** deploy — **done**, and the four lines recommending it are struck below rather than deleted, so the mistake stays visible. Apple enrollment — **done**. TestFlight — **done**. Device verification — now **ten** checklists, **and still zero boxes ticked**; the tenth is Entry Detail, added by phase 22. Push — needs an APNs key and a scheduled machine. Structured extraction — shipped as #43; the model behind the seam has still never run. Video audio tracks — still gated on the transcription checklist, which still records no run. A name — still open. `KindBadge` contrast — still unfixed. **Avatar durability — landed as #53 (phase 21).** **Entry Detail v2 — inventoried, not built: it is waiting on one design answer, not on code.**
 
-### The only recommendation now: run the checklists
-**This is the whole of it.** There is no branch to open, no endpoint to add, and nothing left to deploy. Nine features have shipped that have never run against reality, and the tool for finding out is a checklist and an evening, not a compiler.
+### Two recommendations now, and the first is one question, not a branch
+
+**1. Answer the full-bleed question.** Phase 22 imported the Entry Detail v2 design and stopped
+deliberately at the inventory, because its central device — media filling the screen with the text
+in a sheet on top — sits one step from a twice-rejected direction. `design-system.md` says photos
+*"rarely bleed to the screen edge"*; `decisions.md` rejects a full-bleed **timeline**. Neither
+forbids it on a detail screen, and neither permits it either. **It is a yes or a no, and everything
+else in that design is downstream of it** — see `docs/blocked.md` and
+`docs/entry-detail-inventory.md`, which also lists what a scoped 22b should build in either case.
+
+**2. Run the checklists.** Unchanged, and still the larger body of work. Ten features have shipped
+that have never run against reality, and the tool for finding out is a checklist and an evening,
+not a compiler.
+
+> **A note for whoever rewrites this next.** The three previous staleness bugs were all the same
+> shape: recommending something the document already reported as done. This revision's risk is the
+> opposite one — leaving "answer the full-bleed question" here after it has been answered. **If
+> `blocked.md`'s phase 22 section is struck through, delete recommendation 1 rather than editing
+> around it.**
 
 #### What "device verification" actually means, since it has never been spelled out here
 Every one of these features is **tested** — 480 API tests, 714 iOS tests, all green. What a test cannot do is run the parts of iOS that only exist on a physical phone. A simulator has no microphone, no camera roll, no Apple Intelligence model, no APNs connection, no WidgetKit refresh budget, no memory ceiling on an extension, no file protection, and no thumb. So for these nine features the code has been proven **correct against a stub** and never once proven to **work**.
@@ -314,7 +331,7 @@ A device-verification checklist is the thing that closes that gap. Each is a Mar
 
 They matter more than the ratio of code-to-checklist suggests, because the failures they catch are mostly **silent**. A missing App Group does not crash the widget, it makes it render its neutral state forever. A share extension over its memory ceiling is killed by the system with no error anywhere. A photo filed under the wrong day looks completely normal, on the wrong day, permanently. None of those produce a red test or a crash log; they produce an app that quietly does the wrong thing.
 
-#### The nine, in the order to run them
+#### The ten, in the order to run them
 
 **Everything below is now runnable except #9**, which needs the APNs key. Two of them (#5, #6) need the phone to be on **iOS 26+**, and #8 additionally needs Apple Intelligence hardware.
 
@@ -329,6 +346,7 @@ They matter more than the ratio of code-to-checklist suggests, because the failu
 | 7 | `device-verification-backfill.md` | 19 | TestFlight build, a real camera roll | Newest. Every assertion runs against a stub source of `Date` values, so the scan is proven as arithmetic and unproven against a library with years of photos in it. |
 | 8 | `device-verification-extraction.md` | 19 | **iOS 26+ with Apple Intelligence** | `SystemLanguageModel.default.availability` has never returned `.available` on anything here. On hardware that cannot do it, the correct outcome is that nothing happens at all — §1 checks exactly that. |
 | 9 | `device-verification-push.md` | 29 | **The APNs key first** | The only one still gated, and on a credential you can now obtain. Was blocked on enrollment *and* a deployed API; both are done. |
+| 10 | `device-verification-entry-detail.md` | 22 | TestFlight build | **Newest, added by phase 22, and the only one whose §1 is about something that must *not* appear.** Entry Detail is where sealed letters are read, and the app's primary seal assertion turns out to hold whether or not the seal does anything — it checks `preview == nil` against a fixture built with no media at all. The code is correct; the evidence is thin. A phone with a real sealed letter on it closes that, and it wants doing **before** any redesign lands rather than after. |
 | — | The sync-pull sequence | — | TestFlight build | Not a file: Settings → dry run → read the report → flip `syncPullEnabled` → pull to refresh. Verified against fixtures including a 736-entry one, **never against the real archive**. |
 
 **Two things to know before you start.** Every checklist wants the results written into the file itself — that is what makes a tick worth anything later. And several of them note that an unsigned build cannot write to the keychain, so every request after sign-in comes back `401` and it reads as an auth bug; a TestFlight build is signed, so this is one trap you have already walked past.

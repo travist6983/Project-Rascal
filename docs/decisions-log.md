@@ -1718,3 +1718,45 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **iOS suite 714/87 → 730/88**, warnings unchanged at 21, measured from a deleted `DerivedData`.
   The spec's `iPhone 15 Pro Max` is not installed on this machine; the run used `iPhone 17 Pro Max`
   on OS 26.4.1.
+
+## Phase 22 — Entry Detail v2 design import (Aug 11, 2026)
+
+- **The design import is read through `DesignSync`'s read methods, not the `claude_design` MCP.**
+  That MCP is not connected to this session; `get_project` / `list_files` / `get_file` against
+  project `e227a63f-…` reach the same files. The import **succeeded** — no fallback to
+  `docs/entry-detail/` was needed. The skill the project ships (`SKILL.md` → `rascal-design`) and
+  its `readme.md` were read as part of it, and `readme.md` is treated as a second authority
+  alongside `docs/design-system.md`.
+- **Fourth consecutive export to hardcode values its own `tokens/colors.css` does not contain.**
+  Reconciled by the standing rule — tokens + `Palette.swift` win, no new `Palette` constants.
+  The substitutions: `#5E7A57`→`sageInk`, `#A8A096`→`inkFaint`, `#F2EBE0`→`chipPlain`,
+  `#DCD2C4`/`#E6DCCE`→`border`, `#F0E2D4`→`sealedBorder`. Full table in
+  `docs/entry-detail-inventory.md`.
+- **The sealed gradient needed nothing.** `Gradients.wash` is already exactly
+  `#FDE8DC → #F7DDE8 → #FBF6EF`, the export's sealed wash, digit for digit.
+- **The voice and did-it washes are dropped to flat tints** (`periwinkleSoft`, `sage`). Neither
+  gradient is in `tokens/colors.css` or `Palette`, and `Gradients.wash` is the *sealed* treatment —
+  reusing it there or adding two more would be inventing a second and third gradient, which the
+  phase brief forbids.
+- **Paper grain dropped again, and still not resolved.** The export calls it mandatory identity;
+  `docs/decisions.md` lists screen-print texture under *Rejected — do not revisit*. Third export in
+  a row to carry it, third time dropped, deliberately with no compromise invented.
+- **Frosted glass dropped — the export contradicts its own design system.** Every sheet is
+  `backdrop-filter: blur(26px)`, while the project's own `readme.md` says "Frosted-glass panels are
+  not part of this brand." Resolved toward the README.
+- **The export's sealed copy is not adoptable.** It says the letter opens on the child's eighteenth
+  birthday "and not before — not even for you", and offers no **Open it**. The shipped reader
+  deliberately lets the author open it. Kept ours; the envelope motif is skin only.
+- **The run stopped at the end of §1 with the inventory**, which the brief pre-blesses. One
+  question is not the agent's to answer: whether full-bleed media is allowed on Entry Detail, given
+  `design-system.md` says photos "rarely bleed to the screen edge" and `decisions.md` rejects a
+  full-bleed *timeline*. Neither forbids it here; both are one step away. Logged in
+  `docs/blocked.md`.
+- **The seal's primary test is weaker than it reads.** `SealControlTests.sealedEntryRendersSealed`
+  asserts `card.preview == nil` against a fixture built with `media: []`, so the assertion holds
+  whether or not the seal does anything. No defect in the shipped gate; a gap in the evidence.
+  Recorded for 22b, which the brief already requires to assert against a sealed fixture carrying
+  both a photo and a body.
+- **Preflight deviation: the zero-warning precondition does not hold on `main`.** 21 pre-existing
+  warnings (`ExtractedDetails.swift` ×3, `PushPermissionTests` ×14, `ExtractionTests` ×4), none in
+  an Entry Detail file. Recorded rather than treated as a stop. iOS suite **756/95**, green, cold.
