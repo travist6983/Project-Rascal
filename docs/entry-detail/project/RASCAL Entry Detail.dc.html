@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face{font-family:'Nunito';font-style:normal;font-weight:600 800;font-display:swap;src:url('fonts/nunito-var-latin.woff2') format('woff2');}
+@font-face{font-family:'Source Sans 3';font-style:normal;font-weight:400 600;font-display:swap;src:url('fonts/source-sans-3-var-latin.woff2') format('woff2');}
+body{margin:0;background:#EFE9DF;font-family:'Source Sans 3',system-ui,-apple-system,sans-serif}
+a{color:#C05A2B;text-decoration:none}a:hover{color:#23253C;text-decoration:underline}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulseSoft{0%,100%{opacity:.5}50%{opacity:.9}}
+::-webkit-scrollbar{width:0;height:0}
+</style>
+<script src="./image-slot.js"></script>
+</helmet>
+
+<div style="background-color:#EFE9DF;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E&quot;);min-height:100vh;padding:56px 64px 80px;box-sizing:border-box">
+
+<div style="max-width:760px;margin-bottom:44px">
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:15px;letter-spacing:.18em;color:#23253C">RASCAL</span>
+<h1 style="margin:18px 0 0;font-family:'Nunito',sans-serif;font-weight:800;font-size:42px;line-height:1.05;letter-spacing:-.03em;color:#23253C;text-wrap:pretty">The entry, opened</h1>
+<p style="margin:16px 0 0;font-size:17px;line-height:1.5;color:#6E6A63;max-width:600px;text-wrap:pretty">Media fills the screen. Everything else — the caption, his age, the date, the prompt that started it — lives in a cream sheet resting on top of it. One grammar, seven kinds of entry: the layer behind the sheet is the only thing that changes.</p>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:48px 40px">
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">01</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Photo</span>
+<span style="font-size:14px;color:#6E6A63">— live. Tap the handle to expand, ⤢ for the photo alone.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:#23253C">
+<div style="position:absolute;inset:0">
+<image-slot id="rascal-entry-photo" shape="rect" fit="cover" placeholder="Drop the kiwi box photo"></image-slot>
+</div>
+<div style="position:absolute;top:0;left:0;right:0;height:150px;background:linear-gradient(180deg,rgba(20,18,26,.5),rgba(20,18,26,0));pointer-events:none;z-index:5"></div>
+
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#FFFDF9;pointer-events:none">
+<span style="font-weight:600;font-size:15px;letter-spacing:-.01em">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#FFFDF9"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#FFFDF9" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#FFFDF9" stroke-opacity=".5"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#FFFDF9"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#FFFDF9" fill-opacity=".5"></path></svg>
+</span>
+</div>
+
+<sc-if value="{{ chrome }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between;animation:fadeIn .22s ease both">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="display:flex;gap:8px">
+<div onClick="{{ hideChrome }}" style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18);cursor:pointer">
+<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#23253C" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.6H1.6V6M10 1.6h4.4V6M10 14.4h4.4V10M6 14.4H1.6V10"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ immersive }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ showChrome }}" style="position:absolute;inset:0;z-index:30;cursor:pointer"></div>
+</sc-if>
+
+<sc-if value="{{ chrome }}" hint-placeholder-val="{{ true }}">
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.88);backdrop-filter:blur(26px) saturate(1.25);border-radius:26px 26px 0 0;padding:12px 20px 28px;box-shadow:0 -8px 34px rgba(20,18,26,.20);animation:fadeUp .28s cubic-bezier(.32,.72,0,1) both">
+<div onClick="{{ toggleExpand }}" style="cursor:pointer;padding-bottom:4px">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 14px"></div>
+<p style="margin:0;font-size:20px;line-height:1.3;font-weight:600;color:#23253C;text-wrap:pretty">New kiwi box day!</p>
+<div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Monday 10 August 2026, 10:04am</span>
+</div>
+</div>
+<sc-if value="{{ expanded }}" hint-placeholder-val="{{ false }}">
+<div style="animation:fadeUp .26s ease both">
+<div style="height:1px;background:#E6DCCE;margin:16px 0"></div>
+<p style="margin:0 0 6px;font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#6E6A63">The prompt</p>
+<p style="margin:0;font-size:15.5px;line-height:1.45;color:#23253C;text-wrap:pretty">“Photograph something he made today. Don't tidy the table first.”</p>
+<p style="margin:6px 0 0;font-size:13px;color:#6E6A63">Assigned Mon 10 Aug, 7:00am</p>
+<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
+<span style="{{ chipAccent }}">Photo</span>
+<span style="padding:6px 13px;border-radius:99px;background:#F2EBE0;font-size:13px;font-weight:600;color:#6E6A63">Kitchen table</span>
+<span style="padding:6px 13px;border-radius:99px;border:1px dashed #D9CFC0;font-size:13px;font-weight:600;color:#A8A096">Add tag</span>
+</div>
+<div style="display:flex;gap:10px;margin-top:18px">
+<div style="{{ btnPrimary }}">Edit entry</div>
+<div style="flex:1;text-align:center;padding:14px 0;border-radius:99px;border:1px solid #E6DCCE;font-size:16px;font-weight:600;color:#6E6A63">Share</div>
+</div>
+</div>
+</sc-if>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:18px auto -12px"></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ immersive }}" hint-placeholder-val="{{ false }}">
+<div style="position:absolute;left:50%;bottom:14px;transform:translateX(-50%);width:134px;height:5px;border-radius:99px;background:#FFFDF9;opacity:.5;z-index:31;pointer-events:none"></div>
+</sc-if>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">02</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Ten photos</span>
+<span style="font-size:14px;color:#6E6A63">— the sheet carries the strip.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:#3A3128">
+<div style="position:absolute;inset:0">
+<image-slot id="rascal-entry-photos" shape="rect" fit="cover" placeholder="Drop a photo"></image-slot>
+</div>
+<div style="position:absolute;top:0;left:0;right:0;height:150px;background:linear-gradient(180deg,rgba(20,18,26,.5),rgba(20,18,26,0));pointer-events:none;z-index:5"></div>
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#FFFDF9;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#FFFDF9"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#FFFDF9" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#FFFDF9" stroke-opacity=".5"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#FFFDF9"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#FFFDF9" fill-opacity=".5"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<span style="padding:8px 15px;border-radius:99px;background:rgba(20,18,26,.42);backdrop-filter:blur(14px);font-size:13px;font-weight:600;color:#FFFDF9">1 of 10</span>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.88);backdrop-filter:blur(26px) saturate(1.25);border-radius:26px 26px 0 0;padding:12px 0 28px;box-shadow:0 -8px 34px rgba(20,18,26,.20)">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 14px"></div>
+<div style="display:flex;gap:6px;padding:0 20px;overflow:hidden">
+<sc-for list="{{ strip }}" as="t" hint-placeholder-count="6">
+<div style="{{ t.style }}"></div>
+</sc-for>
+</div>
+<div style="padding:16px 20px 0">
+<p style="margin:0;font-size:20px;line-height:1.3;font-weight:600;color:#23253C;text-wrap:pretty">The kitchen after cookies</p>
+<p style="margin:8px 0 0;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty">Flour on the ceiling. Genuinely the ceiling. He looked up and said “I'm helping the flour.”</p>
+<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Sunday 9 August 2026 · 10 photos</span>
+</div>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:18px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">03</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Video</span>
+<span style="font-size:14px;color:#6E6A63">— scrubber sits in the sheet, not on the picture.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:#2A2733">
+<div style="position:absolute;inset:0">
+<image-slot id="rascal-entry-video" shape="rect" fit="cover" placeholder="Drop a video still"></image-slot>
+</div>
+<div style="position:absolute;top:0;left:0;right:0;height:150px;background:linear-gradient(180deg,rgba(20,18,26,.5),rgba(20,18,26,0));pointer-events:none;z-index:5"></div>
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#FFFDF9;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#FFFDF9"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#FFFDF9" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#FFFDF9" stroke-opacity=".5"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#FFFDF9"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#FFFDF9" fill-opacity=".5"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(253,250,244,.9);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(20,18,26,.18)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:22;width:76px;height:76px;border-radius:99px;background:rgba(253,250,244,.92);backdrop-filter:blur(14px);display:flex;align-items:center;justify-content:center;box-shadow:0 6px 24px rgba(20,18,26,.28);pointer-events:none">
+<svg width="26" height="30" viewBox="0 0 26 30" fill="#C05A2B"><path d="M25 15L0.5 29.3V0.7z"></path></svg>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.88);backdrop-filter:blur(26px) saturate(1.25);border-radius:26px 26px 0 0;padding:12px 20px 28px;box-shadow:0 -8px 34px rgba(20,18,26,.20)">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 16px"></div>
+<div style="display:flex;align-items:center;gap:12px">
+<span style="font-size:13px;font-weight:600;color:#6E6A63;font-variant-numeric:tabular-nums">0:00</span>
+<div style="flex:1;height:4px;border-radius:99px;background:#E6DCCE;position:relative">
+<div style="{{ scrubStyle }}"></div>
+<div style="{{ scrubKnob }}"></div>
+</div>
+<span style="font-size:13px;font-weight:600;color:#6E6A63;font-variant-numeric:tabular-nums">0:42</span>
+</div>
+<p style="margin:18px 0 0;font-size:20px;line-height:1.3;font-weight:600;color:#23253C;text-wrap:pretty">The one where he explains the rules</p>
+<p style="margin:8px 0 0;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty">There are eleven rules. Nine of them are about the dog.</p>
+<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Friday 7 August 2026 · 0:42</span>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:20px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">04</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Voice</span>
+<span style="font-size:14px;color:#6E6A63">— no picture, so the wash is the picture.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:linear-gradient(168deg,#E9EBFB 0%,#DFE2F6 44%,#FBF6EF 100%)">
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#23253C;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#23253C"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#23253C" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#23253C" stroke-opacity=".4"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#23253C"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#23253C" fill-opacity=".4"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.08)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.08)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:150px;display:flex;flex-direction:column;align-items:center;gap:26px;padding:0 34px">
+<div style="width:84px;height:84px;border-radius:99px;background:#5566D6;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 28px rgba(85,102,214,.32)">
+<svg width="24" height="28" viewBox="0 0 26 30" fill="#FFFDF9"><path d="M25 15L0.5 29.3V0.7z"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:3px;height:96px">
+<sc-for list="{{ wave }}" as="b" hint-placeholder-count="40">
+<div style="{{ b.style }}"></div>
+</sc-for>
+</div>
+<span style="font-size:14px;font-weight:600;color:#5566D6;font-variant-numeric:tabular-nums">0:00 / 1:47</span>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.9);backdrop-filter:blur(26px) saturate(1.2);border-radius:26px 26px 0 0;padding:12px 20px 28px;box-shadow:0 -8px 34px rgba(35,37,60,.10)">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 14px"></div>
+<p style="margin:0;font-size:20px;line-height:1.3;font-weight:600;color:#23253C;text-wrap:pretty">The one about the dinosaur bus</p>
+<p style="margin:10px 0 0;font-size:16px;line-height:1.5;color:#23253C;text-wrap:pretty">“and then the dinosaur he goed to the bus stop but the bus was a big one, a really big one, and the driver was also a dinosaur but a nice one…”</p>
+<p style="margin:8px 0 0;font-size:13px;font-weight:600;color:#5566D6">Read the whole thing</p>
+<div style="display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Thursday 6 August 2026 · 1:47</span>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:20px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">05</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Written</span>
+<span style="font-size:14px;color:#6E6A63">— the words are the media. Same sheet, no glass.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:#FDFAF4">
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#23253C;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#23253C"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#23253C" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#23253C" stroke-opacity=".4"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#23253C"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#23253C" fill-opacity=".4"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:#FFFDF9;border:1px solid #EDE5DA;display:flex;align-items:center;justify-content:center">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:#FFFDF9;border:1px solid #EDE5DA;display:flex;align-items:center;justify-content:center">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:126px;bottom:200px;padding:0 20px;overflow:hidden">
+<div style="padding:16px 18px;border-radius:16px;background:#E9EBFB">
+<p style="margin:0;font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#5566D6">The question</p>
+<p style="margin:8px 0 0;font-size:16px;line-height:1.45;color:#23253C;text-wrap:pretty">What did he say today that you want to remember exactly?</p>
+</div>
+<p style="margin:26px 0 0;font-family:'Nunito',sans-serif;font-weight:800;font-size:26px;line-height:1.18;letter-spacing:-.02em;color:#23253C;text-wrap:pretty">Told the whole shop his name, unprompted</p>
+<p style="margin:16px 0 0;font-size:17px;line-height:1.55;color:#23253C;text-wrap:pretty">Walked up to the counter, put both hands flat on it like a small bank manager, and announced himself to a woman who had asked him nothing. She said “nice to meet you” and he said “yes” and walked out.</p>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:#FDFAF4;border-top:1px solid #EDE5DA;padding:18px 20px 28px">
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Saturday 8 August 2026, 5:20pm</span>
+</div>
+<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+<span style="padding:6px 13px;border-radius:99px;background:#E9EBFB;font-size:13px;font-weight:600;color:#5566D6">Written</span>
+<span style="padding:6px 13px;border-radius:99px;background:#F2EBE0;font-size:13px;font-weight:600;color:#6E6A63">Out and about</span>
+<span style="padding:6px 13px;border-radius:99px;border:1px dashed #D9CFC0;font-size:13px;font-weight:600;color:#A8A096">Add tag</span>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:20px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">06</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Did it</span>
+<span style="font-size:14px;color:#6E6A63">— no artifact, so the prompt is the artifact.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:linear-gradient(168deg,#E8F0E6 0%,#EFF4EC 46%,#FBF6EF 100%)">
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#23253C;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#23253C"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#23253C" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#23253C" stroke-opacity=".4"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#23253C"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#23253C" fill-opacity=".4"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.06)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.06)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:172px;padding:0 30px;display:flex;flex-direction:column;align-items:center;gap:26px;text-align:center">
+<div style="width:74px;height:74px;border-radius:99px;background:#FFFDF9;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 18px rgba(94,122,87,.16)">
+<svg width="32" height="26" viewBox="0 0 11 9" fill="none" stroke="#5E7A57" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.2 4.6l2.9 3L9.8 1.4"></path></svg>
+</div>
+<p style="margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:28px;line-height:1.2;letter-spacing:-.02em;color:#23253C;text-wrap:pretty">Let him choose dinner. Eat what he chooses.</p>
+<p style="margin:0;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty">Nothing was recorded. That's allowed — it still happened.</p>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.9);backdrop-filter:blur(20px);border-radius:26px 26px 0 0;padding:12px 20px 28px;box-shadow:0 -8px 30px rgba(35,37,60,.08)">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 14px"></div>
+<p style="margin:0;font-size:17px;line-height:1.45;font-weight:600;color:#23253C;text-wrap:pretty">Beans on toast, with the beans on the side.</p>
+<div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Tuesday 4 August 2026</span>
+</div>
+<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+<span style="padding:6px 13px;border-radius:99px;background:#E8F0E6;font-size:13px;font-weight:600;color:#5E7A57">Did it</span>
+<span style="padding:6px 13px;border-radius:99px;border:1px dashed #D9CFC0;font-size:13px;font-weight:600;color:#A8A096">Add tag</span>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:20px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:14px">
+<div style="display:flex;align-items:baseline;gap:10px">
+<span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#A8A096">07</span>
+<span style="font-family:'Nunito',sans-serif;font-weight:800;font-size:17px;color:#23253C">Sealed letter</span>
+<span style="font-size:14px;color:#6E6A63">— the one entry the sheet keeps shut.</span>
+</div>
+<div style="position:relative;width:414px;height:872px;padding:12px;border-radius:58px;flex:none;background:#23253C;box-shadow:0 30px 70px rgba(35,37,60,.24)">
+<div style="position:relative;width:390px;height:848px;border-radius:46px;overflow:hidden;background:linear-gradient(168deg,#FDE8DC 0%,#F7DDE8 46%,#FBF6EF 100%)">
+<div style="position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px 0 32px;z-index:20;color:#23253C;pointer-events:none">
+<span style="font-weight:600;font-size:15px">10:20</span>
+<span style="display:flex;align-items:center;gap:6px">
+<svg width="17" height="11" viewBox="0 0 17 11" fill="#23253C"><rect x="0" y="7" width="3" height="4" rx="1"></rect><rect x="4.5" y="5" width="3" height="6" rx="1"></rect><rect x="9" y="2.5" width="3" height="8.5" rx="1"></rect><rect x="13.5" y="0" width="3" height="11" rx="1"></rect></svg>
+<svg width="16" height="11" viewBox="0 0 16 11" fill="none" stroke="#23253C" stroke-width="1.6" stroke-linecap="round"><path d="M1 3.6a10 10 0 0 1 14 0"></path><path d="M3.6 6.3a6.4 6.4 0 0 1 8.8 0"></path><path d="M6.2 8.9a2.8 2.8 0 0 1 3.6 0"></path></svg>
+<svg width="25" height="12" viewBox="0 0 25 12"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" fill="none" stroke="#23253C" stroke-opacity=".4"></rect><rect x="2.5" y="2.5" width="14" height="7" rx="2" fill="#23253C"></rect><path d="M23 4v4a2.2 2.2 0 0 0 0-4z" fill="#23253C" fill-opacity=".4"></path></svg>
+</span>
+</div>
+<div style="position:absolute;top:62px;left:16px;right:16px;z-index:22;display:flex;align-items:center;justify-content:space-between">
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.06)">
+<svg width="9" height="15" viewBox="0 0 9 15" fill="none" stroke="#23253C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5L1.5 7.5L7.5 13.5"></path></svg>
+</div>
+<div style="width:40px;height:40px;border-radius:99px;background:rgba(255,253,249,.86);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(35,37,60,.06)">
+<svg width="16" height="4" viewBox="0 0 16 4" fill="#23253C"><circle cx="2" cy="2" r="1.7"></circle><circle cx="8" cy="2" r="1.7"></circle><circle cx="14" cy="2" r="1.7"></circle></svg>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:164px;padding:0 34px;display:flex;flex-direction:column;align-items:center;gap:28px;text-align:center">
+<div style="position:relative;width:214px;height:150px;border-radius:16px;background:#FFFDF9;border:1px solid #F0E2D4;box-shadow:0 6px 22px rgba(35,37,60,.08);display:flex;align-items:center;justify-content:center">
+<div style="position:absolute;top:0;left:0;right:0;height:74px;border-radius:16px 16px 0 0;background:linear-gradient(160deg,#FBEDE2,#F6E2D3);clip-path:polygon(0 0,100% 0,50% 100%)"></div>
+<div style="{{ sealStyle }}">R</div>
+</div>
+<div>
+<p style="margin:0;font-family:'Nunito',sans-serif;font-weight:800;font-size:26px;line-height:1.2;letter-spacing:-.02em;color:#23253C;text-wrap:pretty">A letter you sealed</p>
+<p style="margin:12px 0 0;font-size:16px;line-height:1.5;color:#6E6A63;text-wrap:pretty">Written when he was 4 years, 1 month. It opens on his eighteenth birthday and not before — not even for you.</p>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;z-index:24;background:rgba(253,250,244,.9);backdrop-filter:blur(20px);border-radius:26px 26px 0 0;padding:12px 20px 28px;box-shadow:0 -8px 30px rgba(35,37,60,.08)">
+<div style="width:38px;height:5px;border-radius:99px;background:#DCD2C4;margin:0 auto 14px"></div>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+<span style="padding:4px 11px;border-radius:99px;background:#E9EBFB;font-size:12.5px;font-weight:600;color:#5566D6">4 years, 1 month</span>
+<span style="font-size:14px;color:#6E6A63">Sealed Sunday 2 August 2026</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;margin-top:14px;padding:14px 16px;border-radius:16px;background:#FBEDE2">
+<svg width="15" height="18" viewBox="0 0 15 18" fill="none" stroke="#C05A2B" stroke-width="1.6" stroke-linecap="round"><rect x="1.4" y="7.2" width="12.2" height="9.4" rx="2.6"></rect><path d="M4.3 7.2V4.9a3.2 3.2 0 0 1 6.4 0v2.3"></path></svg>
+<span style="font-size:15px;line-height:1.4;color:#23253C;flex:1;text-wrap:pretty">Opens 19 June 2040</span>
+<span style="font-size:13px;font-weight:600;color:#6E6A63">13y 10m</span>
+</div>
+<div style="width:134px;height:5px;border-radius:99px;background:#23253C;opacity:.22;margin:20px auto -12px"></div>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#C05A2B&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;#C05A2B&quot;,&quot;#B4552F&quot;,&quot;#A8613C&quot;,&quot;#C0492B&quot;]}}">
+const TONES=[["#E9DCCB","#C8B49B"],["#DCE3D6","#B4C2AC"],["#EFE0DC","#D2AFA4"],["#DDE0EC","#B0B6CE"],["#EDE4D2","#CDBB94"],["#E4D8D2","#BCA99E"]];
+
+class Component extends DCLogic {
+  state={chrome:true,expanded:false};
+  renderVals(){
+    const A=this.props.accent ?? "#C05A2B";
+    const s=this.state;
+    const wave=Array.from({length:44},(_,i)=>{
+      const h=18+Math.abs(Math.sin(i*0.7)*Math.cos(i*0.31))*74;
+      return {style:`width:4px;height:${Math.round(h)}px;border-radius:99px;background:#5566D6;opacity:${i<8?.85:.34}`};
+    });
+    const strip=Array.from({length:6},(_,i)=>({
+      style:`width:56px;height:56px;flex:none;border-radius:12px;background:linear-gradient(150deg,${TONES[i%6][0]},${TONES[i%6][1]});${i===0?`box-shadow:0 0 0 2px ${A}`:""}`
+    }));
+    return {
+      wave, strip,
+      chrome:s.chrome, immersive:!s.chrome, expanded:s.expanded,
+      hideChrome:()=>this.setState({chrome:false}),
+      showChrome:()=>this.setState({chrome:true}),
+      toggleExpand:()=>this.setState({expanded:!s.expanded}),
+      chipAccent:`padding:6px 13px;border-radius:99px;background:#FBEDE2;font-size:13px;font-weight:600;color:${A}`,
+      btnPrimary:`flex:1;text-align:center;padding:14px 0;border-radius:99px;background:${A};color:#FFFDF9;font-size:16px;font-weight:600;box-shadow:0 6px 18px rgba(192,90,43,.24)`,
+      scrubStyle:`position:absolute;left:0;top:0;bottom:0;width:18%;border-radius:99px;background:${A}`,
+      scrubKnob:`position:absolute;left:18%;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:99px;background:${A};box-shadow:0 2px 6px rgba(35,37,60,.22)`,
+      sealStyle:`position:relative;width:56px;height:56px;border-radius:99px;background:${A};color:#FFFDF9;display:flex;align-items:center;justify-content:center;font-family:'Nunito',sans-serif;font-weight:800;font-size:22px;box-shadow:0 4px 14px rgba(192,90,43,.28)`
+    };
+  }
+}
+</script>
+</body>
+</html>
