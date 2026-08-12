@@ -666,7 +666,10 @@ func onboardingSession(
     drafts: OnboardingDraftStoring = InMemoryOnboardingDraftStore(),
     appleIDs: AppleUserIDStoring = InMemoryAppleUserIDStore(),
     credentials: AppleCredentialChecking = StubCredentialCheck(.authorized),
-    avatars: AvatarStoring = InMemoryAvatarStore()
+    avatars: AvatarStoring = InMemoryAvatarStore(),
+    // In memory so a setup test never writes a pending upload into the process's real
+    // `UserDefaults` and leaves it there for the next run's sweep to find.
+    pendingAvatars: PendingAvatarUploadStoring = InMemoryPendingAvatarUploadStore()
 ) -> OnboardingSession {
     let store = InMemoryTokenStore(tokens)
     let account = AppSession(
@@ -683,7 +686,8 @@ func onboardingSession(
         drafts: drafts,
         appleIDs: appleIDs,
         credentials: credentials,
-        avatars: avatars
+        avatars: avatars,
+        pendingAvatars: pendingAvatars
     )
 }
 

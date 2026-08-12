@@ -73,6 +73,17 @@ struct RootView: View {
     /// against. Cleared whether or not it resolves — see `TodayScreen`.
     @State private var requestedAssignment: UUID?
     @State private var sync: EntrySync?
+    /// One instance for the signed-in app: the sweep that uploads an avatar and the Settings read
+    /// that displays one are the same object, so they cannot disagree about the cache.
+    ///
+    /// **Not one instance for the whole process, and the exception is deliberate.**
+    /// `OnboardingSession` builds its own, because setup runs before this view exists and is the
+    /// only place an avatar is produced. The two never overlap in practice — onboarding hands off
+    /// to `RootView` — but they do share their two stores, which is what makes the overlap
+    /// harmless: state lives in `UserDefaults` and on disk rather than in either instance. Worst
+    /// case if they ever did sweep together is one extra presign and an orphaned object, which is
+    /// the failure mode the commit-last ordering already accepts.
+    @State private var avatarSync: AvatarSync?
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
     /// Files the share extension staged into the App Group container, waiting to become entries.
@@ -187,8 +198,16 @@ struct RootView: View {
                 // lands. One direction — the queue does not hold the coordinator.
                 mediaCoordinator.transcription = queue
             }
+            if avatarSync == nil {
+                avatarSync = AvatarSync(api: session.api)
+            }
             if sync == nil {
-                sync = EntrySync(api: session.api, context: context, media: mediaCoordinator)
+                sync = EntrySync(
+                    api: session.api,
+                    context: context,
+                    media: mediaCoordinator,
+                    avatars: avatarSync
+                )
             }
             if shareDrain == nil {
                 shareDrain = ShareDrain(context: context, childId: childId)
@@ -408,6 +427,7 @@ struct RootView: View {
                         session: session,
                         onSignOut: onSignOut,
                         sync: sync,
+                        avatarSync: avatarSync,
                         syncEngine: syncEngine,
                         transcription: transcription,
                         notifications: notifications,

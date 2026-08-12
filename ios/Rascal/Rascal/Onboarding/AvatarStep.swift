@@ -30,7 +30,11 @@ struct AvatarStep: View {
     var body: some View {
         OnboardingStepScaffold(
             title: "Add a photo of \(name)?",
-            subtitle: "Optional. It stays on this phone for now."
+            // **"It stays on this phone for now" was true until this phase and is not now.**
+            // The same false-sentence problem as `AvatarStore`'s header comment, in the one place
+            // a parent actually reads it — a promise about where a picture of their child is kept
+            // is not a detail to leave stale.
+            subtitle: "Optional. It's saved with the archive, so a new phone still has it."
         ) {
             VStack(spacing: 20) {
                 preview

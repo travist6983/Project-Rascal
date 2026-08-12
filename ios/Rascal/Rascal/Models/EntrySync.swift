@@ -23,10 +23,19 @@ final class EntrySync {
     /// of its own. Optional so the entry-only tests need no uploader.
     private let media: MediaCoordinator?
 
-    init(api: APIClient, context: ModelContext, media: MediaCoordinator? = nil) {
+    /// The avatar rides it too, on the same argument. Optional for the same reason.
+    private let avatars: AvatarSync?
+
+    init(
+        api: APIClient,
+        context: ModelContext,
+        media: MediaCoordinator? = nil,
+        avatars: AvatarSync? = nil
+    ) {
         self.api = api
         self.context = context
         self.media = media
+        self.avatars = avatars
     }
 
     /// Everything written locally that the server has not acknowledged.
@@ -127,6 +136,12 @@ final class EntrySync {
         // Runs regardless of whether any entry was outstanding: a photo can still be in flight
         // long after its entry landed.
         await media?.sweep()
+        // **Last, and not gated on anything above.** An avatar hangs off the child, not off an
+        // entry, so unlike media it has nothing to wait behind — `avatar-upload-url` needs only a
+        // child that already exists. It goes last because the archive outranks a decoration: an
+        // entry the parent wrote and a photo they took are what the sweep is for, and a 40KB
+        // square should not be ahead of either on a thin connection.
+        await avatars?.sweep()
         return synced
     }
 

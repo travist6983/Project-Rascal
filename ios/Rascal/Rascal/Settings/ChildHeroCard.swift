@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// The child, at the top of Settings.
 ///
 /// **This is the whole argument of the design import.** Settings used to open on a small-caps
@@ -26,6 +30,13 @@ import SwiftUI
 struct ChildHeroCard: View {
     /// Nil until `GET /children` lands — on a first launch with no network, indefinitely.
     let child: ChildResponse?
+    /// The avatar's JPEG bytes, or nil for a child who has none.
+    ///
+    /// **Nil is not a failure state and gets no treatment of its own.** A child with no avatar, a
+    /// fresh install that is offline, and a key whose object has gone all render the initials
+    /// disc — which is what this card showed unconditionally before there was anywhere to upload
+    /// an avatar to, so the fallback is the previous design rather than a new one.
+    var avatar: Data?
     /// Opens the edit sheet. Never called while `child` is nil: the placeholder is not a button,
     /// which is the single condition rather than a second nullable the caller could disagree with.
     let action: () -> Void
@@ -66,7 +77,7 @@ struct ChildHeroCard: View {
 
     private func content(_ child: ChildResponse) -> some View {
         HStack(spacing: 14) {
-            avatar(initial: Self.initial(of: child.name))
+            disc(initial: Self.initial(of: child.name))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(child.name)
@@ -89,20 +100,48 @@ struct ChildHeroCard: View {
         .contentShape(Rectangle())
     }
 
-    /// A terracotta disc with the initial reversed out of it, ringed in cream so it separates from
-    /// the peach behind it rather than floating on it.
+    /// The child's face when there is one, their initial when there is not.
+    ///
+    /// **The ring and the frame live here rather than in either branch**, so the disc is the same
+    /// size and the same shape whichever one draws — an avatar that arrives a moment after the
+    /// name must not resize or re-ring the circle it lands in.
+    ///
+    /// `scaledToFill` inside a `Circle` clip even though `AvatarCrop` already centre-cropped to a
+    /// square: that is not a second crop, it is the guard against bytes that predate the rule, or
+    /// that came back from storage having been written by something else.
+    @ViewBuilder
+    private func disc(initial: String) -> some View {
+        ZStack {
+            #if canImport(UIKit)
+            if let avatar, let image = UIImage(data: avatar) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                initialDisc(initial)
+            }
+            #else
+            initialDisc(initial)
+            #endif
+        }
+        .frame(width: diameter, height: diameter)
+        .clipShape(Circle())
+        .overlay(Circle().strokeBorder(Color.canvas.opacity(0.7), lineWidth: 3))
+    }
+
+    /// A terracotta disc with the initial reversed out of it. The cream ring that separates it
+    /// from the peach behind it is applied by `disc`, so both branches get the same one.
     ///
     /// `canvas` on `terracotta` measures 4.25:1 — under AA for body text, over the 3:1 asked of
     /// large text, which at `.detailTitle` (26pt bold) is what this is. It is also decorative:
     /// the name is spelled out in full immediately to its right and the disc is inside the
     /// combined accessibility element, so nothing here is the only copy of anything.
-    private func avatar(initial: String) -> some View {
+    private func initialDisc(_ initial: String) -> some View {
         Text(initial)
             .typeRole(.detailTitle)
             .foregroundStyle(Color.canvas)
             .frame(width: diameter, height: diameter)
-            .background(Color.terracotta, in: Circle())
-            .overlay(Circle().strokeBorder(Color.canvas.opacity(0.7), lineWidth: 3))
+            .background(Color.terracotta)
     }
 
     // MARK: Not loaded
