@@ -319,6 +319,11 @@ struct RootView: View {
                 BackfillFlowView(
                     childId: childId,
                     childBirthdate: resolvedBirthdate,
+                    // From the `YYYY-MM-DD` string, not from `resolvedBirthdate` — see
+                    // `BackfillMonth(calendarDay:)`. The two answer differently near a month
+                    // boundary for a family whose timezone is not this phone's.
+                    birthMonth: BackfillMonth(calendarDay: childBirthdate),
+                    familyTimezone: timezone,
                     api: session.api,
                     scanner: backfill,
                     source: backfillSource,

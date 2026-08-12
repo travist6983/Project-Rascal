@@ -984,6 +984,44 @@ photo count stays honest — *shown* as unavailable, and refused as a selection.
 available and then failing on load is worse than saying so, and quietly pulling a few hundred
 megabytes from a screen someone opened to browse would break the promise the explainer just made.
 
+**Aug 12, 2026** — Phase 18's follow-up. Four decisions, and none of them reopens the five above.
+
+**`SUGGESTED` is this month in the years before it — five cards at most, floored at the month the
+child was born in, and it never substitutes.** It used to be every month that had photos and
+nothing written, which on a camera roll starting in 2012 is one card per month back to 2012 for a
+child born in 2022 — fourteen years that are not this child's childhood. The section now asks the
+same calendar month walking back through up to five prior years, which is a question a parent can
+answer. **A candidate that is empty, dismissed, or older than the child shortens the list rather
+than being replaced**: the premise is "this month, earlier", and quietly promoting June into an
+August slot would break it while looking like it worked. The current month of the current year is
+excluded because it is still happening. `EVERY MONTH` is floored the same way and stops at last
+month. **Note what this drops:** the old rule excluded months already written about, and the new
+one does not — a month with an entry can be suggested again, because "look back at this August"
+is a different question from "you have not written about this".
+
+**"What month is it" is answered in the child's `family_timezone`, and the birth month is read out
+of the date string.** Two separate ways the same class of defect gets in. `Calendar.current` is the
+*device's* idea of the month and is a month wrong on the 1st for a parent travelling — the
+`daysUntilExpiry` defect from phase 11 in a second place. And `children.birthdate` parsed to a
+`Date` in the device's zone, then read back in the child's, files a child born on the 1st into the
+previous month; `BackfillMonth(calendarDay:)` takes the year and month straight out of `YYYY-MM-DD`
+with no instant in between, so no zone can move it.
+
+**Every selectable tile in the picker carries its selection ring before the first tap.** The grid's
+entire purpose is selection, and a tile with no affordance until after something is already
+selected makes the parent's first tap a guess. Unselected is `surface` at 70% under a `border`
+hairline; selected fills terracotta with a `canvas` check and puts a 2pt terracotta stroke on the
+tile. **A cloud-only tile gets no circle at all** — it is not tappable, and an affordance offering
+to select it would be a control that lies. This supersedes the selected-only badge
+`docs/design-system.md` described, and that file is updated rather than left to disagree.
+
+**The crash on a long camera roll was the container, not the scan.** A plain `VStack` inside a
+`ScrollView` mounts every child before the first frame, so 175 month cards each read a whole month
+of the library and requested four thumbnails: 175 reads, 700 requests, 643MB against a 236MB
+baseline, measured. **`LazyVStack` alone fixed none of it** — the cards sat inside a nested
+`VStack` for their gap, and a lazy stack treats a nested stack as one child. The laziness has to
+reach the `ForEach`. Recorded because it is invisible in a diff and reads as already fixed.
+
 **Aug 10, 2026** — Phase 15 made the prompt pool durable. Three decisions.
 
 **Suppression outranks every relaxation rule, including an empty pool.** A dismissed prompt was

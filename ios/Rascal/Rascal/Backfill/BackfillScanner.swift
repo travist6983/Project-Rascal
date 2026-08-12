@@ -52,6 +52,23 @@ nonisolated protocol BackfillAssetSource: Sendable {
     /// **Never downloads.** Throws for an asset that is not on the device, which is why the picker
     /// refuses to select one in the first place.
     func imageData(for assetId: String) async throws -> Data
+
+    /// Decode ahead of the scroll, and let go behind it.
+    ///
+    /// Optional, with no-op defaults: these exist for `PHCachingImageManager` and there is nothing
+    /// for a stub of `Date` values to do with them. A source that does not implement them is not
+    /// broken, only uncached — which is exactly what every test fake wants to be.
+    func startCachingThumbnails(_ assetIds: [String], maxPixel: Int)
+    func stopCachingThumbnails(_ assetIds: [String], maxPixel: Int)
+    /// On the way out of the picker. A caching manager still holding a month keeps it decoded for
+    /// the life of the process.
+    func stopCachingAllThumbnails()
+}
+
+extension BackfillAssetSource {
+    func startCachingThumbnails(_ assetIds: [String], maxPixel: Int) {}
+    func stopCachingThumbnails(_ assetIds: [String], maxPixel: Int) {}
+    func stopCachingAllThumbnails() {}
 }
 
 /// What went wrong reaching for a photo's bytes.
@@ -100,6 +117,13 @@ final class BackfillScanner {
     /// Every month holding a photo, for the "Every month" browse list. Unfiltered — see
     /// `BackfillPlan.monthIndex`. Empty until a scan has run.
     private(set) var months: [BackfillMonthSummary] = []
+    /// Months the parent has waved away, as `BackfillMonth.key`.
+    ///
+    /// **Published because `SUGGESTED` is no longer the cluster list.** The browse screen builds its
+    /// own five candidates from `months` and has to apply the same dismissals the clusters do —
+    /// reading the store from the view would be a second source for one answer, and one of the two
+    /// would eventually stop being refreshed.
+    private(set) var dismissedMonths: Set<String> = []
 
     private let source: any BackfillAssetSource
     private let dismissals: any BackfillDismissalStoring
@@ -114,6 +138,10 @@ final class BackfillScanner {
         self.source = source
         self.dismissals = dismissals
         self.cache = cache
+        // Read at init rather than at the first scan. The browse screen can be reached before a
+        // scan has completed — a cached result renders immediately — and a dismissal recorded last
+        // week must not reappear for the length of that first render.
+        self.dismissedMonths = dismissals.dismissed()
     }
 
     /// `entryDates` is every `occurred_at` this device holds, read from the local store by the
@@ -172,11 +200,13 @@ final class BackfillScanner {
             return
         }
 
+        let dismissed = dismissals.dismissed()
+        dismissedMonths = dismissed
         let clusters = BackfillPlan.clusters(
             assetDates: dates.onDevice,
             cloudOnlyDates: dates.cloudOnly,
             entryDates: entryDates,
-            dismissed: dismissals.dismissed()
+            dismissed: dismissed
         )
         let index = BackfillPlan.monthIndex(
             assetDates: dates.onDevice,
@@ -196,11 +226,13 @@ final class BackfillScanner {
     /// was dismissed.
     private func filtered(_ clusters: [BackfillCluster]) -> [BackfillCluster] {
         let dismissed = dismissals.dismissed()
+        dismissedMonths = dismissed
         return clusters.filter { !dismissed.contains($0.month.key) }
     }
 
     func dismiss(_ month: BackfillMonth) {
         dismissals.dismiss(month)
+        dismissedMonths = dismissals.dismissed()
         if case .ready(let clusters) = state {
             state = .ready(clusters.filter { $0.month != month })
         }
@@ -213,6 +245,9 @@ final class BackfillScanner {
     /// survived the toast is a decision, and `dismissed()` is where it lives.
     func restore(_ month: BackfillMonth, entryDates: [Date]) {
         dismissals.restore(month)
+        // Published before the rescan rather than after it. The rescan is a task, and Undo has to
+        // put the month back under the parent's thumb now — not once a library walk has finished.
+        dismissedMonths = dismissals.dismissed()
         scan(entryDates: entryDates, force: true)
     }
 
@@ -393,36 +428,104 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
         }.value
     }
 
-    func thumbnail(for assetId: String, maxPixel: Int) async -> Data? {
-        guard let asset = Self.asset(for: assetId) else { return nil }
+    /// The one caching manager the picker warms.
+    ///
+    /// **Static because `start` and `stop` have to pair on the same object.** This type is a
+    /// struct built fresh wherever it is needed, and a per-instance manager would mean starting a
+    /// cache on one and stopping it on another — which leaks the whole month.
+    private static let caching = PHCachingImageManager()
+
+    /// Grid thumbnails, and the options are load bearing.
+    ///
+    /// `.fastFormat` with `.exact` resizing: one callback at exactly the size asked for, rather
+    /// than `.fast`'s "some efficient size near it" followed by a second, better decode. With a
+    /// fixed tile frame neither can move the layout any more, but a second decode per tile is
+    /// still a second decode per tile, and the degraded frame is the one that used to arrive at a
+    /// different size and land mid-scroll.
+    static func thumbnailOptions() -> PHImageRequestOptions {
         let options = PHImageRequestOptions()
         // **The whole promise of the scan, kept here too.** A grid of forty tiles that each
         // quietly pull from iCloud is a large download nobody asked for, on a screen someone
         // opened to browse. A cloud-only asset returns nil and renders as unavailable.
         options.isNetworkAccessAllowed = false
-        // One callback rather than a degraded-then-good pair, so the continuation resumes once.
-        options.deliveryMode = .highQualityFormat
-        options.resizeMode = .fast
+        options.deliveryMode = .fastFormat
+        options.resizeMode = .exact
         options.isSynchronous = false
+        return options
+    }
 
+    func thumbnail(for assetId: String, maxPixel: Int) async -> Data? {
+        guard let asset = Self.asset(for: assetId) else { return nil }
         let side = CGFloat(maxPixel)
-        return await withCheckedContinuation { continuation in
-            let resumed = ResumeGuard()
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: CGSize(width: side, height: side),
-                contentMode: .aspectFill,
-                options: options
-            ) { image, _ in
-                guard resumed.claim() else { return }
-                #if canImport(UIKit)
-                continuation.resume(returning: image?.jpegData(compressionQuality: 0.8))
-                #else
-                _ = image
-                continuation.resume(returning: nil)
-                #endif
+
+        // **`withTaskCancellationHandler` is the tile's `cancelImageRequest`.** SwiftUI cancels a
+        // `.task(id:)` when its view leaves the grid, and without this that cancellation stopped at
+        // the `await` — the request went on resolving, decoding a picture for a tile that no longer
+        // existed. A fast flick through a month left hundreds of those in flight at once, which is
+        // the memory the grid could not afford.
+        let request = ThumbnailRequest()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                request.attach(continuation)
+                let id = Self.caching.requestImage(
+                    for: asset,
+                    targetSize: CGSize(width: side, height: side),
+                    contentMode: .aspectFill,
+                    options: Self.thumbnailOptions()
+                ) { image, _ in
+                    #if canImport(UIKit)
+                    request.finish(image?.jpegData(compressionQuality: 0.8))
+                    #else
+                    _ = image
+                    request.finish(nil)
+                    #endif
+                }
+                // Cancellation can arrive before the request has an id to cancel. `store` says so,
+                // and this is the only place that id will ever be seen again.
+                if let orphan = request.store(id) { Self.caching.cancelImageRequest(orphan) }
             }
+        } onCancel: {
+            if let id = request.cancel() { Self.caching.cancelImageRequest(id) }
         }
+    }
+
+    // MARK: Caching ahead of the scroll
+
+    func startCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        let assets = Self.assets(for: assetIds)
+        guard !assets.isEmpty else { return }
+        let side = CGFloat(maxPixel)
+        Self.caching.startCachingImages(
+            for: assets,
+            targetSize: CGSize(width: side, height: side),
+            contentMode: .aspectFill,
+            options: Self.thumbnailOptions()
+        )
+    }
+
+    func stopCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        let assets = Self.assets(for: assetIds)
+        guard !assets.isEmpty else { return }
+        let side = CGFloat(maxPixel)
+        Self.caching.stopCachingImages(
+            for: assets,
+            targetSize: CGSize(width: side, height: side),
+            contentMode: .aspectFill,
+            options: Self.thumbnailOptions()
+        )
+    }
+
+    func stopCachingAllThumbnails() {
+        Self.caching.stopCachingImagesForAllAssets()
+    }
+
+    private static func assets(for identifiers: [String]) -> [PHAsset] {
+        guard !identifiers.isEmpty else { return [] }
+        let fetched = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
+        var assets: [PHAsset] = []
+        assets.reserveCapacity(fetched.count)
+        fetched.enumerateObjects { asset, _, _ in assets.append(asset) }
+        return assets
     }
 
     func imageData(for assetId: String) async throws -> Data {
@@ -463,6 +566,84 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
 /// PhotoKit's result handlers are documented to fire more than once for some delivery modes, and
 /// resuming a continuation twice is a crash rather than a warning. The options above ask for a
 /// single callback; this makes a second one harmless instead of fatal.
+/// One in-flight thumbnail request: its continuation, its `PHImageRequestID`, and the guarantee
+/// that exactly one thing ends it.
+///
+/// Three events race here — PhotoKit's result handler, the task's cancellation, and the closure
+/// that is still assembling the request — and a `CheckedContinuation` resumed twice is a crash
+/// rather than a warning while one resumed zero times is a task that never ends.
+///
+/// **Cancellation resumes the continuation itself rather than waiting for PhotoKit to call back.**
+/// `cancelImageRequest` is documented to deliver a final cancelled callback, and in practice it
+/// does — but a tile whose task can only finish when a callback arrives is a tile that hangs
+/// forever if one ever does not, and that is not a risk worth carrying for a picture. Resuming here
+/// makes the hang structurally impossible: a later callback finds the request already done and is
+/// dropped. The request is still cancelled at PhotoKit, so nothing goes on decoding.
+///
+/// The awkward case is cancellation arriving *before* the continuation exists, which
+/// `withTaskCancellationHandler` permits — `cancel` leaves the request unfinished when it has
+/// nothing to resume, and `attach` finishes it the moment it does.
+nonisolated final class ThumbnailRequest: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Never>?
+    private var id: PHImageRequestID?
+    private var done = false
+    private var cancelRequested = false
+
+    /// Hand over the continuation, resuming it at once if cancellation already arrived.
+    func attach(_ continuation: CheckedContinuation<Data?, Never>) {
+        lock.lock()
+        if cancelRequested, !done {
+            done = true
+            lock.unlock()
+            continuation.resume(returning: nil)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    /// Record the request id. Returns it when cancellation got here first, in which case the caller
+    /// is the only one who can still cancel it.
+    func store(_ newId: PHImageRequestID) -> PHImageRequestID? {
+        lock.lock(); defer { lock.unlock() }
+        if cancelRequested { return newId }
+        id = newId
+        return nil
+    }
+
+    /// PhotoKit answered. Silent if the request already ended.
+    func finish(_ data: Data?) {
+        lock.lock()
+        guard !done else { lock.unlock(); return }
+        done = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: data)
+    }
+
+    /// The task was cancelled. Returns the id still outstanding at PhotoKit, if there is one.
+    func cancel() -> PHImageRequestID? {
+        lock.lock()
+        cancelRequested = true
+        let outstanding = id
+        id = nil
+        var resuming: CheckedContinuation<Data?, Never>?
+        // **`done` is only set when there is something to resume.** Setting it unconditionally
+        // would tell a later `attach` the request had already finished, and that continuation would
+        // never be resumed by anybody — the exact hang this type exists to rule out.
+        if !done, let continuation {
+            done = true
+            resuming = continuation
+            self.continuation = nil
+        }
+        lock.unlock()
+        resuming?.resume(returning: nil)
+        return outstanding
+    }
+}
+
 private nonisolated final class ResumeGuard: @unchecked Sendable {
     private let lock = NSLock()
     private var used = false

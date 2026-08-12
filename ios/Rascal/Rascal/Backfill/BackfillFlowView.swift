@@ -11,6 +11,16 @@ struct BackfillFlowView: View {
     let childId: UUID
     /// Only for the age lines. Nil until the archive has told us one, which simply drops them.
     let childBirthdate: Date?
+    /// The month the child was born in, and the floor under both browse lists.
+    ///
+    /// **Carried as a `BackfillMonth` rather than derived from `childBirthdate`.** That `Date` is
+    /// parsed in the *device's* zone by `EditChildModel.dayFormatter`; reading its month back in the
+    /// child's would put a child born on the 1st into the previous month for a family far enough
+    /// east. `BackfillMonth(calendarDay:)` reads the year and month out of the `YYYY-MM-DD` string
+    /// with no instant in between, which is the only version that cannot drift.
+    let birthMonth: BackfillMonth?
+    /// The child's `family_timezone`, for deciding what month it is. **Never `Calendar.current`.**
+    let familyTimezone: String
     let api: APIClient
     let scanner: BackfillScanner
     let source: any BackfillAssetSource
@@ -31,6 +41,12 @@ struct BackfillFlowView: View {
     @State private var savedDays: Set<Date> = []
     /// The day a composer was just opened for, waiting to find out whether anything was written.
     @State private var pendingDay: Date?
+    /// The month it is in the child's zone, read **once per presentation** rather than in `body`.
+    ///
+    /// A `Date()` inside a computed property is a different answer on every redraw, which on the
+    /// stroke of midnight on the 1st would resort the screen under the parent's thumb. Read once,
+    /// held, and left alone for the life of the flow.
+    @State private var thisMonth: BackfillMonth?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
@@ -38,6 +54,8 @@ struct BackfillFlowView: View {
     init(
         childId: UUID,
         childBirthdate: Date?,
+        birthMonth: BackfillMonth?,
+        familyTimezone: String,
         api: APIClient,
         scanner: BackfillScanner,
         source: any BackfillAssetSource,
@@ -46,6 +64,8 @@ struct BackfillFlowView: View {
     ) {
         self.childId = childId
         self.childBirthdate = childBirthdate
+        self.birthMonth = birthMonth
+        self.familyTimezone = familyTimezone
         self.api = api
         self.scanner = scanner
         self.source = source
@@ -163,10 +183,35 @@ struct BackfillFlowView: View {
         }
     }
 
+    /// `SUGGESTED`: this month, in the years before it.
+    ///
+    /// Built from `scanner.months` — the index the scan already produced and holds — so nothing
+    /// here issues a fetch. Five candidates filtered three ways is arithmetic over at most a few
+    /// hundred structs, which is why it can sit in a computed property without a cache of its own.
+    private var suggestedMonths: [BackfillMonthSummary] {
+        guard let thisMonth else { return [] }
+        let wanted = BackfillPlan.suggested(
+            thisMonth: thisMonth,
+            birthMonth: birthMonth,
+            photoCounts: BackfillPlan.photoCounts(scanner.months),
+            dismissed: scanner.dismissedMonths
+        )
+        // Ordered by the rule, not by the index: `suggested` returns most recent first and that is
+        // the order the cards read in. A lookup keeps each month's real count rather than
+        // re-deriving one.
+        let byMonth = Dictionary(scanner.months.map { ($0.month, $0) }, uniquingKeysWith: { a, _ in a })
+        return wanted.compactMap { byMonth[$0] }
+    }
+
+    private var browsableMonths: [BackfillMonthSummary] {
+        guard let thisMonth else { return scanner.months }
+        return BackfillPlan.browsable(scanner.months, birthMonth: birthMonth, thisMonth: thisMonth)
+    }
+
     private var suggestions: some View {
         BackfillSuggestionsScreen(
-            clusters: readyClusters,
-            months: scanner.months,
+            suggested: suggestedMonths,
+            months: browsableMonths,
             childBirthdate: childBirthdate,
             // **Carried through, so no count on that screen reads as a complete one.** Under
             // `.limited` every month total is computed over the shared selection, which is wrong
@@ -201,6 +246,11 @@ struct BackfillFlowView: View {
     /// a previous visit, revoked it in Settings since, or narrowed it to a selection. Each of those
     /// has a different first screen and none of them is the system prompt.
     private func decideStage() async {
+        // Read once, here, before any screen exists — in the child's zone and not the phone's. A
+        // device in Auckland and a family timezone of Los Angeles disagree about what month it is
+        // for up to a day, and on the 1st that disagreement is a whole month of cards.
+        thisMonth = BackfillCalendar.month(containing: Date(), in: familyTimezone)
+
         switch await source.authorization() {
         case .notDetermined:
             stage = .permission

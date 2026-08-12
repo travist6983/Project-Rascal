@@ -24,6 +24,9 @@ struct BackfillMonthPickerScreen: View {
     let onUse: (BackfillEntryPlan, [MediaDraft], Date) -> Void
 
     @Environment(BackfillThumbnailLoader.self) private var loader
+    /// The device's pixels-per-point. `PHImageManager` wants pixels, and asking in points gets a
+    /// third of the picture back on a 3× phone.
+    @Environment(\.displayScale) private var displayScale
 
     @State private var days: [DayGroup] = []
     @State private var loading = true
@@ -31,8 +34,24 @@ struct BackfillMonthPickerScreen: View {
     @State private var selection = BackfillSelection()
     @State private var staging = false
     @State private var notice: String?
+    /// The screen's own width, for the tile arithmetic.
+    ///
+    /// Seeded rather than started at zero, the way `AddToArchiveSheet` seeds its height: the real
+    /// value lands in the same layout pass, and a zero-width first frame would ask PhotoKit for
+    /// 1×1 thumbnails and then throw them away.
+    @State private var contentWidth: CGFloat = 393
 
     private let staged = StagingStore()
+
+    /// One tile's side, in points. Whole points — see `BackfillGrid.tileSide`.
+    private var tileSide: CGFloat {
+        BackfillGrid.tileSide(forWidth: contentWidth, margin: Layout.screenMargin)
+    }
+
+    /// What the grid asks PhotoKit for, in pixels.
+    private var tilePixelSize: Int {
+        BackfillGrid.pixelSize(forTileSide: tileSide, scale: displayScale)
+    }
 
     struct DayGroup: Identifiable, Equatable {
         let day: Date
@@ -65,8 +84,15 @@ struct BackfillMonthPickerScreen: View {
                     }
                 }
             }
-            .padding(.bottom, selection.isEmpty ? 40 : 110)
+            // **`safeAreaInset` already insets the scroll content by the pill's height** — that is
+            // what it is for — so the old hardcoded 110 was a second inset stacked on the first,
+            // and 40/110 changed the content's length the moment a photo was picked. What the pill
+            // genuinely needs beyond its own height is the 16 of breathing room under the last row,
+            // and the measured height is what keeps that true at the accessibility text sizes,
+            // where the pill is half again as tall as the number 110 ever assumed.
+            .padding(.bottom, selection.isEmpty ? 40 : 16)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .background(Color.canvas)
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
@@ -74,6 +100,9 @@ struct BackfillMonthPickerScreen: View {
             if !selection.isEmpty { useButton }
         }
         .task(id: month.key) { await load() }
+        // A caching manager still holding a month's photos keeps them decoded for the life of the
+        // process, and the parent has left the picker.
+        .onDisappear { loader.stopCachingEverything() }
         .overlay(alignment: .top) {
             if let notice {
                 Text(notice)
@@ -136,11 +165,22 @@ struct BackfillMonthPickerScreen: View {
 
     // MARK: Days
 
+    /// The pinned day header.
+    ///
+    /// It always had an opaque `canvas` fill spanning the content width, so the reported "renders
+    /// with no background" was not what put photographs across it — an overflowing tile was, and
+    /// that is fixed in `BackfillThumbnail`. **`.zIndex(1)` is kept anyway**, because a pinned
+    /// header and the rows sliding under it are siblings in one stack, and leaving their paint
+    /// order to be inferred is how this comes back. The vocabulary is `DayHeader`'s — bold day,
+    /// lighter month, count in `inkMuted` — with **no periwinkle age capsule**: this is a picker,
+    /// and the age belongs to the timeline where the entry lands.
     private func dayHeader(_ group: DayGroup) -> some View {
         HStack(spacing: 10) {
-            Text(Self.dayLabel(group.day))
-                .typeRole(.cardTitle)
-                .foregroundStyle(Color.ink)
+            (
+                Text(Self.dayNumber(group.day)).fontWeight(.bold).foregroundStyle(Color.ink)
+                    + Text(" " + Self.dayMonth(group.day)).foregroundStyle(Color.inkMuted)
+            )
+            .typeRole(.cardTitle)
             Text(group.assets.count == 1 ? "1 photo" : "\(group.assets.count) photos")
                 .typeRole(.metadata)
                 .foregroundStyle(Color.inkMuted)
@@ -163,46 +203,95 @@ struct BackfillMonthPickerScreen: View {
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.canvas)
+        .zIndex(1)
         .accessibilityAddTraits(.isHeader)
     }
 
+    /// One day's contact sheet.
+    ///
+    /// Columns are `.fixed(tileSide)` rather than `.flexible()`: the tile's rect is arithmetic —
+    /// `BackfillGrid.tileSide` — and the same number decides the frame, the corner radius's context
+    /// and the pixel size asked of PhotoKit. Flexible columns would let the grid resolve a width
+    /// this view then has to guess at when sizing the request.
+    ///
+    /// **Identified by `PHAsset.localIdentifier`, never by index** — `BackfillAsset.id` is that
+    /// identifier. An index-keyed tile recycles its `@State` into a different photograph when the
+    /// day's contents shift, which is a picture appearing under someone else's checkmark.
     @ViewBuilder
     private func dayGrid(_ group: DayGroup) -> some View {
         if selection.blockedDay == group.day { oneDayNote(group.day) }
 
         LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 3),
-            spacing: 3
+            columns: Array(
+                repeating: GridItem(.fixed(tileSide), spacing: BackfillGrid.gutter),
+                count: BackfillGrid.columns
+            ),
+            // `.leading`, because `.fixed` columns do not consume the leftover width and the grid's
+            // own alignment decides where the slack goes. It is under a point at every phone width,
+            // but a centred grid puts that half-point between the tiles and the screen margin the
+            // day header is aligned to, and "under a point" is not the same as stated.
+            alignment: .leading,
+            spacing: BackfillGrid.gutter
         ) {
             ForEach(group.assets) { asset in
                 tile(asset, in: group)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Layout.screenMargin)
         .padding(.bottom, 14)
+        // The caching window, at the granularity the list already mounts in. `PHCachingImageManager`
+        // decodes ahead on its own queue, and a `LazyVStack` mounts a section shortly before it is
+        // reached — so the day the parent is scrolling towards is warm by the time it arrives, and
+        // the one behind them is released rather than held for the life of the screen.
+        //
+        // The window is named rather than described: the loader stops it with the size it was
+        // started with, because `tilePixelSize` can change between these two calls.
+        .onAppear {
+            loader.startCaching(
+                group.assets.map(\.id), pixelSize: tilePixelSize, forWindow: group.id.description
+            )
+        }
+        .onDisappear { loader.stopCaching(forWindow: group.id.description) }
     }
 
+    /// One photograph, and whether it is picked.
+    ///
+    /// **The whole tile is the tap target**, not the circle. One-handed use is the constraint here,
+    /// and a 26pt target inside a ~118pt tile is a dart board. The circle reports; the tile acts.
     private func tile(_ asset: BackfillAsset, in group: DayGroup) -> some View {
         let isSelected = selection.contains(asset)
         return Button {
             tap(asset, in: group)
         } label: {
-            BackfillThumbnail(asset: asset, cornerRadius: isSelected ? 10 : 2)
-                .aspectRatio(1, contentMode: .fill)
-                .scaleEffect(isSelected ? 0.9 : 1)
-                .overlay(alignment: .bottomTrailing) {
-                    if isSelected {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.surface)
-                            .frame(width: 24, height: 24)
-                            .background(Color.terracotta, in: Circle())
-                            .padding(6)
-                    }
+            BackfillThumbnail(
+                asset: asset,
+                cornerRadius: BackfillGrid.cornerRadius,
+                pixelSize: tilePixelSize
+            )
+            // The frame is the fix. A 9:16 asset and a 16:9 asset land in identical rects because
+            // the rect is stated here and the picture is clipped to it, rather than being whatever
+            // `.scaledToFill()` grew to.
+            .frame(width: tileSide, height: tileSide)
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: BackfillGrid.cornerRadius, style: .continuous)
+                        .strokeBorder(Color.terracotta, lineWidth: 2)
                 }
-                .animation(Motion.tap, value: isSelected)
+            }
+            .overlay(alignment: .topTrailing) {
+                // **No circle at all on a cloud-only tile.** It carries the unavailable treatment
+                // and is not tappable, so an affordance offering to select it would be a control
+                // that lies.
+                if asset.isSelectable {
+                    BackfillSelectionCircle(isSelected: isSelected).padding(6)
+                }
+            }
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // 0.98 over 0.12s, dropped entirely under Reduce Motion — the app's one tap feedback,
+        // rather than the 0.9 shrink this grid used to do on its own.
+        .buttonStyle(TapScaleButtonStyle())
         .disabled(!asset.isSelectable)
         .accessibilityLabel(Self.tileLabel(asset))
         .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
@@ -248,15 +337,13 @@ struct BackfillMonthPickerScreen: View {
         .buttonStyle(PrimaryButtonStyle())
         .disabled(staging)
         .padding(.horizontal, Layout.screenMargin)
+        // 26 above, which is the height `docs/design-system.md` says a pinned action's fade needs
+        // in order to actually fade. The gradient is `PinnedActionBackdrop`'s — the same clear-to-
+        // canvas ground every other pinned action in the app sits on, rather than a second
+        // hand-rolled fade that would drift from it.
+        .padding(.top, 26)
         .padding(.bottom, 30)
-        .background(
-            LinearGradient(
-                colors: [Color.canvas.opacity(0), Color.canvas],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        )
+        .background(PinnedActionBackdrop())
     }
 
     private var useLabel: String {
@@ -338,8 +425,65 @@ struct BackfillMonthPickerScreen: View {
         day.formatted(.dateTime.weekday(.abbreviated).day().month(.wide))
     }
 
+    /// The two halves of the header's date, so the day can carry the weight and the month can sit
+    /// back — `DayHeader`'s vocabulary. Split rather than styled through one string, because one
+    /// `Text` cannot hold two ink steps.
+    static func dayNumber(_ day: Date) -> String {
+        day.formatted(.dateTime.weekday(.abbreviated).day())
+    }
+
+    static func dayMonth(_ day: Date) -> String {
+        day.formatted(.dateTime.month(.wide))
+    }
+
     static func tileLabel(_ asset: BackfillAsset) -> String {
         guard let date = asset.creationDate else { return "Photo" }
         return "Photo from \(date.formatted(.dateTime.hour().minute()))"
+    }
+}
+
+// MARK: - Selection
+
+/// The mark in the corner of every tile the parent can pick.
+///
+/// **It is there before the first tap, and that is the change.** A grid whose entire purpose is
+/// selection, showing no affordance until after something is already selected, reads as broken —
+/// the parent's first tap is a guess. So an unselected tile carries the empty ring and a selected
+/// one fills it, which is the same object in two states rather than a badge that appears.
+///
+/// `docs/design-system.md`'s Backfill photo grid describes the older treatment — a 24pt circle at
+/// the bottom trailing corner, drawn only when selected — and this supersedes it; the doc is
+/// updated in the same change. A cloud-only tile gets no circle at all: see `tile`.
+private struct BackfillSelectionCircle: View {
+    let isSelected: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Fixed, not scaled. It sits inside a picture frame that does not grow — the same rule
+    /// `docs/design-system.md` states for the mosaic's overflow numeral.
+    private let diameter: CGFloat = 26
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isSelected ? Color.terracotta : Color.surface.opacity(0.7))
+                .overlay(
+                    Circle().strokeBorder(
+                        isSelected ? Color.terracotta : Color.border,
+                        lineWidth: Layout.borderWidth
+                    )
+                )
+            Image(systemName: "checkmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.canvas)
+                .opacity(isSelected ? 1 : 0)
+                .scaleEffect(isSelected ? 1 : 0.4)
+        }
+        .frame(width: diameter, height: diameter)
+        // Springs on the way in, and under Reduce Motion still fills over the same 0.35s without
+        // the overshoot — the rule `CompletionCheck` follows. **No haptic**: haptics in this app
+        // are reserved for completion, and picking a photo is not completing anything.
+        .animation(Motion.completion(reduceMotion: reduceMotion), value: isSelected)
+        .accessibilityHidden(true)
     }
 }

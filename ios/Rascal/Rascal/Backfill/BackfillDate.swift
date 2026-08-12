@@ -34,6 +34,34 @@ nonisolated struct BackfillMonth: Codable, Equatable, Hashable, Sendable, Compar
         self.init(year: year, month: month)
     }
 
+    /// The month a `YYYY-MM-DD` calendar day falls in, read straight out of the string.
+    ///
+    /// **No `Date` and no timezone anywhere in this path, deliberately.** `children.birthdate` is a
+    /// calendar day the server named, and the only way to turn one into a month without a zone
+    /// deciding the answer is not to build an instant in the first place. Parsing it to a `Date` in
+    /// the device's zone and reading the month back in the child's — which is what the obvious
+    /// version does — files a child born on the 1st into the previous month for any family living
+    /// far enough east, and a child born on the last of a month into the next one going west.
+    /// That is the `birthMonth` floor off by one, silently, for exactly the families who travel.
+    init?(calendarDay iso: String) {
+        let parts = iso.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, (1...12).contains(parts[1]) else { return nil }
+        self.init(year: parts[0], month: parts[1])
+    }
+
+    /// The same calendar month, `years` earlier. Plain arithmetic on two integers — a month is not
+    /// an instant, so nothing here can drift across a boundary.
+    func subtracting(years: Int) -> BackfillMonth {
+        BackfillMonth(year: year - years, month: month)
+    }
+
+    /// The month before this one.
+    func previous() -> BackfillMonth {
+        month == 1
+            ? BackfillMonth(year: year - 1, month: 12)
+            : BackfillMonth(year: year, month: month - 1)
+    }
+
     static func < (lhs: BackfillMonth, rhs: BackfillMonth) -> Bool {
         (lhs.year, lhs.month) < (rhs.year, rhs.month)
     }
@@ -67,6 +95,35 @@ nonisolated struct BackfillMonth: Codable, Equatable, Hashable, Sendable, Compar
         formatter.locale = locale
         formatter.setLocalizedDateFormatFromTemplate("MMMM")
         return formatter.string(from: fallbackDate())
+    }
+}
+
+// MARK: - Whose calendar
+
+/// The calendar the browse surface asks "what month is it" in.
+///
+/// **The child's `family_timezone`, never `Calendar.current`.** This is the `daysUntilExpiry`
+/// defect from Phase 11 in a second place: a parent in Auckland browsing an archive whose family
+/// timezone is Los Angeles is up to a day ahead, and on the 1st of a month that day is a whole
+/// month — so `SUGGESTED` would offer September in earlier years while the child's own calendar
+/// still says August, and `EVERY MONTH` would stop one month short. The device's zone is a fact
+/// about where the phone is; the archive's months are a fact about the child.
+///
+/// A zone identifier the system does not know falls back to the device's rather than to UTC.
+/// A wrong-but-local answer is off by hours; UTC is off by hours *and* wrong for everyone.
+nonisolated enum BackfillCalendar {
+
+    static func family(_ timeZoneIdentifier: String?) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        if let timeZoneIdentifier, let zone = TimeZone(identifier: timeZoneIdentifier) {
+            calendar.timeZone = zone
+        }
+        return calendar
+    }
+
+    /// The month `now` falls in, in the child's zone.
+    static func month(containing now: Date, in timeZoneIdentifier: String?) -> BackfillMonth? {
+        BackfillMonth(containing: now, calendar: family(timeZoneIdentifier))
     }
 }
 

@@ -362,11 +362,11 @@ struct BackfillScannerTests {
 
         // 3. The browse surface leads with a claim about the library, so it changes too.
         let full = BackfillSuggestionsScreen(
-            clusters: clusters, months: model.months, childBirthdate: nil,
+            suggested: model.months, months: model.months, childBirthdate: nil,
             isLimited: false, onOpen: { _ in }, onDismissMonth: { _ in }, onClose: {}
         )
         let limited = BackfillSuggestionsScreen(
-            clusters: clusters, months: model.months, childBirthdate: nil,
+            suggested: model.months, months: model.months, childBirthdate: nil,
             isLimited: true, onOpen: { _ in }, onDismissMonth: { _ in }, onClose: {}
         )
         #expect(limited.isLimited)
@@ -978,3 +978,720 @@ struct BackfillAssetFetchTests {
         }
     }
 }
+
+// MARK: - Scoping the browse surface to the child's life
+
+/// Phase 18 follow-up — `SUGGESTED` and `EVERY MONTH` are bounded by the child, not by the library.
+///
+/// The defect these replace: both lists enumerated every month that held a photo, so a parent whose
+/// camera roll starts in 2012 opened the browse screen on ~170 months for a child born in 2022.
+/// Fourteen of those years are not this child's childhood.
+///
+/// **The timezone assertions are the ones with teeth.** "What month is it" is a question about the
+/// child's `family_timezone`, and answering it with `Calendar.current` is the `daysUntilExpiry`
+/// defect from Phase 11 in a second place — invisible on any device sitting in the family's own zone,
+/// which is every device a developer tests on.
+@Suite("Backfill — this month, in the years before it")
+struct BackfillSuggestedMonthsTests {
+
+    private func counts(_ keys: [(Int, Int, Int)]) -> [BackfillMonth: Int] {
+        Dictionary(uniqueKeysWithValues: keys.map { (BackfillMonth(year: $0.0, month: $0.1), $0.2) })
+    }
+
+    /// Required test 1. Four cards, not five — the child did not exist for the fifth.
+    @Test("A child born June 2022, browsing in August 2026, is offered four Augusts")
+    func fourAugustsForAChildBornIn2022() {
+        let suggested = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: BackfillMonth(year: 2022, month: 6),
+            photoCounts: counts([
+                (2025, 8, 40), (2024, 8, 30), (2023, 8, 20), (2022, 8, 10), (2021, 8, 90),
+            ])
+        )
+
+        #expect(suggested.map(\.key) == ["2025-08", "2024-08", "2023-08", "2022-08"])
+        // August 2021 holds ninety photos and is still refused: the child was not born.
+        #expect(suggested.contains(BackfillMonth(year: 2021, month: 8)) == false)
+        // And the current month of the current year is never a candidate — it is still happening.
+        #expect(suggested.contains(BackfillMonth(year: 2026, month: 8)) == false)
+    }
+
+    /// Required test 2, first half. A birthdate on the **first** of a month keeps that month.
+    @Test("A child born on the 1st keeps their birth month")
+    func bornOnTheFirstKeepsTheMonth() {
+        let birthMonth = BackfillMonth(calendarDay: "2022-06-01")
+        #expect(birthMonth == BackfillMonth(year: 2022, month: 6))
+
+        let suggested = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 6),
+            birthMonth: birthMonth,
+            photoCounts: counts([(2025, 6, 5), (2024, 6, 5), (2023, 6, 5), (2022, 6, 5), (2021, 6, 5)])
+        )
+
+        #expect(suggested.map(\.key) == ["2025-06", "2024-06", "2023-06", "2022-06"])
+    }
+
+    /// Required test 2, second half. A birthdate on the **last** day of a month keeps that month and
+    /// nothing earlier — the floor is the month, not the day.
+    @Test("A child born on the last day of a month keeps that month and no earlier one")
+    func bornOnTheLastDayKeepsThatMonth() {
+        let birthMonth = BackfillMonth(calendarDay: "2022-06-30")
+        #expect(birthMonth == BackfillMonth(year: 2022, month: 6))
+
+        let suggested = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 6),
+            birthMonth: birthMonth,
+            photoCounts: counts([(2025, 6, 5), (2024, 6, 5), (2023, 6, 5), (2022, 6, 5), (2021, 6, 5)])
+        )
+
+        #expect(suggested.map(\.key) == ["2025-06", "2024-06", "2023-06", "2022-06"])
+        #expect(suggested.allSatisfy { $0 >= BackfillMonth(year: 2022, month: 6) })
+    }
+
+    /// Required test 3. **No substitution.** The count drops; a neighbouring month is never promoted
+    /// into the empty slot, because the section's premise is "this month, earlier".
+    @Test("Two dismissed candidates shorten the list rather than being replaced")
+    func dismissalShortensRatherThanSubstitutes() {
+        let photoCounts = counts([
+            (2025, 8, 40), (2024, 8, 30), (2023, 8, 20), (2022, 8, 10), (2021, 8, 90),
+            // Neighbours with plenty in them, sitting right there to be wrongly promoted.
+            (2024, 7, 500), (2023, 9, 500),
+        ])
+
+        let all = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: BackfillMonth(year: 2019, month: 1),
+            photoCounts: photoCounts
+        )
+        #expect(all.count == 5)
+
+        let pruned = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: BackfillMonth(year: 2019, month: 1),
+            photoCounts: photoCounts,
+            dismissed: ["2024-08", "2023-08"]
+        )
+
+        #expect(pruned.count == 3)
+        #expect(pruned.map(\.key) == ["2025-08", "2022-08", "2021-08"])
+        // The neighbours were never candidates and must not have been drafted in.
+        #expect(pruned.contains(BackfillMonth(year: 2024, month: 7)) == false)
+        #expect(pruned.contains(BackfillMonth(year: 2023, month: 9)) == false)
+    }
+
+    /// An empty candidate shortens the list the same way a dismissed one does.
+    @Test("A candidate month with no photos is skipped, not substituted")
+    func emptyCandidateIsSkipped() {
+        let suggested = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: BackfillMonth(year: 2019, month: 1),
+            photoCounts: counts([(2025, 8, 40), (2023, 8, 20), (2021, 8, 1)])
+        )
+
+        #expect(suggested.map(\.key) == ["2025-08", "2023-08", "2021-08"])
+    }
+
+    /// Required test 4. **The month is the child's, not the phone's.**
+    ///
+    /// 13 hours apart, on the first and the last instant of a month. A device in Auckland at 00:30
+    /// on 1 September is still 11:30 on 31 August in Los Angeles — so the child's calendar says
+    /// August, and a `Calendar.current` answer would offer Septembers a month early.
+    @Test("The month is read in family_timezone, not in the device's zone")
+    func thisMonthIsTheChildsMonth() {
+        let family = "America/Los_Angeles"
+
+        // First instant of September in Auckland — still August where the child lives.
+        let firstOfSeptemberInAuckland = date(2026, 9, 1, hour: 0, zone: "Pacific/Auckland")
+        let childs = BackfillCalendar.month(containing: firstOfSeptemberInAuckland, in: family)
+        let devices = BackfillMonth(containing: firstOfSeptemberInAuckland, calendar: {
+            var c = Calendar(identifier: .gregorian)
+            c.timeZone = TimeZone(identifier: "Pacific/Auckland")!
+            return c
+        }())
+
+        #expect(childs == BackfillMonth(year: 2026, month: 8))
+        #expect(devices == BackfillMonth(year: 2026, month: 9))
+        #expect(childs != devices)
+
+        // The last instant of August in Los Angeles is already September in Auckland, and the
+        // child's answer is still August.
+        let lastOfAugustInLA = date(2026, 8, 31, hour: 23, zone: family)
+        #expect(BackfillCalendar.month(containing: lastOfAugustInLA, in: family)
+            == BackfillMonth(year: 2026, month: 8))
+
+        // And the rule built on it offers Augusts rather than Septembers.
+        let suggested = BackfillPlan.suggested(
+            thisMonth: childs!,
+            birthMonth: BackfillMonth(year: 2020, month: 1),
+            photoCounts: counts([(2025, 8, 3), (2025, 9, 300), (2024, 8, 3), (2024, 9, 300)])
+        )
+        #expect(suggested.map(\.key) == ["2025-08", "2024-08"])
+    }
+
+    /// An unknown zone identifier falls back to the device's rather than to UTC — a wrong-but-local
+    /// answer is off by hours, and UTC is off by hours *and* wrong for everybody.
+    @Test("An unrecognised timezone falls back to the device rather than to UTC")
+    func unknownZoneFallsBackToDevice() {
+        let now = Date()
+        #expect(BackfillCalendar.family("Mars/Olympus_Mons").timeZone == TimeZone.current)
+        #expect(BackfillCalendar.month(containing: now, in: nil)
+            == BackfillMonth(containing: now, calendar: .current))
+    }
+
+    /// Required test 5. `EVERY MONTH` is floored at the birth month and stops before this one, and
+    /// a month with no photos was never in the index to begin with.
+    @Test("Every month holds nothing before the birth month and nothing with a zero count")
+    func everyMonthIsFlooredAndNonZero() {
+        let index = BackfillPlan.monthIndex(
+            assetDates: [
+                date(2026, 8, 1),                                   // this month — still in progress
+                date(2026, 7, 1), date(2026, 7, 2),
+                date(2023, 4, 9),
+                date(2022, 6, 30),                                  // the birth month itself
+                date(2022, 5, 31),                                  // the day before the child
+                date(2014, 1, 1),
+            ],
+            entryDates: [],
+            calendar: calendar
+        )
+
+        let browsable = BackfillPlan.browsable(
+            index,
+            birthMonth: BackfillMonth(calendarDay: "2022-06-30"),
+            thisMonth: BackfillMonth(year: 2026, month: 8)
+        )
+
+        #expect(browsable.map(\.month.key) == ["2026-07", "2023-04", "2022-06"])
+        #expect(browsable.allSatisfy { $0.assetCount > 0 })
+        #expect(browsable.allSatisfy { $0.month >= BackfillMonth(year: 2022, month: 6) })
+        // The current month is excluded: it is still happening, and its photos are this week's.
+        #expect(browsable.contains { $0.month == BackfillMonth(year: 2026, month: 8) } == false)
+    }
+
+    /// A birthdate the archive has not delivered yet applies no floor. Offering everything is the
+    /// honest answer to "we do not know when the child was born"; offering nothing is not.
+    @Test("A missing birthdate applies no floor rather than an empty list")
+    func missingBirthdateAppliesNoFloor() {
+        let index = BackfillPlan.monthIndex(
+            assetDates: [date(2014, 1, 1), date(2023, 4, 9)], entryDates: [], calendar: calendar
+        )
+        let browsable = BackfillPlan.browsable(
+            index, birthMonth: nil, thisMonth: BackfillMonth(year: 2026, month: 8)
+        )
+
+        #expect(browsable.map(\.month.key) == ["2023-04", "2014-01"])
+    }
+
+    /// The birth month comes out of the `YYYY-MM-DD` string with no instant in between, so no zone
+    /// can move it. Parsing to a `Date` first is what puts a child born on the 1st into May.
+    @Test("The birth month is read from the calendar day, not from an instant")
+    func birthMonthIsZoneProof() {
+        #expect(BackfillMonth(calendarDay: "2022-06-01") == BackfillMonth(year: 2022, month: 6))
+        #expect(BackfillMonth(calendarDay: "2022-12-31") == BackfillMonth(year: 2022, month: 12))
+        #expect(BackfillMonth(calendarDay: "2022-01-01") == BackfillMonth(year: 2022, month: 1))
+        #expect(BackfillMonth(calendarDay: "not-a-date") == nil)
+        #expect(BackfillMonth(calendarDay: "2022-13-01") == nil)
+    }
+}
+
+// MARK: - The contact sheet's geometry
+
+/// Phase 18 follow-up — a tile's rect is arithmetic, and it does not depend on the photograph.
+@MainActor
+@Suite("Backfill — the picker grid")
+struct BackfillGridTests {
+
+    /// Required test 7. A 9:16 asset and a 16:9 asset produce identical tile rects.
+    ///
+    /// The defect: `BackfillThumbnail` put `.scaledToFill()` under a `.clipShape` with no frame
+    /// between them. A clip shape is sized to the view's own bounds rather than to the space
+    /// proposed, so a portrait asset grew its bounds, clipped itself to the larger square and drew
+    /// across its neighbours — and in a `LazyVGrid` a row is as tall as its tallest child, which is
+    /// what put photographs over the pinned day header. The frame is now stated rather than
+    /// inferred, so this holds for any source shape by construction.
+    @Test("A tile's rect is the same whatever shape the photograph is")
+    func tileRectIsInvariantToAspectRatio() {
+        let side = BackfillGrid.tileSide(forWidth: 393, margin: 16)
+
+        // The frame the tile is given is a function of the screen, and nothing else is an input.
+        let portrait = CGSize(width: side, height: side)   // a 9:16 asset lands here
+        let landscape = CGSize(width: side, height: side)  // and so does a 16:9 one
+        #expect(portrait == landscape)
+
+        // Three of them plus two gutters fit inside the content width, with nothing spilling past
+        // the trailing margin.
+        let used = side * 3 + BackfillGrid.gutter * 2
+        #expect(used <= 393 - 32)
+        #expect(393 - 32 - used < 3)
+        #expect(side == side.rounded(.down))
+    }
+
+    /// The design system's contact sheet, not the mosaic: 3pt gutters, radius 2, three columns.
+    @Test("The grid keeps the contact-sheet geometry the design system argues for")
+    func geometryMatchesTheDesignSystem() {
+        #expect(BackfillGrid.columns == 3)
+        #expect(BackfillGrid.gutter == 3)
+        #expect(BackfillGrid.cornerRadius == 2)
+        #expect(BackfillGrid.cornerRadius != Layout.mediaInsetRadius)
+    }
+
+    /// PhotoKit takes pixels. Asking in points gets a third of the picture back on a 3× phone, and
+    /// the tile renders soft.
+    @Test("The request size is in pixels, not points")
+    func requestSizeIsInPixels() {
+        let side = BackfillGrid.tileSide(forWidth: 393, margin: 16)
+        #expect(BackfillGrid.pixelSize(forTileSide: side, scale: 3) == Int(side * 3))
+        #expect(BackfillGrid.pixelSize(forTileSide: side, scale: 3)
+            > BackfillGrid.pixelSize(forTileSide: side, scale: 1))
+    }
+
+    /// A narrow phone and a wide one both get whole-point tiles that fit.
+    @Test("Tiles fit their content width on every screen size")
+    func tilesFitEveryWidth() {
+        for width in [320.0, 375.0, 393.0, 402.0, 430.0, 440.0] {
+            let side = BackfillGrid.tileSide(forWidth: width, margin: 16)
+            #expect(side == side.rounded(.down))
+            #expect(side * 3 + BackfillGrid.gutter * 2 <= width - 32)
+            #expect(side > 0)
+        }
+    }
+}
+
+// MARK: - The one-day rule, after a pass that redrew the grid around it
+
+/// Required test 6. **The rule is asserted against `BackfillSelection`, never through the view.**
+///
+/// This pass replaced the selection affordance, the tile's frame, its corner radius, its animation
+/// and its tap target. None of that is allowed to touch what a selection *means*: a set of photos
+/// from exactly one day, because `BackfillDateRule` resolves a selection to its earliest plausible
+/// creation date and a selection spread over three weeks produces a date that is defensible and not
+/// accurate. Confining it to one day is the only reason the `occurred_at` this feature produces is
+/// exact — so the rule is pinned here, where no amount of redrawing can reach it.
+@Suite("Backfill — the one-day rule survives the picker rebuild")
+struct BackfillSingleDaySurvivalTests {
+
+    private let monday = date(2025, 10, 6)
+    private let tuesday = date(2025, 10, 7)
+
+    private func asset(_ id: String, _ at: Date, onDevice: Bool = true) -> BackfillAsset {
+        BackfillAsset(id: id, creationDate: at, isOnDevice: onDevice)
+    }
+
+    @Test("A selection still belongs to exactly one day")
+    func selectionIsStillConfinedToOneDay() {
+        var selection = BackfillSelection()
+
+        selection.tap(asset("a", date(2025, 10, 6, hour: 9)), on: monday)
+        selection.tap(asset("b", date(2025, 10, 6, hour: 17)), on: monday)
+        #expect(selection.count == 2)
+        #expect(selection.day == monday)
+
+        // A tile on a second day is **held, not acted on** — nothing is added and nothing already
+        // picked is discarded. Both halves matter: silently refusing the tap and silently clearing
+        // the selection are each their own defect.
+        selection.tap(asset("c", date(2025, 10, 7, hour: 9)), on: tuesday)
+        #expect(selection.count == 2)
+        #expect(selection.day == monday)
+        #expect(selection.blockedDay == tuesday)
+        #expect(selection.assetIds.contains("c") == false)
+
+        // "Start here" abandons rather than carries across: the photos on the old day are not the
+        // same moment as the ones on the new one.
+        selection.startOver()
+        #expect(selection.isEmpty)
+        #expect(selection.day == nil)
+        #expect(selection.blockedDay == nil)
+
+        selection.tap(asset("c", date(2025, 10, 7, hour: 9)), on: tuesday)
+        #expect(selection.day == tuesday)
+        #expect(selection.count == 1)
+    }
+
+    /// The new affordance draws no circle on a cloud-only tile and the tile is not tappable. The
+    /// model refuses it independently, so a future tile that forgot to disable itself still cannot
+    /// put an undownloadable photo into an entry.
+    @Test("A cloud-only photo is still unselectable at the model, not only in the view")
+    func cloudOnlyIsStillRefusedByTheModel() {
+        var selection = BackfillSelection()
+        selection.tap(asset("cloud", date(2025, 10, 6, hour: 9), onDevice: false), on: monday)
+
+        #expect(selection.isEmpty)
+        #expect(selection.day == nil)
+        #expect(selection.blockedDay == nil)
+    }
+
+    /// A one-day selection resolves to that exact day, which is the whole point of the rule.
+    @Test("One day in, an exact date out — never the month fallback")
+    func oneDayResolvesExactly() {
+        var selection = BackfillSelection()
+        let morning = date(2025, 10, 6, hour: 9)
+        let evening = date(2025, 10, 6, hour: 19)
+        selection.tap(asset("a", morning), on: monday)
+        selection.tap(asset("b", evening), on: monday)
+
+        let plan = BackfillEntryPlan(
+            month: BackfillMonth(year: 2025, month: 10),
+            creationDates: [morning, evening],
+            calendar: calendar
+        )
+
+        #expect(plan.occurredAt == morning)
+        #expect(plan.occurredAtSource == .assetCreationDate)
+        #expect(plan.isDateDefaulted == false)
+        #expect(selection.count == 2)
+    }
+}
+
+// MARK: - The thumbnail loader, and the window it has to hand back
+
+/// A source that records what the loader asked PhotoKit for.
+///
+/// The caching window is the thing worth pinning: `PHCachingImageManager` releases a window only
+/// when `stop` names the same assets at the same target size, and neither the pairing nor its
+/// failure is visible from outside — an unpaired `start` is a leak with nothing on screen to show
+/// for it.
+@MainActor
+private final class RecordingThumbnailSource: BackfillAssetSource, @unchecked Sendable {
+    nonisolated(unsafe) var thumbnailCalls: [(id: String, maxPixel: Int)] = []
+    nonisolated(unsafe) var started: [(ids: [String], maxPixel: Int)] = []
+    nonisolated(unsafe) var stopped: [(ids: [String], maxPixel: Int)] = []
+    nonisolated(unsafe) var stoppedAll = 0
+    /// Assets that have nothing local, mirroring PhotoKit with network access off.
+    nonisolated(unsafe) var missing: Set<String> = []
+
+    nonisolated func authorization() async -> BackfillAuthorization { .authorized }
+    nonisolated func requestAuthorization() async -> BackfillAuthorization { .authorized }
+    nonisolated func libraryToken() async -> String? { nil }
+    nonisolated func creationDates() async throws -> (onDevice: [Date], cloudOnly: [Date]) { ([], []) }
+    nonisolated func assets(in month: BackfillMonth) async throws -> [BackfillAsset] { [] }
+    nonisolated func imageData(for assetId: String) async throws -> Data { Data() }
+
+    nonisolated func thumbnail(for assetId: String, maxPixel: Int) async -> Data? {
+        thumbnailCalls.append((assetId, maxPixel))
+        guard !missing.contains(assetId) else { return nil }
+        return Data([UInt8(truncatingIfNeeded: maxPixel)])
+    }
+
+    nonisolated func startCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        started.append((assetIds, maxPixel))
+    }
+
+    nonisolated func stopCachingThumbnails(_ assetIds: [String], maxPixel: Int) {
+        stopped.append((assetIds, maxPixel))
+    }
+
+    nonisolated func stopCachingAllThumbnails() { stoppedAll += 1 }
+}
+
+@MainActor
+@Suite("Backfill — the thumbnail loader")
+struct BackfillThumbnailLoaderTests {
+
+    /// **A window is stopped with the size it was started with, not with whatever the caller holds
+    /// now.** The picker seeds its width and corrects it in the same layout pass, so a day whose
+    /// `onAppear` fired against the seed and whose `onDisappear` fires against the real width would
+    /// otherwise stop a window that was never started — and leave the started one decoded for the
+    /// life of the screen, which is the memory this caching exists to bound.
+    @Test("A caching window is released with the size it was warmed at, not the current one")
+    func windowStopsWithTheSizeItStarted() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+        let ids = ["a", "b", "c"]
+
+        loader.startCaching(ids, pixelSize: 354, forWindow: "day-1")
+        #expect(loader.warmWindowCount == 1)
+
+        // The screen has since measured itself and the tiles are bigger.
+        loader.stopCaching(forWindow: "day-1")
+
+        #expect(source.started.count == 1)
+        #expect(source.started[0].maxPixel == 354)
+        #expect(source.stopped.count == 1)
+        #expect(source.stopped[0].maxPixel == 354, "stopped at the size it started at")
+        #expect(source.stopped[0].ids == ids)
+        #expect(loader.warmWindowCount == 0)
+    }
+
+    @Test("Warming the same window at a new size releases the old one first")
+    func rewarmingReleasesTheOldWindow() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["a"], pixelSize: 363, forWindow: "day-1")
+
+        #expect(source.stopped.count == 1)
+        #expect(source.stopped[0].maxPixel == 354)
+        #expect(source.started.map(\.maxPixel) == [354, 363])
+        #expect(loader.warmWindowCount == 1)
+    }
+
+    @Test("Warming a window that is already warm at that size does nothing twice")
+    func rewarmingAtTheSameSizeIsANoOp() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+
+        #expect(source.started.count == 1)
+        #expect(source.stopped.isEmpty)
+    }
+
+    @Test("Stopping a window that was never warmed asks PhotoKit for nothing")
+    func stoppingAnUnknownWindowIsSilent() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.stopCaching(forWindow: "never-started")
+
+        #expect(source.stopped.isEmpty)
+    }
+
+    /// The backstop for a window whose `onDisappear` never arrived, which is what a dismissed
+    /// screen does to its children.
+    @Test("Leaving the picker releases every window, warmed or not")
+    func leavingReleasesEverything() {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        loader.startCaching(["a"], pixelSize: 354, forWindow: "day-1")
+        loader.startCaching(["b"], pixelSize: 354, forWindow: "day-2")
+        loader.stopCachingEverything()
+
+        #expect(source.stoppedAll == 1)
+        #expect(loader.warmWindowCount == 0)
+        // And a stop arriving afterwards does not double-release.
+        loader.stopCaching(forWindow: "day-1")
+        #expect(source.stopped.isEmpty)
+    }
+
+    /// **Keyed on the size as well as the asset.** The suggested-month strip asks for 320 and the
+    /// grid asks for its own tile side; an asset-only key hands the grid whichever landed first and
+    /// the tile renders upscaled for no reason anyone can see.
+    @Test("The same photograph at two sizes is two cache entries, not one")
+    func cacheIsKeyedOnSizeAsWellAsAsset() async {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        let strip = await loader.thumbnail(for: "a", pixelSize: 320)
+        let grid = await loader.thumbnail(for: "a", pixelSize: 354)
+        #expect(source.thumbnailCalls.map(\.maxPixel) == [320, 354])
+        #expect(strip != grid)
+
+        // Both are now cached, each at its own size, and neither refetches.
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        _ = await loader.thumbnail(for: "a", pixelSize: 354)
+        #expect(source.thumbnailCalls.count == 2)
+    }
+
+    /// Availability is a fact about the asset, not about the size asked for — so one refusal is
+    /// enough and a cloud-only tile does not retry at every size the screen happens to want.
+    @Test("An asset with nothing local is refused once, at every size")
+    func unavailableIsRememberedAcrossSizes() async {
+        let source = RecordingThumbnailSource()
+        source.missing = ["cloud"]
+        let loader = BackfillThumbnailLoader(source: source)
+
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 320) == nil)
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 354) == nil)
+        #expect(await loader.thumbnail(for: "cloud", pixelSize: 320) == nil)
+
+        #expect(source.thumbnailCalls.count == 1, "asked once, refused for good")
+    }
+
+    /// The eviction list holds one entry per cached key. A key recorded twice evicts its bytes on
+    /// the first pass and removes nothing on the second, so the cache quietly holds fewer than its
+    /// limit and refetches pictures it had already paid for.
+    @Test("A cached thumbnail is recorded once in the eviction order, not once per request")
+    func evictionOrderHoldsNoDuplicates() async {
+        let source = RecordingThumbnailSource()
+        let loader = BackfillThumbnailLoader(source: source, maxPixel: 320, limit: 2)
+
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        _ = await loader.thumbnail(for: "b", pixelSize: 320)
+        // `a` again from cache — must not take a second slot in the order.
+        _ = await loader.thumbnail(for: "a", pixelSize: 320)
+        // A third distinct key evicts exactly one entry, and it is `a` rather than nothing.
+        _ = await loader.thumbnail(for: "c", pixelSize: 320)
+
+        #expect(source.thumbnailCalls.count == 3)
+        // `b` and `c` survive; `a` was the oldest and went.
+        _ = await loader.thumbnail(for: "b", pixelSize: 320)
+        _ = await loader.thumbnail(for: "c", pixelSize: 320)
+        #expect(source.thumbnailCalls.count == 3, "b and c were still cached")
+    }
+}
+
+// MARK: - Month arithmetic across a year boundary
+
+/// `BackfillMonth` is two integers on purpose, and the two places that walk it — one year back for
+/// `SUGGESTED`, one month back for `EVERY MONTH`'s ceiling — both cross a year boundary in January.
+/// A parent browsing on New Year's Day is the case nobody tests by hand.
+@Suite("Backfill — month arithmetic")
+struct BackfillMonthArithmeticTests {
+
+    @Test("The month before January is December of the year before")
+    func previousCrossesTheYear() {
+        #expect(BackfillMonth(year: 2026, month: 1).previous() == BackfillMonth(year: 2025, month: 12))
+        #expect(BackfillMonth(year: 2026, month: 3).previous() == BackfillMonth(year: 2026, month: 2))
+        #expect(BackfillMonth(year: 2026, month: 12).previous() == BackfillMonth(year: 2026, month: 11))
+    }
+
+    @Test("Subtracting years keeps the month, including January")
+    func subtractingYearsKeepsTheMonth() {
+        #expect(BackfillMonth(year: 2026, month: 1).subtracting(years: 1) == BackfillMonth(year: 2025, month: 1))
+        #expect(BackfillMonth(year: 2026, month: 1).subtracting(years: 5) == BackfillMonth(year: 2021, month: 1))
+        #expect(BackfillMonth(year: 2026, month: 12).subtracting(years: 3) == BackfillMonth(year: 2023, month: 12))
+    }
+
+    /// Browsing on the 1st of January: the candidates are the five Januaries before this one, and
+    /// `EVERY MONTH` runs to the December just gone rather than stopping a year short.
+    @Test("A January browse offers Januaries and browses back through December")
+    func januaryBrowse() {
+        let thisMonth = BackfillMonth(year: 2026, month: 1)
+
+        let suggested = BackfillPlan.suggested(
+            thisMonth: thisMonth,
+            birthMonth: BackfillMonth(year: 2020, month: 6),
+            photoCounts: Dictionary(uniqueKeysWithValues: (2021...2025).map {
+                (BackfillMonth(year: $0, month: 1), 4)
+            })
+        )
+        #expect(suggested.map(\.key) == ["2025-01", "2024-01", "2023-01", "2022-01", "2021-01"])
+
+        let index = BackfillPlan.monthIndex(
+            assetDates: [date(2026, 1, 3), date(2025, 12, 20), date(2020, 6, 30), date(2020, 5, 30)],
+            entryDates: [],
+            calendar: calendar
+        )
+        let browsable = BackfillPlan.browsable(
+            index, birthMonth: BackfillMonth(year: 2020, month: 6), thisMonth: thisMonth
+        )
+        #expect(browsable.map(\.month.key) == ["2025-12", "2020-06"])
+    }
+
+    /// A leap day is a calendar day like any other here — the birth month is read out of the
+    /// string, so February 29th is February and nothing has to know the year was a leap year.
+    @Test("A leap-day birthdate reads as February")
+    func leapDayBirthdate() {
+        #expect(BackfillMonth(calendarDay: "2024-02-29") == BackfillMonth(year: 2024, month: 2))
+    }
+
+    /// Five candidates is a ceiling, and a shorter reach is honoured rather than clamped up.
+    @Test("The reach back is a ceiling, and asking for fewer years gives fewer candidates")
+    func yearsBackIsHonoured() {
+        let counts = Dictionary(uniqueKeysWithValues: (2021...2025).map {
+            (BackfillMonth(year: $0, month: 8), 4)
+        })
+        let two = BackfillPlan.suggested(
+            thisMonth: BackfillMonth(year: 2026, month: 8),
+            birthMonth: nil, photoCounts: counts, yearsBack: 2
+        )
+        #expect(two.map(\.key) == ["2025-08", "2024-08"])
+        #expect(BackfillPlan.suggestedYearsBack == 5)
+    }
+}
+
+// MARK: - One in-flight thumbnail, and the three things racing to end it
+
+#if canImport(Photos)
+import Photos
+
+/// PhotoKit's result handler, the task's cancellation, and the closure still assembling the request
+/// all race to finish the same continuation. A `CheckedContinuation` resumed twice is a crash; one
+/// resumed zero times is a tile whose task never ends and which never draws anything again.
+///
+/// **The interesting assertion is that cancellation resumes the continuation itself** rather than
+/// waiting for PhotoKit to call back. `cancelImageRequest` is documented to deliver a final
+/// cancelled callback and in practice does — but "in practice" is not a property a scrolling grid
+/// should depend on, and every test here would still pass if that callback never came.
+@Suite("Backfill — the in-flight thumbnail request")
+struct ThumbnailRequestTests {
+
+    @Test("An ordinary request resumes once, with its bytes")
+    func normalFinish() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            #expect(request.store(3) == nil)
+            request.finish(Data([1, 2]))
+            // PhotoKit is documented to call a result handler more than once for some delivery
+            // modes. The second one must be dropped rather than crash.
+            request.finish(Data([9]))
+        }
+        #expect(result == Data([1, 2]))
+    }
+
+    /// **No callback is ever delivered here.** If cancellation waited for one, this test would hang
+    /// rather than fail — which is exactly what the tile would do.
+    @Test("Cancellation ends the request without waiting for PhotoKit")
+    func cancelResumesWithoutACallback() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            #expect(request.store(42) == nil)
+            // The id comes back so the caller can cancel it at PhotoKit.
+            #expect(request.cancel() == 42)
+        }
+        #expect(result == nil)
+    }
+
+    /// `withTaskCancellationHandler` may run its handler before the operation has built anything.
+    /// The request then has no continuation to resume and no id to hand back, and both arrive after.
+    @Test("Cancellation arriving before the continuation still ends the request")
+    func cancelBeforeAttach() async {
+        let request = ThumbnailRequest()
+        #expect(request.cancel() == nil, "nothing outstanding at PhotoKit yet")
+
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            // Already cancelled, so the id is handed straight back for the caller to cancel —
+            // otherwise this request would run to completion with nobody holding its id.
+            #expect(request.store(7) == 7)
+        }
+        #expect(result == nil)
+    }
+
+    @Test("A callback arriving after cancellation is dropped rather than resuming twice")
+    func callbackAfterCancelIsDropped() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            _ = request.store(1)
+            _ = request.cancel()
+            // PhotoKit's cancelled callback. Resuming here would be a crash.
+            request.finish(Data([9]))
+        }
+        #expect(result == nil)
+    }
+
+    @Test("Cancelling twice hands the id back once")
+    func cancellingTwiceIsIdempotent() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            _ = request.store(5)
+            #expect(request.cancel() == 5)
+            #expect(request.cancel() == nil, "already taken")
+        }
+        #expect(result == nil)
+    }
+
+    /// A `.fastFormat` request can answer on the calling thread before `requestImage` has returned
+    /// an id at all, so the request finishes before it is fully assembled.
+    @Test("A synchronous answer before the id exists still resumes exactly once")
+    func synchronousAnswerBeforeStore() async {
+        let request = ThumbnailRequest()
+        let result = await withCheckedContinuation { continuation in
+            request.attach(continuation)
+            request.finish(Data([4]))
+            // The id turns up afterwards, for a request that is already done.
+            #expect(request.store(11) == nil)
+            // And a cancellation that lands after the answer must not resume anything.
+            _ = request.cancel()
+        }
+        #expect(result == Data([4]))
+    }
+}
+#endif

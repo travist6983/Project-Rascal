@@ -1860,3 +1860,45 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **The cache key is the canonical body, not its hash.** Hashing bought nothing on a handful of
   one-line prompts and a collision would render one prompt's personalization under another's text.
 - **iOS suite 772/96 → 801/101** after the audit, warnings unchanged at 21, none in a touched file.
+
+## Phase 18 follow-up — camera-roll browse and picker (Aug 12, 2026)
+
+- **The browse screen's crash was neither of the two causes the brief named, and both of
+  those were real anyway.** It was the container: `BackfillSuggestionsScreen` put its cards
+  in a plain `VStack` inside a `ScrollView`, which has no viewport to be lazy about and so
+  mounts every child before the first frame. Measured on a seeded library of 2,450 photos
+  across 175 months: **175 whole-month reads, 700 thumbnail requests, 643MB resident against
+  a 236MB baseline** — none of it on screen. Fixed it is 3 reads, 12 requests, 253MB.
+- **`LazyVStack` alone fixed nothing, and that is the finding worth keeping.** The cards sat
+  inside a nested `VStack(spacing:)` for the card gap, and a lazy stack treats a nested stack
+  as one child — so it built all 175 eagerly and the laziness bought exactly zero. Same 175
+  and 700, measured. The gap is per-card padding now so each card is its own lazy child.
+- **`SUGGESTED` is "this month, in the years before it", capped at five, floored at the birth
+  month, with no substitution.** An empty, dismissed or pre-birth candidate shortens the list
+  rather than being replaced by a neighbouring month: the section's premise is "this month,
+  earlier", and quietly swapping June into an August slot breaks it while looking like it
+  worked.
+- **`birthMonth` is read out of the `YYYY-MM-DD` string, never from a `Date`.**
+  `EditChildModel.dayFormatter` parses in the *device's* zone; reading that instant's month
+  back in the child's would file a child born on the 1st into the previous month for a family
+  far enough east. `BackfillMonth(calendarDay:)` never builds an instant, so nothing can move it.
+- **"What month is it" is answered in `family_timezone`, not `Calendar.current`** — the
+  `daysUntilExpiry` defect from phase 11 in a second place. A device in Auckland and a family
+  in Los Angeles disagree for up to a day, and on the 1st that day is a whole month of cards.
+- **The picker's three visible symptoms were one defect.** `.scaledToFill()` under a
+  `.clipShape` with no frame between them clips to the view's own bounds rather than to the
+  space proposed, so a portrait asset grew, clipped itself larger and drew over its
+  neighbours — and a `LazyVGrid` row is as tall as its tallest child, so it pushed its row
+  into the next and painted across the pinned header. The header's "missing" opaque fill was
+  never missing; it was being overdrawn.
+- **The pill was never obscuring the last row.** `safeAreaInset` already insets scroll content
+  by its own height; the screen was adding a hardcoded 110 on top, which is a dead gap that
+  changed length the moment a photo was picked. Replaced with 16 of clearance and the app's
+  standard `PinnedActionBackdrop`.
+- **The grid keeps `docs/design-system.md`'s contact-sheet geometry — 3pt gutters, radius 2.**
+  The brief asked for 6pt and radius 14 and attributed both to that file, which specifies the
+  opposite and argues for it. Raised rather than silently resolved; the doc won.
+- **`cloudOnlyCount` is computed for every asset in the library and read by no view.** The
+  scan calls `PHAssetResource.assetResources(for:)` once per asset to produce it. Left in
+  place — removing a tested field is a wider change than this pass — but it is the next thing
+  to look at on a large real library, and it is recorded here so it is not rediscovered.

@@ -127,6 +127,73 @@ nonisolated enum BackfillPlan {
             }
             .sorted { $0.month > $1.month }
     }
+
+    // MARK: - Scoping the browse surface to the child's life
+
+    /// How many prior years `SUGGESTED` reaches back through. Five cards is the ceiling, not the
+    /// target — see `suggested`.
+    static let suggestedYearsBack = 5
+
+    /// **This month, in the years before it.**
+    ///
+    /// The premise is the section's whole meaning: August 2025, August 2024, August 2023 — the same
+    /// calendar month, walking back. A parent opening this in August is being asked what happened in
+    /// the Augusts they have already lived, which is a question they can answer.
+    ///
+    /// **No substitution.** A candidate that is empty, dismissed, or before the child existed makes
+    /// the list *shorter*; it is never backfilled from a neighbouring month. Quietly swapping June
+    /// into an August slot would break the premise while looking like it worked — the cards would
+    /// still read as "this month, earlier" and one of them would be a lie.
+    ///
+    /// **The current month of the current year is excluded**, because it is still happening. It is
+    /// not a year you look back on, and the photos in it are this week's rather than the archive's.
+    ///
+    /// `thisMonth` is the caller's, computed in the child's `family_timezone` — see
+    /// `BackfillCalendar`. A `nil` `birthMonth` applies no floor, which is what an archive whose
+    /// birthdate has not loaded yet should do: offer everything rather than nothing.
+    static func suggested(
+        thisMonth: BackfillMonth,
+        birthMonth: BackfillMonth?,
+        photoCounts: [BackfillMonth: Int],
+        dismissed: Set<String> = [],
+        yearsBack: Int = suggestedYearsBack
+    ) -> [BackfillMonth] {
+        (1...max(1, yearsBack))
+            .map { thisMonth.subtracting(years: $0) }
+            .filter { candidate in birthMonth.map { candidate >= $0 } ?? true }
+            .filter { (photoCounts[$0] ?? 0) > 0 }
+            .filter { !dismissed.contains($0.key) }
+    }
+
+    /// `EVERY MONTH`, floored at the month the child was born in and stopping before this one.
+    ///
+    /// The floor is the point: an archive of a child born in 2022 has nothing to say about 2012,
+    /// and a browse list that opens on fourteen years the child was not alive for is a list nobody
+    /// scrolls to the bottom of. Months with no photos are already absent — `monthIndex` is keyed
+    /// off the photos — so this adds no zero rows and removes none that carry something.
+    ///
+    /// Newest first, as `monthIndex` returns them. The grouping into years is presentation and
+    /// stays in the view.
+    static func browsable(
+        _ months: [BackfillMonthSummary],
+        birthMonth: BackfillMonth?,
+        thisMonth: BackfillMonth
+    ) -> [BackfillMonthSummary] {
+        let newest = thisMonth.previous()
+        return months.filter { summary in
+            summary.month <= newest
+                && (birthMonth.map { summary.month >= $0 } ?? true)
+        }
+    }
+
+    /// Per-month photo counts, keyed for `suggested`.
+    ///
+    /// Built from the month index the scan already produced and holds, so nothing here issues a
+    /// fetch. **There is no second cache**: a `PHFetchResult.count` per candidate month during view
+    /// body evaluation is the thing this avoids.
+    static func photoCounts(_ months: [BackfillMonthSummary]) -> [BackfillMonth: Int] {
+        Dictionary(months.map { ($0.month, $0.assetCount) }, uniquingKeysWith: +)
+    }
 }
 
 // MARK: - Dismissal

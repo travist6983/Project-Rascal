@@ -1,7 +1,7 @@
 # RASCAL — Design System
 The build-time reference. `rascal-design-prompt-v2.md` is for generating mockups; this is the authority for writing SwiftUI. If a mockup and this file disagree, this file wins.
 
-Last updated: **Aug 11, 2026** — audited line by line against the shipped client through phase 21. Every value here was read out of the code, not out of a mockup and not out of the previous version of this file.
+Last updated: **Aug 12, 2026** — the **Backfill photo grid** section rewritten against the phase 18 follow-up: the selection affordance is now on every selectable tile rather than appearing after the first tap, and the tile geometry, request options and pinned-action inset are stated. The contact-sheet numbers themselves are unchanged and were re-confirmed rather than re-derived. Everything else was audited line by line against the shipped client through phase 21; every value here was read out of the code, not out of a mockup and not out of the previous version of this file.
 
 **Register:** warm, friendly, polished. The neighborhood of Journey and Raven. Not Day One, not Retro, and never the risograph/poster direction.
 
@@ -560,11 +560,21 @@ Caption is card title over metadata, spacing 3, padding 14, subtitle two lines.
 
 A kind badge — label role in the kind's colour on a capsule, `canvas` at 92% over a cover and `surface` on the wash, padded 10/4 and inset 11 from the top leading corner — names what the cover cannot: shown whenever there is no cover, and over a cover only for video, where a still frame does not say the thing moves. A sealed letter always badges **Letter** in terracotta, cover or not — the cover belongs to the section, not to the sealed entry, whose own tiles are withheld.
 ### Backfill photo grid
-**The app's second grid, and deliberately not the mosaic.** The mosaic is one entry's pictures composed into a block — four shapes, 4pt gutters, one 14pt clip around the whole thing. This is a picker over a camera roll: three flexible columns, 3pt gutters both ways, square tiles at radius 2, screen-margin sides. Tight gutters and square corners are what make a month scan as a contact sheet; mosaic rounding at this density reads as forty separate cards.
+**The app's second grid, and deliberately not the mosaic.** The mosaic is one entry's pictures composed into a block — four shapes, 4pt gutters, one 14pt clip around the whole thing. This is a picker over a camera roll: three columns, 3pt gutters both ways, square tiles at radius 2, screen-margin sides. Tight gutters and square corners are what make a month scan as a contact sheet; mosaic rounding at this density reads as forty separate cards.
 
-Selection is the tile itself, not a badge bolted on: radius 2→10, scale 0.9, and a 24pt terracotta circle carrying an 11pt `surface` check inset 6 at the bottom trailing corner, all on the tap animation. **No count on a tile and no running total over the grid** — the number lives in the pinned action, "Use 3 photos", where it states what the next tap does rather than keeping a score.
+The tile side is arithmetic — `BackfillGrid.tileSide`, `(width − 32 − 6) / 3` floored to a whole point — and the columns are `.fixed(side)` rather than `.flexible()`, so one number decides the frame, the clip and the pixel size asked of PhotoKit. Grid thumbnails are requested at `side × displayScale` **pixels** with `deliveryMode = .fastFormat`, `resizeMode = .exact`, `isSynchronous = false` and `isNetworkAccessAllowed = false`: one callback at the size asked for, rather than a degraded frame followed by a second decode. Tiles are identified by `PHAsset.localIdentifier`, never by index — an index-keyed tile recycles its state into a different photograph when the day's contents shift.
 
-Day headers are sticky and opaque canvas; the grid scrolls under them.
+**Every selectable tile carries its mark before it is picked** — a 26pt circle in the top trailing corner, inset 6. Unselected it is `surface` at 70% under a 1pt `border` hairline and holds no glyph; selected it fills `terracotta` with a `canvas` checkmark at 13pt semibold, and the tile itself takes a 2pt `terracotta` inner stroke. A cloud-only tile gets **no circle at all**: it is not tappable, and an affordance offering to select it would be a control that lies. **The whole tile is the tap target**, never the circle — one-handed use is the constraint, and a 26pt target inside a ~118pt tile is the wrong hit area.
+
+Drawing the ring only after the first tap is what this replaced (24pt, bottom trailing, selected-only, with a 0.9 shrink). A grid whose entire purpose is selection, showing no affordance until something is already selected, makes the parent's first tap a guess. The tile keeps radius 2 in both states — the inner stroke carries selection, and a radius change on top of a stroke and a circle is three marks for one fact. Motion is the card tap (0.98, 0.12s) on the tile and the completion spring (`response: 0.35, damping: 0.7`) on the circle, which still fills under Reduce Motion without the overshoot. **No haptic** — haptics are reserved for completion, and picking a photo completes nothing.
+
+**No count on a tile and no running total over the grid** — the number lives in the pinned action, "Use 3 photos", where it states what the next tap does rather than keeping a score.
+
+Day headers are sticky and opaque canvas at `.zIndex(1)`, and the grid scrolls under them. They take `DayHeader`'s vocabulary — bold day number, lighter month, count in `inkMuted` — and **not** its periwinkle age capsule: this is a picker, and the age belongs to the timeline the entry lands in.
+
+**A tile occupies its cell exactly, whatever shape the photograph is.** `.scaledToFill()` under a `.clipShape` with no frame between them clips to the *view's own bounds* rather than to the space proposed, so a portrait asset grows, clips itself to the larger square and draws over its neighbours — and a `LazyVGrid` row is as tall as its tallest child, so one overflowing tile also pushes its row into the next and paints across the pinned header above it. Three symptoms, one defect. State the frame and let a `Color.clear` take the proposal.
+
+The pinned action sits on `PinnedActionBackdrop` with 26 above it, like every other pinned action in the app. `safeAreaInset` already insets the scroll content by the pill's own height, so the grid adds only the 16 of clearance under the last row — a second hardcoded inset on top of it is a dead gap that changes length the moment a photo is picked.
 
 A cloud-only asset is `chipPlain` with an `icloud` glyph and is not selectable. The scan counted it, so hiding it makes the count wrong, and fetching it breaks the promise that nothing downloads.
 
