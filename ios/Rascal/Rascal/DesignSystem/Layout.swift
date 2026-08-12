@@ -14,6 +14,16 @@ enum Layout {
     static let heroRadius: CGFloat = 18
     /// A quoted prompt on Entry Detail, where it is a filled block rather than a rule.
     static let quoteBlockRadius: CGFloat = 16
+
+    /// Entry Detail's reading sheet — the cream surface that carries everything that is not the
+    /// artifact. One step softer than `cardRadius`, for the same reason app prompt cards are:
+    /// it holds the emotional content. The import specifies 26; 24 keeps it on the 4pt step this
+    /// file already uses and is indistinguishable at that radius.
+    static let sheetRadius: CGFloat = 24
+
+    /// How far the sheet rides up over the layer behind it, so it reads as resting on the picture
+    /// rather than butting against it.
+    static let sheetOverlap: CGFloat = 24
     static let borderWidth: CGFloat = 1
 
     /// Internal card padding.

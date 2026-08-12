@@ -2,10 +2,15 @@
 
 Phase 22, `ios/phase-22-entry-detail-v2`, off `main` @ 17e1ad2. Written 2026-08-11.
 
-**This run ends here, at the end of §1, and that is the recommended outcome rather than a
-failure.** The reason is one design decision that is not mine to make — see
-[§6 Recommendation](#6--recommendation-why-this-stops-at-the-inventory). Everything §1 asked for
-is below.
+> **Superseded in part, and kept as the record.** This document originally ended the run at §1,
+> because the full-bleed question (Q1) was not the agent's to answer. **It was answered — yes, the
+> reader is the exception — and the screen was built.** Q2 (frosted glass) resolved toward the
+> design system's own README: opaque surface, no blur. Paper grain was settled as rejected and is
+> now named explicitly in `docs/decisions.md`.
+>
+> The inventory below is unedited apart from those three outcomes and the correction in the seal
+> section. It is the reasoning the build was made from, and the token table is still the working
+> reference.
 
 ---
 

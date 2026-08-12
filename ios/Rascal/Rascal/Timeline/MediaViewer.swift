@@ -18,6 +18,13 @@ struct DetailMediaView: View {
     /// and the view degrades to its tinted placeholder.
     var api: APIClient?
     var localFile: URL?
+    /// Entry Detail's v2 hero runs the picture to the screen edges: no radius, no hairline.
+    ///
+    /// **A parameter rather than a second view.** The loading, the poster generation, the video
+    /// runtime and the accessibility label are all the same work, and the only thing that differs
+    /// is the shape — which is exactly the case where forking costs two of everything and buys
+    /// nothing. Defaults to the inset card, so nothing that existed changes.
+    var bleeds: Bool = false
     let onOpen: () -> Void
 
     @Environment(\.thumbnails) private var thumbnails
@@ -38,12 +45,21 @@ struct DetailMediaView: View {
                 .overlay { picture }
                 .overlay { if kind == .video { playGlyph } }
                 // The hero radius, not the general media inset: this is the largest shape on
-                // Entry Detail and v3 softens it a step past a card.
-                .clipShape(RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous)
-                        .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+                // Entry Detail and v3 softens it a step past a card. Squared off entirely when it
+                // bleeds — a rounded corner against the screen edge reads as a rendering fault.
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: bleeds ? 0 : Layout.heroRadius, style: .continuous
+                    )
                 )
+                // The hairline is what separates an inset card from the cream behind it. A picture
+                // that reaches the screen edge has nothing to be separated from.
+                .overlay {
+                    if !bleeds {
+                        RoundedRectangle(cornerRadius: Layout.heroRadius, style: .continuous)
+                            .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) { runtime }
                 .contentShape(Rectangle())
         }

@@ -306,13 +306,13 @@ These gate the P0 exit test and nothing else can move them.
 
 ### Two recommendations now, and the first is one question, not a branch
 
-**1. Answer the full-bleed question.** Phase 22 imported the Entry Detail v2 design and stopped
-deliberately at the inventory, because its central device — media filling the screen with the text
-in a sheet on top — sits one step from a twice-rejected direction. `design-system.md` says photos
-*"rarely bleed to the screen edge"*; `decisions.md` rejects a full-bleed **timeline**. Neither
-forbids it on a detail screen, and neither permits it either. **It is a yes or a no, and everything
-else in that design is downstream of it** — see `docs/blocked.md` and
-`docs/entry-detail-inventory.md`, which also lists what a scoped 22b should build in either case.
+**1. ~~Answer the full-bleed question.~~ Answered — yes, and Entry Detail v2 is built.** Media
+runs to the screen edges on that screen and nowhere else; the rejection in `decisions.md` still
+names the *timeline* and still stands. Frosted glass resolved toward the design system rather than
+the export. Paper grain settled as rejected and named explicitly, so the next import closes it by
+reading. **Nothing here is outstanding** — what is left of that design is the list of things
+deliberately not built (immersive mode, the expanding sheet, Share, Add tag, the scrubber, the
+thumbnail strip), each of which is new functionality rather than a design pass.
 
 **2. Run the checklists.** Unchanged, and still the larger body of work. Ten features have shipped
 that have never run against reality, and the tool for finding out is a checklist and an evening,

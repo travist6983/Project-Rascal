@@ -1770,3 +1770,38 @@ Two documentation defects the same pass found, both of the kind this project tre
   assert it with media present and all fail when the gate is deleted. One badly-shaped test is not
   a badly-defended invariant. The genuinely uncovered channel was **voice/transcript**, found by
   breaking the gate, and it is closed by PR #55.
+
+## Phase 22b — Entry Detail v2 built (Aug 11, 2026)
+
+- **Full-bleed media on Entry Detail: allowed.** Settled by the founder. `decisions.md` rejects a
+  full-bleed *timeline* and `design-system.md` says photos "rarely bleed to the screen edge" —
+  Entry Detail is the rare one, being the single screen whose whole job is looking at one artifact.
+  Scoped to this screen; it is **not** a licence for the timeline, which the rejection still names.
+- **Frosted glass resolved toward the design system, not the export.** The sheet is opaque
+  `surface` with no `backdrop-filter`, because the design project's own README says frosted-glass
+  panels are not part of the brand. The export contradicted itself here.
+- **The backdrop is an enum, not a colour.** `EntryDetailScreen.Backdrop` +
+  `static func backdrop(...)`, so "which ground does this entry get" is a rule with tests rather
+  than a computed property that can only be looked at. Same move `transcript(in:)` already made.
+  **Sealed is checked before media is ever read** — ordering is the safety property, and breaking
+  it fails a test.
+- **`factsSentence` takes the whole `Entry`, deliberately.** The obvious signature takes a `Date`,
+  which moves the choice of `occurred_at` vs `created_at` to the caller where no test can see it.
+  Taking the entry is what makes "the date is `occurred_at`" able to fail.
+- **The key/value metadata list became one sentence** — `[age chip] date · 10 photos`. **The sync
+  line was kept out of it on purpose**: "Here — it'll sync when you're back on" is a state, not a
+  fact about the entry, and folding it in would have been the tidy way to lose the only place this
+  screen admits an entry has not left the phone.
+- **`DetailMediaView` gained `bleeds:` rather than a fork.** One call site, and everything except
+  the shape is identical.
+- **Dropped as new functionality, per scope:** immersive mode, the expanding sheet, Share, Add tag,
+  the video scrubber, the thumbnail strip, "Read the whole thing". Multi-media is still a paged
+  `TabView`.
+- **Adversarial finding, pre-existing and not fixed here: Edit reaches a sealed letter's body
+  without going through Open it.** `edit()` opens the composer, which renders the body, and the
+  toolbar offers it on a sealed entry. It is defensible — the author is deliberately not locked out
+  — but "Open it" is a conscious act and tapping Edit is not. Flagged rather than changed, because
+  changing it is behaviour rather than a design pass.
+- **iOS suite 758/95 → 768/96**, warnings unchanged at 21 and none in a touched file, cold from a
+  deleted `DerivedData`. Two assertions verified by breaking the code: the sealed-backdrop ordering
+  and the `occurred_at` rule.
