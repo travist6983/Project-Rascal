@@ -1611,3 +1611,23 @@ Two documentation defects the same pass found, both of the kind this project tre
   meant a refused *toggle* reported the send time back, naming the one value nobody was changing.
 - **`BackfillActionBackdrop` → `PinnedActionBackdrop`.** Giving `OnboardingStepScaffold` a pinned
   footer made all five onboarding steps depend on a type whose name said "backfill".
+
+## Aug 11, 2026 — the docs pass that closed four open items
+
+- **Open items 2, 3, 9 and 10 are settled**, leaving **item 1 (the name)** as the only thing in
+  `docs/decisions.md`'s Open table. The handoff split into two questions that dissolved each other,
+  the export gained a readable layer without a second export path, and pronouns gained a
+  fourteen-token contract that lives in `docs/api-contract.md` because every consumer must honour it.
+- **`blocked.md` was struck but not moved, and that was the defect.** Four iOS sections sat under a
+  heading meaning "blocked" while the preamble already said they were resolved. A struck section is
+  not a moved section — a file read for "what is blocking me" gets skimmed by heading. Two are now
+  closed outright by phase 19; the rest are named as unstarted follow-ups.
+- **`docs/roadmap-status.md`'s phase-numbering instruction had gone stale twice.** It said the next
+  phase "should be numbered 12" while 12 through 20 merged underneath it. Re-stating it with a fresh
+  absolute number only resets the clock, so the rule now says to **measure `main` directly** and
+  labels the number as expected to rot. The four existing collisions (3, 11, 19, 20) are **not**
+  renumbered: the PRs are merged and renaming them would make the ledger disagree with every commit
+  message in the repo.
+- **The iOS test figure was corrected from 705/86 to 714/87**, and the claim that "Phase 19's iOS
+  half has never been compiled" was removed — it was true when written and false the same day. The
+  trail is measured at every step rather than carried: 678/81 → 705/86 → 714/87.
