@@ -214,6 +214,42 @@ struct EntryDetailScreen: View {
         }
     }
 
+    /// Where a did-it entry's completion mark goes — **and it goes exactly one place.**
+    ///
+    /// The v2 hero puts a 64pt mark on sage when there is no artifact. That is the common did-it
+    /// entry and it is the better treatment. But a did-it entry can have a photograph or a voice
+    /// note, and then the hero slot is taken — so the mark falls back beside the title, which is
+    /// where it lived before this redesign.
+    ///
+    /// **Losing it entirely is the bug this enum exists to prevent**, and it is the one this pass
+    /// shipped for a few hours: the hero stopped drawing the check when a picture was present and
+    /// the inline one had already been deleted as a duplicate, so "you did this" quietly vanished
+    /// from exactly the did-it entries someone had bothered to photograph.
+    nonisolated enum CompletionMark: Equatable {
+        case none
+        /// 64pt, centred on the tint. No artifact competing with it.
+        case hero
+        /// 22pt, on the title's baseline. Something else is using the hero.
+        case inline
+    }
+
+    nonisolated static func completionMark(
+        type: EntryType?,
+        pictureCount: Int,
+        hasVoice: Bool
+    ) -> CompletionMark {
+        guard type == .didIt else { return .none }
+        return pictureCount == 0 && !hasVoice ? .hero : .inline
+    }
+
+    private var completionMark: CompletionMark {
+        Self.completionMark(
+            type: entry?.type,
+            pictureCount: pictures.count,
+            hasVoice: voiceMedia != nil
+        )
+    }
+
     private var backdropKind: Backdrop {
         Self.backdrop(
             unlockAtAge: entry?.unlockAtAge,
@@ -268,7 +304,7 @@ struct EntryDetailScreen: View {
             .padding(.horizontal, Layout.screenMargin)
             .padding(.top, 8)
             .padding(.bottom, Layout.sheetOverlap + 18)
-        } else if entry?.type == .didIt {
+        } else if completionMark == .hero {
             // **The did-it hero, and the reason this screen has one at all.** An entry with no
             // artifact is complete, not deficient — so it gets a deliberate mark on a sage ground
             // rather than the empty space where a picture would have been.
@@ -362,17 +398,19 @@ struct EntryDetailScreen: View {
                 }
             }
             .tabViewStyle(.page)
-            .frame(height: galleryHeight)
+            // **Sized from its own width, not from the screen's.** A `TabView` needs a concrete
+            // height, and the two obvious ways to give it one are both wrong: a fixed number is
+            // a different crop on every device, and `UIScreen.main.bounds.width` is a global
+            // reached from inside a view — the only one that would exist in this codebase, and
+            // wrong the first time this app is ever asked to run at any size but full screen.
+            // `aspectRatio` asks the container instead, which is the thing that actually knows.
+            .aspectRatio(Self.galleryAspect, contentMode: .fit)
         }
     }
 
-    /// A full-width 4:3 picture, plus room for the page dots inside the TabView's own frame.
-    ///
-    /// Derived rather than fixed, because the width is now the screen's: at 393pt a 4:3 picture is
-    /// 295pt, and a hardcoded 300 would have cropped it by five points on exactly one device.
-    private var galleryHeight: CGFloat {
-        UIScreen.main.bounds.width * 3 / 4 + 30
-    }
+    /// 4:3, the shape `DetailMediaView` gives a single picture, so a one-photo entry and a
+    /// ten-photo entry open at the same height rather than jumping when you page.
+    nonisolated static let galleryAspect: CGFloat = 4.0 / 3.0
 
     private func detailMedia(_ item: Media) -> some View {
         DetailMediaView(
@@ -429,13 +467,29 @@ struct EntryDetailScreen: View {
     private func writtenContent(_ entry: Entry) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             if let title = entry.title, !title.isEmpty {
-                // **The check moved to the hero and is not repeated here.** A did-it entry now
-                // opens on a 64pt mark over sage; a second one beside the title said the same
-                // thing twice on one screen.
-                Text(title)
-                    .typeRole(.detailTitle)
-                    .foregroundStyle(Color.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    // Only when the hero is not already carrying it — see `completionMark`. A
+                    // did-it entry with a photograph has a taken hero, so the mark comes back
+                    // here rather than disappearing.
+                    if completionMark == .inline {
+                        CompletionCheck(isComplete: true, diameter: 22, tint: .sageInk, check: .sage)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 3 }
+                    }
+                    Text(title)
+                        .typeRole(.detailTitle)
+                        .foregroundStyle(Color.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else if completionMark == .inline {
+                // A did-it entry that was photographed but never titled. The hero is holding the
+                // picture, so the mark has no title to sit beside — it gets the same sentence the
+                // untitled did-it entry gets, and keeps the check with it.
+                HStack(spacing: 10) {
+                    CompletionCheck(isComplete: true, diameter: 26, tint: .sageInk, check: .sage)
+                    Text("We did it")
+                        .typeRole(.detailTitle)
+                        .foregroundStyle(Color.ink)
+                }
             }
             if let body = entry.body, !body.isEmpty {
                 Text(body)
@@ -443,9 +497,9 @@ struct EntryDetailScreen: View {
                     .foregroundStyle(Color.ink)
                     .fixedSize(horizontal: false, vertical: true)
             } else if entry.title == nil, media.isEmpty {
-                // A did-it entry with no note. Complete, and it says so rather than rendering
-                // as a screen with nothing on it. The mark is overhead in the hero; this is the
-                // sentence under it.
+                // A did-it entry with no note and no artifact. Complete, and it says so rather
+                // than rendering as a screen with nothing on it. The mark is overhead in the
+                // hero; this is the sentence under it.
                 Text("We did it")
                     .typeRole(.detailTitle)
                     .foregroundStyle(Color.ink)

@@ -255,6 +255,60 @@ struct EntryDetailV2Tests {
         )
     }
 
+    // MARK: The completion mark — where "you did this" goes
+
+    /// **The regression this suite exists to have caught.** v2 moved the did-it check into the
+    /// hero, and the hero only draws when nothing else is using it. The inline one had already
+    /// been deleted as a duplicate — so a did-it entry with a photograph lost its mark entirely,
+    /// which is to say the archive stopped saying the one thing that entry is *for*.
+    @Test("a did-it entry with a photo still gets its mark, just not in the hero")
+    func photographedDidItKeepsItsMark() {
+        #expect(
+            EntryDetailScreen.completionMark(type: .didIt, pictureCount: 1, hasVoice: false)
+                == .inline
+        )
+        #expect(
+            EntryDetailScreen.completionMark(type: .didIt, pictureCount: 0, hasVoice: true)
+                == .inline
+        )
+    }
+
+    @Test("a did-it entry with nothing else in the hero gets the big one")
+    func plainDidItGetsTheHeroMark() {
+        #expect(
+            EntryDetailScreen.completionMark(type: .didIt, pictureCount: 0, hasVoice: false)
+                == .hero
+        )
+    }
+
+    /// The mark means "completed a mission with nothing to show for it". It is not decoration and
+    /// it does not belong on entries that have an artifact of their own.
+    @Test("nothing but a did-it entry gets a completion mark")
+    func onlyDidItIsMarked() {
+        for type in [EntryType.text, .photo, .video, .audio] {
+            #expect(
+                EntryDetailScreen.completionMark(type: type, pictureCount: 0, hasVoice: false)
+                    == .none,
+                "\(type) must not be marked complete"
+            )
+        }
+        #expect(EntryDetailScreen.completionMark(type: nil, pictureCount: 0, hasVoice: false) == .none)
+    }
+
+    /// **Exactly one mark, always.** Two on one screen is the duplicate that caused the deletion
+    /// that caused the regression, so it is worth pinning that hero and inline are exclusive.
+    @Test("the mark is never in two places at once")
+    func theMarkIsNeverDoubled() {
+        for pictures in 0...3 {
+            for voice in [true, false] {
+                let mark = EntryDetailScreen.completionMark(
+                    type: .didIt, pictureCount: pictures, hasVoice: voice
+                )
+                #expect(mark != .none, "a did-it entry is always marked somewhere")
+            }
+        }
+    }
+
     // MARK: The facts line
 
     /// **The one assertion this screen has always needed.** `occurred_at` and `created_at` are
