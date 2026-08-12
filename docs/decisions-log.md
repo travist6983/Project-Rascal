@@ -1760,3 +1760,13 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **Preflight deviation: the zero-warning precondition does not hold on `main`.** 21 pre-existing
   warnings (`ExtractedDetails.swift` ×3, `PushPermissionTests` ×14, `ExtractionTests` ×4), none in
   an Entry Detail file. Recorded rather than treated as a stop. iOS suite **756/95**, green, cold.
+- **Paper grain closed, Aug 11, 2026.** Settled as rejected. It had stayed open across three phases
+  because `decisions.md` said "screen-print texture" and every importer deciding about a
+  5%-opacity `feTurbulence` layer read past it. Now named explicitly in the exports' own
+  vocabulary so the next import closes it by reading. **Also settled: the exports will keep
+  shipping it, and that is not a new argument each time.**
+- **Correction to this phase's own seal finding.** The inventory implied the seal's evidence was
+  thin overall. It is not — `TimelineViewTests`, `MomentsV2Tests` and `TimelineSearchTests` all
+  assert it with media present and all fail when the gate is deleted. One badly-shaped test is not
+  a badly-defended invariant. The genuinely uncovered channel was **voice/transcript**, found by
+  breaking the gate, and it is closed by PR #55.

@@ -249,7 +249,7 @@ any source. They are not invented here."* Ours exist and stay.
 
 | # | Dropped | Why |
 |---|---|---|
-| D1 | **Paper grain** (`feTurbulence` at 0.05 over every surface) | The export and its README call grain mandatory identity — *"A RASCAL screen without grain looks wrong."* `docs/design-system.md` lists **screen-print texture** under Anti-patterns and `docs/decisions.md` lists it under **Rejected — do not revisit**. Dropped, exactly as Today v2 and Settings v2 dropped it. **Carried forward as open; not resolved here and no compromise invented.** |
+| D1 | **Paper grain** (`feTurbulence` at 0.05 over every surface) | Dropped, as Today v2 and Settings v2 dropped it. **No longer open: settled Aug 11, 2026 and written into `docs/decisions.md` under *Rejected — do not revisit* in the words the exports themselves use.** It had survived three phases only because the existing line said "screen-print texture", which a reader deciding about a 5%-opacity noise layer does not reliably recognise. Naming it is the whole fix; the exports will keep shipping it, and that is a property of the design system they come from rather than a new argument. |
 | D2 | **Immersive mode** (`⤢` hides chrome; tap anywhere restores) | New functionality. §7. |
 | D3 | **Expanding / collapsing sheet** (drag handle, `toggleExpand`) | New functionality. §7. It is also load-bearing for the export: the prompt, tags and buttons only exist in the expanded state. |
 | D4 | **"Add tag" chip** | New functionality — tags are read-only on this screen today (`tags(entry)` renders `Chip`s). §7. |
@@ -334,9 +334,19 @@ Two gaps:
 
 Neither is a defect in the shipped seal — `EntryDetailScreen.content` gates correctly on
 `entry.unlockAtAge != nil && !unsealed` and renders only `sealedCard`. It is a gap in the
-*evidence*. **22b should add the §5 fixture (sealed + photo + body) and verify it by breaking the
-gate**, which is the required break-test and the one that would have caught a silently-loosened
-seal.
+*evidence*.
+
+> **Correction, added after this was written and after the fix was built (PR #55).** The paragraph
+> above is accurate about `sealedEntryRendersSealed`, but the section as originally written implied
+> the seal's evidence was thin *overall*, and **that was wrong**. `TimelineViewTests`,
+> `MomentsV2Tests` and `TimelineSearchTests` each assert the seal **with media present**, and all
+> three fail when the gate is deleted. The seal is well defended; one badly-shaped test is not the
+> same as a badly-defended invariant, and this document should not have blurred the two.
+>
+> What was genuinely uncovered, found only by breaking the gate: **the voice/transcript channel.**
+> No test asserted that a sealed entry suppresses `voice`, whose `openingLine` is derived from a
+> transcript — under sabotage it leaked "the dinosaur bus" with only the new test objecting. That
+> is now covered, along with all six channels in one fixture, in `SealControlTests`.
 
 ### Preflight, for the record
 

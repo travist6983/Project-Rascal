@@ -1087,8 +1087,10 @@ because it changes how the sheet reads over a photo and is coupled to question 1
 
 ### Still open, carried forward rather than resolved
 
-- **Paper grain.** Third export to call it mandatory identity; third time dropped against
-  `decisions.md`'s *Rejected — do not revisit*. Not resolved, no compromise invented.
+- ~~**Paper grain.**~~ **CLOSED Aug 11, 2026.** Settled as rejected and written into
+  `docs/decisions.md` in the words the exports actually use (`feTurbulence`, "paper grain"), because
+  the existing "screen-print texture" line is what three importers in a row read past. The exports
+  will keep carrying it; that is a property of their design system, not a new argument.
 - **`KindBadge` contrast** (~3.3–3.7:1, below AA). Untouched, per the brief. The import does not
   reuse the component, but its chips are the same shape of pairing — `#5566D6` on `#E9EBFB` is the
   one to measure first in any new surface.
