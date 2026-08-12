@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rascal archive</title>
+<!--
+  This file is a reader for the archive sitting next to it. It is deliberately boring:
+  no build step, no framework, no network. Everything it needs is in this folder.
+
+  The data is in entries.json and manifest.json, which are plain JSON and readable by
+  anything. entries.js and manifest.js are the same bytes with a variable assignment
+  wrapped around them, because a page opened from a file:// path is not allowed to
+  fetch() a file next to it, but is allowed to load one with a <script> tag.
+-->
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+
+<noscript>
+  <div class="bare">
+    <h1>This page needs JavaScript to lay out the archive.</h1>
+    <p>
+      <strong>Nothing is missing.</strong> The archive itself is not in this page — it is in
+      <code>entries.json</code> and <code>manifest.json</code>, in the same folder as this
+      file, and the photos, video and audio are in the <code>media</code> folder beside them.
+      All of it is plain, readable data and none of it needs this page or any program in
+      particular.
+    </p>
+    <p>
+      Open <code>entries.json</code> in any text editor to read every entry. Open anything in
+      <code>media/</code> the way you would open any other picture or recording.
+    </p>
+  </div>
+</noscript>
+
+<div id="app">
+  <!--
+    Replaced wholesale by assets/app.js. If you are reading this text on screen, the script
+    did not run — the note below is the same one <noscript> gives, for the same reason.
+  -->
+  <div class="bare" id="boot">
+    <h1>Opening the archive&hellip;</h1>
+    <p>
+      If this message stays on screen, this page could not read the archive. The archive is
+      still here: <code>entries.json</code> holds every entry as plain text, and the photos,
+      video and audio are in the <code>media</code> folder. Neither one needs this page.
+    </p>
+  </div>
+</div>
+
+<!--
+  Order matters: the data has to exist before app.js runs. Classic scripts, not modules —
+  a module is fetched under CORS rules that a file:// page cannot satisfy, so
+  <script type="module"> is exactly the thing that would make this page blank in 2040.
+-->
+<script src="manifest.js"></script>
+<script src="entries.js"></script>
+<script src="assets/app.js"></script>
+
+</body>
+</html>

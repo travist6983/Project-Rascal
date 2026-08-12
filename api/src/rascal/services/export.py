@@ -8,6 +8,23 @@ them is not a copy of the archive.
     entries.json               every entry, with tags, media references, and deleted_at
     media/YYYY/MM/<file>       the objects themselves, foldered by when they happened
 
+    index.html                 the same archive, readable by double-clicking it
+    assets/app.css             constant for every export and every child — these three live
+    assets/app.js              in export_viewer/ and are copied into the zip verbatim
+    entries.js                 entries.json's bytes, wrapped in a variable assignment
+    manifest.js                manifest.json's bytes, wrapped in a variable assignment
+
+The JSON half is for machines and migration; the HTML half is for the person it belongs to.
+There is one export path and one source of truth — the viewer reads the same bytes the
+backup already contains, so it can never disagree with it, and if it is ever wrong you
+regenerate it from a zip you already have.
+
+`entries.js` exists because **a double-clicked `index.html` cannot `fetch()` a file next to
+it** — browsers treat `file://` origins as opaque and block the request. A `<script>` tag is
+not blocked. That constraint decides the layout, not a preference: the payload is duplicated
+into a second file, which costs nearly nothing in the zip because the two are nearly
+identical and deflate together.
+
 **Staged on disk, streamed to the client.** A zip of eighteen years of video will not fit in
 a 512MB machine's memory, so it is assembled into a temporary file and then read back in
 chunks. Nothing is ever held whole in RAM. The file is deleted once the response finishes.
@@ -47,6 +64,10 @@ log = logging.getLogger("rascal.export")
 STREAM_CHUNK_BYTES = 1024 * 1024
 
 EXPORT_FORMAT_VERSION = 1
+
+# The readable layer. Constant bytes, shipped in the repository, copied in verbatim — the
+# viewer is never generated, so there is nothing about it that can differ per child.
+VIEWER_ROOT = Path(__file__).resolve().parent.parent / "export_viewer"
 
 
 @dataclass
@@ -202,11 +223,57 @@ async def plan_export(session: AsyncSession, child: Child) -> _Plan:
     )
 
 
+def viewer_files() -> list[tuple[str, Path]]:
+    """Every constant viewer file, as `(path inside the zip, path on disk)`.
+
+    Raises if the directory is not there. That is deliberate and it is the less obvious of
+    the two choices: the alternative is an export that quietly ships an `index.html` whose
+    stylesheet and script are 404s, and nobody discovers that until they open the zip in
+    2040. A packaging mistake should cost one loud export, not the readable half of the
+    archive — and `test_export_viewer.py` fails long before an export does.
+    """
+    if not VIEWER_ROOT.is_dir():
+        raise FileNotFoundError(f"export viewer assets are missing from the build: {VIEWER_ROOT}")
+    files = sorted(path for path in VIEWER_ROOT.rglob("*") if path.is_file())
+    if not files:
+        raise FileNotFoundError(f"export viewer directory is empty: {VIEWER_ROOT}")
+    return [(path.relative_to(VIEWER_ROOT).as_posix(), path) for path in files]
+
+
+def _as_script(payload: bytes, variable: str) -> bytes:
+    """Wrap already-serialized JSON in an assignment a `<script src>` tag can load.
+
+    Three substitutions, and all three produce a JSON value identical to the input:
+
+    - `</` becomes `<\\/`, because a `</script>` anywhere inside a body would close the tag
+      early and truncate the archive. `\\/` is a valid JSON escape for `/`, and `<` can only
+      appear inside a JSON string, so this is safe to do on the raw bytes.
+    - U+2028 and U+2029 become their `\\u` escapes. They are legal inside a JSON string but
+      were line terminators in JavaScript before ES2019, and a stray one turns the whole
+      file into a syntax error on an older engine.
+
+    The bytes are otherwise untouched: strip `window.<variable> = ` and the trailing `;` and
+    you have the sibling `.json` file back, byte for byte. That is the point — one payload,
+    serialized once, in two containers.
+    """
+    escaped = (
+        payload.replace(b"</", b"<\\/")
+        .replace(b"\xe2\x80\xa8", b"\\u2028")
+        .replace(b"\xe2\x80\xa9", b"\\u2029")
+    )
+    return b"window." + variable.encode("ascii") + b" = " + escaped + b";\n"
+
+
 def write_export(plan: _Plan, settings: Settings, destination: Path) -> ExportStats:
     """Assemble the zip at `destination`. Blocking: S3 reads and deflate. Runs in a thread."""
     stats = ExportStats(entries=len(plan.entries), deleted_entries=plan.deleted_entries)
     client = s3.get_s3_client()
     written: set[uuid.UUID] = set()
+
+    # Resolved before a single byte is pulled from S3. If the build is missing the viewer,
+    # the export should fail immediately rather than after downloading eighteen years of
+    # video and then discovering it.
+    viewer = viewer_files()
 
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
         for fetch in plan.fetches:
@@ -238,38 +305,49 @@ def write_export(plan: _Plan, settings: Settings, destination: Path) -> ExportSt
                 if uuid.UUID(item["id"]) not in written:
                     item["path"] = None
 
-        archive.writestr(
-            "entries.json",
-            json.dumps(plan.entries, indent=2, ensure_ascii=False),
-        )
+        # Serialized once and encoded once, then written into two containers. Building the
+        # string twice would double the peak memory of the one part of this endpoint that
+        # is not already streamed, on the archive that needs it least — an eighteen-year one.
+        entries_bytes = json.dumps(plan.entries, indent=2, ensure_ascii=False).encode("utf-8")
+        archive.writestr("entries.json", entries_bytes)
+        archive.writestr("entries.js", _as_script(entries_bytes, "RASCAL_ENTRIES"))
+        del entries_bytes
 
-        archive.writestr(
-            "manifest.json",
-            json.dumps(
-                {
-                    "format": "rascal-export",
-                    "format_version": EXPORT_FORMAT_VERSION,
-                    "generated_at": dt.datetime.now(tz=dt.UTC).isoformat(),
-                    "child": plan.child,
-                    "counts": {
-                        "entries": stats.entries,
-                        "deleted_entries": stats.deleted_entries,
-                        "media": stats.media,
-                        "media_bytes": stats.media_bytes,
-                    },
-                    "missing_media": stats.missing_media,
-                    "notes": [
-                        "entries.json contains every entry, including soft-deleted ones.",
-                        "A soft-deleted entry has is_deleted true and a deleted_at timestamp.",
-                        "Sealed letters are exported in the clear; unlock_at_age is retained.",
-                        "media paths are relative to the root of this archive.",
-                        "A media row with a null path is one whose bytes were not in S3.",
-                    ],
+        manifest_bytes = json.dumps(
+            {
+                "format": "rascal-export",
+                "format_version": EXPORT_FORMAT_VERSION,
+                "generated_at": dt.datetime.now(tz=dt.UTC).isoformat(),
+                "child": plan.child,
+                "counts": {
+                    "entries": stats.entries,
+                    "deleted_entries": stats.deleted_entries,
+                    "media": stats.media,
+                    "media_bytes": stats.media_bytes,
                 },
-                indent=2,
-                ensure_ascii=False,
-            ),
-        )
+                "missing_media": stats.missing_media,
+                "notes": [
+                    "entries.json contains every entry, including soft-deleted ones.",
+                    "A soft-deleted entry has is_deleted true and a deleted_at timestamp.",
+                    "Sealed letters are exported in the clear; unlock_at_age is retained.",
+                    "media paths are relative to the root of this archive.",
+                    "A media row with a null path is one whose bytes were not in S3.",
+                    "Open index.html in a browser to read this archive. It needs no internet.",
+                    "entries.js and manifest.js are the same bytes as the .json files, wrapped "
+                    "in a variable assignment, because a page opened from a file path may not "
+                    "fetch a file beside it but may load one with a script tag.",
+                ],
+            },
+            indent=2,
+            ensure_ascii=False,
+        ).encode("utf-8")
+        archive.writestr("manifest.json", manifest_bytes)
+        archive.writestr("manifest.js", _as_script(manifest_bytes, "RASCAL_MANIFEST"))
+        del manifest_bytes
+
+        # The readable layer, verbatim.
+        for name, source in viewer:
+            archive.write(source, name)
 
     return stats
 

@@ -27,7 +27,13 @@ router = APIRouter(prefix="/children", tags=["children"])
         "Soft-deleted entries are included and marked `is_deleted`; an export that quietly "
         "drops them is not a copy of the archive. Sealed letters are exported in the clear. "
         "The zip is assembled on disk and streamed back, so memory stays bounded no matter "
-        "how many years are in it."
+        "how many years are in it.\n\n"
+        "The same zip also carries a readable layer: `index.html` plus `assets/app.css` and "
+        "`assets/app.js`, which open the archive by double-clicking, with no server, no "
+        "build step and no internet. They read `entries.js` and `manifest.js` — the same "
+        "bytes as the `.json` files with a variable assignment wrapped around them, because "
+        "a page opened from a `file://` path may not `fetch()` a file beside it but may "
+        "load one with a `<script>` tag. There is one export and one source of truth."
     ),
     response_class=StreamingResponse,
     responses={
