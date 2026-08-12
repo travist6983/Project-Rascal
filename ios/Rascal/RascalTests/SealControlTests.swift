@@ -275,6 +275,95 @@ struct SealControlTests {
         #expect(entry.unlockAtAge != nil)
     }
 
+    /// **The one above cannot fail, and that is why this one exists.**
+    ///
+    /// `sealedEntryRendersSealed` builds its fixture with `media: []` and then asserts
+    /// `card.preview == nil`. With no media there was never a preview to suppress, so the
+    /// assertion holds whether or not the seal does anything — it cannot tell a working seal from
+    /// a broken one. Every other channel it checks is empty in that fixture for the same reason.
+    ///
+    /// This fixture is the opposite: **a sealed letter carrying every kind of content the card
+    /// knows how to render** — a body, a photo, a voice note with a transcript, and tags. Each
+    /// assertion below now fails if its suppression is removed, which is the whole point. Verified
+    /// by deleting the gate, not by reading it.
+    ///
+    /// The six channels are the six places `EntryCardModel.init` branches on `sealed`, and the
+    /// list is deliberately exhaustive: a seventh channel added later without a line here is
+    /// exactly how a seal stops holding without anyone noticing.
+    @Test("a sealed letter carrying a photo, a body, a transcript and tags leaks none of them")
+    func sealedEntryWithContentLeaksNothing() throws {
+        let id = UUID()
+        let entry = try cachedEntry(
+            type: "text",
+            body: "Money is mostly patience, and nobody tells you that at nineteen.",
+            unlockAtAge: 18,
+            tags: ["letters", "eighteen"],
+            mediaCount: 1,
+            id: id
+        )
+        let media = [
+            completeMedia(entryId: id, kind: "photo"),
+            completeMedia(entryId: id, kind: "audio", duration: 42, transcript: "the dinosaur bus"),
+        ]
+
+        let card = EntryCardModel(entry: entry, media: media, searchQuery: "dinosaur")
+
+        #expect(card.isSealed)
+
+        // 1. The body. The words are on the row and the card must not show them.
+        #expect(card.preview == nil)
+        // 2. Search. `bodyLine` returns `searchMatch` *before* it reaches `preview`, so a timeline
+        //    search matching a sealed letter is a second, separate way its words could surface.
+        #expect(card.searchMatch == nil, "a search must not quote a sealed letter back")
+        // 3. The transcript, which reaches the card as the voice band's opening line.
+        #expect(card.voice == nil)
+        // 4. The picture.
+        #expect(card.thumbnails.isEmpty)
+        // 5. The count of pictures — "+3" is still a statement about what is inside.
+        #expect(card.overflow == 0)
+        #expect(card.hasMedia == false)
+        // 6. The tags.
+        #expect(card.tags.isEmpty)
+
+        // And the one line the card actually renders, which is the union of 1–3. If this is
+        // non-nil, something got out regardless of which channel carried it.
+        #expect(card.bodyLine == nil, "nothing about a sealed letter reaches the rendered line")
+
+        // What Entry Detail gates its sealed card on, unchanged.
+        #expect(entry.unlockAtAge != nil)
+    }
+
+    /// The negative control for the test above: with the seal off, **every one of those six
+    /// channels carries content**. Without this, a bug that emptied the card for all entries —
+    /// sealed or not — would leave the leak test passing and mean nothing.
+    @Test("the same letter unsealed carries all six channels")
+    func unsealedEntryWithContentCarriesEverything() throws {
+        let id = UUID()
+        let entry = try cachedEntry(
+            type: "text",
+            body: "Money is mostly patience, and nobody tells you that at nineteen.",
+            unlockAtAge: nil,
+            tags: ["letters", "eighteen"],
+            mediaCount: 1,
+            id: id
+        )
+        let media = [
+            completeMedia(entryId: id, kind: "photo"),
+            completeMedia(entryId: id, kind: "audio", duration: 42, transcript: "the dinosaur bus"),
+        ]
+
+        let card = EntryCardModel(entry: entry, media: media, searchQuery: "dinosaur")
+
+        #expect(card.isSealed == false)
+        #expect(card.preview != nil)
+        #expect(card.searchMatch != nil)
+        #expect(card.voice != nil)
+        #expect(card.thumbnails.isEmpty == false)
+        #expect(card.hasMedia)
+        #expect(card.tags.isEmpty == false)
+        #expect(card.bodyLine != nil)
+    }
+
     @Test("an unsealed letter renders as an ordinary entry")
     func unsealedEntryRendersOrdinary() throws {
         let entry = try cachedEntry(
