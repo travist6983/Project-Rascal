@@ -145,7 +145,9 @@ def main() -> int:
 
     # `dt.timezone.utc` rather than `dt.UTC`: this runs under whatever `python3` is on PATH,
     # which on a Mac with Xcode installed is 3.9, not the 3.12 in api/.venv.
-    today = dt.date.fromisoformat(args.today) if args.today else dt.datetime.now(dt.timezone.utc).date()
+    today = (
+        dt.date.fromisoformat(args.today) if args.today else dt.datetime.now(dt.timezone.utc).date()
+    )
     suppressed_fingerprints = active_suppressions(args.suppressions, today)
 
     merged: dict[str, dict[str, Any]] = {}

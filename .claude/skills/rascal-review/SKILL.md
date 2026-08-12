@@ -127,6 +127,9 @@ match anything.
 
 ## Phase 2 — merge, suppress, rank
 
+This is where the run gets its output folder: `.claude/reviews/<slug>/`, where `<slug>` is the
+branch name with `/` replaced by `-`, or `pr-<number>` in PR mode. `mkdir -p` it.
+
 Concatenate every reviewer's `findings` array into one list, write it to
 `.claude/reviews/<slug>/raw-findings.json` as `{"findings": [...]}`, and run:
 
@@ -137,14 +140,14 @@ python3 .claude/skills/rascal-review/scripts/merge_findings.py \
   > .claude/reviews/<slug>/merged-findings.json
 ```
 
-Keeping the raw file is what makes a disappointing run diagnosable: it is the only record of
-what each specialist actually said before filtering.
-
 It fingerprints each finding on `rule + file + normalised code`, drops fingerprints listed as
 known false positives, merges duplicates into one record with both reviewers in `sources`,
 drops anything under confidence 80, and ranks what is left. Read the result — the counts it
 returns (`suppressed_count`, `duplicate_count`, `dropped_low_confidence_count`) go in the
 report, because a review that silently discards things is a review nobody can calibrate.
+
+Keeping the raw file is what makes a disappointing run diagnosable: it is the only record of
+what each specialist actually said before filtering.
 
 ---
 
@@ -176,8 +179,7 @@ file and code, so nothing shifts underneath you.
 
 ## Phase 4 — write it down
 
-Everything lands under `.claude/reviews/<slug>/`, where `<slug>` is the branch name with `/`
-replaced by `-`, or `pr-<number>` in PR mode. Create it with `mkdir -p`.
+Everything lands in the folder Phase 2 created.
 
 **`.claude/reviews/<slug>/findings.json`** — the final script output plus run metadata:
 `branch`, `sha`, `generated_at` (from `date -u +%FT%TZ`), `specialists`, `files_reviewed`,
