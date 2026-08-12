@@ -27,8 +27,13 @@ class DeviceRegistration(ApiModel):
         "WebPush, which is a different protocol and a different credential."
     )
     environment: PushEnvironment = Field(
-        description="`sandbox` for a development or TestFlight build, `production` for the "
-        "App Store. Required — there is no safe default."
+        description="Which APNs host addresses this token, and it follows the "
+        "`aps-environment` entitlement in the embedded provisioning profile rather than the "
+        "distribution channel. `sandbox` for a build signed with a development profile — an "
+        "Xcode-installed build. `production` for anything signed with a distribution "
+        "profile, which is **TestFlight and the App Store alike**: TestFlight ships through "
+        "App Store infrastructure and is not a separate APNs environment. Required — there "
+        "is no safe default."
     )
 
 
