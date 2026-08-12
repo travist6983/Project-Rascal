@@ -38,6 +38,22 @@ Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one
 | The claim is **committed** before the push, one transaction per user — the send job is not atomic, on purpose | The unique index only orders two runs that overlap; it does nothing about one run that dies. An APNs push is the single side effect in this service that a rollback cannot undo, so a run wrapped in one transaction would roll back every claim it had made while the phones those claims covered had already buzzed — and the next hourly run would send them all a second time. Committing per user costs the opposite failure: a crash in the window between the commit and the send loses that user one notification. For a product whose first rule is "one a day, not two, under any name", losing one is the right side of the trade. The consequence to hold onto is that `run_notifications` commits, so nothing but the job may call it. |
 | An unreadable `APNS_PRIVATE_KEY` fails at **startup**, not at the first send | A `.p8` that lost its newlines on the way into a secret is the likely first-deploy mistake, and it is unreadable in a way nothing notices until something signs with it. Discovered at send time it is the worst possible moment: the day has already been claimed and committed, so the user is recorded as notified, hears nothing, and is skipped tomorrow as "already sent" — a permanent silent miss from a typo. `build_push_client` signs one throwaway token before any user is read, so a bad key is a hard exit that claims nobody and is fully recoverable by fixing the secret. `ApnsClient.send` also degrades a signing failure to a result rather than an exception, because an error escaping mid-run costs every *remaining* user their notification too. |
 
+| **The handoff is a family-decided moment, not an age — with a floor of 13 on self-owned access** — settled Aug 11, 2026, closing open items 2 and 3 | Two mechanisms, and only one of them has a number on it. **Reading it together** needs no account and no age: it is the parent's phone, handed over, scrolled through together. That is available today, needs nothing built, and is what "when the family decides" describes for the next nine years. **His own account** has a floor of **13** — not as a preference but as a constraint. Below 13 he cannot hold his own Apple ID without family-managed consent, and COPPA attaches to any account created for him, so a pre-13 self-owned handoff would mean building parent-proxy auth for one user. When to cross that line is the family's call; that it cannot be crossed before 13 is not. The shape is **shared access, not transfer**: the child becomes a second `users` row with a guardian-style role of `subject` against the same archive, and the parent keeps theirs. `POST /children/{id}/guardians` already exists as a P2 stub and the schema separates `users` from `credentials`, so nothing needs building now. |
+| **No global default for `unlock_at_age`** — settled Aug 11, 2026, part of closing open item 2 | The item asked for a default on the grounds that it "changes how you write". It does — but it changes how you write *each letter*, which is why it is already per-prompt. The seeded library varies it deliberately: **13 for the birth-story letter, 18 for the money one**, and that variance is the feature. Adding a global default would either be ignored by every prompt that overrides it or would flatten a distinction that was made on purpose. Authored per letter. Both values in use. |
+| **No separate "visible to the child" flag. `unlock_at_age` is the only mechanism** — settled Aug 11, 2026, falling out of open item 3 | The obvious follow-on question to a handoff is whether some entries stay hidden after it. The answer is no, and the reason is structural rather than sentimental: unsealed means visible the day he has access, sealed means visible at its age, and those two states cover everything. A third state would mean writing entries into his archive that are being kept from him, which is a different product. If a particular entry should wait, that is what a seal is for. **This is worth recording because it is a column not being added** — the cheapest kind of decision to reverse and the most expensive to have added speculatively. |
+| **The export gets a readable layer: a static HTML site inside the same zip** — settled Aug 11, 2026, closing open item 9 | The item's note said "folder of files + JSON manifest", and that shipped — `manifest.json`, `entries.json`, `media/YYYY/MM/`. What it is not is the thing you hand to a thirteen-year-old. So the archive has **three layers, and only the middle one was missing**: the **backup** (the zip as it exists, lossless, for machines and migration — unchanged), the **readable archive** (`index.html` + `assets/`, added to the same zip), and the **printed book** (P4, already settled). The readable layer is a pure function of data already emitted, so there is no second export path and no second source of truth. **Static HTML rather than PDF**, and the reason is not preference: PDF is fixed-layout and cannot hold audio or video, and this archive's distinguishing content is a four-year-old's recorded voice. A format that drops it is not a copy. PDF stays available as a derived artifact generated later from the same data. |
+| **Sealed letters export in the clear and the viewer renders the seal honestly** — settled Aug 11, 2026, part of open item 9 | `entries.json` keeps sealed bodies in the clear, which was already settled and does not change: an export you cannot read is not a backup. The viewer computes the reader's age from the manifest's birthdate and shows a not-yet-due letter **as sealed, with the date it was written and the age it opens at — and lets him open it anyway**. This is an honesty affordance, not security. The body is in a plain text file three inches away, and an archive that pretended otherwise would be lying to the person it belongs to. No encryption, no obfuscation, and no omitting sealed bodies from `entries.js` — forking the viewer's data from the backup's would create exactly the second source of truth this design exists to avoid. |
+
+| **Onboarding asks for pronouns, after birthdate, and skipping is a finished setup** — settled Aug 11, 2026, closing the collection half of open item 10 | `children.pronouns` has existed in Lane A since before Aug 11 and nothing writes to it. The reason onboarding gave for not asking — "asking and then discarding would be worse than not asking" — expired the day the column landed, and the item has been miscategorised as blocked ever since. It goes **after birthdate and before timezone**, because name and birthdate are facts about the child and timezone is a fact about the household. **It is skippable and nothing is preselected.** A skipped pronoun stores `null` and is a complete setup, exactly as a skipped avatar is; a preselected he/him would be an assumption wearing a default's clothes, and a parent tapping past it would not have answered. Settings offers the same choice through the sheet `ChildHeroCard` already routes Birthday and Timezone to. |
+| **They/them are the canonical token keys** — settled Aug 11, 2026, part of open item 10 | Three schemes were considered. Grammatical abbreviations (`{subj}`, `{obj}`, `{poss}`) are precise and unreadable — you cannot proofread a sentence you cannot hear, and prompts get written at eleven at night. He-forms as keys (`{he}`, `{his}`) read naturally and match the existing library, but **`{his}` is ambiguous** between the determiner ("his favourite") and the possessive pronoun ("that one is his"), which they/them splits into "their" and "theirs" — so a he-keyed table cannot be substituted correctly, and the bug would stay invisible until someone set she/her. **They/them is the only English pronoun set whose five slots are five distinct words**, which is the entire argument: it is the only set that can serve as a key without collision, and it reads aloud. |
+| **Verb agreement is four explicit compound tokens, never conjugation** — settled Aug 11, 2026, part of open item 10 | "he is" / "she is" / "they are" cannot be fixed by a pronoun token, because the verb changes too. A conjugator that inflects the word after `{they}` is real natural-language work, gets irregulars wrong, and **fails silently** — which is the disqualifying property, not the difficulty. `{they_are}`, `{they_were}`, `{they_have}` and `{they_do}` are a lookup table that is correct always, and the author decides at write time. A conjugator is correct usually, and "usually" is not a property a permanent archive gets to have. |
+| **Capitalisation is explicit, never positional** — settled Aug 11, 2026, part of open item 10 | `{They}`, `{Them}` and `{Their}` exist as separate tokens rather than being derived from a token's position in the string. A prompt can legitimately begin mid-thought, and a positional rule would be wrong somewhere across an eighteen-year archive with nobody watching the place it was wrong. |
+| **Tokenised and literal prompts coexist permanently. The 113 seeded prompts are not rewritten** — settled Aug 11, 2026, part of open item 10 | The renderer passes text containing no tokens through byte-identical, so the seeded library — which is literal he/him and contains no braces — renders exactly as it does today, forever, with no migration. This is the same reasoning that kept those 113 out of the mission-tone rewrite under item 4: a bulk edit of serving content is large, risky and low-value, and `test_seeding.py` asserts a coverage table a sweeping edit would have to be reconciled with by hand. **The decision binds what is authored next**, not what exists. |
+| **An unknown token renders literally, braces and all, and never throws** — settled Aug 11, 2026, part of open item 10 | `{foo}` stays `{foo}` on the card. In a permanent archive a visible `{foo}` is a bug someone can see and fix; a silently-dropped one is a sentence that lost a word, and nobody will ever know which word it was or that it was ever there. This is an assertion in the test suite, not a comment. |
+| **A null pronoun renders the they/them column** — settled Aug 11, 2026, part of open item 10 | They/them is grammatical for every child, so an unanswered question degrades to correct English rather than to a placeholder, a guess, or a default that implies an answer nobody gave. |
+| **Prompt bodies are stored with tokens intact. Every client renders; the server never does** — settled Aug 11, 2026, part of open item 10 | The same body reaches a phone, the browser client reserved for 2027, an export and a printed book, and a body pre-rendered on the server cannot be re-rendered when the answer changes. The rendering happens at the last moment before a human sees the sentence — **including for the widget, where "the last moment" is when the app writes the snapshot**, not inside the extension, because the extension does no work of its own. |
+| **`{name}` at most once per prompt, and only where a parent would say it aloud** — settled Aug 11, 2026, closing the naming half of open item 10 | This is an authoring rule more than a mechanism. "What made {name} laugh today?" reads warm. "What did {name} do when {name}'s cousin arrived?" reads like a mail merge, and the second one is what happens by default when a token is available and nobody said how often to use it. Pronoun tokens carry every other reference. The rule goes in `docs/mission-library.md`'s style-reference section, because `scripts/generate_prompts.py` reads that file on every run and the tone of future batches drifts toward whatever the library actually contains. |
+
 ### Technical
 
 | Decision | Rationale |
@@ -93,6 +109,9 @@ Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one
 | `S3_REGION` and `S3_ENDPOINT_URL` are `fly.toml` `[env]` values, never Fly secrets | Neither is sensitive, and both were getting the deployment wrong from opposite directions: `fly.toml` shipped `S3_REGION = "us-east-2"` — the exact value `docs/tigris-setup.md` calls the single most likely way to break Tigris — while `S3_ENDPOINT_URL` was set nowhere at all, and unset means real AWS. Presigning is an offline signature computation, so neither mistake fails at boot or reddens a health check; the app hands the phone an `amazonaws.com` URL that 403s, in production only. Putting them in `[env]` makes them auditable at a glance and, unlike a secret, reviewable in a diff. They must not *also* be set with `fly secrets set`: when a name is in both, precedence is a detail of flyctl's version, and configuration nobody can reason about at 11pm is worse than configuration that is wrong. |
 | Bundle id is `com.travisterry.childarchive` | A bundle id is permanent and the app name is still open, so it is deliberately name-neutral — RASCAL, SMALL FRY, or anything else can ship on top of it. Settled before the Xcode project exists, because changing it afterward means redoing signing and the Sign in with Apple registration for nothing. `APPLE_BUNDLE_ID` must match it: it is the `aud` claim every Apple identity token is verified against. |
 
+| **The export viewer is generated on the fly and stored nowhere** — settled Aug 11, 2026, part of open item 9 | `index.html`, `assets/app.css` and `assets/app.js` are **constant for every export and every child**, so they live in the repo as static assets and are copied into the zip during the assembly pass that already writes the manifest. The only generated file is `entries.js` — the bytes of `entries.json` with `window.RASCAL_ARCHIVE = ` in front. Nothing is cached, nothing is per-user, nothing is stored. |
+| **The export viewer runs from `file://` with no build step, no network, and no framework** — settled Aug 11, 2026, part of open item 9 | This is the whole point of the layer and it is where it would be easy to be clever. **No npm, no bundler, no CDN, no web fonts, no analytics, vanilla JS, relative paths, system fonts.** What is in the repo is what ships. The constraint is not aesthetic: a viewer that needs a package manager to open is a dead archive, and the person opening it will be doing so in a decade with nobody around to fix it. `entries.js` exists rather than `entries.json` alone for the same reason — **browsers block `fetch()` from a `file://` origin**, so a double-clicked `index.html` cannot read a JSON file next to it, but a `<script>` tag works. That single constraint decides the file layout. |
+
 ### Design
 
 | Decision | Rationale |
@@ -115,6 +134,33 @@ Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one
 | Floating pill tab bar with center + FAB | Straight from the references. |
 | Destructive and irreversible actions are isolated in a separate bottom card, never adjacent to ordinary edit rows | A divider between two rows says "these belong together"; a gap says "these do not". Recomputing every stored age in an archive is not a neighbour of changing a name, and a mis-tap between the two is not recoverable by tapping again. |
 
+### The pronoun token table, as a contract
+
+Every consumer honours this: the iOS client, the browser client reserved for 2027, the export's
+HTML viewer, and the printed book. Fourteen tokens, one dictionary, no logic.
+
+| Token | he/him | she/her | they/them | null |
+|---|---|---|---|---|
+| `{they}` | he | she | they | they |
+| `{them}` | him | her | them | them |
+| `{their}` | his | her | their | their |
+| `{theirs}` | his | hers | theirs | theirs |
+| `{themself}` | himself | herself | themself | themself |
+| `{they_are}` | he is | she is | they are | they are |
+| `{they_were}` | he was | she was | they were | they were |
+| `{they_have}` | he has | she has | they have | they have |
+| `{they_do}` | he does | she does | they do | they do |
+| `{They}` | He | She | They | They |
+| `{Them}` | Him | Her | Them | Them |
+| `{Their}` | His | Her | Their | Their |
+| `{name}` | the child's given name, identical in every column | | | |
+
+Three invariants, all of which are assertions:
+
+1. Text containing no tokens passes through **byte-identical**.
+2. A null pronoun renders the they/them column.
+3. An unknown token renders literally, braces included, and does not throw.
+
 ### Rejected — do not revisit
 
 - Risograph, halftone, misregistration, screen-print aesthetics
@@ -132,18 +178,98 @@ Last updated: **Aug 11, 2026** — four open items answered (4, 6, 7, 8) and one
 | # | Question | Needed by | Notes |
 |---|---|---|---|
 | 1 | The name | P1 | RASCAL is a placeholder. Needed for the widget, TestFlight, and the app icon. Alternates: SMALL FRY, SIDEKICK, HOLLER. |
-| 2 | Handoff age — 10, 13, 16, or 18? | P4 | This is a *default* for `unlock_at_age`, set per-entry, so it isn't a lock-in. But it changes how you write. |
-| 3 | What the handoff actually *is* — an account, an export, a device, a printed set? | P5 | Worth deciding before writing 500 entries addressed to someone. |
+| ~~2~~ | ~~Handoff age — 10, 13, 16, or 18?~~ | ~~P4~~ | ✅ **Answered Aug 11, 2026 — no global default; 13 is a floor on self-owned access, not a default seal age.** Settled above. `default_unlock_age` stays per-prompt; 13 and 18 are both in use in the seeded library and that variance is deliberate. |
+| ~~3~~ | ~~What the handoff actually *is* — an account, an export, a device, a printed set?~~ | ~~P5~~ | ✅ **Answered Aug 11, 2026 — a family-decided moment, shared access rather than transfer, with the export as the durable floor.** Settled above. Nothing to build now; `POST /children/{id}/guardians` is the seam. |
 | ~~4~~ | ~~Mission tone — warm, plain, or dry?~~ | ~~P1~~ | ✅ **Answered Aug 11, 2026 — warm and cheerful.** Settled above. Applies to prompts authored from here on, including the 79 candidates awaiting review; the seeded 113 are not being rewritten for tone. |
 | ~~6~~ | ~~Push notification time~~ | ~~P1~~ | ✅ **Answered Aug 11, 2026 — one a day, parent-settable, 19:00 default.** Settled above. What shipped was already the answer; no code changes. |
 | ~~7~~ | ~~Second kid — when?~~ | ~~P2~~ | ✅ **Answered Aug 11, 2026 — when P2 comes up, not before.** Settled above. Do not build toward it in P0 or P1. |
 | ~~8~~ | ~~Does the printed book include did-it entries?~~ | ~~P4~~ | ✅ **Answered Aug 11, 2026 — yes.** Settled above. The "may read empty" worry is a layout question for P4, not a question about whether they belong. |
-| 9 | Full export format | P2 | Folder of files + JSON manifest. Build it before you'd need it. |
-| 10 | **Pronouns, and where the child's name appears in prompts** | P1 — **no longer blocked.** `children.pronouns` was built in Lane A and verified present Aug 11, 2026 (`models/child.py:25`, `text` + a named CHECK, on `ChildCreate`/`ChildUpdate`/`ChildOut`). What is left is iOS: **onboarding still does not ask.** | The library is written he/him and stays that way until the answer is being collected — see the changelog entry below, this is deliberate, not an oversight. The unlock has arrived: there is now somewhere to store the answer, so the reason onboarding gave for not asking ("asking and then discarding would be worse") has expired. Two mechanisms, and they are separable — pronoun substitution is a rendering concern, a `{name}` token is a content-format decision with a contract every consumer must honour. Do not let the second block the first. |
+| ~~9~~ | ~~Full export format~~ | ~~P2~~ | ✅ **Answered Aug 11, 2026 — the existing zip plus a static HTML viewer inside it.** Settled above. Generated on the fly, stored nowhere, runs from `file://`. Prompt: `lane-a-export-html-viewer.md`. |
+| ~~10~~ | ~~**Pronouns, and where the child's name appears in prompts**~~ | ~~P1~~ | ✅ **Answered Aug 11, 2026 — collected in onboarding and Settings, rendered from a fourteen-token contract, and the 113 seeded prompts are untouched.** Settled above, with the token table as a wire-format contract in `docs/api-contract.md`. **The client work is unstarted and has no phase number** — the number this was drafted against, phase 20, has since shipped as the nine TestFlight defects (PR #47). |
 
 ---
 
 ## Changelog
+
+**Aug 11, 2026** — **Open item 10 closed in both halves, and it is the last one but the name.**
+The item had been split into a collection half and a rendering half with an instruction not to
+let the second block the first. Both are answered, and the second turned out to be the one worth
+thinking about, because it is a contract every consumer has to honour for eighteen years.
+
+**The collection half was never a design problem, it was a stale blocker.** `children.pronouns`
+landed in Lane A before Aug 11 and nothing has written to it since; the item read "blocked on a
+column" for two days after the column existed. Onboarding asks after birthdate, Settings offers
+the same choice, and skipping stores `null` and finishes setup.
+
+**The rendering half turned on one linguistic fact.** They/them is the only English pronoun set
+whose five grammatical slots are five distinct words, which makes it the only set usable as a
+key. A he-keyed table looks natural and matches the existing library, and it is wrong: `{his}`
+cannot be resolved because English uses one word for "his favourite" and "that one is his" where
+they/them uses "their" and "theirs". The bug would have been invisible until the first she/her
+child, which for this project means invisible until well after the format was permanent.
+
+**Verb agreement is the part that will look like over-engineering and is not.** Four compound
+tokens — `{they_are}`, `{they_were}`, `{they_have}`, `{they_do}` — instead of inflecting the
+word after a pronoun. The argument is not that conjugation is hard; it is that a conjugator
+fails *silently*, and a permanent archive cannot hold text that is usually grammatical.
+
+**Nothing migrates, and that is the design's whole purpose.** The renderer passes tokenless text
+through byte-identical, so the 113 seeded prompts render as they do today, forever. Tokenised
+and literal prompts coexist with no reconciliation, no rewrite, and nothing for
+`test_seeding.py`'s coverage table to disagree with. The decision binds the **79 unreviewed
+candidates** and every batch after them — and those 79 are not being edited in this phase, since
+they are awaiting a human read that has not happened and rewriting them here would consume that
+review without anyone having done it.
+
+**The client work has no phase number, and that is deliberate.** This was drafted against
+"phase 20", which has since shipped as something else — the nine TestFlight defects, PR #47,
+which explicitly held pronouns out of scope while editing `ChildSetupFlow.swift` for other
+reasons. Rather than mint a number that a third phase can collide with, the work is tracked by
+this item and by `docs/blocked.md`'s Onboarding section until something claims it.
+
+**Aug 11, 2026** — **Three more open items answered, and together they decide what the archive
+*is* rather than how it is built.** Items 2, 3 and 9 are now settled rows above.
+
+**The handoff question was two questions and answering them separately dissolved most of it.**
+Item 2 asked for a handoff *age* and item 3 asked what a handoff *is*, and the confusion between
+them is why both sat open since the roadmap was written. `unlock_at_age` is a per-entry letter
+seal — it is already per-prompt, already varies 13 and 18, and does not want a global default.
+The handoff is a separate thing entirely: an access event, decided by the family, with a 13
+floor that comes from COPPA and Apple ID rules rather than from a product opinion. Neither
+answer requires code in P0 or P1.
+
+**The shape of the handoff is worth not relitigating later: shared access, not transfer.** The
+child becomes a second user against the same archive and the parent keeps theirs, so "we keep
+using it together" is the default rather than a feature. The schema already supports this —
+`users` is separate from `credentials`, and the guardians route exists as a P2 stub — so the
+decision costs nothing today and would have been expensive to get wrong.
+
+**One column is deliberately not being added.** The obvious follow-on is whether some entries
+stay hidden after the handoff, and the answer is that `unlock_at_age` already covers it: unsealed
+is visible on access, sealed is visible at its age. A third "visible to child" state would mean
+writing entries into his archive that are being withheld from him, which is a different product.
+Recorded because a column not added is invisible in the schema and a future reader will wonder
+whether it was considered.
+
+**The export answer is a correction to a framing rather than a new format.** The zip that exists
+is right and is not changing. What was missing is that it has been serving two audiences with
+one artifact: machines, which want `entries.json`, and a thirteen-year-old, who does not. So the
+archive is three layers — backup, readable, printed — and the readable one is a static site
+added to the same zip, derived from the same data, with no second export path.
+
+**PDF was considered and rejected on a technical ground rather than a stylistic one.** It cannot
+hold audio or video. The distinguishing content of this archive is a four-year-old's recorded
+voice, and a handoff format that silently drops it is not a copy of the archive — the same
+reasoning that put did-it entries into the printed book under item 8. PDF remains available as a
+derived artifact.
+
+**The viewer's constraints are all about 2040 and none of them are negotiable.** No build step,
+no network, no framework, relative paths, system fonts, vanilla JS. The one that will look like
+an odd implementation detail and is actually the load-bearing constraint: **browsers block
+`fetch()` from a `file://` origin**, so a double-clicked `index.html` cannot read `entries.json`
+sitting beside it. Hence `entries.js`, the same bytes with a variable assignment around them,
+loaded by a `<script>` tag. That single fact decides the file layout, and discovering it in 2040
+instead of now would mean discovering it with nobody left to fix it.
 
 **Aug 11, 2026** — **Four open items answered by the owner, and one unblocked.** Items 4, 6, 7 and
 8 are now settled rows above and struck through in the Open table. The two that change future work

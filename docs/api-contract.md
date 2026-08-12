@@ -693,6 +693,49 @@ can be re-run against a changed prompt library.
 
 ---
 
+## Prompt pronoun tokens — a wire-format contract
+
+Prompt bodies are stored and served **with tokens intact**. The server never renders them; every
+client does, at the last moment before a human sees the sentence. A body pre-rendered server-side
+could not be re-rendered when the answer changes, and the same body reaches a phone, a browser
+client, an export and a printed book.
+
+Fourteen tokens, one dictionary, no logic. Settled Aug 11, 2026 — see `docs/decisions.md`.
+
+| Token | he/him | she/her | they/them | null |
+|---|---|---|---|---|
+| `{they}` | he | she | they | they |
+| `{them}` | him | her | them | them |
+| `{their}` | his | her | their | their |
+| `{theirs}` | his | hers | theirs | theirs |
+| `{themself}` | himself | herself | themself | themself |
+| `{they_are}` | he is | she is | they are | they are |
+| `{they_were}` | he was | she was | they were | they were |
+| `{they_have}` | he has | she has | they have | they have |
+| `{they_do}` | he does | she does | they do | they do |
+| `{They}` | He | She | They | They |
+| `{Them}` | Him | Her | Them | Them |
+| `{Their}` | His | Her | Their | Their |
+| `{name}` | the child's given name, identical in every column | | | |
+
+**Why they/them are the keys.** They/them is the only English pronoun set whose five grammatical
+slots are five distinct words, so it is the only set usable as a key without collision. A he-keyed
+table cannot resolve `{his}`, which is one word for both "his favourite" and "that one is his"
+where they/them uses "their" and "theirs".
+
+**Verb agreement is four compound tokens, never conjugation.** A conjugator fails silently, and a
+permanent archive cannot hold text that is only usually grammatical.
+
+Three invariants every implementation must satisfy, and they are assertions rather than intentions:
+
+1. Text containing no tokens passes through **byte-identical** — the 113 seeded prompts are literal
+   he/him, contain no braces, and are never rewritten.
+2. A null pronoun renders the **they/them** column.
+3. An unknown token renders **literally, braces included**, and does not throw. `{foo}` stays
+   `{foo}`: a visible bug is fixable, a silently dropped word is not even discoverable.
+
+---
+
 ## Error shape
 
 ```json

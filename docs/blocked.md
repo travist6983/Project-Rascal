@@ -16,8 +16,21 @@ in each section.
 **What is genuinely left on this list is three things**, and only the first is truly yours:
 the APNs key (§1a — the portal trip enrollment now permits), the notification job's scheduled
 machine (§1a, one `fly machine run`), and the multipart-over-cellular upload that has still never
-been performed (§2). Everything else below is either resolved or an iOS-lane follow-up that is now
-merely unstarted rather than blocked.
+been performed (§2). Plus the device-verification checklists, which are **unrun rather than
+blocked**, and Phase 16, which is gated on one of them.
+
+**Aug 11 second pass — the resolved sections were struck but not moved, and that was the defect.**
+The four iOS sections below (Seal control, Onboarding, Timeline v3, Settings) were all correct at
+the top of this file on Aug 11 and were still sitting under a heading that means "blocked",
+describing workarounds as current. **A struck section is not a moved section**, and a file read for
+"what is blocking me" gets skimmed by heading rather than read for strikethroughs. Two of them have
+since been closed outright by phase 19 (PR #48); the remaining iOS follow-ups are named as such.
+
+> **Standing habit this pass earns:** when a section resolves, it moves to
+> `Resolved since the last review` in the *same pass* that strikes it, with the follow-on work
+> stated as a phase rather than as a paragraph. The original entry can travel with it — the
+> reasoning is usually why the fix is shaped the way it is, and that is worth keeping, just not at
+> the top of the blocker list.
 
 ---
 
@@ -35,12 +48,15 @@ and `services/entries.py:431` reads `if unlock_at_age is None and not unlock_at_
 prompt is not None:` — so an explicit null now means "not sealed" and an absent key still keeps the
 prompt's default. The two routes agree about what null means.
 
-**The client-side workaround is still in the tree and is now dead weight.**
-`unsealIfTheServerSealedItAnyway` remains at `ios/Rascal/Rascal/Networking/RascalAPI.swift:66`,
-called from line 47. It is self-detecting — it fires only when the response disagrees with the
-request, which the server no longer does — so it is costing nothing but a comparison. **It should
-be deleted with its round trip**, as this section always said it could be. That is an iOS-lane
-task, unblocked, and not a blocker.
+**The client-side workaround is gone too, as of Aug 11, 2026 (PR #48, phase 19 item 1).**
+`unsealIfTheServerSealedItAnyway` and its corrective `PATCH` are deleted; a create is one request.
+Phase 19 did not take the server behaviour on trust — it exercised it against a running API on a
+`letter` prompt with `default_unlock_age = 13`, and an explicit null returned `null` while the same
+body with the key removed returned `13`. **`EntryCreateRequest`'s hand-written `encode(to:)` stayed**,
+because sending the explicit null is what makes the server's answer correct; it reads like dead
+ceremony and is the opposite.
+
+**Nothing on this section is outstanding.** It is here for the reasoning, not as work.
 
 The original entry follows, because it is the reason the fix is shaped the way it is.
 
@@ -106,15 +122,25 @@ what is left, and it is unstarted rather than blocked.
 (`schemas/child.py:20`) and written by `routers/children.py:80`. `constants.py:67` already
 anticipates the consumer: pronoun substitution in prompt bodies.
 
-**What is left, and it is all iOS:**
+**What is left is two unstarted iOS tasks, and they belong to different phases.** Neither is
+blocked; both are listed here only so the trail from the Lane A build to the client work survives.
 
 - **Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a comment.
   The reason this section gave for not asking — "asking and then discarding would be worse than not
   asking" — has expired, because there is now somewhere to put the answer. This is what
-  `docs/decisions.md` open item 10 has been waiting on.
+  `docs/decisions.md` open item 10 has been waiting on, and item 10 is the tracker for it now.
 - **The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
   mints one", which was true when it was written and is not now. `LocalAvatarStore` is the seam
-  this section named, and the crop and JPEG conversion already run.
+  this section named, and the crop and JPEG conversion already run. **A false comment in a file
+  nobody has opened in a week is exactly the drift this file exists to catch** — correcting it is
+  part of whichever phase takes the upload.
+
+> **A note on phase numbers, because two of them collide.** An earlier plan assigned pronouns to
+> "phase 20" and the avatar to "phase 21". **Phase 20 has since shipped as something else** — the
+> nine TestFlight defects, PR #47 — and it explicitly held pronouns and the avatar out of scope
+> while editing `ChildSetupFlow.swift` for other reasons. So neither of these has a phase number
+> any more. `docs/decisions.md` item 10 tracks the pronouns half; the avatar half is tracked here
+> until something claims it.
 
 The original entry follows.
 
@@ -184,10 +210,22 @@ was written to justify, and both can now go.
   only, omitted for both, and its own description makes the point this section made: "Sealing is
   not an `entry_type`". So the Sealed chip can be a server filter.
 
-**What is left, and it is all iOS:** `TimelineModel.drain`'s paging loop and its
-`clientFilterPageBudget` (10 pages, 500 entries) exist **only** to make a client-side Sealed filter
-survive a stretch of archive with no letters in it. With `?sealed=true` the loop, the budget, and
-the "reports what it found rather than what exists" caveat all delete. Unblocked, unstarted.
+**Both iOS halves shipped Aug 11, 2026 (PR #48, phase 19 items 2 and 3).** The Sealed chip sends
+`?sealed=true`; `TimelineModel.drain`'s paging loop, `clientFilterPageBudget`, `isClientSideOnly`,
+`PageResult` and the "reports what it found rather than what exists" caveat are deleted, and the
+local `Assignment` lookup is gone from the card's quote resolution. `drain` itself stayed — it is
+the paging entry point both callers use, and the loop inside it was the workaround, not the seam.
+
+**The paging-seed warning below was right, and it caught a real bug.** Phase 19 verified the
+`?sealed=` filter against a running API before deleting anything — 7 sealed rows of 754, pure in
+both directions, paging across three cursor pages with no repeats — and then found that
+`oldestCachedOccurredAt()` seeded page two from the oldest cached row of *any* kind. Correct while
+the request was unfiltered; silently wrong with `?sealed=true`, where it would skip every letter
+between the newest and the oldest cached entry. Fixed and pinned by a test that fails by ~600
+million seconds when reverted. **The inherited constraint was load-bearing in a way nobody had
+re-derived, which is exactly what this paragraph existed to force.**
+
+**Nothing on this section is outstanding.**
 
 The original entry follows.
 
@@ -253,10 +291,23 @@ are rare, and after a budget it reports what it found rather than what exists.
 `?sealed=true` on `GET /entries` — one `WHERE unlock_at_age IS NOT NULL` — removes the loop,
 the budget, and the caveat. It is a small change and it is not urgent.
 
-## iOS Settings — one gap, and one note about the preflight
+## iOS Settings — notes, not blockers. **Nothing in this section is open.**
 
-Neither blocks the Lane B Settings work, which shipped complete. Recorded because both were
-discovered by building against the merged API and neither is written down anywhere else.
+**This section has never held a blocker and should be read as a lessons file.** It has three
+entries: `GET /me`, resolved Aug 9 in PR #24; the export progress bar needing a session delegate,
+which was fixed and is recorded only because it is invisible in code review; and a note that
+`POST /v1/auth/dev-login` cannot satisfy a preflight aimed at a deployed API — which is not a
+defect but advice about how to write preflight checks.
+
+So Settings' contribution to this file is **one fix and two notes**. It is kept under this
+filename only because moving it would break the links into it; a reader scanning headings for
+"what is blocking me" should skip it entirely.
+
+The only Settings work genuinely outstanding is the **pronouns row**, and it arrives from
+`docs/decisions.md` item 10 rather than from here.
+
+Neither of the two notes blocks the Lane B Settings work, which shipped complete. Recorded because
+both were discovered by building against the merged API and neither is written down anywhere else.
 
 ### ~~There is no `GET /me`, so the app cannot show your own name after a relaunch~~ — RESOLVED Aug 9, in PR #24. The route exists, the client stores the record between launches and refreshes it from `GET /me` on every launch that has a network.
 
@@ -865,6 +916,24 @@ Everything below was on this list on Aug 3 and is now closed.
 - Stale `updated_at` in media write responses — refreshed after the trigger fires.
 - A single daily scheduler cron that could only be 5am in one timezone — hourly, filtered on
   each child's local hour.
+
+**Closed Aug 11, 2026 by phase 19 (PR #48)** — the three iOS workarounds this file had been
+carrying as "unblocked, unstarted":
+
+- `unsealIfTheServerSealedItAnyway` and its corrective `PATCH` (§iOS Seal control).
+- `TimelineModel.drain`'s paging loop, `clientFilterPageBudget`, `isClientSideOnly` and
+  `PageResult` — the Sealed chip is a server filter now (§iOS Timeline v3).
+- The local `Assignment` lookup in the timeline card's quote resolution (§iOS Timeline v3).
+
+Each deletion was authorised by exercising the server behaviour against a running API rather than
+by reading this file. **One of those checks initially failed and was wrong to**: the local API
+process predated the Lane A fix by 35 hours and was running without `--reload`, so it was serving
+code older than the commit under test. Restarting it flipped the result. **A preflight that
+exercises a long-running local server has to first establish that the server is the code under
+test.**
+
+**Still unstarted, and not blocked:** onboarding does not ask for pronouns (tracked by
+`docs/decisions.md` item 10) and the avatar is still device-only (§iOS Onboarding).
 
 ---
 
