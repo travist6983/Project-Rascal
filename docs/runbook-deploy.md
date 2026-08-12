@@ -305,15 +305,68 @@ Hourly rather than daily: the job assigns only to children for whom it is curren
 the wall, so every timezone gets its own 5am and DST stops mattering. It is idempotent on
 `(child_id, assigned_on, slot)`, so a double fire costs nothing.
 
-**Two things to know about it, both reasons not to lean on it:**
+**Nothing fails if you skip creating it.** Assignments still appear, created by the read path.
+What you lose is expiry — the `waiting` list grows without bound — which is a slow product
+problem, not data loss.
 
-1. Nothing fails if you skip this step. Assignments still appear, created by the read path.
-   What you lose is expiry — the `waiting` list grows without bound — which is a slow
-   product problem, not data loss.
-2. It pins the image it was created from. Later deploys do **not** update it. If you change
-   `rascal/jobs/scheduler.py` or anything it imports, destroy and recreate it:
-   `fly machine list --app rascal-api`, then `fly machine destroy <id> --force`, then the
-   command above again.
+---
+
+### ⚠️ Every deploy: update this machine. Not "if you changed the scheduler" — every time.
+
+> **This is not advice. It shipped a real defect for two days and nobody noticed.** See
+> `docs/investigations/missing-photo-slot.md`.
+>
+> Phase 19 split the daily mission into `mission` (photo only) and `mission_b`. It deployed
+> cleanly: `alembic` went to head, both app machines took the new image, the read path served
+> three slots. **The scheduled machine kept the image it was created from — a build from ~22
+> hours before that code existed** — so every morning at 5am local it wrote two slots instead of
+> three and filled the photo-only slot from all five mission kinds. Three days ran; the photo
+> slot was served **zero** times. The screen looked like a client bug and the database looked
+> fine, because the row was present and merely wrong.
+
+`fly deploy` does not touch a machine created with `--schedule`. There is no fly.toml stanza
+that would make it. **So the update is a manual step and it belongs in the deploy checklist,
+not in a list of caveats — which is where it used to live, and why it was missed.**
+
+The old wording made it conditional: *"if you change `rascal/jobs/scheduler.py` or anything it
+imports"*. **That trigger cannot be evaluated reliably.** Phase 19 changed `constants.py`, which
+the job imports transitively; nobody made the connection, and the condition asks a human to
+compute an import closure from memory at the end of a deploy. **It is now unconditional.**
+
+**Do this after every `fly deploy`:**
+
+```bash
+# The image the deploy just published.
+IMAGE=$(fly releases --app rascal-api --json | jq -r '.[0].ImageRef')
+
+# The scheduled machine — the one with no process group.
+fly machine list --app rascal-api
+
+fly machine update <scheduler-id> --app rascal-api --image "$IMAGE" --yes
+```
+
+`fly machine update --image` preserves `schedule`, `init.cmd`, `restart` and `env`, so it is
+cheaper and safer than destroy-and-recreate — recreating re-runs every trap in the three
+bullets above. Destroy and recreate only if the *config* has to change.
+
+**Then verify, because this failure is invisible from the outside.** Nothing about a stale
+scheduler shows up in `/health`, in the app's behaviour, or in a smoke test:
+
+```bash
+# Every machine's image. All of them must match; the scheduler is the one that drifts.
+fly machine list --app rascal-api --json \
+  | jq -r '.[] | "\(.id)  \(.config.schedule // "app")  \(.config.image)"'
+```
+
+A one-line check that answers it directly:
+
+```bash
+test "$(fly machine list --app rascal-api --json | jq -r '[.[].config.image] | unique | length')" = 1 \
+  && echo "all machines on one image" || echo "DRIFT — a machine is on an old image"
+```
+
+**The same applies to the notification machine in §4a/§4b**, which is created the same way and
+drifts the same way. If it exists, update it in the same step.
 
 ---
 
@@ -401,6 +454,25 @@ Be suspicious of this file in proportion to this section.
   version is that `fly machine run` ignores `fly.toml`'s `[env]` and drops `--command`
   without a word, so the machine ran a second uvicorn instead of the job and crashed on a
   missing `S3_REGION`.
+
+**What the second run got wrong — Aug 12, 2026, and it was this document's fault:**
+
+- **The scheduled machine was never updated after any deploy, and served two days of wrong
+  assignments.** Phase 19 narrowed `mission` to photos and added `mission_b`. It deployed
+  correctly in every visible respect — migration at head, both app machines on the new image,
+  the read path serving three slots — while the scheduled machine kept the image it was born
+  with, from ~22 hours before that code was written. It wrote two slots a day and drew the
+  photo-only slot from all five mission kinds. **The photo slot was served zero times out of
+  three days**, and the failure was invisible: `/health` was fine, the smoke test was fine, the
+  row existed and was merely the wrong kind.
+- **This runbook already said to update it.** It was item 2 of a two-item list headed *"both
+  reasons not to lean on it"*, directly beneath "nothing fails if you skip this step", and its
+  trigger was conditional — *"if you change `rascal/jobs/scheduler.py` or anything it imports"*.
+  Phase 19 changed `constants.py`. **An instruction that requires computing an import closure
+  from memory, filed under reasons not to care, is an instruction that does not get followed.**
+  §5 now states it unconditionally, in the deploy flow, with a one-line drift check — because
+  the only reliable version of this rule is "every deploy, no judgement required".
+- Full diagnosis, with the production evidence: `docs/investigations/missing-photo-slot.md`.
 
 **Still not exercised by anything:**
 
