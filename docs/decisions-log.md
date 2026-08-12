@@ -1805,3 +1805,58 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **iOS suite 758/95 → 768/96**, warnings unchanged at 21 and none in a touched file, cold from a
   deleted `DerivedData`. Two assertions verified by breaking the code: the sealed-backdrop ordering
   and the `occurred_at` rule.
+
+## Phase 23 — device-side personalization (Aug 11, 2026)
+
+- **The finding this phase turns on: the library is not tokenized.** `PromptTokens.render` ships
+  and is wired at eight call sites, but **113 prompt bodies carry 0 `{tokens}` and 99 of them say
+  `he`, `him` or `his` literally.** So the deterministic renderer is currently an identity function
+  on the real library, and a child whose pronouns are she/her or they/them **is misgendered on
+  every screen today, on every device**. Personalization does not fix that in general — it only
+  runs where the model is available. **Tokenizing `api/seeds/prompts.yaml` is a Lane A change, is
+  out of scope here, and is strictly better than a model for this specific job.** Recorded in the
+  PR as the top recommendation.
+- **Order is tokens first, then the model.** `PromptTokens` is the exact server-agreed
+  substitution and is authoritative; the model is best-effort on what remains, and is validated
+  against the token-rendered string rather than the raw body.
+- **The guard's false-rejection rate against the shipped library is 0%** — 99 of 99 personalizable
+  prompts survive an ideal mechanical substitution. Pinned as an equality in
+  `PersonalizationLibraryTests` so tightening a rule shows up as a number that moved.
+- **The instruction verb set is read out of the library**, not invented: `record take photograph
+  write film ask let go get use trace tell spend show say put measure`, from the 83
+  instruction-shaped prompts.
+- **Phase E found one thing.** `ComposerView` renders the personalized header three lines above
+  `entry.promptBody = assignment.body`, and that field syncs. The write is correct; the adjacency
+  is not obviously safe to the next editor. Commented at the write site and pinned by a test.
+- **The composer reads the shared cache and does not request.** A composer opened without Today
+  having personalized that assignment shows canonical, which is correct. Judgment call: a second
+  request site is safe (the center dedupes) but buys little, and the shared cache is the point.
+- **iOS suite 772/96 → 796/100**, warnings unchanged at 21 and none in a touched file, cold from a
+  deleted `DerivedData`. Two assertions verified by breaking the code, one of them never-persisted.
+
+### Phase 23 — the audit pass, and four things it changed
+
+- **A concurrency defect: the in-flight claim was made across a suspension point.** `request` checked
+  `inFlight` at the top, `await`ed the availability check, and *then* inserted — so six concurrent
+  renders of one card produced six model calls. Sequential tests could not see it. **This is the
+  hazard `APIClient.refreshSession` documents at length and `SyncEngine` cites verbatim**; the fix
+  is the one they already prescribe, claiming synchronously before the first `await`. Being on
+  `@MainActor` does not help — the actor is released at every suspension, which is the point of it.
+  Caught by a `withTaskGroup` test that fails at 6 calls on the old code.
+- **The name check matched substrings.** `contains("Sam")` is satisfied by "the **sam**e thing",
+  Al by "**al**ways", Bo by "**bo**th — so a model that changed nothing was *accepted* whenever the
+  library happened to hold the name inside another word, caching a personalization that
+  personalized nothing. Now a whole-word match, with the trailing boundary still allowing a
+  possessive because an apostrophe is not a word character.
+- **Three Today surfaces were unwired, and that was an inconsistency rather than an omission.**
+  `DoneCard`, `WaitingCard` and the skip-undo toast all render the same prompt bodies as
+  `PromptCard` on the same board. A mission personalized while open would have snapped back to the
+  library's wording the moment it was done — precisely the defect `PromptSubject`'s own comment
+  exists to prevent. All three now read the same seam, and the toast personalizes **before**
+  truncating, since shortening first would quote back a sentence nobody saw.
+- **The composer now requests as well as reads.** It was a cache reader only, which meant a
+  composer opened straight from a widget tap or a notification — with no board behind it — was the
+  one listed surface where personalization never happened.
+- **The cache key is the canonical body, not its hash.** Hashing bought nothing on a handful of
+  one-line prompts and a collision would render one prompt's personalization under another's text.
+- **iOS suite 772/96 → 801/101** after the audit, warnings unchanged at 21, none in a touched file.

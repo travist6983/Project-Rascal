@@ -27,11 +27,22 @@ struct DoneCard: View {
     var onRetryAll: () -> Void = {}
 
     @Environment(\.promptSubject) private var promptSubject
+    @Environment(\.personalization) private var personalization
 
     private var assignment: AssignmentResponse { item.assignment }
 
     /// One reading of the body, shared by the card and its VoiceOver label.
-    private var prompt: String { PromptTokens.render(assignment.body, for: promptSubject) }
+    private var prompt: String {
+        personalization.text(for: assignment.id, canonical: canonicalPrompt)
+    }
+
+    /// Tokens first, then the model — the same order and the same reason as `PromptCard`. This
+    /// card sits on the **same board** as that one, so a mission that reads one way while open and
+    /// another way once done would be the exact defect `PromptSubject`'s own comment warns about:
+    /// the same sentence depending on which card you are looking at.
+    private var canonicalPrompt: String {
+        PromptTokens.render(assignment.body, for: promptSubject)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

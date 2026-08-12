@@ -36,8 +36,12 @@ final class TodayModel {
         /// `@Observable` and there is no environment here to read. The toast quotes a prompt back
         /// at the parent, so it has to be the same sentence the card was showing a moment ago —
         /// and truncating before substituting would count the braces towards the 60.
-        func label(for subject: PromptSubject) -> String {
-            let body = PromptTokens.render(assignment.body, for: subject)
+        /// `personalized` is the string the card was actually showing, when there is one. Applied
+        /// **before** the truncation for the same reason the substitution is: shortening first and
+        /// personalizing after would count the library's words towards the 60 and then quote back
+        /// a sentence the parent never saw.
+        func label(for subject: PromptSubject, personalized: String? = nil) -> String {
+            let body = personalized ?? PromptTokens.render(assignment.body, for: subject)
             // Sentences end in more than a full stop. A quarter of the seeded library asks a
             // question, and splitting on "." alone runs those straight into the next sentence.
             let end = body.firstIndex { ".?!".contains($0) }
@@ -192,6 +196,7 @@ struct TodayScreen: View {
     @Environment(\.modelContext) private var context
     /// The child every prompt on this board is about.
     @Environment(\.promptSubject) private var promptSubject
+    @Environment(\.personalization) private var personalization
 
     /// Local completions and their media, merged over the server's board every render.
     /// Queried rather than held, so this survives a relaunch — the board is rebuilt from
@@ -254,7 +259,15 @@ struct TodayScreen: View {
             TodayBoardView(
                 board: board,
                 notice: model.notice,
-                pendingSkip: model.pendingSkip?.label(for: promptSubject),
+                pendingSkip: model.pendingSkip.map {
+                    $0.label(
+                        for: promptSubject,
+                        personalized: personalization.text(
+                            for: $0.assignment.id,
+                            canonical: PromptTokens.render($0.assignment.body, for: promptSubject)
+                        )
+                    )
+                },
                 completedAt: completedAt,
                 failures: failures,
                 onOpen: { open($0.assignment) },

@@ -51,6 +51,15 @@ struct RootView: View {
     @State private var resolvedPromptSubject: PromptSubject?
 
     private var promptSubject: PromptSubject { resolvedPromptSubject ?? initialPromptSubject }
+
+    /// The server's `age_months`, straight off the Today response. **Never computed here** — a
+    /// client that works out an age drifts the moment a rounding rule differs, which is why
+    /// `ChildSummary.ageMonths` says so in those words.
+    private var childAgeMonths: Int? {
+        if case .loaded(let response) = todayModel.state { return response.child.ageMonths }
+        return nil
+    }
+
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
@@ -84,6 +93,10 @@ struct RootView: View {
     /// case if they ever did sweep together is one extra presign and an orphaned object, which is
     /// the failure mode the commit-last ordering already accepts.
     @State private var avatarSync: AvatarSync?
+    /// One personalization center for the signed-in app, so Today and the composer share a cache
+    /// and a mission opened from the board renders the string already in hand.
+    /// **In memory only** — see `PersonalizationCenter`, where that is the never-persisted rule.
+    @State private var personalization = PersonalizationCenter()
     @State private var syncEngine: SyncEngine?
     @State private var mediaCoordinator: MediaCoordinator?
     /// Files the share extension staged into the App Group container, waiting to become entries.
@@ -453,6 +466,13 @@ struct RootView: View {
             // a renderer applied in three of them produces an archive where the same sentence
             // depends on which screen you opened it from.
             .promptSubject(promptSubject)
+            // Set once, in the same place and for the same reason. One center above every tab is
+            // what makes the cache shared: Today personalizes a mission, and opening the composer
+            // on that same mission renders the string already in hand rather than asking again.
+            .environment(\.personalization, personalization)
+            // The server's number, carried rather than computed. Nil until `GET /children` lands,
+            // which the model is simply told nothing about.
+            .environment(\.childAgeMonths, childAgeMonths)
             // **Clear the floating bar so the last card is never trapped underneath it — by what
             // the bar actually measures, not by a number kept in step by hand.**
             //

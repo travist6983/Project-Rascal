@@ -88,6 +88,8 @@ struct ComposerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The child the quoted prompt is about.
     @Environment(\.promptSubject) private var promptSubject
+    @Environment(\.personalization) private var personalization
+    @Environment(\.childAgeMonths) private var childAgeMonths
 
     /// Backdating is a first-class flow, so this is a real choice and not a hidden setting.
     @State private var occurredAt = Date()
@@ -628,18 +630,32 @@ struct ComposerView: View {
     }
 
     private func quotedPrompt(_ assignment: AssignmentResponse) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        let canonical = PromptTokens.render(assignment.body, for: promptSubject)
+        return HStack(alignment: .top, spacing: 10) {
             Rectangle()
                 .fill(Color.terracotta.opacity(0.35))
                 .frame(width: 3)
                 .clipShape(Capsule())
-            Text(PromptTokens.render(assignment.body, for: promptSubject))
+            Text(personalization.text(for: assignment.id, canonical: canonical))
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .background(Color.surface, in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius))
+        // **Asks as well as reads.** Today usually got here first and this is a cache hit — but a
+        // composer opened straight from a widget tap or a notification has no board behind it, and
+        // reading a cache nobody filled would mean the composer was the one listed surface where
+        // personalization never happened. The center de-duplicates, so the common case costs
+        // nothing and the uncommon one works.
+        .task(id: canonical) {
+            await personalization.request(
+                assignmentId: assignment.id,
+                canonical: canonical,
+                subject: promptSubject,
+                ageMonths: childAgeMonths
+            )
+        }
     }
 
     // MARK: Saving
@@ -692,6 +708,16 @@ struct ComposerView: View {
         // parent is typing into — so writing it down costs nothing and makes the card correct
         // offline, immediately, and for good.
         if let assignment = request.assignment {
+            // **`assignment.body` — the canonical sentence — and never the one on screen above.**
+            //
+            // The comment above says "the composer already has the sentence in hand… it is on
+            // screen above the field", and since phase 23 the sentence on screen may be
+            // personalized: `Sam` where the library wrote `him`. This field syncs. Writing what is
+            // displayed instead of what the server sent would put device-rendered text into the
+            // archive and onto every other client, which is the one thing that phase forbids.
+            //
+            // Three lines apart, one of them synced and one of them not. Asserted in
+            // `PersonalizationTests` rather than left to whoever edits this next.
             entry.promptBody = assignment.body
             entry.promptKind = assignment.kind
         }
