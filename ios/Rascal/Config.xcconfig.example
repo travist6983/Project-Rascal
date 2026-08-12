@@ -13,12 +13,26 @@
 // to "https:" — a host-less URL that fails at runtime looking like a server fault. $() is an
 // empty variable that splits the slashes so they survive the parser. This is the one piece of
 // this file that must not be "simplified".
-API_SCHEME = http:$()/$()/
+//
+// Debug and Release name different APIs here rather than being swapped by hand, because
+// swapping by hand is how a build reaches a phone still aimed at localhost. This is the same
+// split the Info.plist pair below already makes: Debug gets Info-Debug.plist and its cleartext
+// ATS exception, Release gets neither. Cleartext and the exception that permits it are now
+// decided one line apart, so they cannot drift out of agreement.
+API_SCHEME               = https:$()/$()/
+API_SCHEME[config=Debug] = http:$()/$()/
 
-// local simulator : localhost:8000
-// device on LAN   : 192.168.1.10:8000   (and run the API with --host 0.0.0.0)
-// deployed        : rascal-api.fly.dev  (with API_SCHEME = https:$()/$()/)
-API_HOST = localhost:8000
+// Release is always the deployed API. Debug is the simulator, which shares the Mac's network
+// stack — on a physical device localhost is the phone, so a device build wants the Mac's LAN
+// address instead (and the API run with --host 0.0.0.0). Change the Debug line for that; the
+// Release line is not the one to reach for.
+//
+// device on LAN : API_HOST[config=Debug] = 192.168.1.10:8000
+//
+// To run a debuggable build against the deployed API, leave both lines alone and switch the
+// scheme instead: Product > Scheme > Edit Scheme > Run > Build Configuration > Release.
+API_HOST                 = rascal-api.fly.dev
+API_HOST[config=Debug]   = localhost:8000
 
 API_BASE_URL = $(API_SCHEME)$(API_HOST)
 
