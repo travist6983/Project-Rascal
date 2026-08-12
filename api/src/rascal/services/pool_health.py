@@ -1,6 +1,6 @@
 """How close a child's prompt pool is to repeating itself.
 
-The library holds ~113 active prompts and the scheduler serves two a day. Roughly 30 questions
+The library holds 113 active prompts and the scheduler serves three a day. Roughly 30 questions
 are eligible at 48 months, so at one a day the question pool empties in about a month — at which
 point the documented fallback relaxes the 180-day cooldown to 90 and the parent starts seeing
 prompts they answered last month, during exactly the sixty-day window P1 exists to prove.
@@ -44,11 +44,12 @@ class SlotHealth:
     relaxation_step: str
 
 
-# What each slot is served at, in days. The question and mission slots go daily; weekly and
+# What each slot is served at, in days. The question and both mission slots go daily; weekly and
 # monthly are named for their cadence; the letter is monthly too.
 SERVE_INTERVAL_DAYS: dict[Slot, int] = {
     "question": 1,
     "mission": 1,
+    "mission_b": 1,
     "weekly": 7,
     "monthly": 30,
     "letter": 30,

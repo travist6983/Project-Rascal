@@ -27,7 +27,16 @@ enum WidgetSnapshotBuilder {
             assignedOn: board.date,
             familyTimezone: familyTimezone,
             childFirstName: firstName(of: board.child.name),
-            mission: item(in: candidates, slot: .mission),
+            // **Two daily missions, one widget line.** `mission` first, then `mission_b` — the
+            // same order the server's notification ladder uses, so the phone that buzzes and the
+            // Home Screen agree about which one is "the" mission today.
+            //
+            // The fallback is not hypothetical. `mission` draws from the photo pool, which is the
+            // thinnest of the three, so the days it comes back empty are the days this matters:
+            // without the second lookup the widget would show no mission at all while one was
+            // sitting on the Today board.
+            mission: item(in: candidates, slot: .mission)
+                ?? item(in: candidates, slot: .missionB),
             question: item(in: candidates, slot: .question)
         )
     }

@@ -182,7 +182,9 @@ extension AssignmentResponse {
         case .monthly: "Any time this month"
         case .letter: "A letter, for later"
         case .question: assignedOn == today ? "Today's question" : "Still open"
-        case .mission: assignedOn == today ? "Today's mission" : "Still open"
+        // Both daily missions say the same thing. There is no "second mission" in the copy —
+        // see `Slot.displayName`.
+        case .mission, .missionB: assignedOn == today ? "Today's mission" : "Still open"
         case .unknown: "Still open"
         }
     }

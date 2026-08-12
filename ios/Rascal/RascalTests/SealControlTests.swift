@@ -139,7 +139,7 @@ struct SealControlTests {
         #expect(SealSetting(isSealed: false, age: 18).unlockAtAge == nil, "not 0, and not 18")
     }
 
-    // MARK: Undoing a seal the server applied anyway
+    // MARK: One create, one call
 
     private func client(_ performer: StubPerformer) -> APIClient {
         APIClient(
@@ -149,26 +149,31 @@ struct SealControlTests {
         )
     }
 
-    /// `create_entry` seals a letter whenever `unlock_at_age` arrives as `None`, and cannot tell an
-    /// explicit null from an absent key. So the client has to notice it was overruled and say it
-    /// again through `PATCH`, which can tell them apart.
-    @Test("a create that comes back sealed against our wishes is corrected with a PATCH")
-    func serverSealIsUndone() async throws {
+    /// **Replaces `serverSealIsUndone`, which asserted the workaround this phase deleted.**
+    ///
+    /// That test pinned `["POST", "PATCH"]` — a create followed by a corrective `PATCH` undoing a
+    /// seal the server had applied to an entry that asked not to have one. It was right for as
+    /// long as `create_entry` could not tell an explicit `null` from an absent key. It can now:
+    /// `unlock_at_age_provided` is `"unlock_at_age" in payload.model_fields_set`. Verified against
+    /// a running server on a `letter` prompt with `default_unlock_age = 13` — explicit null came
+    /// back `null`, the same body with the key removed came back `13`.
+    ///
+    /// So the assertion inverts: the corrective call must **not** happen.
+    @Test("a letter written with sealing off costs exactly one call")
+    func unsealedLetterCostsOneCall() async throws {
         let entryId = UUID()
         let performer = StubPerformer()
-        // Keyed by path shape, not by call order: `POST /v1/entries` and
-        // `PATCH /v1/entries/{id}` are different paths, and the stub counts hits per path.
-        // The later rule wins where both match, which is the PATCH.
-        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
-        performer.on("/entries/") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 200) }
+        // The server honouring the explicit null, which is what preflight verified.
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 201) }
 
         let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
         let response = try await client(performer).createEntry(entry)
 
-        #expect(response.unlockAtAge == nil, "the corrected row is what the caller gets")
-        #expect(performer.methods(forPathContaining: "/entries") == ["POST", "PATCH"])
-        let patch = try #require(performer.bodies(forPathContaining: "/entries").last)
-        #expect(patch["unlock_at_age"] is NSNull, "and the PATCH says null explicitly")
+        #expect(response.unlockAtAge == nil)
+        #expect(
+            performer.methods(forPathContaining: "/entries") == ["POST"],
+            "the corrective PATCH is gone; a create is one request"
+        )
     }
 
     @Test("a create we asked to seal is left alone")
@@ -196,16 +201,16 @@ struct SealControlTests {
         #expect(performer.methods(forPathContaining: "/entries") == ["POST"])
     }
 
-    /// **The offline case, and the reason this lives in `APIClient` rather than the composer.**
+    /// **The offline case, and the one this phase's brief names explicitly.**
+    ///
     /// A letter written on a train with sealing off is saved locally and re-sent by `EntrySync`
-    /// hours later through the same call. Without the correction there, it would arrive sealed
-    /// and nobody would be told.
-    @Test("the correction also covers the sync re-send, not just the composer")
-    func syncResendIsAlsoCorrected() async throws {
+    /// hours later through the same call. It has to arrive unsealed — and now in a single request
+    /// rather than two, which is the whole delta. Replaces `syncResendIsAlsoCorrected`.
+    @Test("a sealed-off letter replayed by sync arrives unsealed in one call")
+    func syncResendCostsOneCall() async throws {
         let entryId = UUID()
         let performer = StubPerformer()
-        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
-        performer.on("/entries/") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 200) }
+        performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: nil), 201) }
 
         // Exactly what `EntrySync.sweepEntries` does for a row that never reached the server.
         let queued = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
@@ -214,27 +219,32 @@ struct SealControlTests {
         queued.applyServerResponse(response)
 
         #expect(queued.unlockAtAge == nil, "the letter stays open, hours later and offline-first")
-        #expect(performer.methods(forPathContaining: "/entries") == ["POST", "PATCH"])
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST"], "one call, not two")
     }
 
-    /// If the correction cannot land, the phone must show what the archive actually holds. A card
-    /// reading "not sealed" over a row that says "opens at 13" is a divergence nothing in this app
-    /// reconciles, because editing a seal has no UI.
-    @Test("a correction that fails leaves the row matching the archive, not the intent")
-    func failedCorrectionMatchesTheArchive() async throws {
+    /// **`applyServerResponse`'s copy-back outlives the workaround, and this is why it stays.**
+    ///
+    /// It used to be justified as the fallback for a correction that failed to land. That reason
+    /// is gone with the correction, but the property is not: whatever the archive holds is what
+    /// the phone must show. A card reading "not sealed" over a row the server says opens at 13 is
+    /// a divergence nothing in this app reconciles, because editing a seal has no UI.
+    ///
+    /// Exercised here against a server that seals anyway — an older deployment, or any future
+    /// disagreement — with no corrective call available.
+    @Test("the row matches the archive, not the intent, when the two disagree")
+    func rowMatchesTheArchiveNotTheIntent() async throws {
         let entryId = UUID()
         let performer = StubPerformer()
         performer.on("/entries") { _ in (entryOutJSON(id: entryId, unlockAtAge: 13), 201) }
-        performer.on("/entries/") { _ in
-            (Data(#"{"error":{"code":"internal_error","message":"no"}}"#.utf8), 500)
-        }
 
+        // Asked for no seal; the server sealed it regardless and nothing corrects that now.
         let entry = Entry(id: entryId, childId: UUID(), occurredAt: Date(), body: "for later")
         let response = try await client(performer).createEntry(entry)
         entry.applyServerResponse(response)
 
         #expect(entry.unlockAtAge == 13, "the phone tells the truth about the permanent record")
         #expect(EntryCardModel(entry: entry, media: []).isSealed)
+        #expect(performer.methods(forPathContaining: "/entries") == ["POST"])
     }
 
     // MARK: The reader and the writer meeting

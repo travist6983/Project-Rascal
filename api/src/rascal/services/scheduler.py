@@ -40,9 +40,16 @@ THEME_ROTATION_DAYS = 2
 UNSEEN_WEIGHT = 3.0
 SEEN_WEIGHT = 1.0
 
-# What each slot draws from. The mission slot is everything you go and do; the question slot
-# is the one you answer.
+# What the weekly and monthly slots draw from. **Unchanged by the three-slot split**, and it
+# is not the daily mission pool any more — `mission` and `mission_b` name their own kinds
+# below. Editing this changes the monthly measurement slot, which this is not the lever for.
 MISSION_KINDS = ("photo", "video", "audio", "activity", "measurement")
+
+# The two daily doing-slots, split so a photo mission and a longer one can both be served.
+# `mission` narrowed to photo without being renamed — see docs/decisions.md; rows written
+# before migration 0008 hold other kinds here and are correct for the day they were served.
+PHOTO_MISSION_KINDS = ("photo",)
+MISSION_B_KINDS = ("video", "audio", "activity")
 
 
 @dataclass(frozen=True)
@@ -53,7 +60,8 @@ class SlotSpec:
 
 SLOT_SPECS: dict[Slot, SlotSpec] = {
     "question": SlotSpec(cadence="daily", kinds=("question",)),
-    "mission": SlotSpec(cadence="daily", kinds=MISSION_KINDS),
+    "mission": SlotSpec(cadence="daily", kinds=PHOTO_MISSION_KINDS),
+    "mission_b": SlotSpec(cadence="daily", kinds=MISSION_B_KINDS),
     "weekly": SlotSpec(cadence="weekly", kinds=None),
     # Measurement and the camera-roll backfill, never a letter — letters have their own slot
     # so the money letter cannot lose a coin flip to a height measurement forever.
@@ -179,8 +187,15 @@ async def _history(
 ) -> tuple[dict[uuid.UUID, int], set[str]]:
     """How long ago this child saw each prompt, and the themes from the last two days.
 
-    The theme window includes `as_of_date` itself, so the mission picked seconds after the
-    question does not land on the same theme.
+    The theme window includes `as_of_date` itself, so a slot picked seconds after another one
+    does not land on the same theme.
+
+    **This generalises to any number of slots in a day, and it does so by construction rather
+    than by arithmetic.** It was written when a day held two daily picks and now holds three.
+    `_fill_slot` inserts each assignment before the next slot is selected, and this function
+    re-reads the child's history per pick inside the same transaction — so the third pick sees
+    the first two, exactly as the second saw the first. Nothing here counts slots, so nothing
+    here needed changing for a fourth.
     """
     horizon = as_of_date - dt.timedelta(days=COOLDOWN_DAYS)
     rows = (
@@ -231,13 +246,20 @@ async def select_prompt(
 
 
 def slots_for(day: dt.date) -> list[Slot]:
-    """The daily pair, the weekly on Saturday, the monthly on the 1st, a letter on the 15th.
+    """The daily three, the weekly on Saturday, the monthly on the 1st, a letter on the 15th.
 
-    The letter deliberately does not share the 1st with the measurement mission: four items
-    on one day breaks "two items is the most that survives a bad Tuesday". Split across the
-    month, the ceiling is three, twice.
+    The three daily slots fire every day. The weekly, monthly and letter slots fire **on top
+    of them, unconditionally** — they are not suppressed to keep the count down. So a Saturday
+    is four items, the 15th is four, and a Saturday that is also the 15th is five.
+
+    That is a deliberate change to the old ceiling. The letter was originally moved off the
+    1st because "four items on one day breaks two-items-is-the-most-that-survives-a-bad-
+    Tuesday"; the third daily mission raises the floor past that on every day of the year, and
+    the owner has taken that call knowing the worst day now reaches five. Splitting the letter
+    away from the measurement mission still earns its keep — it keeps the money letter from
+    losing a coin flip to a height measurement every month — so the 15th stays.
     """
-    slots: list[Slot] = ["question", "mission"]
+    slots: list[Slot] = ["question", "mission", "mission_b"]
     if day.weekday() == 5:  # Saturday
         slots.append("weekly")
     if day.day == 1:

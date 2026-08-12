@@ -76,15 +76,26 @@ nonisolated enum AssignmentStatus: RawRepresentable, Decodable, Equatable, Senda
     }
 }
 
-/// `question` · `mission` · `weekly` · `monthly` · `letter`. Letters land on the 15th.
+/// `question` · `mission` · `mission_b` · `weekly` · `monthly` · `letter`. Letters land on the
+/// 15th.
+///
+/// **Three daily slots, not two.** `mission` is the photo mission; `mission_b` is the second
+/// daily one, drawing video, audio and activity. The server narrowed `mission` without renaming
+/// it, so an older assignment can carry a non-photo prompt in `mission` and is not a bug — see
+/// `docs/decisions.md`.
+///
+/// `mission_b` has to be a real case rather than falling through to `.unknown`. An unrecognised
+/// slot deliberately renders as a neutral grey card with no tint, which is right for a value
+/// from a future server release and wrong for one of the three cards a parent sees every day.
 nonisolated enum Slot: RawRepresentable, Equatable, Sendable {
-    case question, mission, weekly, monthly, letter
+    case question, mission, missionB, weekly, monthly, letter
     case unknown(String)
 
     init(rawValue: String) {
         switch rawValue {
         case "question": self = .question
         case "mission": self = .mission
+        case "mission_b": self = .missionB
         case "weekly": self = .weekly
         case "monthly": self = .monthly
         case "letter": self = .letter
@@ -96,6 +107,7 @@ nonisolated enum Slot: RawRepresentable, Equatable, Sendable {
         switch self {
         case .question: "question"
         case .mission: "mission"
+        case .missionB: "mission_b"
         case .weekly: "weekly"
         case .monthly: "monthly"
         case .letter: "letter"
@@ -103,10 +115,13 @@ nonisolated enum Slot: RawRepresentable, Equatable, Sendable {
         }
     }
 
+    /// Both daily missions read "Mission". The parent is not told there is an A and a B — they
+    /// are two things to do today, and numbering them would invite the idea that one is optional
+    /// or that the pair is a checklist to clear.
     var displayName: String {
         switch self {
         case .question: "Question"
-        case .mission: "Mission"
+        case .mission, .missionB: "Mission"
         case .weekly: "This week"
         case .monthly: "This month"
         case .letter: "Letter"

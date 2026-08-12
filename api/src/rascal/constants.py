@@ -36,8 +36,12 @@ COMPLETION_MODES: Final = ("did_it", "media", "text")
 PromptSource = Literal["seeded", "user", "llm"]
 PROMPT_SOURCES: Final = ("seeded", "user", "llm")
 
-Slot = Literal["question", "mission", "weekly", "monthly", "letter"]
-SLOTS: Final = ("question", "mission", "weekly", "monthly", "letter")
+# `mission` is photo-only as of 0008; `mission_b` takes the video, audio and activity kinds
+# it used to share. The name did not change with the meaning — deliberately, and
+# docs/decisions.md says why. Assignment rows written before 0008 hold non-photo prompts in
+# `mission` and are correct for the day they were served.
+Slot = Literal["question", "mission", "mission_b", "weekly", "monthly", "letter"]
+SLOTS: Final = ("question", "mission", "mission_b", "weekly", "monthly", "letter")
 
 AssignmentStatus = Literal["pending", "done", "dismissed", "expired"]
 ASSIGNMENT_STATUSES: Final = ("pending", "done", "dismissed", "expired")
@@ -94,8 +98,8 @@ THEMES: Final = (
 # docs/decisions.md: items stack and expire at 14 days.
 DEFAULT_EXPIRY_DAYS: Final = 14
 
-# The daily pair, plus the two that only fire on their day.
-DAILY_SLOTS: Final = ("question", "mission")
+# The three that fire every day, plus the three that only fire on their own day.
+DAILY_SLOTS: Final = ("question", "mission", "mission_b")
 
 # --- Push notifications ------------------------------------------------------------------
 
@@ -135,4 +139,16 @@ NOTIFICATION_STALENESS: Final = dt.timedelta(hours=2)
 # The mission is the thing you go and *do*, so it is what a nudge is for. The question is
 # answered in conversation and needs no reminder to be answerable. Anything not on this list
 # falls back to the first pending item of the day.
-NOTIFICATION_SLOT_PRIORITY: Final = ("mission", "weekly", "monthly", "letter", "question")
+#
+# `mission_b` sits second, directly behind `mission`: both are things you go and do, and the
+# photo mission stays ahead of them because it is the cheapest to act on in the moment. This
+# is still one notification — the ladder picks which single item it carries, and a day now
+# reaching five assignments does not make it two.
+NOTIFICATION_SLOT_PRIORITY: Final = (
+    "mission",
+    "mission_b",
+    "weekly",
+    "monthly",
+    "letter",
+    "question",
+)

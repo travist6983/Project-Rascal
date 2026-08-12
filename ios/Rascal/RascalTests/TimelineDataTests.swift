@@ -134,7 +134,7 @@ struct TimelineFilterTests {
         // without.
         //
         // Sealed is excluded because there is no query to agree with — see `sealedIsNotAType`.
-        for filter in TimelineFilter.allCases where !filter.isClientSideOnly {
+        for filter in TimelineFilter.allCases where filter.serverSealed == nil {
             for type in ["photo", "video", "audio", "text", "did_it"] {
                 let online = filter.serverType == nil || filter.serverType == type
                 #expect(filter.matches(entryType: type) == online, "\(filter) vs \(type)")
@@ -145,12 +145,13 @@ struct TimelineFilterTests {
     @Test("sealed is unlock_at_age, not an entry type, and it says so")
     func sealedIsNotAType() {
         // Two different nils. `all` sends no `type` because it wants everything; `sealed` sends
-        // none because the server has no parameter for it. Collapsing them would make the
-        // sealed filter silently show the whole archive.
+        // none because sealing is not a type — it goes as `?sealed=true` instead. Collapsing
+        // them would make the sealed filter silently show the whole archive, which is the thing
+        // this asserts against. Was `isClientSideOnly` until the server grew the parameter.
         #expect(TimelineFilter.sealed.serverType == nil)
-        #expect(TimelineFilter.sealed.isClientSideOnly)
-        #expect(!TimelineFilter.all.isClientSideOnly)
-        #expect(TimelineFilter.allCases.filter(\.isClientSideOnly) == [.sealed])
+        #expect(TimelineFilter.sealed.serverSealed == true)
+        #expect(TimelineFilter.all.serverSealed == nil, "All must not narrow to unsealed")
+        #expect(TimelineFilter.allCases.filter { $0.serverSealed != nil } == [.sealed])
 
         // A letter is sealed whatever the server derived its type to be.
         #expect(TimelineFilter.sealed.matches(entryType: "text", unlockAtAge: 18))

@@ -129,6 +129,7 @@ async def test_the_route_reports_every_slot(client: AsyncClient, session: AsyncS
     assert {row["slot"] for row in payload["slots"]} == {
         "question",
         "mission",
+        "mission_b",
         "weekly",
         "monthly",
         "letter",
