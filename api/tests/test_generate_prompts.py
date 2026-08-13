@@ -77,8 +77,12 @@ def test_a_mission_that_asks_for_a_feeling_is_not_a_mission() -> None:
 
 
 def test_a_question_may_ask_about_a_feeling() -> None:
-    """ "What is he afraid of right now?" is in the library. The feeling rule is for missions."""
-    assert _judge("What is he afraid of right now?").accepted
+    """ "What is he afraid of right now?" is in the library. The feeling rule is for missions.
+
+    Written with `{name}` rather than the library's "he": the fixture is here for the feeling
+    rule, and a gendered one would now be rejected for an unrelated reason.
+    """
+    assert _judge("What is {name} afraid of right now?").accepted
     assert _judge("How did that feel to you, honestly?").accepted
 
 
@@ -115,9 +119,53 @@ def test_anything_that_needs_an_occasion_is_rejected(body: str) -> None:
 def test_a_seasonal_batch_is_allowed_to_need_an_occasion() -> None:
     """The library has month-tagged prompts. An occasion is the point of those."""
     verdict = _judge(
-        "Photograph his birthday party from the back of the room.", kind="photo", seasonal=True
+        "Photograph {their} birthday party from the back of the room.", kind="photo", seasonal=True
     )
-    assert verdict.accepted
+    assert verdict.accepted, verdict.reasons
+
+
+@pytest.mark.parametrize(
+    ("body", "kind"),
+    [
+        ("Photograph the mess he made. Do not clean it first.", "photo"),
+        ("Record her telling you a story. Do not correct anything.", "audio"),
+        ("What does his laugh sound like right now?", "question"),
+        ("Get on the floor and play whatever she is playing for ten minutes.", "activity"),
+    ],
+)
+def test_new_copy_may_not_assume_a_gender(body: str, kind: str) -> None:
+    """The seeded 113 are he/him and are being rewritten; nothing new may add to that pile."""
+    verdict = _judge(body, kind=kind)
+    assert not verdict.accepted
+    assert any(reason.startswith("assumes a gender") for reason in verdict.reasons)
+
+
+@pytest.mark.parametrize(
+    ("body", "kind"),
+    [
+        ("Photograph the mess {they} made. Do not clean it first.", "photo"),
+        ("Record {them} telling you a story. Do not correct anything.", "audio"),
+        ("What does {their} laugh sound like right now?", "question"),
+        ("Get on the floor and play whatever {they_are} playing for ten minutes.", "activity"),
+        ("What made {name} laugh today?", "question"),
+    ],
+)
+def test_the_pronoun_tokens_are_not_mistaken_for_a_gender(body: str, kind: str) -> None:
+    """The rule is word-boundary anchored, so no token trips it.
+
+    This is the half that would fail silently: a rule that rejected `{them}` for containing
+    "hem", or `{their}` for "heir", would reject exactly the copy it is asking for. These are
+    the tokenised forms of four real library prompts, which is what the generator must now
+    produce instead of the he/him it reads in its own style reference.
+    """
+    verdict = _judge(body, kind=kind)
+    assert verdict.accepted, verdict.reasons
+
+
+def test_ordinary_words_that_merely_contain_those_letters_are_left_alone() -> None:
+    """shed, history, others, treasurer — the reason the rule is `\\b`-anchored."""
+    verdict = _judge("Photograph the shed and whatever history is stacked in it.", kind="photo")
+    assert verdict.accepted, verdict.reasons
 
 
 # --- The prompts that must survive ----------------------------------------------------------------
@@ -138,9 +186,17 @@ def test_the_library_would_pass_its_own_filters(body: str, kind: str) -> None:
 
     "Get on the floor for ten minutes" in particular: an aggressive physical-ability rule
     would eat one of the best prompts in the file.
+
+    The gender rule is the deliberate exception, and these bodies are quoted verbatim from a
+    library that is still literal he/him. It fires on all five, and that is the correct
+    answer for a *candidate*: the seeded 113 stay as they are until the tokenisation phase
+    rewrites them, and nothing new may join them. So this asserts what the rule is actually
+    for — no other filter touches a real prompt. When the library is tokenised, these
+    fixtures come with it and the assertion goes back to a bare `accepted`.
     """
     verdict = _judge(body, kind=kind)
-    assert verdict.accepted, verdict.reasons
+    other = [reason for reason in verdict.reasons if not reason.startswith("assumes a gender")]
+    assert not other, other
 
 
 # --- Shape ----------------------------------------------------------------------------------------
@@ -195,7 +251,7 @@ def test_a_genuine_variant_survives() -> None:
     of deliberately adjacent prompts."""
     existing = [_normalize("What did he say this week that you want to remember exactly?")]
     verdict = _judge(
-        "What is the last thing he asked that you could not answer?", existing=existing
+        "What is the last thing {they} asked that you could not answer?", existing=existing
     )
     assert verdict.accepted, verdict.reasons
 
@@ -249,7 +305,9 @@ def test_the_worksheet_shows_the_rejections_and_why() -> None:
 
 
 def test_a_pipe_in_a_prompt_does_not_break_the_table() -> None:
-    verdicts = [_judge("What does he call you | every version?")]
+    # Accepted, so it renders in the four-cell table this is measuring. A gendered body would
+    # be routed to the two-cell rejected table and the delimiter count would mean nothing.
+    verdicts = [_judge("What does {name} call you | every version?")]
     page = render("t", "question", verdicts, generated_on=dt.date(2026, 8, 4), model="m")
     body_row = next(line for line in page.splitlines() if "every version" in line)
     assert "\\|" in body_row

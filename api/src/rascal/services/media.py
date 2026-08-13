@@ -109,6 +109,13 @@ async def plan_upload(
             field="bytes",
         )
 
+    # Initiating a multipart upload is a round trip to the store, and the reads that got here
+    # — the authorization check and the two lookups above — have already opened this request's
+    # transaction. Nothing has been written yet, so committing costs nothing and hands the
+    # Neon connection back to the pool instead of parking it idle for the length of the call.
+    # The write below opens a fresh transaction, which the session dependency commits.
+    await session.commit()
+
     upload_id = await s3.create_multipart_upload(key, content_type, settings)
     media.s3_upload_id = upload_id
     session.add(media)
@@ -142,7 +149,13 @@ async def complete_upload(
             {"PartNumber": part.part_number, "ETag": part.etag}
             for part in sorted(etags, key=lambda p: p.part_number)
         ]
-        await s3.complete_multipart_upload(media.s3_key, media.s3_upload_id, parts, settings)
+        key, upload_id = media.s3_key, media.s3_upload_id
+        # Assembling the parts can take seconds for a video, and the store needs nothing from
+        # Postgres while it does. Commit so the connection goes back to the pool rather than
+        # sitting idle-in-transaction: `media_access` already read, so the transaction is open
+        # by the time this runs. The metadata write below opens a new one.
+        await session.commit()
+        await s3.complete_multipart_upload(key, upload_id, parts, settings)
         media.s3_upload_id = None
 
     media.upload_status = "complete"

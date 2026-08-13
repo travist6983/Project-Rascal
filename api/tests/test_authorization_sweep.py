@@ -54,6 +54,7 @@ async def _populated(session: AsyncSession) -> dict:
     return {
         "owner": owner,
         "child": child,
+        "prompt": prompt,
         "assignment": assignment,
         "entry": entry,
         "media": media,
@@ -67,12 +68,30 @@ def _requests(world: dict) -> list[tuple[str, str, dict | None]]:
     entry_id = world["entry"].id
     media_id = world["media"].id
     assignment_id = world["assignment"].id
+    prompt_id = world["prompt"].id
     return [
         # Reached by a child id in the path.
         ("PATCH", f"/v1/children/{child_id}", {"name": "Mine now"}),
         ("GET", f"/v1/children/{child_id}/today", None),
         ("GET", f"/v1/children/{child_id}/moments", None),
         ("POST", f"/v1/children/{child_id}/recompute-ages", None),
+        # The child's face. Bodies here are valid on purpose — a payload that 422s before the
+        # dependency runs would make this row assert nothing about authorization.
+        (
+            "POST",
+            f"/v1/children/{child_id}/avatar-upload-url",
+            {"content_type": "image/jpeg", "bytes": 1024},
+        ),
+        ("GET", f"/v1/children/{child_id}/avatar-url", None),
+        # "Stop asking me this" — a write, its undo, and the list of both.
+        (
+            "POST",
+            f"/v1/children/{child_id}/prompt-suppressions",
+            {"prompt_id": str(prompt_id), "reason": "mine now"},
+        ),
+        ("DELETE", f"/v1/children/{child_id}/prompt-suppressions/{prompt_id}", None),
+        ("GET", f"/v1/children/{child_id}/prompt-suppressions", None),
+        ("GET", f"/v1/children/{child_id}/pool-health", None),
         # Reached by a child id in the query string.
         ("GET", f"/v1/entries?child_id={child_id}", None),
         ("GET", f"/v1/sync?child_id={child_id}", None),

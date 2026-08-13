@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 
 from rascal.constants import GuardianRole, Pronouns
+from rascal.errors import validation_failed
 from rascal.schemas.common import ApiModel
 from rascal.services.dates import zone
 
@@ -30,6 +31,15 @@ class ChildCreate(ApiModel):
 
 
 class ChildUpdate(ApiModel):
+    """Every field is optional, and an omitted field is left alone.
+
+    Optional is not the same as nullable. `name`, `birthdate` and `family_timezone` are
+    typed `| None` only so they can be *absent*; the columns behind them are NOT NULL, so an
+    explicit `null` is a rejection rather than a clear — the convention `docs/api-contract.md`
+    states for `PATCH /me` and the reason `PATCH /me` reads `model_fields_set`. `pronouns` and
+    `avatar_key` are the two documented exceptions: null clears them.
+    """
+
     name: str | None = Field(default=None, min_length=1, max_length=200)
     birthdate: dt.date | None = None
     # An explicit null clears it, because the router dumps with exclude_unset — a parent who
@@ -38,11 +48,25 @@ class ChildUpdate(ApiModel):
     family_timezone: str | None = None
     avatar_key: str | None = None
 
+    @field_validator("name", "birthdate", "family_timezone", mode="before")
+    @classmethod
+    def _no_explicit_null(cls, value: object, info: ValidationInfo) -> object:
+        """Refuse a null aimed at a NOT NULL column, instead of letting the flush 500.
+
+        `mode="before"` for two reasons: it runs ahead of `_known_timezone` however the two
+        are ordered, and — like every validator — it does not run for an omitted field,
+        because pydantic never validates a default. So absence still means "leave it alone".
+        """
+        if value is None:
+            raise validation_failed(f"{info.field_name} cannot be null.", field=info.field_name)
+        return value
+
     @field_validator("family_timezone")
     @classmethod
-    def _known_timezone(cls, value: str | None) -> str | None:
-        if value is not None:
-            zone(value)
+    def _known_timezone(cls, value: str) -> str:
+        # Runs on any value the client actually sent — null is already refused above, so an
+        # unknown zone can no longer slip through as "not None, therefore unchecked".
+        zone(value)  # raises validation_failed on an unknown zone
         return value
 
 

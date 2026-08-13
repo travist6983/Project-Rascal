@@ -218,8 +218,8 @@ def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str)
     The downgrade is the half worth testing. Postgres will not create a CHECK that existing
     rows violate, so a `mission_b` row left in place would make `downgrade` fail outright and
     the migration irreversible in practice — which is the thing every migration in this chain
-    promises not to be. 0002's letter-slot downgrade is the pattern, and this asserts it holds
-    against a table that actually holds one.
+    promises not to be. 0003's letter-slot downgrade is the pattern, and this asserts it holds
+    against a table that actually holds one. The test below does the same for 0003 itself.
     """
     _alembic("upgrade head", scratch_url)
     engine = sa.create_engine(scratch_url)
@@ -263,6 +263,64 @@ def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str)
         assert _slot_check(conn).count("mission_b") == 1
         # Re-widening does not resurrect what the downgrade deleted, and must not pretend to.
         assert _slot_count(conn, "mission_b") == 0
+    engine.dispose()
+
+
+def test_the_letter_slot_round_trips_with_rows_in_the_table(scratch_url: str) -> None:
+    """The same round trip, for 0003 — the migration that established the pattern.
+
+    0008 delete-then-narrows because 0003 did it first, but only 0008's downgrade had ever
+    been run against a table holding a row it has to destroy. Reaching 0003 unwinds every
+    revision above it with data in place, which makes this the deepest reversal the suite
+    performs — and the one a `letter` assignment in a real database would have to survive.
+    """
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    with engine.begin() as conn:
+        child_id = conn.execute(
+            sa.text(
+                "INSERT INTO children (id, name, birthdate, family_timezone) "
+                "VALUES (gen_random_uuid(), 'Ada', DATE '2021-03-02', 'America/Detroit') "
+                "RETURNING id"
+            )
+        ).scalar_one()
+        # `weekly` is the control: it is a legal slot at every revision in the chain, so a
+        # weekly row that disappears is the downgrade over-reaching rather than doing its job.
+        # Like the test above, `custom_body` satisfies the prompt-or-body CHECK so no prompt
+        # row is needed and the slot is the only thing under test.
+        for slot in ("letter", "weekly"):
+            conn.execute(
+                sa.text(
+                    "INSERT INTO assignments "
+                    "(id, child_id, custom_body, slot, assigned_on, expires_on, status) VALUES "
+                    "(gen_random_uuid(), :child, 'x', :slot, CURRENT_DATE, "
+                    "CURRENT_DATE + 14, 'pending')"
+                ),
+                {"child": child_id, "slot": slot},
+            )
+
+    with engine.connect() as conn:
+        assert _slot_check(conn).count("letter") == 1
+        assert _slot_count(conn, "letter") == 1
+
+    # Named rather than counted: `downgrade -N` means a different revision every time a
+    # migration lands, and the revision 0003 has to land *before* never moves.
+    _alembic("downgrade 0002_entry_type_artifact", scratch_url)
+
+    with engine.connect() as conn:
+        # The letter row went, and only it.
+        assert _slot_count(conn, "letter") == 0
+        assert _slot_count(conn, "weekly") == 1
+        assert "letter" not in _slot_check(conn)
+
+    _alembic("upgrade head", scratch_url)
+
+    with engine.connect() as conn:
+        assert _slot_check(conn).count("letter") == 1
+        # Re-widening does not resurrect what the downgrade deleted, and must not pretend to.
+        assert _slot_count(conn, "letter") == 0
+        assert _slot_count(conn, "weekly") == 1
     engine.dispose()
 
 

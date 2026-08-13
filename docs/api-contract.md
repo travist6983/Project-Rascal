@@ -625,7 +625,7 @@ Returns entries from this month/day in prior years, grouped by years-ago. If emp
 
 ## Sync
 
-**`GET /sync?child_id={id}&since={cursor}`**
+**`GET /sync?child_id={id}&since={cursor}&limit={n}`**
 
 ```json
 {
@@ -633,15 +633,29 @@ Returns entries from this month/day in prior years, grouped by years-ago. If emp
   "media": [...],
   "assignments": [...],
   "tags": [...],
-  "cursor": "2026-08-14T18:22:00.481Z"
+  "cursor": "2026-08-14T18:22:00.481Z",
+  "has_more": false
 }
 ```
 
 Every entity carries `updated_at` and `deleted_at`. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record.
 
-**The cursor is deliberately behind, and clients must upsert by id.** It comes back as
-`max(updated_at) - 30 seconds`, so a pull will re-deliver rows the client has already seen.
-That is not a bug to work around — it is the fix for one.
+**The response is a page.** `limit` caps each of the four collections independently — default
+500, maximum 2000 — and `has_more` is true while *any* of them was cut. Keep calling with the
+returned `cursor` as `since` until `has_more` is false. A client that stops at the first
+response has a hole in its archive. Omitting `since` is a full snapshot **paged**, not a
+single response: eighteen years of one child is the product, so scoping the read to one child
+was never a bound, and the API runs on a 512MB machine.
+
+**A cut page's cursor is the earliest of the cut collections' last `updated_at`, not the
+latest.** The four collections advance at different rates. A cursor taken from whichever one
+reached furthest would carry the client past rows another collection has not handed out yet,
+and nothing would ever offer those rows again.
+
+**The cursor is deliberately behind, and clients must upsert by id.** Whichever watermark it
+is taken from — `max(updated_at)` on a complete page, the earliest cut watermark on a partial
+one — it comes back 30 seconds behind it, so a pull will re-deliver rows the client has
+already seen. That is not a bug to work around — it is the fix for one.
 
 `set_updated_at()` uses Postgres `now()`, which is *transaction-start* time, not commit
 time. A transaction that opens, takes a while, and commits therefore writes a row whose
@@ -654,14 +668,37 @@ and keyed on a client-generated UUID, so applying the same row twice is a no-op.
 that treats every returned row as new will duplicate data.** Upsert by id.
 
 The window bounds the longest write transaction. A `POST /sync/push` batch has to stay well
-under 30 seconds; if batch push ever grows past that, this window grows with it. A
-sequence-based cursor is *not* the alternative — `nextval()` is assigned at statement time,
-not commit time, so a `bigint` sequence has the identical race and costs a migration and a
-column on four tables.
+under 30 seconds, and the batch ceiling below enforces that rather than asking for it. If
+batch push ever grows past 30 seconds, this window grows with it. A sequence-based cursor
+is *not* the alternative — `nextval()` is assigned at statement time, not commit time, so a
+`bigint` sequence has the identical race and costs a migration and a column on four tables.
+
+**Paging and the overlap window have one interaction worth stating.** A collection holding
+more than `limit` rows inside a single 30-second window cannot be paged past: the lagged
+cursor lands back inside the group and the same page returns. Every row a transaction writes
+carries that transaction's start time, so a bulk write is one `updated_at` however many rows
+it touches, and `POST /children/{id}/recompute-ages` over a large archive is the realistic way
+to reach it. The symptom is a cursor that stops advancing while `has_more` stays true, and the
+answer is to retry with a larger `limit`. Failing that way is deliberate: the alternative
+advances the cursor over rows it never delivered, and those are gone silently.
 
 **`POST /sync/push`**
-Body: `{ entries: [...], media: [...], idempotency_keys: {...} }`
+Body: `{ child_id, entries: [...], media: [...], idempotency_keys: {...} }`
 Batched offline queue drain. Returns per-record accept/conflict so the client can reconcile without a full refetch.
+
+**At most 200 entries and 200 media per call**, and more is a `422` the client answers by
+draining in pages. The batch applies in one transaction and every record inside it costs
+several sequential round trips, so an unbounded batch is an unbounded connection hold — and
+one that runs past 30 seconds breaches the overlap window above, which turns a slow request
+into rows that never sync again.
+
+**No cursor comes back.** A sync cursor is the newest `updated_at` actually returned, and a
+push returns no rows. A clock read would be ahead of `GET /sync`'s deliberately lagged cursor
+and would skip everything committed inside the window — including the server-derived
+`entry_type` and `child_age_months` this very push just wrote — and, being a wall clock rather
+than a read position, it would also skip every older row the client had never pulled. Pull
+after a drain using the cursor you already hold; that is how the server's corrections to your
+own records reach you.
 
 ---
 

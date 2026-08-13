@@ -47,17 +47,52 @@ PUSH_ENDPOINT = "POST /v1/sync/push"
 # under it; if batch push ever grows past 30s, this grows with it.
 CURSOR_OVERLAP_SECONDS = 30
 
+# A page is this many rows *per collection*. A pull with `since` omitted — a fresh install, a
+# reinstall, any client that lost its cursor — would otherwise materialise the entire archive,
+# entries with their media, tags and prompts included, in one response on a 512MB machine.
+# Eighteen years of one child is the product, so scoping the read to one child is not a bound.
+DEFAULT_PAGE_SIZE = 500
+MAX_PAGE_SIZE = 2000
+
 
 def _now() -> dt.datetime:
     return dt.datetime.now(tz=dt.UTC)
 
 
-async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -> SyncResponse:
-    """Everything about this child that changed after `since`, deletions included."""
+async def pull(
+    session: AsyncSession,
+    child: Child,
+    since: dt.datetime | None,
+    *,
+    limit: int = DEFAULT_PAGE_SIZE,
+) -> SyncResponse:
+    """One page of everything about this child that changed after `since`, deletions included.
+
+    Each collection is paged on its own, so `has_more` is true when *any* of them was cut, and
+    the cursor is then the **earliest** of the cut collections' last `updated_at` — never the
+    latest. The four move at different rates; a cursor taken from whichever collection reached
+    furthest would step the client past rows another collection has not handed out yet, and
+    nothing would ever offer them again.
+
+    The overlap window is kept on every page, intermediate ones included, and that is what
+    makes it safe for a page bound to land in the middle of a group of rows sharing an
+    `updated_at` — every row a single transaction writes carries that transaction's start
+    time, so a bulk write is one timestamp however many rows it touches. Re-reading the last
+    30 seconds collects the rest of the group on the next call.
+
+    The cost is the honest one: a collection holding more than `limit` rows inside a single
+    30-second window cannot be paged past, because the lagged cursor lands back inside it and
+    the same page comes again. `limit` is the escape hatch — a client whose cursor stops
+    moving while `has_more` is true asks for a larger page. That failure stands still and says
+    so, which is the direction to fail in; the alternative advances the cursor over rows it
+    never delivered and loses them silently.
+    """
+    limit = max(1, min(limit, MAX_PAGE_SIZE))
 
     def _after(column):
         return column > since if since is not None else column.is_not(None)
 
+    # One row past the page tells us the collection was cut, without a second count query.
     entries = list(
         (
             await session.execute(
@@ -68,6 +103,7 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
                 loaded(select(Entry))
                 .where(Entry.child_id == child.id, _after(Entry.updated_at))
                 .order_by(Entry.updated_at.asc())
+                .limit(limit + 1)
             )
         )
         .scalars()
@@ -81,6 +117,7 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
                 .join(Entry, Entry.id == Media.entry_id)
                 .where(Entry.child_id == child.id, _after(Media.updated_at))
                 .order_by(Media.updated_at.asc())
+                .limit(limit + 1)
             )
         )
         .scalars()
@@ -94,6 +131,7 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
                 .where(Assignment.child_id == child.id, _after(Assignment.updated_at))
                 .options(selectinload(Assignment.prompt))
                 .order_by(Assignment.updated_at.asc())
+                .limit(limit + 1)
             )
         )
         .scalars()
@@ -108,18 +146,39 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
                 .join(Entry, Entry.id == EntryTag.entry_id)
                 .where(Entry.child_id == child.id, _after(EntryTag.updated_at))
                 .order_by(EntryTag.updated_at.asc())
+                .limit(limit + 1)
             )
         ).all()
     )
 
-    stamps = [
-        *(row.updated_at for row in entries),
-        *(row.updated_at for row in media),
-        *(row.updated_at for row in assignments),
-        *(link.updated_at for link, _ in tag_rows),
+    def _page(rows: list, stamp) -> tuple[list, dt.datetime | None]:
+        """Cut to one page. Returns the page and, if it was cut, the watermark it ended on."""
+        if len(rows) <= limit:
+            return rows, None
+        page = rows[:limit]
+        return page, stamp(page[-1])
+
+    entries, entries_tail = _page(entries, lambda row: row.updated_at)
+    media, media_tail = _page(media, lambda row: row.updated_at)
+    assignments, assignments_tail = _page(assignments, lambda row: row.updated_at)
+    tag_rows, tags_tail = _page(tag_rows, lambda row: row[0].updated_at)
+
+    tails = [
+        tail for tail in (entries_tail, media_tail, assignments_tail, tags_tail) if tail is not None
     ]
+    if tails:
+        # The earliest cut watermark, not the latest — see the docstring. Anything later
+        # abandons the rows the other collections have not reached yet.
+        newest = min(tails)
+    else:
+        stamps = [
+            *(row.updated_at for row in entries),
+            *(row.updated_at for row in media),
+            *(row.updated_at for row in assignments),
+            *(link.updated_at for link, _ in tag_rows),
+        ]
+        newest = max(stamps) if stamps else _now()
     # Lagged deliberately — see CURSOR_OVERLAP_SECONDS.
-    newest = max(stamps) if stamps else _now()
     cursor = newest - dt.timedelta(seconds=CURSOR_OVERLAP_SECONDS)
 
     return SyncResponse(
@@ -146,6 +205,7 @@ async def pull(session: AsyncSession, child: Child, since: dt.datetime | None) -
             for link, name in tag_rows
         ],
         cursor=cursor,
+        has_more=bool(tails),
     )
 
 
@@ -172,6 +232,10 @@ async def _apply_entry(
             # routes to get wrong.
             unlock_at_age_provided="unlock_at_age" in incoming.model_fields_set,
             tags=incoming.tags or [],
+            # The answer here is an id and a status, never the entry, so the eager reload
+            # `POST /entries` needs would be three selectin legs per record over a whole
+            # drain — for a row that has no media and no assignment prompt loaded anyway.
+            reload=False,
         )
         if incoming.deleted_at is not None:
             entry.deleted_at = incoming.deleted_at
@@ -240,11 +304,16 @@ async def push(
     entries: list[PushEntry],
     media: list[PushMedia],
     idempotency_keys: dict[str, str],
-) -> tuple[list[PushResult], list[PushResult], dt.datetime]:
+) -> tuple[list[PushResult], list[PushResult]]:
     """Drain a batched offline queue, one record at a time, and report on each.
 
     A record that fails does not fail the batch: the client gets per-record accept/conflict
     and reconciles without a full refetch.
+
+    No cursor comes back — see :class:`SyncPushResponse`. The batch is bounded at the wire by
+    `MAX_PUSH_BATCH`, which is what keeps this transaction inside `CURSOR_OVERLAP_SECONDS`:
+    each record costs several sequential round trips, and a drain that outlives the window
+    commits rows already behind another device's cursor.
     """
     entry_results: list[PushResult] = []
     media_results: list[PushResult] = []
@@ -278,4 +347,4 @@ async def push(
         except RascalError as exc:
             media_results.append(PushResult(id=incoming.id, status="conflict", reason=exc.message))
 
-    return entry_results, media_results, _now()
+    return entry_results, media_results

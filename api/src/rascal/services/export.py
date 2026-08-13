@@ -357,6 +357,12 @@ async def build_export(
 ) -> ExportStats:
     """Read the archive, then write the zip off the event loop. Returns what went into it."""
     plan = await plan_export(session, child)
+    # The read is done and the plan is plain data by construction — no ORM object crosses into
+    # the thread — so end the transaction before the S3 work starts. Pulling a gigabyte archive
+    # object by object takes minutes, and holding the request's transaction across it parks one
+    # of a small pool of Neon connections doing nothing; worse, a pooler that drops the stalled
+    # connection turns a finished zip into a 500 when the session dependency commits.
+    await session.commit()
     stats = await asyncio.to_thread(write_export, plan, settings, destination)
     log.info(
         "built export",

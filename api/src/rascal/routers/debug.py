@@ -15,8 +15,13 @@ from pydantic import Field
 from sqlalchemy import delete, select
 
 from rascal.constants import SLOTS
-from rascal.deps import ChildAccess, CurrentUser, SessionDep, child_access_from_body
-from rascal.errors import not_authorized
+from rascal.deps import (
+    ChildAccess,
+    CurrentUser,
+    SessionDep,
+    child_access_from_body,
+    require_child_access,
+)
 from rascal.models import Assignment, Guardian, Prompt
 from rascal.schemas.common import ApiModel
 from rascal.services.dates import today_in
@@ -61,23 +66,28 @@ async def scheduler_run(
     payload: SchedulerRunRequest, session: SessionDep, user: CurrentUser
 ) -> SchedulerRunResponse:
     # Scoped to the caller's own children even here, so a shared local database is never a
-    # way to schedule for someone else's kid.
-    mine = set(
-        (
-            await session.execute(
-                select(Guardian.child_id).where(
-                    Guardian.user_id == user.id, Guardian.revoked_at.is_(None)
-                )
-            )
-        ).scalars()
-    )
+    # way to schedule for someone else's kid — and running the scheduler writes assignments,
+    # so `parent` is the bar, exactly as it is on the two routes below. `child_id` is optional
+    # in this payload, which is the one thing `child_access_from_body` cannot express, so this
+    # calls the same check the dependency wraps rather than restating it.
     if payload.child_id is not None:
-        if payload.child_id not in mine:
-            raise not_authorized()
-        mine = {payload.child_id}
+        access = await require_child_access(session, user, payload.child_id, "parent")
+        child_ids = {access.child_id}
+    else:
+        child_ids = set(
+            (
+                await session.execute(
+                    select(Guardian.child_id).where(
+                        Guardian.user_id == user.id,
+                        Guardian.role == "parent",
+                        Guardian.revoked_at.is_(None),
+                    )
+                )
+            ).scalars()
+        )
 
     totals = SchedulerRunResponse(created=0, skipped_existing=0, expired=0, exhausted=[])
-    for child_id in sorted(mine):
+    for child_id in sorted(child_ids):
         run = await run_scheduler(
             session, as_of_date=payload.date, child_id=child_id, seed=payload.seed
         )
