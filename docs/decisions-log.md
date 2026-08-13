@@ -1902,3 +1902,38 @@ Two documentation defects the same pass found, both of the kind this project tre
   scan calls `PHAssetResource.assetResources(for:)` once per asset to produce it. Left in
   place — removing a tested field is a wider change than this pass — but it is the next thing
   to look at on a large real library, and it is recorded here so it is not rediscovered.
+
+## Review fixes, Aug 13 2026 — the api/ deep-dive pass
+
+- **A truncated `/sync` page hands back the *earliest* cut watermark, not `max`.** The four
+  collections page independently, so taking the newest stamp across all of them would advance
+  the cursor past rows the untruncated collections had not sent yet, and those rows would
+  never be requested again. `min` of the collections actually cut, still lagged by
+  `CURSOR_OVERLAP_SECONDS`, is the only value that is safe to resume from.
+- **`POST /sync/push` now lags its cursor the same way `pull` does.** It was returning a bare
+  `now()` taken before the transaction committed, so a client feeding it back as `since`
+  skipped the server-derived `entry_type` and `child_age_months` corrections that same push had
+  just written. The alternative — dropping the field — was rejected because the response already
+  types it identically to the resumable pull cursor.
+- **The explicit-null rejection lives in `ChildUpdate`, not in the handler.** `me.py` does it in
+  the router with `model_fields_set`, and that shape was considered; the schema won because the
+  same file already raises `validation_failed` from a validator, and because it fixes the second
+  half of the defect — the timezone validator was being skipped entirely on `None`.
+- **`judge()` gained a fifth rejection rule, and the library now fails it on purpose.** New
+  generated copy may not assume a gender, so the rule fires on he/him — and the seeded 113 are
+  still literal he/him, so the fixtures quoted from them in
+  `test_the_library_would_pass_its_own_filters` now trip it. The test asserts that *no other*
+  filter touches a real prompt rather than asserting bare acceptance. Tokenising those fixtures
+  was considered and rejected: "What word does he mispronounce?" has no grammatical form in the
+  token table (there is no token for the inverted `does he` / `do they` order), so tokenising the
+  library is authoring work belonging to the tokenisation phase, not a test-file edit.
+- **`review_candidates.py` filtered `source == "generated"`, a value the CHECK forbids.** Fixed
+  to `llm` and bound to the constant. The tool's premise is still unmet and was left that way:
+  `generate_prompts.py` writes markdown worksheets and persists nothing, so the queue this reads
+  can never fill. Recorded rather than solved — deciding whether candidates become rows is a
+  product call, not a review fix.
+- **Export and multipart upload commit before their S3 round trips.** The request transaction
+  was held open across a whole-archive download; `expire_on_commit=False` and a plan built of
+  plain dicts make the early commit safe. For `plan_upload` a flush reorder was not enough — the
+  transaction was already open from the authorization dependency's reads, so it needed an
+  explicit commit.

@@ -1,12 +1,18 @@
-"""Read the pending prompt candidates and accept or reject them in bulk.
+"""Read the pending prompt candidates in the database and accept or reject them in bulk.
 
-79 generated candidates are waiting on a human read. This is the terminal-side of that: a solo
-admin task run occasionally, so a CLI rather than a web UI.
+A pending candidate is a `prompts` row with `source = 'llm'` and `active = false`. Reviewing them
+is a solo admin task run occasionally, so this is a CLI rather than a web UI.
 
     uv run python scripts/review_candidates.py list
     uv run python scripts/review_candidates.py list --flagged-only
     uv run python scripts/review_candidates.py template > decisions.txt
     uv run python scripts/review_candidates.py apply decisions.txt
+
+**Where candidates come from, and where they do not.** `scripts/generate_prompts.py` does not
+feed this tool: it writes markdown worksheets to `docs/prompt-candidates/` and its review queue is
+a pull request, and nothing in it touches the database. No other code in this repo writes
+`source = 'llm'` rows either. So until something does, every command here reads an empty queue and
+reports nothing pending — that is the honest state of the tool, not a failing query.
 
 **The model flags and never rejects.** A candidate using a banned word, or describing a feeling
 instead of an action, is surfaced with the rule it tripped so that a rejection is a judgment
@@ -26,11 +32,26 @@ import re
 import sys
 import uuid
 from dataclasses import dataclass
+from typing import Final
 
 from sqlalchemy import select
 
+from rascal.constants import PROMPT_SOURCES, PromptSource
 from rascal.db import get_sessionmaker
 from rascal.models import Prompt
+
+# The `source` a generated candidate carries. `ck_prompts_source` admits `seeded`, `user` and
+# `llm` and nothing else, so a query for a value outside that set matches no row it can ever
+# see — which is what this tool did for as long as it asked for `generated`. Typed as
+# `PromptSource` and checked against the constrained set at import so the same drift cannot
+# happen quietly a second time: a rename in rascal.constants stops the CLI dead instead of
+# emptying its queue.
+CANDIDATE_SOURCE: Final[PromptSource] = "llm"
+if CANDIDATE_SOURCE not in PROMPT_SOURCES:
+    raise RuntimeError(
+        f"{CANDIDATE_SOURCE!r} is not one of {PROMPT_SOURCES}. No prompts row can hold it, so "
+        "every candidate would look reviewed."
+    )
 
 # --- The tone rules, from docs/mission-library.md -------------------------------------------
 
@@ -94,7 +115,7 @@ async def _pending(limit: int | None) -> list[Prompt]:
     async with get_sessionmaker()() as session:
         statement = (
             select(Prompt)
-            .where(Prompt.source == "generated", Prompt.active.is_(False))
+            .where(Prompt.source == CANDIDATE_SOURCE, Prompt.active.is_(False))
             .order_by(Prompt.created_at)
         )
         if limit is not None:
@@ -177,8 +198,8 @@ async def cmd_apply(args: argparse.Namespace) -> int:
     text = args.file.read_text()
     decisions, problems = parse_decisions(text)
     if problems:
-        # **Nothing is applied from a file with a bad line in it.** A partial apply over 79
-        # candidates leaves you unable to tell which half landed.
+        # **Nothing is applied from a file with a bad line in it.** A partial apply over a batch
+        # leaves you unable to tell which half landed.
         for problem in problems:
             print(problem, file=sys.stderr)
         print(f"{len(problems)} problem(s). Nothing applied.", file=sys.stderr)

@@ -95,6 +95,11 @@ async def test_today_creates_the_days_assignments_when_the_scheduler_never_ran(
 
     assert await _rows(session, child.id) == []
 
+    # Read the clock *before* the call, the way the local-date test below does. Deriving the
+    # expectation from a read taken afterwards puts a whole scheduler run between the server's
+    # notion of today and the test's, so a local midnight crossing in that window fails a
+    # server that behaved correctly.
+    now = dt.datetime.now(tz=dt.UTC)
     response = await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(user))
 
     assert response.status_code == 200
@@ -106,7 +111,7 @@ async def test_today_creates_the_days_assignments_when_the_scheduler_never_ran(
     assert {row.slot for row in created} >= {"question", "mission"}
     assert all(row.status == "pending" for row in created)
     # Written for the child's local date, not the server's.
-    expected = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    expected = local_date(now, child.family_timezone)
     assert {row.assigned_on for row in created} == {expected}
 
 
@@ -196,6 +201,10 @@ async def test_an_expired_assignment_is_not_resurrected_by_the_read(
     )
     await session.commit()
 
+    # Captured before the request for the same reason as above: the server's "today" and the
+    # test's have to come from the same instant, not from two clock reads with a scheduler run
+    # between them.
+    now = dt.datetime.now(tz=dt.UTC)
     response = await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(user))
     assert response.status_code == 200
 
@@ -205,7 +214,7 @@ async def test_an_expired_assignment_is_not_resurrected_by_the_read(
     assert lapsed.assigned_on == dt.date(2026, 1, 5)
 
     # And no assignment was invented for any day but today.
-    local_today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    local_today = local_date(now, child.family_timezone)
     other_days = {row.assigned_on for row in await _rows(session, child.id)} - {
         local_today,
         dt.date(2026, 1, 5),

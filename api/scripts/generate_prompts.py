@@ -13,10 +13,12 @@ already an accept/reject interface with a comment thread, an audit trail, and an
 it needs no table, no admin UI, and no endpoint. See docs/decisions-log.md.
 
 **What this script rejects, it rejects in code.** The library's four rejection rules are
-implemented as named filters below and each one is tested. They are deliberately literal:
-they catch the failure modes that are textually detectable and they do not pretend to
-judgment. A human still reads the candidates in the PR — the filters exist so that the human
-is reading twelve plausible prompts rather than twenty with eight obvious duds in them.
+implemented as named filters below and each one is tested, and a fifth filter rejects a bare
+gendered pronoun: the seeded library is he/him and is being tokenised, so no new copy may
+assume a child's gender. They are deliberately literal: they catch the failure modes that are
+textually detectable and they do not pretend to judgment. A human still reads the candidates
+in the PR — the filters exist so that the human is reading twelve plausible prompts rather
+than twenty with eight obvious duds in them.
 
 Nothing here touches the database. Seeding stays what it has always been: edit the markdown,
 re-run `scripts/mission_library_to_yaml.py`, `make seed`.
@@ -79,6 +81,10 @@ DASH = "\u2013"
 #   - describes a feeling instead of an action
 #   - couldn't be done in the middle of an ordinary Tuesday
 #   - assumes a two-parent household, a particular income, or a particular ability
+#
+# And one rule that is not from that section: no bare gendered pronoun. docs/mission-library.md,
+# "Pronoun and name tokens" — new prompts refer to the child with the token table in
+# docs/api-contract.md, never with he/him or she/her.
 
 
 def _words(*terms: str) -> re.Pattern[str]:
@@ -166,6 +172,16 @@ NEEDS_AN_OCCASION = _words(
     "book a",
 )
 
+# The seeded 113 are written he/him and are being rewritten; nothing new may add to that pile.
+# This is enforced here rather than only asked for in SYSTEM because the whole library goes into
+# every request as the style reference, and a model imitates what it reads.
+#
+# `\b` on both sides is what keeps this honest. It does not fire on the tokens — none of {they},
+# {them}, {their}, {theirs}, {themself}, {They}, {Them}, {Their} or the verb compounds contains
+# he, him, his, she, her or hers as a whole word — and it does not fire on ordinary words that
+# merely contain those letters: shed, history, others, treasurer.
+GENDERED = _words("he", "him", "his", "himself", "she", "her", "hers", "herself")
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -220,7 +236,13 @@ def _normalize(body: str) -> frozenset[str]:
         "she",
         "that",
         "the",
+        # The pronoun tokens reduce to these, and they sit here for the same reason "his" and
+        # "her" do: which pronoun a prompt uses must not change how similar it looks to another.
+        # A tokenised rewrite of a library prompt is still that prompt.
+        "their",
+        "theirs",
         "them",
+        "themself",
         "they",
         "this",
         "to",
@@ -283,6 +305,10 @@ def judge(
     if found := ASSUMES_ABILITY.findall(body):
         verdict.reasons.append(f"assumes an ability: {', '.join(sorted(set(found)))}")
 
+    if found := GENDERED.findall(body):
+        words = ", ".join(sorted({word.lower() for word in found}))
+        verdict.reasons.append(f"assumes a gender: {words} — use the pronoun tokens")
+
     if not seasonal and (found := NEEDS_AN_OCCASION.findall(body)):
         verdict.reasons.append(f"not an ordinary Tuesday: {', '.join(sorted(set(found)))}")
 
@@ -331,8 +357,21 @@ occasions, nothing that needs to be bought.
 - Assume nothing about the household: not two parents, not an income, not a particular \
 physical ability. One tired adult and a child in an ordinary home.
 - Do not restate a prompt that is already in the library.
+- Never write "he", "him", "his", "she", "her" or "hers". Refer to the child with the \
+pronoun tokens instead.
 
-The child is referred to as "he" throughout the existing library. Match that."""
+The tokens are {they}, {them}, {their}, {theirs}, {themself}, the verb compounds {they_are}, \
+{they_were}, {they_have}, {they_do}, the capitalised {They}, {Them}, {Their}, and {name}. \
+Each renders to the reading parent's answer, so "What is {they} afraid of right now?" is \
+grammatical for every child. Capitalisation is explicit: write {They} at the start of a \
+sentence, never {they}. Use {name} at most once in a prompt, and only where a parent would \
+say the name aloud — usually the opening. Do not invent tokens; anything outside that list \
+renders literally, braces and all.
+
+**The library you are about to read is written "he" throughout. Do not match that.** It \
+predates the tokens and is being rewritten. Copy its register, its specificity and its \
+length — not its pronouns. A candidate containing a bare gendered pronoun is rejected \
+automatically and never reaches a reviewer."""
 
 TOOL = {
     "name": "emit_candidates",
@@ -370,6 +409,11 @@ def build_request(*, theme: str, kind: str, count: int, ages: tuple[int, int]) -
     shape = KIND_SHAPES[kind]
     instruction = (
         f"Here is the current mission library in full.\n\n<library>\n{library}\n</library>\n\n"
+        # Repeated here, after the library rather than only before it: the model has just read
+        # 113 prompts written he/him, and that is the text nearest to what it writes next.
+        f"Every prompt you just read is written he/him. That is the old library, not the "
+        f"standard — write the pronoun tokens instead, and no bare he, him, his, she, her "
+        f"or hers.\n\n"
         f"Write {count} new candidates for theme `{theme}`, kind `{kind}` "
         f"(cadence `{shape['cadence']}`, completion mode `{shape['completion_mode']}`), "
         f"for children between {ages[0]} and {ages[1]} months old.\n\n"

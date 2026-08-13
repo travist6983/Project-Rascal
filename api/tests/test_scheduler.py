@@ -506,8 +506,17 @@ async def test_the_debug_routes_refuse_someone_elses_child(
         json={"child_id": str(child.id)},
         headers=auth_headers(stranger),
     )
+    # /board reaches the child the same way its two siblings do — `child_id` in the body — and
+    # it deletes today's assignments, so it belongs in this test rather than beside it.
+    board = await client.post(
+        "/v1/debug/board",
+        json={"child_id": str(child.id)},
+        headers=auth_headers(stranger),
+    )
     assert run.status_code == 403
     assert reset.status_code == 403
+    assert board.status_code == 403
+    assert board.json()["error"]["code"] == "not_authorized"
 
 
 async def test_the_debug_routes_are_not_registered_outside_local(engine) -> None:

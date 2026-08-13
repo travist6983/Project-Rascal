@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import select
 
 from rascal.deps import ChildAccess, CurrentUser, SessionDep, SettingsDep, child_access
-from rascal.errors import not_found
+from rascal.errors import not_found, validation_failed
 from rascal.models import Child, Guardian, Prompt, PromptSuppression
 from rascal.schemas.child import (
     AvatarUploadUrlRequest,
@@ -96,6 +96,15 @@ async def create_child(
     "/{child_id}",
     response_model=ChildOut,
     summary="Update a child's name, birthdate, timezone, or avatar",
+    description=(
+        "Every field is optional and an omitted field is left alone. An explicit `null` "
+        "clears `pronouns` and `avatar_key` and is `422` on the other three, whose columns "
+        "are NOT NULL.\n\n"
+        "`avatar_key` must be a key this child's `avatar-upload-url` minted. Any other key is "
+        "`422`: `GET /children/{child_id}/avatar-url` presigns whatever is stored, so a child "
+        "record accepting an arbitrary key would be a way to read any object in a private "
+        "bucket — including another child's media."
+    ),
 )
 async def update_child(
     child_id: uuid.UUID,
@@ -104,9 +113,21 @@ async def update_child(
     access: ChildAccess = Depends(child_access("parent")),
 ) -> ChildOut:
     child = access.child
-    # exclude_unset so a client can clear avatar_key with an explicit null without having to
-    # resend every other field.
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    # exclude_unset so a client can clear avatar_key or pronouns with an explicit null without
+    # having to resend every other field. The schema refuses a null aimed at a NOT NULL column.
+    fields = payload.model_dump(exclude_unset=True)
+
+    # The shape `avatars.build_avatar_key` mints. Checked here rather than in the schema
+    # because it is the *path's* child that has to own the key, and only the resolved access
+    # knows which child that is. A null still clears the avatar.
+    avatar_key = fields.get("avatar_key")
+    if avatar_key is not None and not avatar_key.startswith(f"children/{child.id}/avatar/"):
+        raise validation_failed(
+            "avatar_key must be a key returned by this child's avatar-upload-url.",
+            field="avatar_key",
+        )
+
+    for field, value in fields.items():
         setattr(child, field, value)
     await session.flush()
     await session.refresh(child)

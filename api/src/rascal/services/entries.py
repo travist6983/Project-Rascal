@@ -404,11 +404,19 @@ async def create_entry(
     unlock_at_age: int | None = None,
     unlock_at_age_provided: bool = False,
     tags: list[str] | None = None,
+    reload: bool = True,
 ) -> Entry:
     """Create an entry and, if it completes a pending assignment, close that out too.
 
     Nothing here assumes the entry has media. "Get on the floor for ten minutes" is a
     complete, legitimate entry with no artifact.
+
+    `reload` re-selects the finished row through :func:`loaded`, which is what a caller
+    serialising with `to_entry_out` needs and what `POST /entries` does. `/sync/push` answers
+    with an id and a status and never reads the graph, so it passes False and saves the three
+    `selectinload` legs — per record, in a loop, over a whole offline drain. It defaults to
+    True because the reload is the safe half of that trade: a caller that skips it and then
+    touches `entry.media` gets a lazy-load raise, not a wrong answer.
 
     `unlock_at_age_provided` is the difference between "I have no opinion about sealing" and
     "the parent turned sealing off", which `unlock_at_age` alone cannot express — Pydantic
@@ -470,7 +478,7 @@ async def create_entry(
         await apply_tag_writes(session, entry, tags)
 
     await session.flush()
-    return await load_entry(session, entry.id)
+    return await load_entry(session, entry.id) if reload else entry
 
 
 # --- Timeline ----------------------------------------------------------------------------
