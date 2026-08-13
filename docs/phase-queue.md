@@ -14,57 +14,15 @@ Synced with `roadmap-status.md` at **Aug 12, 2026**. Next phase number is **24**
 
 ## Questions I need from you
 
-These gate work below. Nothing on them is a coding problem; each is a call only you can make.
+**Nothing is open.** Every question this file has asked has been answered, and the answers are in
+`docs/decisions.md`. Add new ones here as they come up.
 
-- **Tokenize the 113 seeded prompts, or leave them?** `decisions.md:56` settled "not rewritten" on
-  Aug 11. The counter-argument is that what they render today is `he/him` to a she/her child, on
-  every screen, permanently. Blocks item 24 either way. Three hidden costs are in
-  `roadmap-status.md` — the yaml is generated, re-seeding *inserts* rather than updates, and the
-  export viewer would print raw `{their}`.
-
-  **Answer** Lets redo these for sure for a female we cant have it male oriented costs is fine. 
-
-- **A narrower option for the above:** tokenize only the ~30 bodies that reach Today's three daily
-  slots and leave the rest. Nobody has costed it. Want it costed?
-
-  **Answer** No do them all 
-
-- **Letter on any day (item 27): freeform-plus-seal, or written against a `letter` prompt?** And
-  does the entry point live in the *Add to the archive* sheet behind **+**? Both are design calls;
-  the API already accepts it.
-
-**Answer** I think you can do written with the option to seal it and if you do we find the age to unlock it then
-
-- **Editing a seal after the fact:** allow it, or is the age it was written with final? Today a
-  letter sealed at 13 by a mis-tap cannot be moved, and nothing on screen says the number is final.
-
-**Answer** Always edit after something is added it could need to change years down the road for reasons. always be flexible with out users content 
-
-- **`KindBadge` contrast** measures ~3.3–3.7:1, below WCAG AA. Fix with a new `periwinkleDeep`
-  token, or restyle the badge? Design-system decision, not a patch.
-
-**Answer** fix with periwinkleDeep 
-
-- **Paper grain.** The design export calls it mandatory identity; `design-system.md` lists
-  screen-print texture as an anti-pattern; neither decisions file mentions it. It has been deferred
-  three phases running. Pick one and I will write it down.
-
-**Answer** it is fine lets not worry about this 
-
-- **Multi-kid:** `ios/CLAUDE.md` scopes it out, and the server has supported it since migration
-  `0001`. Change the scope rule, or keep it out? Item 31 cannot be scheduled until this is answered.
-
-**Answer** We def want to do this and it needs to be a prioritized phase 
-
-- **Per-entry visibility (P2)** is undesigned, not merely unbuilt — `docs/data-model.md`'s `entries`
-  spec has no visibility column. Do you want it designed now, or is P2 deferred wholesale?
-
-**Answer** lets get this knocked out so it doesnt lingear 
-
-- **The app's name.** Still `RASCAL`. Not blocking code, but the widget gallery groups by app name,
-  so it is now visible to anyone adding the widget.
-
-  **Answer** still working on it :/ I know but this is so hard to pick 
+**Answered Aug 12, 2026** and written into `docs/decisions.md`, which is the authority for all of
+these — **the app is called `Dogear`**, tokenise all 113 prompts, letter-on-any-day is
+freeform-plus-seal with the age asked only once sealing is chosen, a seal is always editable, the
+kind chip takes `periwinkleDeep` in all three places, sage stays below AA as a recorded exception,
+multi-kid is in scope and prioritised, per-entry visibility gets designed now, and paper grain
+stays rejected (no action).
 
 ---
 
@@ -109,21 +67,44 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 
 ## The build queue
 
-Numbered items match `roadmap-status.md`'s forward queue.
+Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
+- **Rename to `Dogear` — code is done, three things left and all three are yours.** Shipped
+  Aug 12: display name on the app, widget and share extension (verified out of the built bundles,
+  not just the source), the onboarding wordmark, 13 in-app copy strings, the export viewer's
+  titles and the download filename. **Left: the app icon** (a design asset), **the App Store
+  Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
+  cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
+  mechanical lines. Ship a build for any of it to reach the phone.
+- **24 — Tokenise all 113 seeded prompts.** Owner's call, reversing `decisions.md`. Edit
+  `docs/mission-library.md` and regenerate — never `prompts.yaml` by hand. **Three things that are
+  scope, not objections:** re-seeding keys on `sha256(kind, cadence, body)` and never deletes, so
+  113 rewrites *insert* 113 new prompts and the literal ones must be deactivated in the same pass;
+  `test_seeding.py` pins a coverage table to reconcile; and `export_viewer/assets/app.js` must
+  learn the token table or every export prints raw `{their}`.
+- **31 — Multi-kid.** Now in scope — `ios/CLAUDE.md` updated. Entirely iOS: the child is hardcoded
+  to `.first` in three places and `ChildSwitcherPill` already draws its chevron whenever
+  `onSelect` is non-nil, which today only a preview supplies. The chevron appears when there is a
+  second child, never before.
+- **Per-entry visibility — design first, then 30.** Undesigned, not just unbuilt:
+  `docs/data-model.md`'s `entries` spec has no visibility column. Must answer per-entry vs
+  per-kind, what a `viewer` sees by default, and whether a sealed letter is a visibility state.
+- **27 — Letter on any day.** Freeform-plus-seal; sealing is what asks for the unlock age; entry
+  point is the *Add to the archive* sheet behind **+**. The API needs no change. iOS end to end.
+- **Editing a seal after the fact.** `PATCH /entries/{id}` supports it and
+  `EntryChanges.unlockAtAge` already exists at `TimelineAPI.swift:118` and is never set — a dead
+  seam to wire, not a type to add. Includes unsealing, which the setness fix made expressible.
+- **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
+  enforced code nothing can enter. Needs the visibility design above first.
 - **25 — Author photo prompts.** Not urgent until the scheduler fix lands; the photo pool is the
   healthiest in the archive (20 of 20 available), just unreachable. Zero photo candidates among the 79.
 - **28 — `GET /children/{id}/stats`.** Nothing exists. Lights up three dropped Settings surfaces at
   once. Model it on `pool-health` (`routers/children.py:303`), same shape, same `child_access`.
 - **33 — Photo captioning, device half.** Server half is complete and was being carried as "not
   started". Needs a third protocol: the two existing on-device seams take text, not pixels.
-- **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
-  enforced code nothing can enter. Blocked on the visibility question above.
-- **31 — Multi-kid.** Entirely iOS: the child is hardcoded to `.first` in three places and the
-  shipped switcher pill is a label (`onSwitchChild` is supplied only in previews). Blocked on the
-  scope question above.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
-- **33 — Membership Billing / Costs**
+- **34 — Membership billing / costs.** *(Was written as a second 33; renumbered, since this file
+  exists partly to stop the phase-number collisions the ledger already carries four of.)*
 - **auth — credential linking.** Do this before Google sign-in, or Google mints second,
   disconnected `users` rows.
 - **auth — `aud` allowlist.** One line at `services/apple.py:89` once `config.py:70` parses a list.
@@ -138,4 +119,5 @@ Delete nothing here without a decision to go with it.
 
 - Cross-share deduplication — sharing the same photo twice makes two entries, on purpose.
 - Renumbering the phase collisions (3, 11, 19, 20 each mean two things). The ledger disambiguates.
-- Bulk-rewriting the seeded library — unless the first question above changes it.
+- Paper grain. Already in `decisions.md` under "Rejected — do not revisit"; confirmed Aug 12, no
+  action. The design exports will keep shipping it and the answer stays no.

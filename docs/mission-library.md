@@ -258,11 +258,19 @@ band, and ask for 20 candidates at a time. Reject anything that:
 > generator's filters still apply, and nothing written from here on should assume either.
 > See `docs/decisions.md` open item 10 and the Aug 8 2026 changelog entry for the reasoning.
 >
-> **The unblock has happened, and it does not touch these 113.** Onboarding and Settings now
-> collect `children.pronouns`, and clients render the token table below. The existing prompts
-> contain no tokens, so they render exactly as they read here — byte for byte, asserted in
-> `RascalTests/PronounRenderingTests`. Tokenised and literal prompts coexist permanently and
-> there is no migration. **Do not bulk-rewrite the library**; write new prompts with tokens.
+> **The unblock has happened, and as of Aug 12, 2026 it *does* touch these 113.** Onboarding and
+> Settings collect `children.pronouns`, and clients render the token table below. ~~Tokenised and
+> literal prompts coexist permanently; do not bulk-rewrite the library.~~ **The owner reversed
+> that: all 113 are to be tokenised**, because what they render today is `he/him` to a she/her
+> child, on every screen, permanently. See `docs/decisions.md`.
+>
+> **This file is where that rewrite happens** — `api/seeds/prompts.yaml` is generated from it by
+> `scripts/mission_library_to_yaml.py` and must never be hand-edited. **Two things the rewrite has
+> to do that are not obvious.** Re-seeding keys idempotency on `sha256(kind, cadence, body)` and
+> the loader never deletes, so 113 changed bodies **insert 113 new prompts** and leave the literal
+> ones `active` — they must be deactivated in the same pass or the pool serves both. And
+> `export_viewer/assets/app.js` renders `prompt.body` with no substitution, so it must learn this
+> token table or every exported archive prints a literal `{their}`.
 
 ### Pronoun and name tokens
 
