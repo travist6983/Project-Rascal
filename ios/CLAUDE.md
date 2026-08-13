@@ -76,7 +76,15 @@ are decisions, not opening positions. If one seems wrong, raise it — do not ro
 
 An Android or web client, a design system package, offline media
 transcoding, analytics, a login screen for anything other than Sign in with Apple and
-`dev-login`, multi-kid switching UI beyond what `GET /children` already returns.
+`dev-login`.
+
+**Multi-kid switching UI came off this list on Aug 12, 2026** — the owner's decision, recorded in
+`docs/decisions.md`. It is a prioritised phase, not a someday. The server has supported it since
+migration `0001`; the work is here: the child is hardcoded to `.first` in three places, and
+`ChildSwitcherPill` already draws its chevron and tap target whenever `onSelect` is non-nil, which
+today only a preview supplies. **The rule that survives the scope change** is the one that file
+states at `ChildSwitcherPill.swift:11-13` — *"One child and a chevron is a control that lies"* —
+so the chevron appears when there is a second child to switch to, and not before.
 
 **Push notifications came off this list in Phase 14** and are now built. What remains out of
 scope within push is everything that was out of scope then: local notifications and

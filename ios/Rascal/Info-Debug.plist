@@ -11,6 +11,11 @@
 	     folder group where a stray plist is also copied as a resource. -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- Kept in step with Info.plist by hand. The two files differ only in App Transport
+	     Security, so a display name that drifts between them means a Debug build on the phone
+	     wearing a different name from the TestFlight build beside it. -->
+	<key>CFBundleDisplayName</key>
+	<string>Dogear</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

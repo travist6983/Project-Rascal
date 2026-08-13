@@ -22,6 +22,19 @@ extension Color {
     /// The hairline around a periwinkle-filled block — the voice hero on Entry Detail. `border`
     /// is a cream-tuned line and reads as grey dirt on periwinkle.
     static let periwinkleBorder = Color(hex: 0xDADDF7)
+    /// Periwinkle text on a periwinkle wash. The counterpart to `terracottaDeep`, added Aug 12,
+    /// 2026 to close a WCAG AA failure on `KindBadge`.
+    ///
+    /// **`periwinkle` on a 12% periwinkle wash measures 4.17:1 over `surface` and 3.61:1 over
+    /// `periwinkleSoft`** — both under the 4.5:1 that AA requires for 12pt semibold, which is not
+    /// large text. This reads 6.00:1 and 5.20:1 against the same two grounds. A shallower value
+    /// was tried and rejected: `#4A5AC4` clears AA on `surface` at 4.99:1 and **fails on
+    /// `periwinkleSoft` at 4.33:1**, which is the ground a question card actually uses, so the
+    /// badge would have passed everywhere it was measured and failed where it is read.
+    ///
+    /// Text only. The wash stays `periwinkle` — the fix must not change what the badge *means*,
+    /// and colour carries meaning here.
+    static let periwinkleDeep = Color(hex: 0x3F4FB0)
 
     // MARK: Ink
 

@@ -105,7 +105,7 @@ final class ShareComposerModel {
             return true
         } catch {
             isSaving = false
-            phase = .unusable("This couldn't be saved. Open Rascal and add it from there.")
+            phase = .unusable("This couldn't be saved. Open Dogear and add it from there.")
             return false
         }
     }

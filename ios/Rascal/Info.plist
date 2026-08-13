@@ -13,6 +13,17 @@
 	     folder group where a stray plist is also copied as a resource. -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below is
+	     `$(PRODUCT_NAME)`, which resolves to the *target* name — "Rascal" — and a target name is a
+	     build artefact, not a product. Setting this explicitly is what renamed the app to Dogear
+	     without touching the target, the Swift module, the bundle id or the App Group, none of
+	     which a parent ever sees and all of which cost signing work to move.
+
+	     The widget and the share extension carry the same string in their own plists. All three
+	     have to agree: iOS groups the widget gallery by the app's display name, and a widget
+	     reading "Dogear" under a heading reading something else is worse than either alone. -->
+	<key>CFBundleDisplayName</key>
+	<string>Dogear</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -82,10 +93,13 @@
 
 	<!-- How the widget opens the app. `childarchive://assignment/<uuid>` and
 	     `childarchive://today`, parsed by WidgetDeepLink. Named from the bundle id rather than
-	     the product: the product's name is still open (decisions.md, open item 1) and a scheme a
-	     parent has already tapped is as permanent as a bundle id. Not written as a $() reference
-	     because it is not a build configuration — pointing the app at another host must not be
-	     able to change how the widget reaches it. -->
+	     the product, because a scheme a parent has already tapped is as permanent as a bundle id.
+
+	     **That call paid off on Aug 12, 2026**, when the product was named Dogear: the scheme did
+	     not have to move, so nothing already tapped broke. Leave it `childarchive` — it is an
+	     identifier, and renaming it now would buy nothing and cost every existing deep link.
+	     Not written as a $() reference either, because it is not a build configuration: pointing
+	     the app at another host must not change how the widget reaches it. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
