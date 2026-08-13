@@ -23,14 +23,15 @@ struct TimelineScreen: View {
     @Environment(\.thumbnails) private var thumbnails
     @State private var model: TimelineModel?
     @State private var search: TimelineSearchModel?
-    @State private var path: [UUID] = []
+    /// The entry being read, or nil. Presented, never pushed.
+    @State private var opened: EntryDetailRequest?
     /// What is in the field. Held here rather than in the model because it changes on every
     /// keystroke and the model should only hear about it through `search(_:)`, which debounces.
     @State private var searchText = ""
     @State private var isSearchOpen = false
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack {
             TimelineList(
                 childId: childId,
                 filter: model?.filter ?? .all,
@@ -42,7 +43,7 @@ struct TimelineScreen: View {
                 search: searchState,
                 searchText: $searchText,
                 onSelectFilter: { filter in Task { await model?.apply(filter) } },
-                onOpen: { path.append($0) },
+                onOpen: { opened = EntryDetailRequest(id: $0) },
                 onReachEnd: {
                     // One trigger, two lists. Whichever one is on screen is the one that pages.
                     if isSearchOpen {
@@ -74,18 +75,21 @@ struct TimelineScreen: View {
             .background(Color.canvas)
             // The list is the root of its own stack and wears no navigation bar: v3 gives it a
             // sticky header of its own, carrying the screen's name, its count, and the filters.
-            // The detail pushed on top of it gets the standard bar, with a back chevron.
+            // Nothing is ever pushed onto this stack — the detail screen is presented over the
+            // whole window — so the stack is here to give the list a navigation context and a
+            // root, and for nothing else.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: UUID.self) { id in
-                EntryDetailScreen(
-                    entryId: id,
-                    childId: childId,
-                    api: api,
-                    openComposer: openComposer,
-                    onDeleted: { path.removeAll { $0 == id } }
-                )
-            }
         }
+        // Presented over the whole window rather than pushed into this stack — see
+        // `entryDetail(_:childId:api:openComposer:onDeleted:)`. The tab bar is a sibling of this
+        // screen, not a member of its navigation stack, and a push cannot hide it.
+        .entryDetail(
+            $opened,
+            childId: childId,
+            api: api,
+            openComposer: openComposer,
+            onDeleted: { _ in opened = nil }
+        )
         .task {
             if model == nil {
                 model = TimelineModel(childId: childId, api: api, context: context)

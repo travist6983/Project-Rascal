@@ -338,11 +338,18 @@ struct EntryDetailV2Tests {
 
         let sentence = EntryDetailScreen.factsSentence(for: entry, media: [])
 
-        #expect(sentence == DayHeaderText.full(occurred))
+        // **This comparison was `== DayHeaderText.full(occurred)` and had to change**, because
+        // the phase 22 correction changed the printed date itself: day before month, no comma,
+        // and a time of day on a shape that has no count and no length to state. The assertion's
+        // subject is unchanged — it is still "the date is `occurred_at`" — and the clauses below
+        // it, which are what actually carry that meaning, are untouched and joined by two more.
+        // Flagged in the report rather than quietly rewritten.
+        #expect(sentence.hasPrefix(DayHeaderText.entryDate(occurred)))
         #expect(sentence.contains("2017"))
         // The whole point: reading the wrong field would file this under 2026.
         #expect(sentence.contains("2026") == false)
         #expect(sentence != DayHeaderText.full(created))
+        #expect(sentence.hasPrefix(DayHeaderText.entryDate(created)) == false)
     }
 
     @Test("one photo says nothing about how many, because it is right there")
@@ -414,7 +421,300 @@ struct EntryDetailV2Tests {
         // The sentence still says the one thing there is to say.
         #expect(
             EntryDetailScreen.factsSentence(for: entry, media: [])
-                == DayHeaderText.full(entry.occurredAt)
+                == DayHeaderText.entryDate(entry.occurredAt)
         )
+    }
+}
+
+/// Entry Detail's **fidelity correction** — the rules the redesign is built on, as rules.
+///
+/// The screen's own composition is not unit-testable (SwiftUI, `@Query`, no snapshot harness in
+/// this project), so the decisions it makes are lifted into static functions and asserted here.
+/// Everything about pixels was verified by screenshot instead, and the report says which is which.
+@MainActor
+@Suite("Entry detail fidelity")
+struct EntryDetailFidelityTests {
+
+    private func media(_ entryId: UUID, _ kind: String, duration: Int? = nil) -> Media {
+        completeMedia(entryId: entryId, kind: kind, duration: duration)
+    }
+
+    private func at(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar.date(from: components)!
+    }
+
+    // MARK: The date
+
+    /// **Day before month, and no comma after the weekday.** The screen printed "Monday, August
+    /// 10, 2026" — the locale's own ordering, which is not the one the design sets.
+    @Test("the date reads day before month, with no comma after the weekday")
+    func dateOrderIsDayThenMonth() {
+        let date = at(8, 10, 10, 4)
+        let printed = DayHeaderText.entryDate(date)
+
+        #expect(printed == "Monday 10 August 2026")
+        #expect(printed.contains(",") == false, "the weekday is not followed by a comma")
+        // The failure this pins is the *ordering*, so assert the positions rather than the string
+        // alone — an assertion that only compares the whole string cannot say what went wrong.
+        let day = try! #require(printed.range(of: "10"))
+        let month = try! #require(printed.range(of: "August"))
+        #expect(day.lowerBound < month.lowerBound, "the day comes before the month")
+    }
+
+    /// `full` is the spoken form two other screens hand to VoiceOver. This pass gave Entry Detail
+    /// its own printed form rather than reordering theirs, and that separation is the assertion.
+    @Test("the spoken date the timeline uses is left alone")
+    func voiceOverFormIsUnchanged() {
+        let date = at(8, 10, 10, 4)
+        #expect(DayHeaderText.full(date) != DayHeaderText.entryDate(date))
+        #expect(DayHeaderText.full(date).contains("August"))
+    }
+
+    // MARK: With time, and without
+
+    /// The split the design draws across its six screens: a count or a length where the entry has
+    /// one, the time of day where it does not, and neither on a did-it entry.
+    @Test("a single photo carries the time of day, because it has nothing else to say")
+    func singlePhotoCarriesTime() throws {
+        let entry = try cachedEntry(occurredAt: at(8, 10, 10, 4), type: "photo")
+        let sentence = EntryDetailScreen.factsSentence(for: entry, media: [media(entry.id, "photo")])
+
+        #expect(sentence == "Monday 10 August 2026, \(DayHeaderText.entryTime(entry.occurredAt))")
+        #expect(sentence.contains("·") == false, "one photo counts nothing and measures nothing")
+    }
+
+    @Test("a written entry carries the time of day")
+    func writtenCarriesTime() throws {
+        let entry = try cachedEntry(occurredAt: at(8, 8, 17, 20), type: "text")
+        let sentence = EntryDetailScreen.factsSentence(for: entry, media: [])
+        #expect(sentence.hasPrefix("Saturday 8 August 2026, "))
+    }
+
+    /// **The one shape that states no time at all.** A did-it entry has no artifact to measure
+    /// and its moment is usually an evening rather than an instant.
+    @Test("a did-it entry states the day and no time")
+    func didItHasNoTime() throws {
+        let entry = try cachedEntry(occurredAt: at(8, 4, 18, 0), type: "did_it")
+        let sentence = EntryDetailScreen.factsSentence(for: entry, media: [])
+
+        #expect(sentence == "Tuesday 4 August 2026")
+        #expect(sentence.contains(DayHeaderText.entryTime(entry.occurredAt)) == false)
+    }
+
+    /// A count takes the slot the time would have had — never both.
+    @Test("several photos are counted, and the time gives way to the count")
+    func countReplacesTime() throws {
+        let entry = try cachedEntry(occurredAt: at(8, 9, 16, 30), type: "photo")
+        let sentence = EntryDetailScreen.factsSentence(
+            for: entry, media: (0..<10).map { _ in media(entry.id, "photo") }
+        )
+
+        #expect(sentence == "Sunday 9 August 2026 · 10 photos")
+        #expect(sentence.contains(DayHeaderText.entryTime(entry.occurredAt)) == false)
+    }
+
+    /// So does a length — and **video counts as a length now**, which it did not before: the
+    /// facts line read the duration off audio rows only, so a video entry said nothing about how
+    /// long it ran.
+    @Test("a recording and a video both state how long they run, in place of the time")
+    func lengthReplacesTime() throws {
+        let voice = try cachedEntry(occurredAt: at(8, 6, 18, 40), type: "audio")
+        #expect(
+            EntryDetailScreen.factsSentence(for: voice, media: [media(voice.id, "audio", duration: 107)])
+                == "Thursday 6 August 2026 · 1:47"
+        )
+
+        let video = try cachedEntry(occurredAt: at(8, 7, 9, 15), type: "video")
+        #expect(
+            EntryDetailScreen.factsSentence(for: video, media: [media(video.id, "video", duration: 42)])
+                == "Friday 7 August 2026 · 0:42"
+        )
+    }
+
+    // MARK: The absent-zone rule
+
+    /// **Nothing reserves space for something that may not be there.** The rule `EntryCard`
+    /// already holds, asserted for this screen: an entry with no caption, no tags and no prompt
+    /// produces a sheet with no zone standing empty waiting for one.
+    @Test("an entry with no caption, no tags and no prompt reserves space for none of them")
+    func absentZonesDropOut() throws {
+        let entry = try cachedEntry(type: "photo", body: nil, title: "Just the picture")
+
+        #expect(entry.body == nil, "no caption")
+        #expect(entry.tagNames.isEmpty, "no tags")
+        #expect(entry.promptBody == nil, "no prompt — a freeform entry, which is first class")
+        #expect(EntryDetailScreen.transcript(in: []) == nil, "and no transcript")
+        // The one zone that never drops out is the date, because there is always a date.
+        #expect(EntryDetailScreen.factsSentence(for: entry, media: []).isEmpty == false)
+    }
+
+    /// An audio entry whose transcript is an empty string is the same as one with none: no
+    /// heading, no empty block, nothing implying something is missing when nothing is.
+    @Test("a blank transcript is no transcript")
+    func blankTranscriptIsAbsent() {
+        let id = UUID()
+        let blank = media(id, "audio")
+        blank.transcript = "   \n  "
+        #expect(EntryDetailScreen.transcript(in: [blank]) == nil)
+    }
+
+    // MARK: Type routing
+
+    /// **Media presence is checked first, then completion mode, then the fallback.** Six
+    /// combinations, each naming the canvas it must select — this is the routing table the
+    /// screen's whole composition hangs off.
+    @Test("each entry type and media combination selects the right canvas")
+    func typeRoutingIsExhaustive() {
+        let cases: [(EntryType?, Int, EntryDetailScreen.Backdrop)] = [
+            (.photo, 1, .picture),
+            (.photo, 10, .picture),
+            (.video, 1, .picture),
+            (.audio, 0, .voice),
+            (.text, 0, .canvas),
+            (.didIt, 0, .didIt),
+        ]
+        for (type, pictures, expected) in cases {
+            #expect(
+                EntryDetailScreen.backdrop(
+                    unlockAtAge: nil, unsealed: false, type: type, pictureCount: pictures
+                ) == expected,
+                "\(String(describing: type)) with \(pictures) pictures"
+            )
+        }
+    }
+
+    /// Media wins over the completion mode: a did-it entry someone photographed is a picture
+    /// entry, and an audio entry with a photo attached is one too.
+    @Test("the artifact outranks the completion mode")
+    func mediaOutranksMode() {
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 1
+            ) == .picture
+        )
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: .audio, pictureCount: 2
+            ) == .picture
+        )
+    }
+
+    /// **An entry type from a future server release is not a crash and not a blank screen.** It
+    /// gets the neutral canvas, which is the one that carries a title and a body intact.
+    @Test("an unrecognised type renders the neutral canvas rather than guessing")
+    func unknownTypeIsNeutral() throws {
+        let unknown = EntryType(rawValue: "hologram")
+        #expect(unknown == .unknown("hologram"))
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: unknown, pictureCount: 0
+            ) == .canvas
+        )
+        #expect(
+            EntryDetailScreen.completionMark(type: unknown, pictureCount: 0, hasVoice: false)
+                == .none,
+            "and it is certainly not marked complete"
+        )
+
+        // Its words survive, which is the half of this that actually matters.
+        let entry = try cachedEntry(type: "hologram", body: "he said it again", title: "The thing")
+        #expect(entry.title == "The thing")
+        #expect(entry.body == "he said it again")
+        #expect(EntryDetailScreen.factsSentence(for: entry, media: []).isEmpty == false)
+    }
+
+    // MARK: Tags, and who wrote them
+
+    /// **The provenance the client used to throw away.** `TagResponse.source` has always been on
+    /// the wire; `applyServerResponse` mapped `\.name` and dropped it. That was harmless while
+    /// tags were read-only and stops being harmless the moment a parent can add one.
+    @Test("a cached entry remembers who decided each tag")
+    func tagSourcesAreCached() throws {
+        let entry = try cachedEntry(tags: ["kitchen table"])
+        entry.setTags([("kitchen table", "user"), ("baking", "device_ai")])
+
+        #expect(entry.tagNames == ["kitchen table", "baking"], "both still render")
+        #expect(entry.tags.map(\.source) == [.user, .deviceAI])
+        #expect(entry.userTagNames == ["kitchen table"], "only the parent's own")
+    }
+
+    /// **The write that must not promote the model's guesses.** `PATCH /entries/{id}` replaces
+    /// the set for each source it carries and leaves absent sources alone — so a tag edit sends
+    /// `user` rows only, and the `device_ai` rows survive untouched. A client that could not tell
+    /// them apart would have to send everything as `user`, permanently rewriting the model's
+    /// guesses as the parent's own words.
+    @Test("a tag edit sends only the parent's tags, so the model's survive")
+    func tagEditDoesNotPromoteExtractedTags() throws {
+        let entry = try cachedEntry()
+        entry.setTags([("kitchen table", "user"), ("baking", "device_ai"), ("flour", "device_ai")])
+
+        // What the editor puts on the wire: the user set, plus the new one.
+        let written = (entry.userTagNames + ["the big mess"])
+            .map { EntryTagWrite(name: $0, source: .user) }
+
+        #expect(written.map(\.name) == ["kitchen table", "the big mess"])
+        #expect(written.allSatisfy { $0.source == .user })
+        #expect(
+            written.contains { $0.name == "baking" } == false,
+            "a device_ai tag is never echoed back as the parent's"
+        )
+    }
+
+    /// A row cached before this build has names and no sources. It reports `user` — the server's
+    /// own default for a bare tag — rather than crashing or dropping the tag, and the next fetch
+    /// of any kind corrects it, because every entry response carries sources.
+    @Test("a row cached before sources existed still renders every tag")
+    func missingSourcesDegradeToUser() throws {
+        let entry = try cachedEntry(tags: ["one", "two"])
+        entry.storedTagSources = nil
+
+        #expect(entry.tagNames == ["one", "two"])
+        #expect(entry.userTagNames == ["one", "two"])
+        #expect(entry.tags.allSatisfy { $0.source == .user })
+    }
+
+    /// The two arrays are written together and only together, so they cannot fall out of step —
+    /// and a shorter sources array than names cannot drop a tag off the end.
+    @Test("names and sources cannot desync")
+    func tagArraysStayAligned() throws {
+        let entry = try cachedEntry()
+        entry.setTags([("a", "user"), ("b", "device_ai"), ("c", "user")])
+        #expect(entry.storedTagNames?.count == entry.storedTagSources?.count)
+
+        // A truncated sources array — the shape a partial write would leave — still renders
+        // every name rather than losing the tail.
+        entry.storedTagSources = ["user"]
+        #expect(entry.tags.map(\.name) == ["a", "b", "c"])
+        #expect(entry.tags.map(\.source) == [.user, .user, .user])
+    }
+
+    /// Setting `tagNames` the old way still works and means what it always meant: the parent's.
+    @Test("the plain tagNames setter still writes user tags")
+    func plainSetterIsUserSourced() throws {
+        let entry = try cachedEntry()
+        entry.tagNames = ["seaside"]
+        #expect(entry.userTagNames == ["seaside"])
+    }
+
+    /// Sealed still answers before anything reads the media, and the correction did not disturb
+    /// the ordering that guarantees it.
+    @Test("the seal still outranks every other route")
+    func sealStillWins() {
+        for type in [EntryType.photo, .video, .audio, .text, .didIt] {
+            #expect(
+                EntryDetailScreen.backdrop(
+                    unlockAtAge: 18, unsealed: false, type: type, pictureCount: 3
+                ) == .sealed,
+                "a sealed \(type) entry with three photos is sealed"
+            )
+        }
     }
 }

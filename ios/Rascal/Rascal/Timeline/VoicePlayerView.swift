@@ -20,6 +20,14 @@ struct VoicePlayerView: View {
     let transcript: String?
     let localFile: URL?
     let api: APIClient
+    /// Entry Detail's voice canvas: the player *is* the screen, so it stacks vertically at
+    /// canvas scale on the periwinkle ground rather than sitting in a block of its own.
+    ///
+    /// **A parameter rather than a second view.** The loading, the playback, the elapsed clock
+    /// and the waveform are all the same work, and the only things that differ are the size and
+    /// whether there is a block behind it — which is exactly the case where forking costs two of
+    /// everything and buys nothing. Defaults to the card, so nothing that existed changes.
+    var prominent: Bool = false
 
     @State private var player: AVPlayer?
     @State private var isPlaying = false
@@ -55,7 +63,54 @@ struct VoicePlayerView: View {
     /// and the rest faint, so there is one object doing one job rather than a decorative
     /// waveform above a functional rule. That is also why the bars are not the recording's real
     /// levels — see `StaticWaveform`.
+    @ViewBuilder
     private var control: some View {
+        if prominent { prominentControl } else { cardControl }
+    }
+
+    /// The canvas treatment: play, waveform and clock stacked and centred, on the ground the
+    /// screen already paints. No block, no hairline — there is nothing to separate it from.
+    private var prominentControl: some View {
+        VStack(spacing: 26) {
+            Button { Task { await toggle() } } label: {
+                Group {
+                    if loading {
+                        ProgressView().tint(.canvas)
+                    } else {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(Color.canvas)
+                    }
+                }
+                .frame(width: 84, height: 84)
+                .background(Color.periwinkle, in: Circle())
+                .shadow(color: .periwinkle.opacity(0.32), radius: 14, y: 10)
+            }
+            .buttonStyle(TapScaleButtonStyle())
+            .accessibilityLabel(isPlaying ? "Pause" : "Play")
+
+            StaticWaveform(progress: fraction, maxBarHeight: 96)
+                .frame(height: 96)
+
+            if duration > 0 {
+                Text("\(DurationText.clock(Int(elapsed))) / \(DurationText.clock(Int(duration.rounded())))")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.periwinkle)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        "\(DurationText.spoken(Int(elapsed))) of \(DurationText.spoken(Int(duration.rounded())))"
+                    )
+            } else {
+                // The server had no `duration_seconds` and playback has not started, so there is
+                // no length to state. Saying 0:00 would be a measurement nobody took.
+                Text("Voice note")
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.periwinkle)
+            }
+        }
+    }
+
+    private var cardControl: some View {
         VStack(spacing: 16) {
             HStack(spacing: 14) {
                 Button { Task { await toggle() } } label: {

@@ -129,7 +129,47 @@ final class Entry {
     /// The tags to render. Not persisted — `storedTagNames` is.
     var tagNames: [String] {
         get { storedTagNames ?? [] }
-        set { storedTagNames = newValue }
+        set { setTags(newValue.map { ($0, EntryTagSource.user.rawValue) }) }
+    }
+
+    /// **Who decided each tag**, index for index with `storedTagNames`.
+    ///
+    /// A tag the parent typed and one the on-device model extracted are not the same claim, and
+    /// the wire has always said which is which — `TagResponse.source` — but this client threw it
+    /// away on the way into the cache. That was harmless while tags were read-only. It stops
+    /// being harmless the moment a parent can add one: a write carrying only `user` tags leaves
+    /// `device_ai` rows alone server-side, so a client that cannot tell them apart has to send
+    /// every tag as `user` and silently promotes the model's guesses to the parent's own words.
+    ///
+    /// **Optional with a declaration default**, per rule 6 of `ios/CLAUDE.md`: migration rewrites
+    /// existing rows and never calls `init`, and an optional is always inferrable. `nil` is
+    /// honest — it means this row was cached before the client kept sources, and the next fetch
+    /// of any kind fills it in, because every entry response carries them.
+    var storedTagSources: [String]? = nil
+
+    /// Name and source together, which is the only form that cannot desync.
+    ///
+    /// A row cached before sources were kept reports `user` for everything. That is the server's
+    /// own default for a bare tag, it is what every tag this client wrote before extraction
+    /// existed actually was, and the window is self-healing: the timeline list and the detail
+    /// call both carry sources, so the first fetch after this build corrects the row.
+    var tags: [(name: String, source: EntryTagSource)] {
+        let names = storedTagNames ?? []
+        let sources = storedTagSources ?? []
+        return names.enumerated().map { index, name in
+            let raw = index < sources.count ? sources[index] : EntryTagSource.user.rawValue
+            return (name, EntryTagSource(rawValue: raw) ?? .user)
+        }
+    }
+
+    /// Only the parent's own. **This is the set a tag edit replaces** — sending it back leaves
+    /// every `device_ai` row untouched, because a source absent from the payload is left alone.
+    var userTagNames: [String] { tags.filter { $0.source == .user }.map(\.name) }
+
+    /// The one writer for both arrays, so they cannot fall out of step.
+    func setTags(_ pairs: [(String, String)]) {
+        storedTagNames = pairs.map(\.0)
+        storedTagSources = pairs.map(\.1)
     }
 
     var type: EntryType? {
@@ -152,7 +192,9 @@ final class Entry {
         if let serverDeleted = response.deletedAt, deletedAt == nil {
             deletedAt = serverDeleted
         }
-        tagNames = response.tags.map(\.name)
+        // Name and source together — see `storedTagSources`. Every entry response carries the
+        // source, so this is also what heals a row cached before the client kept it.
+        setTags(response.tags.map { ($0.name, $0.source) })
         serverMediaCount = response.mediaCount
         // **The seal is whatever the archive ended up holding.** The server applies a letter
         // prompt's `default_unlock_age` on create, so a row can come back sealed when this device
