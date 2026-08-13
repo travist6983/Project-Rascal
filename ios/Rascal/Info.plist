@@ -13,6 +13,17 @@
 	     folder group where a stray plist is also copied as a resource. -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below is
+	     `$(PRODUCT_NAME)`, which resolves to the *target* name — "Rascal" — and a target name is a
+	     build artefact, not a product. Setting this explicitly is what renamed the app to Dogear
+	     without touching the target, the Swift module, the bundle id or the App Group, none of
+	     which a parent ever sees and all of which cost signing work to move.
+
+	     The widget and the share extension carry the same string in their own plists. All three
+	     have to agree: iOS groups the widget gallery by the app's display name, and a widget
+	     reading "Dogear" under a heading reading something else is worse than either alone. -->
+	<key>CFBundleDisplayName</key>
+	<string>Dogear</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

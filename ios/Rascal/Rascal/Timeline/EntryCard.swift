@@ -162,10 +162,18 @@ struct EntryCard: View {
 
     /// On a sage card the kind chip goes sage-on-sage-soft, a step darker than the card, because
     /// the surface tint it would otherwise wear is invisible there.
+    ///
+    /// **Terracotta and periwinkle both take the deep step, and it is a contrast fix.** Chip text
+    /// is 12pt semibold, which is not large text, so AA wants 4.5:1. The base tints measure 3.73
+    /// and 4.17 on their own soft fills; the deep variants read 5.73 and 6.00.
+    ///
+    /// **Sage stays as it is, deliberately.** `sageInk` on `sageSoft` measures 3.96 and there is
+    /// no sage deep token — authoring one was offered and declined on Aug 12, 2026. This is a
+    /// known exception, recorded in `docs/design-system.md` rather than left to be rediscovered.
     private var chipTint: (soft: Color, ink: Color) {
         switch model.tint {
         case .terracotta: (.terracottaSoft, .terracottaDeep)
-        case .periwinkle: (.periwinkleSoft, .periwinkle)
+        case .periwinkle: (.periwinkleSoft, .periwinkleDeep)
         case .sage: (.sageSoft, .sageInk)
         }
     }

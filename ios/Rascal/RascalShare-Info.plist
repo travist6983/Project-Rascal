@@ -14,13 +14,15 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<!-- **Literal, not `$(PRODUCT_NAME)`.** This string is what a parent reads in the share
 	     sheet's row of app icons, and `$(PRODUCT_NAME)` resolves to the target name — "RascalShare"
-	     — which is a build artefact's name, not a product's. The app itself has no
-	     CFBundleDisplayName and falls back to CFBundleName, which is "Rascal".
+	     — which is a build artefact's name, not a product's.
 
-	     This is one more place the still-open name decision (docs/decisions.md, open item 1) has
-	     to be changed when it closes. The widget gallery was the first. -->
+	     **The name decision closed on Aug 12, 2026: the app is Dogear.** This comment used to say
+	     it was one of the places that would have to change when it did, and the widget gallery was
+	     named as the first. Both are done, and the app now carries an explicit
+	     CFBundleDisplayName of its own rather than falling back to CFBundleName. All three read
+	     "Dogear" and must stay that way. -->
 	<key>CFBundleDisplayName</key>
-	<string>Rascal</string>
+	<string>Dogear</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

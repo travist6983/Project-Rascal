@@ -959,12 +959,17 @@ struct EntryDetailScreen: View {
     /// Name, fill and ink for the kind chip — the pairing `EntryCard` already uses, so the two
     /// surfaces stay one vocabulary. An entry type this build does not recognise gets no chip
     /// rather than a guessed tint.
+    ///
+    /// **This list and `EntryCard.chipTint` are the same decision written twice**, so a change to
+    /// one belongs in the other — the periwinkle rows moved to `periwinkleDeep` together on
+    /// Aug 12, 2026 for the AA reasons that function records. Sage is the known exception there
+    /// too, and is unchanged.
     private var kindChip: (name: String, fill: Color, ink: Color)? {
         switch entry?.type {
         case .photo: ("Photo", .terracottaSoft, .terracottaDeep)
         case .video: ("Video", .terracottaSoft, .terracottaDeep)
-        case .audio: ("Voice", .periwinkleSoft, .periwinkle)
-        case .text: ("Written", .periwinkleSoft, .periwinkle)
+        case .audio: ("Voice", .periwinkleSoft, .periwinkleDeep)
+        case .text: ("Written", .periwinkleSoft, .periwinkleDeep)
         case .didIt: ("Did it", .sage, .sageInk)
         default: nil
         }

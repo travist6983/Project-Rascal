@@ -78,7 +78,7 @@ nonisolated enum ShareCopy {
             let subject = plural
                 ? "These \(noun) don't say when they were taken"
                 : "This \(noun) doesn't say when it was taken"
-            return "\(subject), so today is standing in. You can change it in Rascal."
+            return "\(subject), so today is standing in. You can change it in Dogear."
         }
     }
 
@@ -91,8 +91,8 @@ nonisolated enum ShareCopy {
     }
 
     /// Nothing in the share is something this app can hold.
-    static let unusableKind = "Rascal can only take photos and videos."
+    static let unusableKind = "Dogear can only take photos and videos."
     /// The container is unreachable, or the record could not be written. Never phrased as though
     /// it saved.
-    static let unusableContainer = "This can't be saved right now. Open Rascal and add it from there."
+    static let unusableContainer = "This can't be saved right now. Open Dogear and add it from there."
 }

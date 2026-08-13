@@ -203,12 +203,33 @@ struct KindBadge: View {
     let kind: String
     let tint: Color
 
+    /// **The text is a step darker than the wash it sits on, and that is an accessibility fix
+    /// rather than a style choice.**
+    ///
+    /// Drawing `tint` on `tint.opacity(0.12)` measured 3.73:1 for terracotta and 3.61:1 for
+    /// periwinkle on a question card — both under the 4.5:1 AA requires for 12pt semibold, which
+    /// does not qualify as large text. The deep variants read 5.53:1 and 5.20:1 on the same
+    /// grounds.
+    ///
+    /// Deepening the *ink* rather than restyling the badge is the recorded decision: colour
+    /// carries meaning in this design system, and a badge that stopped reading as its kind would
+    /// have traded an accessibility defect for a semantic one.
+    ///
+    /// An unrecognised kind arrives as `.inkMuted` and falls through unchanged — it is already a
+    /// neutral ink chosen to be read, not a tint being asked to do a second job.
+    private var ink: Color {
+        if tint == .periwinkle { return .periwinkleDeep }
+        if tint == .terracotta { return .terracottaDeep }
+        return tint
+    }
+
     var body: some View {
         Text(kind)
             .typeRole(.label)
-            .foregroundStyle(tint)
+            .foregroundStyle(ink)
             .padding(.horizontal, 9)
             .padding(.vertical, 4)
+            // Deliberately `tint`, not `ink`. The wash is what says which kind this is.
             .background(tint.opacity(0.12), in: Capsule())
     }
 }
