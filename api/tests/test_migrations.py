@@ -249,7 +249,11 @@ def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str)
         assert _slot_check(conn).count("mission_b") == 1
         assert _slot_count(conn, "mission_b") == 1
 
-    _alembic("downgrade -1", scratch_url)
+    # The revision by name, not `-1`. A relative step meant "unwind 0008" only while 0008 was
+    # head, so the first migration added after it silently retargeted this test at something
+    # else — which is what 0009 did, and it failed here rather than quietly passing against a
+    # downgrade that has nothing to do with slots.
+    _alembic("downgrade 0007_prompt_suppressions", scratch_url)
 
     with engine.connect() as conn:
         # The rows went, and only the mission_b ones.
@@ -263,6 +267,70 @@ def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str)
         assert _slot_check(conn).count("mission_b") == 1
         # Re-widening does not resurrect what the downgrade deleted, and must not pretend to.
         assert _slot_count(conn, "mission_b") == 0
+    engine.dispose()
+
+
+def test_the_theme_rename_round_trips_and_reaches_rows_the_seeder_cannot(
+    scratch_url: str,
+) -> None:
+    """0009 is a data migration, so the rows *are* the test.
+
+    The row that matters is a retired one. A live seeded prompt gets its theme rewritten by
+    `make seed` — `theme` is mutable and is not part of the content hash — so if this
+    migration only ever ran against the active library it would be doing nothing at all. The
+    99 prompts phase 24 retired are absent from `prompts.yaml` forever, and they are the
+    reason there is a migration here rather than a re-seed. One of each is inserted below and
+    both must move.
+    """
+    # `scratch_url` is module-scoped, so this database arrives at whatever revision the test
+    # above left it at. Upgrading *to* an earlier revision is a silent no-op in alembic, not
+    # an error, so reaching 0008 has to be a downgrade from a known head rather than an
+    # `upgrade 0008` that does nothing and takes the assertions with it.
+    _alembic("upgrade head", scratch_url)
+    _alembic("downgrade 0008_mission_b_slot", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    def _insert(conn: sa.Connection, body: str, active: bool) -> None:
+        conn.execute(
+            sa.text(
+                "INSERT INTO prompts (id, kind, cadence, completion_mode, body, theme, "
+                "min_age_months, max_age_months, month_tags, source, active, content_hash) "
+                "VALUES (gen_random_uuid(), 'question', 'daily', 'text', :body, 'his-words', "
+                "24, 216, '{}', 'seeded', :active, md5(:body))"
+            ),
+            {"body": body, "active": active},
+        )
+
+    def _themes(conn: sa.Connection) -> dict[str, str]:
+        return dict(conn.execute(sa.text("SELECT body, theme FROM prompts ORDER BY body")).all())
+
+    with engine.begin() as conn:
+        _insert(conn, "retired literal body", active=False)
+        _insert(conn, "live tokenised body", active=True)
+
+    _alembic("upgrade head", scratch_url)
+
+    with engine.connect() as conn:
+        assert _themes(conn) == {
+            "retired literal body": "their-words",
+            "live tokenised body": "their-words",
+        }
+
+    _alembic("downgrade 0008_mission_b_slot", scratch_url)
+
+    with engine.connect() as conn:
+        # Lossless in both directions: a data migration that cannot be reversed is a schema
+        # change wearing an UPDATE, and this chain does not have one of those.
+        assert _themes(conn) == {
+            "retired literal body": "his-words",
+            "live tokenised body": "his-words",
+        }
+
+    # Put the database back where this test found it, rows included — the fixture is shared
+    # with every test below.
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM prompts"))
+    _alembic("upgrade head", scratch_url)
     engine.dispose()
 
 

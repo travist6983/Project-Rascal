@@ -19,20 +19,20 @@ Tone rules for anything added later: **specific over sentimental**, second perso
 
 | Prompt | Theme | Ages |
 |---|---|---|
-| What did {they} say this week that you want to remember exactly? | his-words | all |
+| What did {they} say this week that you want to remember exactly? | their-words | all |
 | What is {name} obsessed with right now? | everyday-ordinary | all |
-| What does {name} call you? Write down every version. | his-words | 24–96 |
+| What does {name} call you? Write down every version. | their-words | 24–96 |
 | What's the bedtime routine right now, step by step? | sleep-routine | 24–120 |
 | What food is {name} refusing this week? | food | 24–120 |
 | What did {they} do today that annoyed you and will be funny in ten years? | humor | all |
 | Who is {their} best friend right now, and what do they do together? | relationships | 36–216 |
-| What word does {name} mispronounce that you don't want to correct? | his-words | 24–84 |
+| What word does {name} mispronounce that you don't want to correct? | their-words | 24–84 |
 | What is {name} afraid of right now? | fears-comfort | 24–144 |
 | What did {they} teach {themself} this month? | skills-firsts | all |
 | Describe {their} laugh. | everyday-ordinary | all |
 | What's {their} answer to "what do you want to be when you grow up" — this week's version? | everyday-ordinary | 36–216 |
 | What song is stuck in the house right now? | everyday-ordinary | all |
-| What's the last thing {they} asked that you couldn't answer? | his-words | 36–216 |
+| What's the last thing {they} asked that you couldn't answer? | their-words | 36–216 |
 | What's the first thing {they_do} in the morning? | everyday-ordinary | all |
 | What are you worried about with {them} right now? | me-as-a-parent | all |
 | What did you get wrong as a parent this week? Write it honestly — {they}'ll need to know you were human. | me-as-a-parent | all |
@@ -81,7 +81,7 @@ Tone rules for anything added later: **specific over sentimental**, second perso
 
 | Prompt | Theme | Ages | Months |
 |---|---|---|---|
-| Film {them} telling you about {their} day. Don't prompt {them}. | his-words | 36–216 | |
+| Film {them} telling you about {their} day. Don't prompt {them}. | their-words | 36–216 | |
 | Ask {them} ten questions about someone else in the family and film the answers. Don't correct anything. | relationships | 36–216 | |
 | Film {them} doing the thing {they_are} currently best at. | skills-firsts | all | |
 | Record thirty seconds of {them} just playing. No talking to the camera. | everyday-ordinary | 24–120 | |
@@ -109,7 +109,7 @@ The highest-value entries in the whole archive. Transcription makes them searcha
 | Record {them} reading a page out loud. | skills-firsts | 60–144 |
 | Record {them} telling a joke. | humor | 36–144 |
 | Record {them} talking about {their} best friend. | relationships | 48–216 |
-| Record {them} answering "what's the best thing that happened today?" | his-words | 36–216 |
+| Record {them} answering "what's the best thing that happened today?" | their-words | 36–216 |
 | Record {them} making up a song about nothing. | humor | 30–96 |
 
 ## Activity missions — `kind: activity` · `cadence: daily` · `mode: did_it`
@@ -121,12 +121,12 @@ No artifact required. These are behaviors, and they're half the reason this app 
 | Never let go of the hug first today. Let {them} be the one to pull away. | physical-affection | all |
 | Get on the floor for ten minutes. That's the whole mission. | physical-affection | 24–120 |
 | Carry {them} when asked, even though {they} can walk fine. | physical-affection | 24–96 |
-| Use {their} baby nickname out loud today, while {they_do} still answer to it. | his-words | 24–120 |
+| Use {their} baby nickname out loud today, while {they_do} still answer to it. | their-words | 24–120 |
 | Let {them} help with something, even though it triples the time. | making-building | 30–144 |
 | Don't rush lights-out tonight. Stay an extra ten minutes. | sleep-routine | 24–144 |
 | Say yes to the next thing you'd normally say no to. | me-as-a-parent | all |
 | Let {them} choose dinner. Entirely. | food | 36–216 |
-| Ask {them} a question and let the silence sit until the answer comes. | his-words | 36–216 |
+| Ask {them} a question and let the silence sit until the answer comes. | their-words | 36–216 |
 | Go outside with {them} with no plan and no phone. | outdoors | all |
 | Apologize to {them} for something. Out loud. | me-as-a-parent | 36–216 |
 | Let {them} win, and don't tell {them} you did. | humor | 36–120 |

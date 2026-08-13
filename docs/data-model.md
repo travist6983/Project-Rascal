@@ -263,7 +263,7 @@ everything else. Both are `uuid` columns; the difference is only who calls `uuid
 
 The scheduler avoids serving two prompts from the same theme back to back.
 
-`voice` · `physical-affection` · `his-words` · `everyday-ordinary` · `skills-firsts` · `relationships` · `humor` · `food` · `sleep-routine` · `outdoors` · `making-building` · `fears-comfort` · `growth-measurement` · `letters-forward` · `seasons-holidays` · `me-as-a-parent`
+`voice` · `physical-affection` · `their-words` · `everyday-ordinary` · `skills-firsts` · `relationships` · `humor` · `food` · `sleep-routine` · `outdoors` · `making-building` · `fears-comfort` · `growth-measurement` · `letters-forward` · `seasons-holidays` · `me-as-a-parent`
 
 ---
 

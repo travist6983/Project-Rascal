@@ -7,8 +7,8 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 12, 2026**; **24 shipped Aug 13** and its line is gone.
-The queue below already carries 25–34, so a genuinely new phase takes **35** — measured from
+Synced with `roadmap-status.md` at **Aug 12, 2026**; **24 and 35 shipped Aug 13** and their lines
+are gone. The queue below carries 25–34, so a genuinely new phase takes **36** — measured from
 `main`, and expected to rot. Measure it again rather than trusting this line.
 
 ---
@@ -37,6 +37,11 @@ stays rejected (no action).
   pinning its own image. Current today, stale after the next deploy. Same flaw, same fix.
 - Ship an iOS build. The installed TestFlight build predates `3df6cd4` and renders `mission_b` as
   an unknown grey "Still open" slot regardless of what the server does.
+- **Run `make migrate` and `make seed` against production.** Phases **24** (tokenised prompts) and
+  **35** (the `their-words` theme) are both inert until they do — 24's retirement of the 113
+  literal prompts lives in the seed loader, not in a migration, so merging alone changes nothing
+  and the archive keeps serving `his hands`. Verify afterwards that no active prompt matches
+  `\y(he|him|his|himself|she|her|hers|herself)\y`; locally that count is 0.
 
 ## Blocked on you, not on code
 
