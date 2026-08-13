@@ -335,6 +335,11 @@ manifest.js              manifest.json's bytes as `window.RASCAL_MANIFEST = …;
 
 - **Soft-deleted rows are included** and carry `is_deleted: true` with a `deleted_at`. An
   export that quietly drops them is not a copy of the archive.
+- `manifest.child` is `{ id, name, birthdate, family_timezone, pronouns }`. **`pronouns` is
+  there so the viewer can render prompt tokens**, and it is nullable — null means the
+  they/them column, the same as everywhere else. The server still does not render: it ships
+  the bodies with tokens intact and the answer needed to resolve them, and `assets/app.js`
+  substitutes at read time like every other client.
 - **Sealed letters export in the clear.** `unlock_at_age` is retained as data; the seal is
   an app behaviour, and an export you cannot read is not a backup.
 - A media row whose bytes are not in S3 keeps its metadata, gets a null `path`, and is

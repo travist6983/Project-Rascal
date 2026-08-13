@@ -1937,3 +1937,23 @@ Two documentation defects the same pass found, both of the kind this project tre
   plain dicts make the early commit safe. For `plan_upload` a flush reorder was not enough — the
   transaction was already open from the authorization dependency's reads, so it needed an
   explicit commit.
+- **Phase 24 rephrased eighteen prompts rather than widening the token contract.** The table has
+  no inverted forms — `{they_are}` is *"he is" / "they are"* and an English question needs
+  *"is he" / "are they"* — so "What is he obsessed with right now?" cannot be tokenised in place.
+  Adding `{are_they}` and friends was rejected: it widens a wire contract three clients implement
+  and would have made an API-lane phase wait on an iOS release. The rule used instead is
+  **prefer `{name}` where it preserves the sentence exactly, rephrase only where `{name}` would
+  have to appear twice** — a name is third-person singular, so the verb stops moving.
+- **Retirement lives in `seed_prompts`, not in a migration.** Changing a body inserts a new prompt
+  and leaves the old one active, because the body is the idempotency key. A migration naming 113
+  hashes would have worked exactly once; the loader now deactivates any `source == "seeded"` row
+  the file no longer contains, so the next library edit gets the same behaviour for free. Scoped
+  to `seeded` so a parent's own prompt is not deactivated by the next `make seed`, and it
+  deactivates rather than deletes because entries and assignments point at these rows.
+- **The export manifest gained `child.pronouns`.** The viewer renders bodies and every seeded body
+  now carries tokens, so without it an exported archive prints a literal `{their}`. This does not
+  breach "the server never renders": the server ships tokens intact plus the answer needed to
+  resolve them, and `assets/app.js` substitutes at read time like every other client.
+- **The four `his mom` bodies were rewritten to "someone else in the family", not tokenised.**
+  Owner's call, Aug 13, 2026. `{their} mom` fixes the gender and keeps the household shape that
+  the library's own rejection rules forbid in new prompts.

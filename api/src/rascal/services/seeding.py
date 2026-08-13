@@ -3,7 +3,13 @@
 Idempotent, keyed on a stable hash of `(kind, cadence, body)`. Re-running updates rows whose
 content changed and inserts rows that are new. It never duplicates and it never deletes — a
 prompt removed from the markdown stays in the table, because entries and assignments already
-point at it.
+point at it. It is **deactivated** instead, which is the difference between a prompt the
+scheduler will not serve again and a foreign key that no longer resolves.
+
+The body is part of the key, so editing a body is not an update — it is a new prompt plus a
+retired one. That is exactly what phase 24 did to all 113 seeded bodies at once, and why
+retirement lives here rather than in a one-off migration: the next edit to the library needs
+the same thing to happen, and a migration that names 113 hashes would only ever work once.
 
 This module reads YAML and nothing else. `docs/mission-library.md` is an authoring surface
 converted by `scripts/mission_library_to_yaml.py`; runtime never parses a markdown table.
@@ -13,12 +19,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,10 +34,17 @@ from rascal.constants import (
     COMPLETION_MODES,
     PROMPT_KINDS,
     PROMPT_SOURCES,
+    PROMPT_TOKENS,
 )
 from rascal.models import Prompt
 
 log = logging.getLogger("rascal.seeding")
+
+# `{...}` with no brace inside, which is what the renderers treat as a token. An unclosed `{`
+# is deliberately not matched: the renderers pass it through as literal text rather than
+# calling it a malformed token, and a validator that disagreed with them would reject bodies
+# that render perfectly well.
+TOKEN_PATTERN = re.compile(r"\{([^{}]*)\}")
 
 SEEDS_PATH = Path(__file__).resolve().parents[3] / "seeds" / "prompts.yaml"
 
@@ -53,6 +67,7 @@ class SeedResult:
     inserted: int
     updated: int
     unchanged: int
+    retired: int = 0
 
     @property
     def total(self) -> int:
@@ -82,6 +97,12 @@ def _validate(prompt: dict[str, Any], index: int) -> None:
             raise ValueError(f"prompts.yaml[{index}]: {field}={value!r} is not one of {allowed}")
     if not prompt.get("body"):
         raise ValueError(f"prompts.yaml[{index}]: body is required")
+    for token in TOKEN_PATTERN.findall(prompt["body"]):
+        if token not in PROMPT_TOKENS:
+            raise ValueError(
+                f"prompts.yaml[{index}]: {{{token}}} is not one of the prompt tokens in "
+                f"docs/api-contract.md — every client would render it as literal braces"
+            )
     low, high = prompt["min_age_months"], prompt["max_age_months"]
     if low > high:
         raise ValueError(f"prompts.yaml[{index}]: min_age_months {low} exceeds max {high}")
@@ -150,6 +171,28 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
     ).returning(Prompt.content_hash)
 
     touched = {row[0] for row in (await session.execute(upsert)).all()}
+
+    # Anything seeded that the file no longer contains is retired, in the same transaction as
+    # the upsert that replaced it. Two conditions carry the whole safety argument:
+    #
+    # `source == "seeded"` — a user's own prompt and an llm-generated one were never in this
+    # file and must survive a re-seed untouched. Without this the first `make seed` after a
+    # prompt is authored in the app silently deactivates it.
+    #
+    # `active.is_(True)` — so a no-op re-seed reports 0 retired rather than rewriting rows that
+    # are already inactive, which would churn `updated_at` and resync the library for nothing.
+    obsolete = (
+        update(Prompt)
+        .where(
+            Prompt.source == "seeded",
+            Prompt.active.is_(True),
+            Prompt.content_hash.notin_({row["content_hash"] for row in rows}),
+        )
+        .values(active=False)
+        .returning(Prompt.content_hash)
+    )
+    retired = len((await session.execute(obsolete)).all())
+
     await session.commit()
 
     after = await session.scalar(select(func.count()).select_from(Prompt)) or 0
@@ -159,6 +202,7 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
         inserted=inserted,
         updated=updated,
         unchanged=len(rows) - len(touched),
+        retired=retired,
     )
     log.info(
         "seeded prompts",
@@ -166,6 +210,7 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
             "inserted": result.inserted,
             "updated": result.updated,
             "unchanged": result.unchanged,
+            "retired": result.retired,
         },
     )
     return result

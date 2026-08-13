@@ -174,11 +174,11 @@ def test_ordinary_words_that_merely_contain_those_letters_are_left_alone() -> No
 @pytest.mark.parametrize(
     ("body", "kind"),
     [
-        ("What did he say this week that you want to remember exactly?", "question"),
-        ("Photograph the mess he made. Do not clean it first.", "photo"),
-        ("Get on the floor and play whatever he is playing for ten minutes.", "activity"),
-        ("Record him telling you a story. Do not correct anything.", "audio"),
-        ("What word does he mispronounce that you don't want to correct?", "question"),
+        ("What did {they} say this week that you want to remember exactly?", "question"),
+        ("Photograph the mess {they} made. Do not clean it first.", "photo"),
+        ("Get on the floor and play whatever {they_are} playing for ten minutes.", "activity"),
+        ("Record {them} telling you a story. Do not correct anything.", "audio"),
+        ("What word does {name} mispronounce that you don't want to correct?", "question"),
     ],
 )
 def test_the_library_would_pass_its_own_filters(body: str, kind: str) -> None:
@@ -187,16 +187,14 @@ def test_the_library_would_pass_its_own_filters(body: str, kind: str) -> None:
     "Get on the floor for ten minutes" in particular: an aggressive physical-ability rule
     would eat one of the best prompts in the file.
 
-    The gender rule is the deliberate exception, and these bodies are quoted verbatim from a
-    library that is still literal he/him. It fires on all five, and that is the correct
-    answer for a *candidate*: the seeded 113 stay as they are until the tokenisation phase
-    rewrites them, and nothing new may join them. So this asserts what the rule is actually
-    for — no other filter touches a real prompt. When the library is tokenised, these
-    fixtures come with it and the assertion goes back to a bare `accepted`.
+    **The gender rule used to be a deliberate exception here and no longer is.** These
+    bodies were quoted verbatim from a library that was literal he/him, so the rule fired on
+    all five and this asserted around it. Phase 24 tokenised all 113, the fixtures came with
+    them, and the assertion is what the docstring always said it would become: bare
+    `accepted`. Nothing in the library is exempt from the library's own filters now.
     """
     verdict = _judge(body, kind=kind)
-    other = [reason for reason in verdict.reasons if not reason.startswith("assumes a gender")]
-    assert not other, other
+    assert verdict.accepted, verdict.reasons
 
 
 # --- Shape ----------------------------------------------------------------------------------------
@@ -276,7 +274,7 @@ def test_the_real_library_is_what_the_generator_is_pointed_at() -> None:
     'Expanding the library' section. If that ever stops being true the output drifts."""
     request = build_request(theme="fears-comfort", kind="question", count=20, ages=(24, 144))
     text = request["messages"][0]["content"]
-    assert "Photograph the mess he made" in text  # i.e. the actual file, not a summary
+    assert "Photograph the mess {they} made" in text  # i.e. the actual file, not a summary
     assert "fears-comfort" in text
     assert "24 and 144 months" in text
     # Structured output, so nothing has to be parsed back out of prose.

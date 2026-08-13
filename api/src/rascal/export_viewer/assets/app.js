@@ -103,6 +103,80 @@
   var childName = child.name ? String(child.name) : "the archive";
 
   // ---------------------------------------------------------------------------------
+  // Prompt pronoun tokens.
+  //
+  // The contract is docs/api-contract.md, "Prompt pronoun tokens". Thirteen tokens, one
+  // dictionary, no logic — the same table the iOS client implements, and the reason this
+  // page has it at all: the server stores bodies with tokens intact and never renders
+  // them, so every client renders at the last moment before a human reads the sentence.
+  // Before phase 24 no seeded body contained a brace and this was invisible. It is not
+  // invisible now: without this table an exported archive prints a literal "{their}".
+  //
+  // Three invariants, each of which the suite asserts:
+  //   1. Text with no token comes back byte-identical — structurally, via the fast path.
+  //   2. An absent pronoun renders the they/them column, which is grammatical for anyone.
+  //   3. An unknown token renders literally, braces and all, and never throws. A visible
+  //      "{foo}" is a bug a reader can see; a silently dropped one is a sentence that lost
+  //      a word, and in 2040 nobody will know which word it was.
+  // ---------------------------------------------------------------------------------
+
+  var PRONOUN_COLUMN = {
+    "he/him": {
+      they: "he", them: "him", their: "his", theirs: "his", themself: "himself",
+      they_are: "he is", they_were: "he was", they_have: "he has", they_do: "he does",
+      They: "He", Them: "Him", Their: "His"
+    },
+    "she/her": {
+      they: "she", them: "her", their: "her", theirs: "hers", themself: "herself",
+      they_are: "she is", they_were: "she was", they_have: "she has", they_do: "she does",
+      They: "She", Them: "Her", Their: "Her"
+    },
+    "they/them": {
+      they: "they", them: "them", their: "their", theirs: "theirs", themself: "themself",
+      they_are: "they are", they_were: "they were", they_have: "they have",
+      they_do: "they do",
+      They: "They", Them: "Them", Their: "Their"
+    }
+  };
+
+  // Invariant 2. An unanswered pronoun is null in the column and absent from older
+  // manifests; a value this build does not recognise degrades the same way rather than
+  // rendering a blank, because a wire value can outrun a viewer that shipped in a zip.
+  var pronouns = PRONOUN_COLUMN[child.pronouns] || PRONOUN_COLUMN["they/them"];
+
+  function renderTokens(body) {
+    // Invariant 1, and the fast path, are the same line.
+    if (body.indexOf("{") === -1) { return body; }
+
+    var out = "";
+    var cursor = 0;
+    while (true) {
+      var open = body.indexOf("{", cursor);
+      if (open === -1) { break; }
+      var close = body.indexOf("}", open + 1);
+      // An unclosed brace is not an error and not a token: the rest of the body from the
+      // brace onwards is literal text, which is the same answer invariant 3 gives "{foo}".
+      if (close === -1) { break; }
+
+      var token = body.slice(open + 1, close);
+      var value = null;
+      if (token === "name") {
+        // An empty name leaves "{name}" standing rather than deleting a word. The server
+        // requires a non-empty name, so this is unreachable from a well-formed archive.
+        value = child.name ? String(child.name) : null;
+      } else if (Object.prototype.hasOwnProperty.call(pronouns, token)) {
+        value = pronouns[token];
+      }
+
+      out += body.slice(cursor, open);
+      // Invariant 3. The braces go back on because they are part of what is wrong.
+      out += value === null ? body.slice(open, close + 1) : value;
+      cursor = close + 1;
+    }
+    return out + body.slice(cursor);
+  }
+
+  // ---------------------------------------------------------------------------------
   // Dates. Every one of them is rendered in the child's family timezone, because that is
   // the zone the archive was recorded against and occurred_at is serialized in UTC — an
   // evening entry formatted in the reader's own zone lands on the wrong day.
@@ -222,7 +296,8 @@
     function push(value) { if (value) { hay.push(String(value).toLowerCase()); } }
     push(raw.title);
     push(raw.body);
-    if (raw.prompt) { push(raw.prompt.body); push(raw.prompt.theme); }
+    // Rendered, not raw: a reader searches for the words on the card, not for a token.
+    if (raw.prompt) { push(renderTokens(String(raw.prompt.body || ""))); push(raw.prompt.theme); }
     var tags = raw.tags || [];
     for (var t = 0; t < tags.length; t++) { push(tags[t].name); }
     var media = raw.media || [];
@@ -486,7 +561,7 @@
 
       if (raw.prompt && raw.prompt.body) {
         var quote = el("p", "quote " + promptKindClass(entry));
-        textWithMarks(quote, String(raw.prompt.body), state.query);
+        textWithMarks(quote, renderTokens(String(raw.prompt.body)), state.query);
         add(card, quote);
       }
 
@@ -672,7 +747,7 @@
     if (raw.prompt && raw.prompt.body) {
       var quote = el("div", "quote-block " + promptKindClass(entry));
       add(quote, el("span", "quote-label", "The prompt"));
-      quote.appendChild(document.createTextNode(String(raw.prompt.body)));
+      quote.appendChild(document.createTextNode(renderTokens(String(raw.prompt.body))));
       add(wrap, quote);
     }
 
@@ -767,9 +842,9 @@
           : oldest.parts.y + "–" + newest.parts.y);
       }
     }
-    // Second person and no pronoun. The manifest does not carry the child's pronouns, and
-    // this page is read by the person it is about — see the standing rule about not writing
-    // new copy that assumes a child's gender.
+    // Second person and no pronoun. The manifest carries the child's pronouns as of phase 24,
+    // but this page is read by the person it is about, so "you are 5 today" is right whatever
+    // the answer was — and it stays correct for an archive whose answer was never given.
     if (todayAge) { bits.push("you are " + todayAge.years + " today"); }
     add(inner, el("p", "masthead-meta", bits.join(" · ")));
 

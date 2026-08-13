@@ -4,7 +4,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What did he say this week that you want to remember exactly?
+  body: What did {they} say this week that you want to remember exactly?
   theme: his-words
   min_age_months: 24
   max_age_months: 216
@@ -15,7 +15,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What is he obsessed with right now?
+  body: What is {name} obsessed with right now?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -26,7 +26,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What does he call you? Write down every version.
+  body: What does {name} call you? Write down every version.
   theme: his-words
   min_age_months: 24
   max_age_months: 96
@@ -48,7 +48,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What food is he refusing this week?
+  body: What food is {name} refusing this week?
   theme: food
   min_age_months: 24
   max_age_months: 120
@@ -59,7 +59,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What did he do today that annoyed you and will be funny in ten years?
+  body: What did {they} do today that annoyed you and will be funny in ten years?
   theme: humor
   min_age_months: 24
   max_age_months: 216
@@ -70,7 +70,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: Who is his best friend right now, and what do they do together?
+  body: Who is {their} best friend right now, and what do they do together?
   theme: relationships
   min_age_months: 36
   max_age_months: 216
@@ -81,7 +81,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What word does he mispronounce that you don't want to correct?
+  body: What word does {name} mispronounce that you don't want to correct?
   theme: his-words
   min_age_months: 24
   max_age_months: 84
@@ -92,7 +92,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What is he afraid of right now?
+  body: What is {name} afraid of right now?
   theme: fears-comfort
   min_age_months: 24
   max_age_months: 144
@@ -103,7 +103,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What did he teach himself this month?
+  body: What did {they} teach {themself} this month?
   theme: skills-firsts
   min_age_months: 24
   max_age_months: 216
@@ -114,7 +114,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: Describe his laugh.
+  body: Describe {their} laugh.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -125,7 +125,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What does he want to be when he grows up — this week's version?
+  body: What's {their} answer to "what do you want to be when you grow up" — this week's version?
   theme: everyday-ordinary
   min_age_months: 36
   max_age_months: 216
@@ -147,7 +147,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's the last thing he asked that you couldn't answer?
+  body: What's the last thing {they} asked that you couldn't answer?
   theme: his-words
   min_age_months: 36
   max_age_months: 216
@@ -158,7 +158,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's the first thing he does when he wakes up?
+  body: What's the first thing {they_do} in the morning?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -169,7 +169,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What are you worried about with him right now?
+  body: What are you worried about with {them} right now?
   theme: me-as-a-parent
   min_age_months: 24
   max_age_months: 216
@@ -180,7 +180,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What did you get wrong as a parent this week? Write it honestly — he'll need to know you were
+  body: What did you get wrong as a parent this week? Write it honestly — {they}'ll need to know you were
     human.
   theme: me-as-a-parent
   min_age_months: 24
@@ -192,7 +192,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What does his room look like right now? Describe the mess.
+  body: What does {their} room look like right now? Describe the mess.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -203,7 +203,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's his favorite thing to do with his mom?
+  body: What's {their} favorite thing to do with someone who isn't you?
   theme: relationships
   min_age_months: 24
   max_age_months: 216
@@ -214,7 +214,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's a rule in your house he'd be surprised to learn isn't universal?
+  body: What's a rule in your house {they}'d be surprised to learn isn't universal?
   theme: everyday-ordinary
   min_age_months: 48
   max_age_months: 216
@@ -225,7 +225,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What did he cry about today?
+  body: What did {they} cry about today?
   theme: fears-comfort
   min_age_months: 24
   max_age_months: 144
@@ -236,7 +236,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's the last thing he was proud of himself for?
+  body: What's the last thing {they_were} proud of {themself} for?
   theme: skills-firsts
   min_age_months: 24
   max_age_months: 216
@@ -247,7 +247,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What toy has he not put down this month?
+  body: What toy has {name} not put down this month?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 120
@@ -258,7 +258,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What does he smell like right now?
+  body: What does {name} smell like right now?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 96
@@ -269,7 +269,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: Who does he look like today?
+  body: Who does {name} look like today?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -280,7 +280,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What phrase has he picked up from you that you wish he hadn't?
+  body: What phrase has {name} picked up from you that you wish {they} hadn't?
   theme: humor
   min_age_months: 30
   max_age_months: 216
@@ -291,7 +291,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's the thing he does that nobody else would notice?
+  body: What's the thing {they_do} that nobody else would notice?
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -313,7 +313,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: How does he say goodbye?
+  body: How does {name} say goodbye?
   theme: physical-affection
   min_age_months: 24
   max_age_months: 144
@@ -324,7 +324,7 @@
 - kind: question
   cadence: daily
   completion_mode: text
-  body: What's changed about him in the last three months?
+  body: What's changed about {them} in the last three months?
   theme: growth-measurement
   min_age_months: 24
   max_age_months: 216
@@ -335,7 +335,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his hands. Just his hands.
+  body: Photograph {their} hands. Just {their} hands.
   theme: growth-measurement
   min_age_months: 24
   max_age_months: 216
@@ -346,7 +346,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Get down to his eye level and take the photo from there.
+  body: Get down to {their} eye level and take the photo from there.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 120
@@ -357,7 +357,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his shoes by the door.
+  body: Photograph {their} shoes by the door.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -368,7 +368,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a picture of what he built today, however unimpressive.
+  body: Take a picture of what {they} built today, however unimpressive.
   theme: making-building
   min_age_months: 30
   max_age_months: 144
@@ -379,7 +379,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph the mess he made. Don't clean it up first.
+  body: Photograph the mess {they} made. Don't clean it up first.
   theme: humor
   min_age_months: 24
   max_age_months: 144
@@ -390,7 +390,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a photo of him sleeping.
+  body: Take a photo of {them} sleeping.
   theme: sleep-routine
   min_age_months: 24
   max_age_months: 144
@@ -401,7 +401,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his drawing or his handwriting, exactly as it is.
+  body: Photograph {their} drawing or {their} handwriting, exactly as it is.
   theme: skills-firsts
   min_age_months: 36
   max_age_months: 144
@@ -412,7 +412,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a picture of him with whoever he's most attached to right now.
+  body: Take a picture of {them} with whoever {they_are} most attached to right now.
   theme: relationships
   min_age_months: 24
   max_age_months: 216
@@ -423,7 +423,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his lunch, arranged the way he arranged it.
+  body: Photograph {their} lunch, arranged the way {they} arranged it.
   theme: food
   min_age_months: 30
   max_age_months: 120
@@ -434,7 +434,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a photo of him doing the thing he does every single day.
+  body: Take a photo of {them} doing the thing {they_do} every single day.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -445,7 +445,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his face mid-laugh. Burst mode. Take twenty, keep one.
+  body: Photograph {their} face mid-laugh. Burst mode. Take twenty, keep one.
   theme: humor
   min_age_months: 24
   max_age_months: 216
@@ -456,7 +456,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a picture of him in the same spot you photographed him a year ago.
+  body: Take a picture of {them} in the same spot you photographed {them} a year ago.
   theme: growth-measurement
   min_age_months: 36
   max_age_months: 216
@@ -467,7 +467,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph what he's wearing today, head to toe. In ten years this is a costume.
+  body: Photograph what {they_are} wearing today, head to toe. In ten years this is a costume.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -489,7 +489,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph his favorite toy alone, like a portrait.
+  body: Photograph {their} favorite toy alone, like a portrait.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 120
@@ -500,7 +500,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a picture of him outside doing nothing in particular.
+  body: Take a picture of {them} outside doing nothing in particular.
   theme: outdoors
   min_age_months: 24
   max_age_months: 216
@@ -511,7 +511,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a photo of him with his grandparents.
+  body: Take a photo of {them} with {their} grandparents.
   theme: relationships
   min_age_months: 24
   max_age_months: 216
@@ -522,7 +522,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph him next to something for scale — a doorway, the dog, your hand.
+  body: Photograph {them} next to something for scale — a doorway, the dog, your hand.
   theme: growth-measurement
   min_age_months: 24
   max_age_months: 216
@@ -533,7 +533,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph him in the first snow.
+  body: Photograph {them} in the first snow.
   theme: seasons-holidays
   min_age_months: 24
   max_age_months: 216
@@ -547,7 +547,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a photo of him on the first day of school.
+  body: Take a photo of {them} on the first day of school.
   theme: seasons-holidays
   min_age_months: 48
   max_age_months: 216
@@ -560,7 +560,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Photograph whatever he made out of leaves, pumpkins, or mud this month.
+  body: Photograph whatever {they} made out of leaves, pumpkins, or mud this month.
   theme: seasons-holidays
   min_age_months: 24
   max_age_months: 144
@@ -574,7 +574,7 @@
 - kind: photo
   cadence: daily
   completion_mode: media
-  body: Take a photo of what summer looks like for him this year.
+  body: Take a photo of what summer looks like for {them} this year.
   theme: seasons-holidays
   min_age_months: 24
   max_age_months: 216
@@ -588,7 +588,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Film him telling you about his day. Don't prompt him.
+  body: Film {them} telling you about {their} day. Don't prompt {them}.
   theme: his-words
   min_age_months: 36
   max_age_months: 216
@@ -599,7 +599,8 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Ask him ten questions about his mom and film the answers. Don't correct anything.
+  body: Ask {them} ten questions about someone else in the family and film the answers. Don't correct
+    anything.
   theme: relationships
   min_age_months: 36
   max_age_months: 216
@@ -610,7 +611,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Film him doing the thing he's currently best at.
+  body: Film {them} doing the thing {they_are} currently best at.
   theme: skills-firsts
   min_age_months: 24
   max_age_months: 216
@@ -621,7 +622,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Record thirty seconds of him just playing. No talking to the camera.
+  body: Record thirty seconds of {them} just playing. No talking to the camera.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 120
@@ -632,7 +633,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Film him explaining how something works.
+  body: Film {them} explaining how something works.
   theme: humor
   min_age_months: 36
   max_age_months: 144
@@ -643,7 +644,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Record him running toward you.
+  body: Record {them} running toward you.
   theme: physical-affection
   min_age_months: 24
   max_age_months: 96
@@ -665,7 +666,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Ask him what he'd say to himself at eighteen. Film it.
+  body: Ask {them} what {they}'d say to {themself} at eighteen. Film it.
   theme: letters-forward
   min_age_months: 48
   max_age_months: 216
@@ -676,7 +677,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Film him eating something for the first time.
+  body: Film {them} eating something for the first time.
   theme: food
   min_age_months: 24
   max_age_months: 144
@@ -687,7 +688,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Record him dancing to whatever's playing.
+  body: Record {them} dancing to whatever's playing.
   theme: humor
   min_age_months: 24
   max_age_months: 144
@@ -698,7 +699,7 @@
 - kind: video
   cadence: daily
   completion_mode: media
-  body: Film him on the last day of the school year.
+  body: Film {them} on the last day of the school year.
   theme: seasons-holidays
   min_age_months: 48
   max_age_months: 216
@@ -711,7 +712,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him telling you a story. Any story. Don't correct the words he says wrong.
+  body: Record {them} telling you a story. Any story. Don't correct a single word.
   theme: voice
   min_age_months: 30
   max_age_months: 144
@@ -722,7 +723,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him singing. Whatever he's singing.
+  body: Record {them} singing. Whatever {they_are} singing.
   theme: voice
   min_age_months: 24
   max_age_months: 144
@@ -733,7 +734,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him counting as high as he can go.
+  body: Record {them} counting as high as {they} can go.
   theme: voice
   min_age_months: 30
   max_age_months: 96
@@ -744,7 +745,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him saying the alphabet.
+  body: Record {them} saying the alphabet.
   theme: voice
   min_age_months: 30
   max_age_months: 84
@@ -755,7 +756,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him saying his own full name.
+  body: Record {them} saying {their} own full name.
   theme: voice
   min_age_months: 24
   max_age_months: 96
@@ -766,7 +767,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him describing you.
+  body: Record {them} describing you.
   theme: voice
   min_age_months: 36
   max_age_months: 216
@@ -788,7 +789,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him reading a page out loud.
+  body: Record {them} reading a page out loud.
   theme: skills-firsts
   min_age_months: 60
   max_age_months: 144
@@ -799,7 +800,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him telling a joke.
+  body: Record {them} telling a joke.
   theme: humor
   min_age_months: 36
   max_age_months: 144
@@ -810,7 +811,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him talking about his best friend.
+  body: Record {them} talking about {their} best friend.
   theme: relationships
   min_age_months: 48
   max_age_months: 216
@@ -821,7 +822,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him answering "what's the best thing that happened today?"
+  body: Record {them} answering "what's the best thing that happened today?"
   theme: his-words
   min_age_months: 36
   max_age_months: 216
@@ -832,7 +833,7 @@
 - kind: audio
   cadence: daily
   completion_mode: media
-  body: Record him making up a song about nothing.
+  body: Record {them} making up a song about nothing.
   theme: humor
   min_age_months: 30
   max_age_months: 96
@@ -843,7 +844,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Never let go of the hug first today. Let him be the one to pull away.
+  body: Never let go of the hug first today. Let {them} be the one to pull away.
   theme: physical-affection
   min_age_months: 24
   max_age_months: 216
@@ -865,7 +866,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Carry him when he asks, even though he can walk fine.
+  body: Carry {them} when asked, even though {they} can walk fine.
   theme: physical-affection
   min_age_months: 24
   max_age_months: 96
@@ -876,7 +877,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Use his baby nickname out loud today, while he still answers to it.
+  body: Use {their} baby nickname out loud today, while {they_do} still answer to it.
   theme: his-words
   min_age_months: 24
   max_age_months: 120
@@ -887,7 +888,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Let him help with something, even though it triples the time.
+  body: Let {them} help with something, even though it triples the time.
   theme: making-building
   min_age_months: 30
   max_age_months: 144
@@ -920,7 +921,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Let him choose dinner. Entirely.
+  body: Let {them} choose dinner. Entirely.
   theme: food
   min_age_months: 36
   max_age_months: 216
@@ -931,7 +932,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Ask him a question and let the silence sit until he answers it.
+  body: Ask {them} a question and let the silence sit until the answer comes.
   theme: his-words
   min_age_months: 36
   max_age_months: 216
@@ -942,7 +943,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Go outside with him with no plan and no phone.
+  body: Go outside with {them} with no plan and no phone.
   theme: outdoors
   min_age_months: 24
   max_age_months: 216
@@ -953,7 +954,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Apologize to him for something. Out loud.
+  body: Apologize to {them} for something. Out loud.
   theme: me-as-a-parent
   min_age_months: 36
   max_age_months: 216
@@ -964,7 +965,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Let him win, and don't tell him you did.
+  body: Let {them} win, and don't tell {them} you did.
   theme: humor
   min_age_months: 36
   max_age_months: 120
@@ -975,7 +976,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Tell him one specific thing you admire about him. Not "good job."
+  body: Tell {them} one specific thing you admire about {them}. Not "good job."
   theme: relationships
   min_age_months: 36
   max_age_months: 216
@@ -986,7 +987,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Do nothing next to him for fifteen minutes.
+  body: Do nothing next to {them} for fifteen minutes.
   theme: everyday-ordinary
   min_age_months: 24
   max_age_months: 216
@@ -997,7 +998,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Ask him to teach you something.
+  body: Ask {them} to teach you something.
   theme: skills-firsts
   min_age_months: 48
   max_age_months: 216
@@ -1019,7 +1020,8 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Take him on a solo date and let him pick everything — where you go, what you eat, what you do.
+  body: Take {them} on a solo date and let {them} pick everything — where you go, what you eat, what you
+    do.
   theme: relationships
   min_age_months: 36
   max_age_months: 216
@@ -1041,7 +1043,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Build something with him that takes more than one sitting.
+  body: Build something with {them} that takes more than one sitting.
   theme: making-building
   min_age_months: 48
   max_age_months: 216
@@ -1052,7 +1054,7 @@
 - kind: video
   cadence: weekly
   completion_mode: media
-  body: Interview him with ten questions about his mom and film the whole thing.
+  body: Interview {them} with ten questions about someone else in the family and film the whole thing.
   theme: relationships
   min_age_months: 36
   max_age_months: 216
@@ -1074,7 +1076,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: did_it
-  body: Spend an afternoon doing only what he suggests.
+  body: Spend an afternoon following only {their} suggestions.
   theme: everyday-ordinary
   min_age_months: 36
   max_age_months: 216
@@ -1085,7 +1087,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Cook something from your own childhood and tell him where it came from.
+  body: Cook something from your own childhood and tell {them} where it came from.
   theme: food
   min_age_months: 36
   max_age_months: 216
@@ -1096,7 +1098,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Show him where you grew up — go there, or go through the photos.
+  body: Show {them} where you grew up — go there, or go through the photos.
   theme: letters-forward
   min_age_months: 48
   max_age_months: 216
@@ -1107,7 +1109,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Ask him to pick three songs and play them loud in the kitchen.
+  body: Ask {them} to pick three songs and play them loud in the kitchen.
   theme: humor
   min_age_months: 30
   max_age_months: 216
@@ -1118,7 +1120,7 @@
 - kind: activity
   cadence: weekly
   completion_mode: media
-  body: Let him plan and "cook" one meal, whatever that means at his age.
+  body: Let {them} plan and "cook" one meal, whatever that means at {their} age.
   theme: food
   min_age_months: 48
   max_age_months: 216
@@ -1129,7 +1131,8 @@
 - kind: measurement
   cadence: monthly
   completion_mode: media
-  body: Measure his height and weight. Photograph him against the same wall, same spot as last time.
+  body: Measure {their} height and weight. Photograph {them} against the same wall, same spot as last
+    time.
   theme: growth-measurement
   min_age_months: 24
   max_age_months: 216
@@ -1163,7 +1166,7 @@
 - kind: measurement
   cadence: monthly
   completion_mode: media
-  body: Trace his hand on paper and photograph it.
+  body: Trace {their} hand on paper and photograph it.
   theme: growth-measurement
   min_age_months: 24
   max_age_months: 120
@@ -1174,7 +1177,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write him something about money that you wish someone had told you at nineteen.
+  body: Write {them} something about money that you wish someone had told you at nineteen.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216
@@ -1185,7 +1188,8 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write him a letter about exactly who he is right now. He won't be this person next year.
+  body: Write {them} a letter about exactly who {they_are} right now. {They} won't be this person next
+    year.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216
@@ -1196,7 +1200,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write down what you were afraid of before he was born, and what actually happened.
+  body: Write down what you were afraid of before {they_were} born, and what actually happened.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216
@@ -1207,7 +1211,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write him about a mistake you made that he'll probably make too.
+  body: Write {them} about a mistake you made that {they}'ll probably make too.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216
@@ -1218,7 +1222,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write down the story of the day he was born, in as much detail as you can still remember.
+  body: Write down the story of the day {they_were} born, in as much detail as you can still remember.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216
@@ -1229,7 +1233,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write him something about his mother he'd never think to ask about.
+  body: Write {them} something about someone in {their} family that {they}'d never think to ask about.
   theme: relationships
   min_age_months: 24
   max_age_months: 216
@@ -1240,7 +1244,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write down what you hope he keeps from being four years old.
+  body: Write down what you hope stays with {them} from being four years old.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 96
@@ -1251,7 +1255,7 @@
 - kind: letter
   cadence: monthly
   completion_mode: text
-  body: Write him what you'd want him to know if you weren't around to say it.
+  body: Write {them} what you'd want {them} to know if you weren't around to say it.
   theme: letters-forward
   min_age_months: 24
   max_age_months: 216

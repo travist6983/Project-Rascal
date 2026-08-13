@@ -7,7 +7,8 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 12, 2026**. Next phase number is **24** — measured from
+Synced with `roadmap-status.md` at **Aug 12, 2026**; **24 shipped Aug 13** and its line is gone.
+The queue below already carries 25–34, so a genuinely new phase takes **35** — measured from
 `main`, and expected to rot. Measure it again rather than trusting this line.
 
 ---
@@ -76,12 +77,6 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
-- **24 — Tokenise all 113 seeded prompts.** Owner's call, reversing `decisions.md`. Edit
-  `docs/mission-library.md` and regenerate — never `prompts.yaml` by hand. **Three things that are
-  scope, not objections:** re-seeding keys on `sha256(kind, cadence, body)` and never deletes, so
-  113 rewrites *insert* 113 new prompts and the literal ones must be deactivated in the same pass;
-  `test_seeding.py` pins a coverage table to reconcile; and `export_viewer/assets/app.js` must
-  learn the token table or every export prints raw `{their}`.
 - **31 — Multi-kid.** Now in scope — `ios/CLAUDE.md` updated. Entirely iOS: the child is hardcoded
   to `.first` in three places and `ChildSwitcherPill` already draws its chevron whenever
   `onSelect` is non-nil, which today only a preview supplies. The chevron appears when there is a
