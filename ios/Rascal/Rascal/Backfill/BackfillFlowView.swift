@@ -90,6 +90,9 @@ struct BackfillFlowView: View {
                 .navigationDestination(for: BackfillMonth.self) { month in
                     BackfillMonthPickerScreen(
                         month: month,
+                        // The picker cuts days and resolves `occurred_at` in the child's zone, not
+                        // the phone's. Nothing else on this screen can supply it.
+                        familyTimezone: familyTimezone,
                         source: source,
                         childBirthdate: childBirthdate,
                         savedDays: savedDays,
@@ -143,7 +146,10 @@ struct BackfillFlowView: View {
     private func confirmWritten() {
         guard let day = pendingDay else { return }
         pendingDay = nil
-        let calendar = Calendar.current
+        // The same calendar the picker cut `day` out of. Adding a day in the device's zone would
+        // step a family-zone midnight by the device's DST, and the window would then either miss
+        // the entry just written or reach into the next day.
+        let calendar = BackfillCalendar.family(familyTimezone)
         guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { return }
         var descriptor = FetchDescriptor<Entry>(
             predicate: #Predicate { $0.deletedAt == nil && $0.occurredAt >= day && $0.occurredAt < next }
@@ -361,11 +367,12 @@ extension LinearGradient {
     /// Reserved for emotional beats. In this flow that is the invitation, the all-caught-up state,
     /// and the header of a month being looked back at — an onboarding moment, an all-caught-up
     /// moment, and a throwback header. Never behind a list.
-    static let backfillWash = LinearGradient(
-        colors: [Color(hex: 0xFDE8DC), Color(hex: 0xF7DDE8), Color(hex: 0xFBF6EF)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    ///
+    /// **`Gradients.wash` itself, not a copy of its stops.** The doc says these two "are the same
+    /// gradient and there is no third", and a second list of the same three literals is a promise
+    /// kept by hand — one that quietly stops being true the first time the wash is retuned. This
+    /// name stays because the flow reads better for it; the colours come from the palette.
+    static let backfillWash = Gradients.wash
 }
 
 // MARK: - Permission
@@ -453,7 +460,7 @@ struct BackfillPermissionScreen: View {
             // height to work in and body text collided with the button's top edge.
             .padding(.top, 26)
             .padding(.bottom, 18)
-            .background(PinnedActionBackdrop(tint: Color(hex: 0xFBF6EF)))
+            .background(PinnedActionBackdrop(tint: .washTail))
         }
     }
 }
@@ -485,8 +492,8 @@ struct PhotoStackMotif: View {
     var body: some View {
         ZStack {
             card(fill: Color.surface, rotation: -9, offset: CGSize(width: -36, height: 4))
-            card(fill: Color(hex: 0xE9DCCB), rotation: 4, offset: CGSize(width: -8, height: -4))
-            card(fill: Color(hex: 0xDCE3D6), rotation: 11, offset: CGSize(width: 22, height: 8))
+            card(fill: Color.printWarm, rotation: 4, offset: CGSize(width: -8, height: -4))
+            card(fill: Color.sageBorder, rotation: 11, offset: CGSize(width: 22, height: 8))
         }
         .frame(width: 150, height: 120)
         .accessibilityHidden(true)
@@ -561,10 +568,10 @@ struct BackfillLimitedAccessScreen: View {
 
                 HStack(spacing: 8) {
                 RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                    .fill(Color(hex: 0xE9DCCB))
+                    .fill(Color.printWarm)
                     .frame(width: 76, height: 76)
                 RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                    .fill(Color(hex: 0xDDE0EC))
+                    .fill(Color.periwinkleBorder)
                     .frame(width: 76, height: 76)
                 ForEach(0..<2, id: \.self) { _ in
                     RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
@@ -685,7 +692,7 @@ struct BackfillNothingToSuggestScreen: View {
                 .padding(.horizontal, Layout.screenMargin)
                 .padding(.top, 26)
                 .padding(.bottom, 18)
-                .background(PinnedActionBackdrop(tint: Color(hex: 0xFBF6EF)))
+                .background(PinnedActionBackdrop(tint: .washTail))
         }
     }
 }

@@ -3,10 +3,16 @@ import Observation
 
 /// What the share screen is doing, and the one write it makes.
 ///
-/// Deliberately small. There is no network client here, no session, no SwiftData context and no
-/// child — the extension does not know which child this is filing under and does not need to.
-/// The app resolves that at drain time from the session it already holds, which is also what
-/// keeps multi-kid selection out of a twelve-second screen.
+/// Deliberately small. There is no network client here, no session and no SwiftData context — the
+/// extension does not *choose* which child this is filing under, and does not need to. The app
+/// resolves that at drain time from the session it already holds, which is also what keeps
+/// multi-kid selection out of a twelve-second screen.
+///
+/// It does, however, have to record **whose** share this is. The App Group is the only thing this
+/// process can see, and the app writes the signed-in child into it (`ShareInbox.currentOwner`), so
+/// that is read once when the share opens and stamped into the record. Without it the queue is a
+/// pile of photographs any account that later signs in on this phone would drain into its own
+/// archive — see `ShareDrain.ingest`.
 @MainActor
 @Observable
 final class ShareComposerModel {
@@ -39,6 +45,14 @@ final class ShareComposerModel {
     /// answer to "when was this logged".
     private let openedAt: Date
 
+    /// The child the app was signed in as when this share opened.
+    ///
+    /// **Read at staging, not at save**, and for a sharper reason than `openedAt`: a share sheet
+    /// can sit open while somebody signs out of the app behind it. The share belongs to whoever
+    /// was signed in when it was made, and re-reading the marker at save time would hand it to
+    /// whoever is signed in now.
+    private var ownerChildId: UUID?
+
     init(inbox: ShareInbox = .shared, openedAt: Date = Date()) {
         self.inbox = inbox
         self.openedAt = openedAt
@@ -59,6 +73,16 @@ final class ShareComposerModel {
             phase = .unusable(ShareCopy.unusableContainer)
             return
         }
+
+        // **Before a single byte is copied.** A share with nobody to file it under is discarded by
+        // the drain rather than filed under whoever signs in next, so staging a 4K video for it
+        // would spend a parent's time and disk on something that ends in silence. Saying so now is
+        // the honest version, and it names the one action that fixes it.
+        guard let owner = inbox.currentOwner() else {
+            phase = .unusable("Open Dogear and sign in, then share this again.")
+            return
+        }
+        ownerChildId = owner
 
         loaded = await ShareItemLoader.load(providers, into: inbox)
 
@@ -88,7 +112,10 @@ final class ShareComposerModel {
     /// The record is the last thing written and it is written atomically, so this is the instant
     /// the share becomes real. Everything before it is bytes nothing references.
     func save() -> Bool {
-        guard canSave else { return false }
+        // `ownerChildId` is set the moment staging succeeds, so this cannot fail behind a screen
+        // that offered Save — it is here so the record is built with a child rather than with an
+        // optional that something downstream has to interpret.
+        guard canSave, let ownerChildId else { return false }
         isSaving = true
 
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,6 +123,7 @@ final class ShareComposerModel {
             createdAt: openedAt,
             occurredAt: occurredAt,
             occurredAtSource: occurredAtSource,
+            ownerChildId: ownerChildId,
             note: trimmed.isEmpty ? nil : trimmed,
             media: loaded.map(\.item)
         )

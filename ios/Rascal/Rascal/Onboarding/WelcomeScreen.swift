@@ -88,18 +88,28 @@ struct WelcomeScreen: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 4)
 
+            #if DEBUG
             devLogin
+            #endif
         }
     }
 
-    /// The local fixture account.
+    /// The local fixture account. **Debug builds only.**
     ///
-    /// **Kept, and kept reachable.** Sign in with Apple needs an Apple Developer Program
-    /// enrollment that has not cleared yet, so without this there is no way to open the app at
-    /// all on a simulator. `POST /auth/dev-login` is registered only when the API runs with
-    /// `ENVIRONMENT=local` and is a 404 anywhere else, so this cannot become a way into a real
-    /// archive — it can only fail with a clear message. It does still need gating out of an App
-    /// Store build before submission; that is noted in the phase report.
+    /// **Kept, and kept reachable — in a debug build.** Sign in with Apple needs an Apple
+    /// Developer Program enrollment that has not cleared yet, so without this there is no way to
+    /// open the app at all on a simulator.
+    ///
+    /// It used to compile into Release as well, on the reasoning that `POST /auth/dev-login` is
+    /// registered only when the API runs with `ENVIRONMENT=local` and is a 404 anywhere else, so
+    /// tapping it could only fail. That is a shipped binary whose safety is a variable set on a
+    /// server: one staging rollback with the wrong environment and every installed copy has a
+    /// one-tap way into a shared fixture account. It is also a button offering "the development
+    /// account" to a parent, which is not a thing the product does. So it is gated the way
+    /// `TodayScreen.debugResetBoard` already is, and `AppSession.signIn`,
+    /// `OnboardingSession.signInWithDevLogin`, `APIClient.devLogin` and the `DEV_*` keys in the
+    /// Release `Info.plist` went with it.
+    #if DEBUG
     @ViewBuilder
     private var devLogin: some View {
         OnboardingSecondaryButton(title: "Use the development account") {
@@ -108,6 +118,7 @@ struct WelcomeScreen: View {
         .disabled(session.isWorking)
         .padding(.top, 2)
     }
+    #endif
 
     private func handle(_ result: Result<ASAuthorization, Error>) {
         authorizationNotice = nil

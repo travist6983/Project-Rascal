@@ -191,7 +191,6 @@ struct SettingsScreen: View {
                 EditProfileSheet(
                     model: EditProfileModel(
                         user: session.user,
-                        fallbackEmail: AppConfig.devLoginEmail,
                         api: session.api
                     )
                 ) { updated in
@@ -262,10 +261,16 @@ struct SettingsScreen: View {
                 ) { route = .editProfile }
                 SettingsDivider()
                 // Read-only and nil-safe: Apple's relay addresses are unreliable and the column
-                // is nullable, so this is words in both states rather than a blank.
+                // is nullable, so this is words in both states rather than a blank — and the
+                // words are `EditProfileModel`'s, because the sheet this row opens says the same
+                // thing about the same absent value.
+                //
+                // **Never `AppConfig.devLoginEmail`.** That is a build-configuration constant
+                // defaulting to `dev@rascal.local`; rendering it here told a parent whose relay
+                // address came back null that a developer's address was their account.
                 SettingsValueRow(
                     label: "Email",
-                    value: session.user?.email ?? AppConfig.devLoginEmail
+                    value: session.user?.email ?? EditProfileModel.absentEmail
                 )
             }
         }

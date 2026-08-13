@@ -2,9 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- DEBUG. Generated from Info.plist by keeping every key identical and adding the ATS
-	     exception below. If you change one of these files, change the other. Everything below
-	     is a $() reference rather than a literal, so version and identity come from the target.
+	<!-- DEBUG. Info.plist plus the ATS exception below and the two DEV_* keys at the bottom, and
+	     nothing else may differ. If you change one of these files, change the other. Everything
+	     below is a $() reference rather than a literal, so version and identity come from the
+	     target.
 
 	     Authored rather than generated: GENERATE_INFOPLIST_FILE = YES cannot carry custom keys,
 	     and this file lives beside the .xcodeproj because Rascal/Rascal/ is a synchronized
@@ -12,8 +13,9 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<!-- Kept in step with Info.plist by hand. The two files differ only in App Transport
-	     Security, so a display name that drifts between them means a Debug build on the phone
-	     wearing a different name from the TestFlight build beside it. -->
+	     Security and the debug-only DEV_* keys, so a display name that drifts between them means
+	     a Debug build on the phone wearing a different name from the TestFlight build beside
+	     it. -->
 	<key>CFBundleDisplayName</key>
 	<string>Dogear</string>
 	<key>CFBundleExecutable</key>
@@ -85,7 +87,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Rascal reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
+	<string>Dogear reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>
@@ -113,6 +115,12 @@
 	     so no base URL and no UUID appears in Swift source. -->
 	<key>API_BASE_URL</key>
 	<string>$(API_BASE_URL)</string>
+
+	<!-- **Debug only — these two are not in Info.plist, on purpose.** `AppConfig` reads them and
+	     `AppConfig` is #if DEBUG, along with the rest of the dev-login path, so a Release build
+	     has nothing that could read them. Keeping them out of the shipped bundle keeps the fixture
+	     account's address and child id out of every App Store build. Every other key here still
+	     has to exist in both files. -->
 	<key>DEV_LOGIN_EMAIL</key>
 	<string>$(DEV_LOGIN_EMAIL)</string>
 	<key>DEV_CHILD_ID</key>

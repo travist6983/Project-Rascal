@@ -163,22 +163,93 @@ struct StoreMigrationTests {
         #expect(stored.updatedAt == Date(timeIntervalSince1970: 1_700_000_000))
     }
 
-    @Test("a store that cannot be opened is moved aside, never deleted")
-    func unreadableStoreIsQuarantinedNotDestroyed() throws {
-        // Deliberately not a real migration failure — reproducing one needs a store written by
-        // an older schema, which a single-version test cannot produce. What is asserted is the
-        // property that matters after the fact: recovery must not destroy the only copy of
-        // anything unsynced.
+    /// A directory of its own, with an unopenable file already sitting where the store goes.
+    ///
+    /// Deliberately not a real migration failure — reproducing one needs a store written by a
+    /// schema that does not exist yet. A file SwiftData cannot open reaches the same recovery
+    /// branch, which is the branch this is about.
+    private func corruptStore() throws -> (directory: URL, store: URL) {
         let directory = URL(filePath: NSTemporaryDirectory())
             .appending(path: "rascal-quarantine-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let store = directory.appending(path: "default.store")
         try Data("not a database".utf8).write(to: store)
+        return (directory, store)
+    }
 
-        #expect(FileManager.default.fileExists(atPath: store.path))
-        // The contract, stated as a test so it cannot quietly become `removeItem`: whatever the
-        // recovery does with an unreadable store, the bytes still exist somewhere afterwards.
-        let contents = try Data(contentsOf: store)
-        #expect(!contents.isEmpty, "an unreadable store is still someone's unsynced archive")
+    /// Everything `quarantineStore` moved a store into, under `directory`.
+    private func quarantineFolders(in directory: URL) throws -> [URL] {
+        try FileManager.default
+            .contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("unreadable-store-") }
+    }
+
+    /// **The one function standing between a failed migration and somebody's only copy.**
+    ///
+    /// This test used to write garbage to a temp file and assert the same bytes were still at the
+    /// same path — an assertion about `FileManager` and `Data`, and one that would have passed
+    /// unchanged on the day `quarantineStore` became `removeItem`. It calls the real thing now.
+    @Test("a store that cannot be opened is moved aside, never deleted")
+    func unreadableStoreIsQuarantinedNotDestroyed() throws {
+        let (directory, store) = try corruptStore()
+        let original = try Data(contentsOf: store)
+        // The sidecars SQLite keeps beside the file. Leaving either behind makes the "fresh"
+        // store inherit the same corruption, so the recovery has to take all three.
+        try Data("wal".utf8).write(to: directory.appending(path: "default.store-wal"))
+        try Data("shm".utf8).write(to: directory.appending(path: "default.store-shm"))
+
+        let folder = try #require(LocalStore.quarantineStore(at: store), "a store that exists is moved")
+
+        #expect(
+            !FileManager.default.fileExists(atPath: store.path),
+            "the store is moved out of the way, or the fresh one cannot be created"
+        )
+        let moved = folder.appending(path: "default.store")
+        #expect(
+            try Data(contentsOf: moved) == original,
+            "an unreadable store is still someone's unsynced archive — byte for byte"
+        )
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: "default.store-wal").path))
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: "default.store-shm").path))
+    }
+
+    @Test("recovery opens a working container and says a store was moved")
+    func recoveryOpensAFreshContainerAndRecordsIt() throws {
+        let (directory, store) = try corruptStore()
+        let original = try Data(contentsOf: store)
+
+        // The real path: `container(at:)` is what `LocalStore.container()` runs, over a named
+        // file instead of Application Support. It cannot open this one, so it recovers.
+        let recovered = LocalStore.container(at: store)
+
+        // A container that works. Anything less and the recovery has traded a crash on launch
+        // for an app that launches and cannot save.
+        let context = ModelContext(recovered)
+        let entry = Entry(childId: UUID(), occurredAt: Date(), body: "written after a recovery")
+        context.insert(entry)
+        try context.save()
+        #expect(try context.fetch(FetchDescriptor<Entry>()).count == 1)
+
+        // And the old bytes are still on disk, in exactly one quarantine folder.
+        let folders = try quarantineFolders(in: directory)
+        #expect(folders.count == 1)
+        let moved = try #require(folders.first).appending(path: "default.store")
+        #expect(try Data(contentsOf: moved) == original)
+
+        // The app is told, rather than being left to present an empty archive as normal.
+        let event = try #require(RecoveryLog.last)
+        #expect(event.movedTo == folders.first)
+    }
+
+    @Test("a first launch with no store at all is not a recovery")
+    func noStoreIsNotQuarantined() throws {
+        let directory = URL(filePath: NSTemporaryDirectory())
+            .appending(path: "rascal-quarantine-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Nothing to move, so nothing is moved and no folder is invented for it — a fresh install
+        // must not look like an archive that had to be rescued.
+        #expect(LocalStore.quarantineStore(at: directory.appending(path: "default.store")) == nil)
+        #expect(try quarantineFolders(in: directory).isEmpty)
     }
 }

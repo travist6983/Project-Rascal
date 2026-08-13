@@ -30,17 +30,24 @@ final class EditProfileModel {
     private let api: APIClient
     private let original: String
 
-    init(user: UserResponse?, fallbackEmail: String?, api: APIClient) {
+    init(user: UserResponse?, api: APIClient) {
         self.api = api
         self.displayName = user?.displayName ?? ""
         self.original = user?.displayName ?? ""
-        // A warm start has a token but no user record — there is no `GET /me` to ask again — so
-        // the configured account stands in. Still optional: it can be absent too.
-        self.email = user?.email ?? fallbackEmail
+        // **The record is the only source, and there is no stand-in.** This used to fall back to
+        // `AppConfig.devLoginEmail`, which is a build-configuration constant with a hardcoded
+        // `dev@rascal.local` behind it — so an Apple account whose relay address came back null
+        // was shown a developer's email address and told it was theirs. A missing email is a
+        // state this screen can say out loud; inventing one is not.
+        self.email = user?.email
     }
 
+    /// The words a null email renders as, in the Settings row and in this sheet alike. Two
+    /// spellings of "we do not have one" is two answers to the same question.
+    static let absentEmail = "Not provided"
+
     /// What the read-only email row shows. Words in both states, never a blank.
-    var emailDisplay: String { email ?? "Not provided" }
+    var emailDisplay: String { email ?? Self.absentEmail }
 
     /// True when there is no email to show, so the row can be set in `inkMuted` rather than ink.
     var emailIsMissing: Bool { email == nil }

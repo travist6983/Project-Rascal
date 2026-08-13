@@ -12,6 +12,14 @@ import SwiftUI
 /// getting the date right, would be the app deciding what a day was about.
 struct BackfillMonthPickerScreen: View {
     let month: BackfillMonth
+    /// The child's `family_timezone`. **Never `Calendar.current`** — see `BackfillCalendar`.
+    ///
+    /// Every date decision on this screen is made in it: which day a photo groups under, what the
+    /// day headers are named, and the `occurred_at` the plan resolves. Without it a photo with no
+    /// capture date fell back to noon on the 1st *in the device's zone*, and a parent in Auckland
+    /// filling a Los Angeles archive is twenty hours away from that — far enough that noon on the
+    /// 1st of October is the 30th of September in the archive, permanently.
+    let familyTimezone: String
     let source: any BackfillAssetSource
     let childBirthdate: Date?
     /// Days written during this visit, checked off without waiting for a rescan.
@@ -42,6 +50,10 @@ struct BackfillMonthPickerScreen: View {
     @State private var contentWidth: CGFloat = 393
 
     private let staged = StagingStore()
+
+    /// The one calendar this screen reads dates in, derived once from the family zone so the day a
+    /// photo is filed under and the date resolved from that day are the same answer.
+    private var calendar: Calendar { BackfillCalendar.family(familyTimezone) }
 
     /// One tile's side, in points. Whole points — see `BackfillGrid.tileSide`.
     private var tileSide: CGFloat {
@@ -175,10 +187,11 @@ struct BackfillMonthPickerScreen: View {
     /// lighter month, count in `inkMuted` — with **no periwinkle age capsule**: this is a picker,
     /// and the age belongs to the timeline where the entry lands.
     private func dayHeader(_ group: DayGroup) -> some View {
-        HStack(spacing: 10) {
+        let zone = calendar.timeZone
+        return HStack(spacing: 10) {
             (
-                Text(Self.dayNumber(group.day)).fontWeight(.bold).foregroundStyle(Color.ink)
-                    + Text(" " + Self.dayMonth(group.day)).foregroundStyle(Color.inkMuted)
+                Text(Self.dayNumber(group.day, in: zone)).fontWeight(.bold).foregroundStyle(Color.ink)
+                    + Text(" " + Self.dayMonth(group.day, in: zone)).foregroundStyle(Color.inkMuted)
             )
             .typeRole(.cardTitle)
             Text(group.assets.count == 1 ? "1 photo" : "\(group.assets.count) photos")
@@ -395,7 +408,8 @@ struct BackfillMonthPickerScreen: View {
         // downstream — the composer renders this.
         let plan = BackfillEntryPlan(
             month: month,
-            creationDates: picked.map(\.creationDate)
+            creationDates: picked.map(\.creationDate),
+            calendar: calendar
         )
         onUse(plan, drafts, day)
         selection = BackfillSelection()
@@ -407,7 +421,10 @@ struct BackfillMonthPickerScreen: View {
         loading = true
         defer { loading = false }
         let assets = (try? await loader.assets(in: month)) ?? []
-        let calendar = Calendar.current
+        // The family zone's calendar, the same one `use()` hands to `BackfillEntryPlan` — a day cut
+        // in one zone and resolved in another is how a photo ends up an archive day away from the
+        // header it was sitting under.
+        let calendar = self.calendar
         // Assets with no creation date are dropped rather than pooled under an invented day. Their
         // date is exactly what the month fallback exists for, and giving them a day here would
         // launder a missing date into a real-looking one before the rule ever sees it.
@@ -421,19 +438,30 @@ struct BackfillMonthPickerScreen: View {
         }
     }
 
-    static func dayLabel(_ day: Date) -> String {
-        day.formatted(.dateTime.weekday(.abbreviated).day().month(.wide))
+    /// **The headers are read in the zone the days were cut in, not the device's.**
+    ///
+    /// A `DayGroup.day` is the start of a day in the child's `family_timezone`, and start-of-day
+    /// there is the middle of the night — or the previous afternoon — somewhere else. Formatting
+    /// that instant with the device's zone would print "Wed 30 September" over the group holding
+    /// October's first morning, which is the off-by-a-day version of the bug the grouping itself
+    /// was fixed to avoid.
+    private static func headerStyle(in zone: TimeZone) -> Date.FormatStyle {
+        Date.FormatStyle(timeZone: zone)
+    }
+
+    static func dayLabel(_ day: Date, in zone: TimeZone) -> String {
+        day.formatted(headerStyle(in: zone).weekday(.abbreviated).day().month(.wide))
     }
 
     /// The two halves of the header's date, so the day can carry the weight and the month can sit
     /// back — `DayHeader`'s vocabulary. Split rather than styled through one string, because one
     /// `Text` cannot hold two ink steps.
-    static func dayNumber(_ day: Date) -> String {
-        day.formatted(.dateTime.weekday(.abbreviated).day())
+    static func dayNumber(_ day: Date, in zone: TimeZone) -> String {
+        day.formatted(headerStyle(in: zone).weekday(.abbreviated).day())
     }
 
-    static func dayMonth(_ day: Date) -> String {
-        day.formatted(.dateTime.month(.wide))
+    static func dayMonth(_ day: Date, in zone: TimeZone) -> String {
+        day.formatted(headerStyle(in: zone).month(.wide))
     }
 
     static func tileLabel(_ asset: BackfillAsset) -> String {

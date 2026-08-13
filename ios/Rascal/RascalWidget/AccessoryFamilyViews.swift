@@ -31,12 +31,12 @@ struct RectangularTodayView: View {
             case .absent:
                 label(symbol: "book.closed", text: "Today")
                 Text("Open for today's prompts")
-                    .font(.system(size: 13))
+                    .typeRole(.metadata)
 
             case .stale(let name):
                 label(symbol: "book.closed", text: name.isEmpty ? "Today" : name)
                 Text("Open for today's prompts")
-                    .font(.system(size: 13))
+                    .typeRole(.metadata)
 
             case .current(let snapshot):
                 loaded(snapshot)
@@ -50,7 +50,7 @@ struct RectangularTodayView: View {
         if snapshot.isComplete {
             label(symbol: "checkmark.circle", text: "Today")
             Text("All done")
-                .font(.system(size: 13, weight: .medium))
+                .typeRole(.metadata)
         } else if let next = snapshot.nextUp {
             label(symbol: next.item.symbolName, text: next.label)
             // The prompt's own words. This is the only accessory family that can carry them, and
@@ -65,20 +65,24 @@ struct RectangularTodayView: View {
         } else {
             label(symbol: "book.closed", text: "Today")
             Text("Nothing waiting")
-                .font(.system(size: 13))
+                .typeRole(.metadata)
         }
     }
 
     /// Small caps and a symbol. `widgetAccentable` puts the symbol in the accented group, which
     /// is the one difference a tinted Lock Screen keeps.
+    ///
+    /// The word is `.label` — the role already carries semibold, the +0.6 tracking and the
+    /// uppercasing, so none of the three is set here and the eyebrow scales with Dynamic Type like
+    /// every other eyebrow in the product. The glyph beside it stays a fixed size, the way
+    /// `SlotLabel` sets its own: it is a mark rather than reading copy.
     private func label(symbol: String, text: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.system(size: 11, weight: .semibold))
                 .widgetAccentable()
-            Text(text.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.6)
+            Text(text)
+                .typeRole(.label)
         }
         .opacity(0.75)
     }

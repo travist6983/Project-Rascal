@@ -72,6 +72,11 @@ final class OnboardingSession {
     /// that bug.
     private let widget: WidgetSnapshotPublisher
 
+    /// The rest of what a signed-out phone was keeping: the SwiftData cache, the staged files and
+    /// their thumbnails, the avatar, and the share inbox. **Only `signOut()` reaches this** — see
+    /// `LocalArchiveErasing` for why the other two ways a session ends must not.
+    private let localArchive: LocalArchiveErasing
+
     /// **The one payload in the app that cannot be recreated.**
     ///
     /// Apple returns `fullName` on the first authorization for an Apple ID and never again. If
@@ -89,12 +94,22 @@ final class OnboardingSession {
         avatars: AvatarStoring = LocalAvatarStore(),
         pendingAvatars: PendingAvatarUploadStoring = UserDefaultsPendingAvatarUploadStore(),
         widget: WidgetSnapshotPublisher = .live,
+        // **The one default here that is not the live implementation**, and deliberately so: this
+        // erases a child's data at rest, and a test that constructs a session and signs out must
+        // not take the process's real store and Application Support with it. `live()` supplies
+        // the real one. See `LocalArchiveErasing`.
+        //
+        // Spelled `nil` rather than `NoLocalArchiveErasure()` because a default argument is
+        // evaluated in a nonisolated context, and the eraser is `@MainActor`. The inert one is
+        // built in the body instead, which is main-actor isolated like the rest of this type.
+        localArchive: LocalArchiveErasing? = nil,
         notifications: NotificationPreference? = nil
     ) {
         self.account = account
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
+        self.localArchive = localArchive ?? NoLocalArchiveErasure()
         // Built here rather than injected whole so the two stores stay separately substitutable —
         // a test asserting where the bytes landed passes `avatars`, and one asserting what is
         // still owed passes `pendingAvatars`.
@@ -115,6 +130,9 @@ final class OnboardingSession {
         )
         let session = OnboardingSession(
             account: account,
+            // The real eraser, wired here and nowhere else. `init` cannot default to it — see the
+            // note on the parameter.
+            localArchive: LocalArchiveErasure(),
             notifications: NotificationPreference(
                 authorizer: NotificationAuthorizerFactory.live(),
                 backend: registrar
@@ -252,10 +270,15 @@ final class OnboardingSession {
         }
     }
 
-    /// Local development login. Reachable from the welcome screen because Sign in with Apple
-    /// needs an Apple Developer Program enrollment that has not cleared, and this is how the app
-    /// is worked on until it does. The route is `404` unless the API runs with
-    /// `ENVIRONMENT=local`, so nothing that ships can depend on it.
+    /// Local development login. **Debug builds only.**
+    ///
+    /// Reachable from the welcome screen because Sign in with Apple needs an Apple Developer
+    /// Program enrollment that has not cleared, and this is how the app is worked on until it
+    /// does. The route is `404` unless the API runs with `ENVIRONMENT=local` — which used to be
+    /// the whole guard, and is a guard living on a server rather than in the binary. It is
+    /// compiled out of Release now, together with `WelcomeScreen.devLogin`, `APIClient.devLogin`
+    /// and `AppConfig`, so nothing that ships can depend on it because nothing that ships has it.
+    #if DEBUG
     func signInWithDevLogin() async {
         guard !isWorking else { return }
         isWorking = true
@@ -286,6 +309,7 @@ final class OnboardingSession {
         }
         return error.userMessage
     }
+    #endif
 
     // MARK: Steps
 
@@ -402,9 +426,14 @@ final class OnboardingSession {
     /// A deliberate sign-out, from Settings or from the way out of setup.
     ///
     /// Everything about the account goes: the refresh token is revoked server-side, the stored
-    /// user record and Apple subject are forgotten, and a half-finished setup draft goes with
-    /// them. Leaving a child's name in UserDefaults after someone asked to leave is the sort of
-    /// thing "signed out" is supposed to mean.
+    /// user record and Apple subject are forgotten, a half-finished setup draft goes with them,
+    /// and — the part that used to be missing — so does the child's data at rest. Leaving a
+    /// child's name in UserDefaults after someone asked to leave is the sort of thing "signed
+    /// out" is supposed to mean, and so is leaving a thumbnail of every photo in their timeline.
+    ///
+    /// **This is the only path in the app that erases anything.** A revoked Apple credential and
+    /// a rejected refresh both end the session too, and both leave every byte where it is; see
+    /// `LocalArchiveErasing`.
     func signOut() async {
         // **Before `account.signOut()`, and the order is the point.** `DELETE /v1/devices/{token}`
         // authenticates with the session it is revoking against, so revoking after the tokens are
@@ -414,6 +443,11 @@ final class OnboardingSession {
         await account.signOut()
         forgetLocalIdentity()
         state = .signedOut
+        // **After the state change, and with no `await` between them.** Setting `.signedOut` is
+        // what takes `RootView` off screen; running these two statements in one turn means SwiftUI
+        // never renders a timeline over a store that is being emptied underneath it. Anything
+        // asynchronous here would reintroduce exactly that frame.
+        localArchive.erase()
     }
 
     private func forgetLocalIdentity() {

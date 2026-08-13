@@ -83,7 +83,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Rascal reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
+	<string>Dogear reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>
@@ -115,12 +115,17 @@
 	</array>
 
 	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
-	     so no base URL and no UUID appears in Swift source. -->
+	     so no base URL and no UUID appears in Swift source.
+
+	     **DEV_LOGIN_EMAIL and DEV_CHILD_ID are in Info-Debug.plist and deliberately not here.**
+	     This is the one place the two files are allowed to differ, and the divergence is the fix
+	     rather than an oversight: the dev-login path — the welcome screen's button,
+	     OnboardingSession.signInWithDevLogin, AppSession.signIn, APIClient.devLogin and AppConfig
+	     — is #if DEBUG now, so nothing in a Release binary can read these keys, and shipping the
+	     fixture account's address and child id in every App Store build to be read by nothing is
+	     a gift to whoever is reading the bundle. Anything a Release build actually reads still has
+	     to be added to both files. -->
 	<key>API_BASE_URL</key>
 	<string>$(API_BASE_URL)</string>
-	<key>DEV_LOGIN_EMAIL</key>
-	<string>$(DEV_LOGIN_EMAIL)</string>
-	<key>DEV_CHILD_ID</key>
-	<string>$(DEV_CHILD_ID)</string>
 </dict>
 </plist>

@@ -302,6 +302,15 @@ actor APIClient {
 
     /// Development login. Mounted only when the API runs with `ENVIRONMENT=local`; it is a
     /// 404 in production, so nothing that ships may depend on it.
+    ///
+    /// **Debug builds only, and a compile-time gate rather than a runtime one.** The server's
+    /// `ENVIRONMENT` is what makes this fail in production today, which means a shipped binary's
+    /// safety depends on a variable set somewhere else entirely — one rollback or one
+    /// misconfigured deploy and every installed copy has a credential-less way into a shared
+    /// fixture account. `ios/CLAUDE.md` says nothing that ships may depend on this route, and the
+    /// only way to mean that is for the path not to be in the Release binary at all. Same reason
+    /// and same shape as `TodayScreen.debugResetBoard`.
+    #if DEBUG
     @discardableResult
     func devLogin(email: String, displayName: String) async throws -> SessionResponse {
         let session: SessionResponse = try await send(
@@ -312,6 +321,7 @@ actor APIClient {
         tokens.save(TokenPair(accessToken: session.accessToken, refreshToken: session.refreshToken))
         return session
     }
+    #endif
 
     /// `POST /v1/auth/apple` — exchange a Sign in with Apple credential for a session.
     ///
@@ -365,10 +375,14 @@ actor APIClient {
 
 nonisolated struct EmptyResponse: Decodable {}
 
+/// The body of `POST /v1/auth/dev-login`. Gated with the call that sends it, so a Release
+/// binary contains neither the request shape nor the route string.
+#if DEBUG
 nonisolated struct DevLoginRequest: Encodable {
     let email: String
     let displayName: String
 }
+#endif
 
 nonisolated struct RefreshRequest: Encodable {
     let refreshToken: String

@@ -111,10 +111,13 @@ final class VideoPlayback {
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
-        ) { [weak self] time in
+        // **Both captures are weak.** The player retains the observer block, so a strong `player`
+        // inside it is a cycle the player can never leave — `stop()` drops our reference and the
+        // block keeps the object, its item and its audio session alive for the life of the process.
+        ) { [weak self, weak player] time in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if let item = player.currentItem {
+                if let item = player?.currentItem {
                     let known = item.duration.seconds
                     if known.isFinite, known > 0 { self.duration = known }
                 }

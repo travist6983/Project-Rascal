@@ -181,8 +181,11 @@ struct BackfillSuggestionsScreen: View {
         .padding(.horizontal, Layout.cardPadding)
         .padding(.vertical, 14)
         .contentShape(Rectangle())
-        // A month already written about is quieter, not hidden — it is still a door.
-        .opacity(summary.isLogged ? 0.62 : 1)
+        // **A month already written about carries its sage count, and nothing else changes.** This
+        // row used to dim itself to 0.62 when logged, which is a wash over the whole row — the
+        // month name, the photo count and the chevron all lose contrast together, and the chevron
+        // is a control with a 3:1 floor it cannot clear at 62%. The badge is the difference, and it
+        // says the thing in words. Quiet is a token's job, not an opacity's.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(rowLabel(summary))
         .accessibilityAddTraits(.isButton)

@@ -148,12 +148,20 @@ struct NotifyTimePickerSheet: View {
             .background(Color.canvas)
             .navigationTitle("When?")
             .navigationBarTitleDisplayMode(.inline)
+            // The fixed sheet chrome: Cancel `inkMuted` at the leading edge, the confirming
+            // action trailing in terracotta. The wheels are local state and only Done writes
+            // through the binding, so leaving by Cancel genuinely discards the spin — a
+            // swipe-dismiss already did, but a swipe is not a discoverable way out.
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.foregroundStyle(Color.inkMuted)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         selection = NotifyTime(hour: hour, minute: minute)
                         dismiss()
                     }
+                    .foregroundStyle(Color.terracotta)
                 }
             }
         }

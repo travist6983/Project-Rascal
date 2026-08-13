@@ -12,12 +12,21 @@ import UniformTypeIdentifiers
 /// **Every id is client-generated**, matching the offline-creation rule the rest of the app
 /// follows: the entry has an identity before the server has heard of it, so a share made on a
 /// train is a real entry the moment the extension exits rather than a hopeful one.
+///
+/// **And every record names the child it was staged for.** A phone is handed on, sold, or shared;
+/// a queue of photographs sitting in a container that any signed-in account would drain is a way
+/// for one family's child to end up in another family's permanent archive. See `ownerChildId`.
 nonisolated struct PendingShare: Codable, Equatable, Sendable, Identifiable {
 
     /// Bumped when a field's meaning changes. A record written by a newer extension than the app
     /// beside it — which is exactly what an in-progress upgrade looks like — is left alone rather
     /// than coerced into a shape it was never written in. Leaving it is safe: the two ship
     /// together, so the app that can read it is the next launch away.
+    ///
+    /// **Adding an optional field is not a bump.** `ownerChildId` arrived after this record shipped
+    /// and older records decode into it as nil, which is a shape this build reads correctly and
+    /// handles deliberately. Bumping would make every record already on disk unreadable, and an
+    /// unreadable record is one `sweepOrphans` refuses to sweep past forever.
     static let currentVersion = 1
 
     let version: Int
@@ -43,18 +52,38 @@ nonisolated struct PendingShare: Codable, Equatable, Sendable, Identifiable {
     /// defaulted, instead of the parent having to guess from whether it looks plausible.
     let occurredAtSource: DateSource
 
+    /// **Whose share this is** — the child the app was signed in as when the extension staged it,
+    /// read from the App Group's owner marker (`ShareInbox.currentOwner`) and checked again by
+    /// `ShareDrain` before anything is filed.
+    ///
+    /// The child rather than the account, because the child is what an entry is filed under and it
+    /// is the one identifier the drain can check without a session. A child belongs to exactly one
+    /// account server-side, so binding to it binds to the account too.
+    ///
+    /// **Optional, and nil means unclaimed rather than "anyone's".** A record written before this
+    /// field existed still decodes — an absent key is nil — and so does one staged while nobody was
+    /// signed in. Neither is filed under whoever happens to be signed in when the app next opens;
+    /// `ShareDrain.ingest` discards them. Nothing about a record can say which archive it belongs
+    /// in after the fact, and a guess here is a stranger's photograph in a permanent archive.
+    let ownerChildId: UUID?
+
     /// Optional, and optional means optional: a photo alone is a complete entry. Nil rather than
     /// empty when nothing was typed, matching how the composer stores an empty body.
     let note: String?
 
     let media: [Item]
 
+    /// `ownerChildId` defaults to nil — unbound — because a record can be built somewhere that has
+    /// no business knowing the owner. `ShareInbox.write` binds an unbound record to whoever the
+    /// container currently names, so the one thing that cannot happen is a record reaching disk
+    /// unbound while the owner is known.
     init(
         version: Int = PendingShare.currentVersion,
         id: UUID = UUID(),
         createdAt: Date,
         occurredAt: Date,
         occurredAtSource: DateSource,
+        ownerChildId: UUID? = nil,
         note: String?,
         media: [Item]
     ) {
@@ -63,8 +92,26 @@ nonisolated struct PendingShare: Codable, Equatable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.occurredAt = occurredAt
         self.occurredAtSource = occurredAtSource
+        self.ownerChildId = ownerChildId
         self.note = note
         self.media = media
+    }
+
+    /// The same share, bound to a child.
+    ///
+    /// **Never used to re-bind.** A record that already names an owner names the one it was staged
+    /// for, and the whole point of the field is that a later reader cannot overrule it.
+    func bound(to childId: UUID) -> PendingShare {
+        PendingShare(
+            version: version,
+            id: id,
+            createdAt: createdAt,
+            occurredAt: occurredAt,
+            occurredAtSource: occurredAtSource,
+            ownerChildId: childId,
+            note: note,
+            media: media
+        )
     }
 
     /// One staged file.
