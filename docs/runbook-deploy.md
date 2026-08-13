@@ -125,17 +125,38 @@ fly secrets set --app rascal-api \
 
 ### 4a. APNs — the push credentials, and where the `.p8` comes from
 
-~~**None of this exists yet, and nothing below can be done until Apple Developer enrollment
-completes**~~ — **enrollment completed Aug 10, 2026, so everything below is now available to
-do.** The key still does not exist: nobody has made the portal trip. This is the last credential
-the project is waiting on. See `docs/blocked.md` §1a.
+~~**None of this exists yet**~~ — **done Aug 12, 2026.** The key is minted and the three secrets
+are set on `rascal-api`. Keep this section for the next environment, or for the day the key is
+rotated. See `docs/blocked.md` §1a for what the first real send proved.
 
-The key is created in the Apple Developer portal: **Certificates, Identifiers & Profiles →
-Keys → +**, with **Apple Push Notifications service (APNs)** enabled. That gives you a
-`.p8` file and a **Key ID**. The **Team ID** is on the portal's membership page. One APNs
-key works for both the sandbox and the production hosts — the *token* differs per
-environment, not the key, which is why `devices.environment` exists and the API refuses to
-guess it.
+The key is created in the Apple Developer portal — **Certificates, Identifiers & Profiles →
+Keys → +**, with **Apple Push Notifications service (APNs)** enabled:
+
+| What | Where |
+| --- | --- |
+| Create a key | <https://developer.apple.com/account/resources/authkeys/add> |
+| Existing keys | <https://developer.apple.com/account/resources/authkeys/list> |
+| Team ID | <https://developer.apple.com/account> → Membership details |
+
+Sign in as **Account Holder or Admin.** Under a Developer-role account the Keys section is
+read-only or absent, which reads as "the portal is broken" rather than "wrong role".
+
+**The portal now makes you configure the key before it will issue it**, and the two choices are
+not cosmetic:
+
+- **Environment: `Sandbox & Production`.** Not Production alone. `build_push_client` builds *one*
+  `ApnsClient` from one key and picks the host per device from `APNS_HOSTS`, so a
+  production-only key leaves every Xcode debug build — which registers `sandbox` — unable to
+  send at all.
+- **Type: `Team Scoped (All Topics)`.** `resolved_apns_topic` falls back to `APPLE_BUNDLE_ID`,
+  so team scoping needs no allowlist kept in sync with a secret. If you choose Topic Specific
+  instead, select **`com.travisterry.childarchive`** — the app, *not* `.widget` or `.share`.
+  The wrong topic is `DeviceTokenNotForTopic` on every send.
+
+That gives you a `.p8` file and a **Key ID** — which is the `XXXXXXXXXX` in the downloaded
+`AuthKey_XXXXXXXXXX.p8` filename. One APNs key works for both the sandbox and the production
+hosts — the *token* differs per environment, not the key, which is why `devices.environment`
+exists and the API refuses to guess it.
 
 ```bash
 fly secrets set --app rascal-api \
@@ -164,13 +185,27 @@ be bad on the first send, the job would already have claimed and committed those
 — they would be recorded as notified, hear nothing, and be skipped the next run as "already
 sent". Fix the secret, re-run, and everyone whose window has not gone stale still gets it.
 
-**What happens with these unset — which is the state today.** `build_push_client` returns a
-client that sends nothing and logs `push not configured` at WARNING on every attempt. That
-is deliberate: a push service that silently no-ops is indistinguishable from one that works
-until somebody notices their phone has been quiet for a month. The rest of the system runs
-normally, so nothing else is blocked on this.
+**What happens with these unset** — the state before Aug 12, 2026, and the state of any fresh
+environment. `build_push_client` returns a client that sends nothing and logs
+`push not configured` at WARNING on every attempt. That is deliberate: a push service that
+silently no-ops is indistinguishable from one that works until somebody notices their phone has
+been quiet for a month. The rest of the system runs normally, so nothing else is blocked on this.
+
+**This is a two-part failure and the secrets are only half of it.** With the key set but no
+scheduled machine (§4b), the symptom is *identical* — every phone silent, API green, nothing in
+the log, because the job that would have logged never ran. That was the actual state of
+`rascal-api` from deploy until Aug 12, 2026: §4a and §4b were both unexecuted, and each alone is
+sufficient for total silence. **If push is not arriving, check for the machine before you suspect
+the key.** `fly machine list` is the check, and `notification_sends` being *empty* rather than
+full of `delivered_count = 0` rows is what distinguishes the two.
 
 ### 4b. The notification job — a second scheduled machine
+
+**Done Aug 12, 2026 on `rascal-api`: machine `8900ddf6719058` (`throbbing-water-1063`).** It is
+a *second* scheduled machine, alongside the scheduler's `185d762c643778` — they are independent,
+and having one is not having the other. That distinction is what this section existed to prevent
+and what was nonetheless missed: the app ran for over a day with the scheduler machine present,
+the notify machine absent, and no signal anywhere that half the pair was missing.
 
 The send job is `python -m rascal.jobs.notify`, and like the scheduler it is **not created
 or updated by `fly deploy`**. Same shape as §5's scheduler machine, and the same three
@@ -484,8 +519,9 @@ Be suspicious of this file in proportion to this section.
   **Exercised Aug 10, 2026 at `01:06:29Z`** from a device build: `POST /v1/auth/apple → 200`,
   with the `credentials` and `users` rows to show for it. The `aud` claim has now been verified
   against a token Apple actually issued. `docs/blocked.md` §1.
-- **Anything APNs.** The key does not exist, so no push has been sent and the notification job
-  has no scheduled machine. §4a and §4b are both unexecuted — this is the only part of this
-  runbook that has never been run.
+- ~~**Anything APNs.**~~ **Executed Aug 12, 2026.** §4a and §4b have both been run: the key is
+  minted and set as Fly secrets, the notification job's scheduled machine is
+  `8900ddf6719058`, and `api.push.apple.com` answered `HTTP/2 200` to a real send that
+  arrived on a locked phone and deep-linked on tap. `docs/blocked.md` §1a.
 - The hourly schedule *firing on its own*. The machine was created and run once by hand, and
   it exited 0 — but no unattended hourly firing has been observed yet.

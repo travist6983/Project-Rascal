@@ -1,17 +1,23 @@
 # Push notifications — device verification
 
-**Nothing in this feature has been delivered by APNs.** Not once, not in development. The suite
-proves the permission ordering, the token lifecycle, the payload routing, the preference writes
-and the sandbox/production split — and every one of those assertions runs against a stub, a
-simulator, or a `#if`. `xcrun simctl push` injects a payload locally and never touches Apple's
-infrastructure, so it proves the app *handles* a notification and says nothing about whether one
-would ever *arrive*.
+> **Aug 12, 2026 — this checklist is no longer blocked, and it is partly run.** A real
+> notification was delivered: `api.push.apple.com` answered `HTTP/2 200`, it arrived on a locked
+> phone, and tapping it deep-linked to the assignment. Ticked lines below are the ones that run
+> actually proved. **The unticked ones are still unticked** — in particular the force-quit case,
+> the two-environment case, and everything in §4–§7. See `docs/blocked.md` §1a.
+>
+> One line was proved *wrong* rather than confirmed: see the note under §2.
 
-**This is the first checklist blocked on both open items at once.** It cannot be started until
-Apple Developer Program enrollment clears **and** the API is deployed. Enrollment gates the push
-credential and the provisioning profile; the deployed API gates there being any server able to
-send. Running it against `localhost` is not possible — APNs pushes come from Apple, not from your
-machine.
+**Everything below was originally written against a stub.** The suite proves the permission
+ordering, the token lifecycle, the payload routing, the preference writes and the
+sandbox/production split — and every one of those assertions runs against a stub, a simulator,
+or a `#if`. `xcrun simctl push` injects a payload locally and never touches Apple's
+infrastructure, so it proves the app *handles* a notification and says nothing about whether one
+would ever *arrive*. That gap is why this file exists, and why a green test suite never closed it.
+
+**This was the first checklist blocked on both open items at once**, needing Apple Developer
+Program enrollment *and* a deployed API. Both cleared. Running it against `localhost` is still
+not possible — APNs pushes come from Apple, not from your machine.
 
 Tick each line or write down what happened instead. A line that "seemed fine" is not ticked.
 
@@ -24,22 +30,35 @@ profile with the Push Notifications capability enabled.** If enrollment has clea
 capability was never added to the App ID, the build fails to sign — which is the good outcome.
 The bad one is a build that signs against a profile without it and then silently mints no token.
 
-- [ ] The App ID has Push Notifications enabled, and the profile was regenerated **after** it was
-      added. A stale profile is the usual reason this fails.
-- [ ] Install a signed build on a real device and complete onboarding, choosing **Turn it on**.
-- [ ] The system permission prompt appears **exactly once**.
-- [ ] `POST /v1/devices` arrives at the server. Check the row: `platform = ios`,
-      `environment = sandbox` for an Xcode build, and `last_seen_at` set.
-- [ ] Kill and relaunch. A second `POST /v1/devices` arrives and **updates the same row** rather
-      than creating a second one.
+- [x] The App ID has Push Notifications enabled, and the profile was regenerated **after** it was
+      added. A stale profile is the usual reason this fails. — *Proved indirectly and
+      conclusively: the device minted a production token that Apple accepted with a `200`, which
+      is not possible without the capability on the App ID.*
+- [x] Install a signed build on a real device and complete onboarding, choosing **Turn it on**.
+      — *`users.notify_enabled = true`, one `devices` row.*
+- [ ] The system permission prompt appears **exactly once**. — *Not observed; the install
+      predates this run.*
+- [x] `POST /v1/devices` arrives at the server. Check the row: `platform = ios`,
+      `environment = sandbox` for an Xcode build, and `last_seen_at` set. — *Row present:
+      `platform = ios`, `environment = production` (a TestFlight build, which is correct — see
+      §2), `revoked_at` null, `last_seen_at` set.*
+- [x] Kill and relaunch. A second `POST /v1/devices` arrives and **updates the same row** rather
+      than creating a second one. — *`last_seen_at` advanced to `00:38:08Z` on foreground while
+      the table still held exactly one row.*
 
 ## 1. The one that matters most, and no test can tell you
 
 **Does a notification actually arrive, on a locked phone, hours later, with the app terminated?**
 Everything else in this feature is plumbing around that question.
 
-- [ ] Set the send time to a few minutes out. Lock the phone. Put it down and do not touch it.
-- [ ] It arrives. Note the delay between the configured time and the actual delivery.
+- [x] Set the send time to a few minutes out. Lock the phone. Put it down and do not touch it.
+      — *Set to `20:40` America/Detroit at `00:38:01Z`, two minutes out.*
+- [x] It arrives. Note the delay between the configured time and the actual delivery.
+      — *Delivered `00:40:34Z` against a `00:40:00` window: **34 seconds**, and that is the
+      manual-trigger figure, not the product's. The hourly machine fires at `:36` past, so a
+      window at `:40` is served by the **next** hour's run — expect ~56 minutes in normal
+      operation, bounded by the two-hour staleness tolerance. Choosing a send time just after
+      the machine's minute is what makes this small.*
 - [ ] Force-quit the app entirely, set another time, and repeat. **It still arrives.** A
       terminated app is the normal state for this notification — the whole point is that it
       reaches someone who has not opened the app today.
@@ -51,23 +70,32 @@ Everything else in this feature is plumbing around that question.
 **This is the failure with no error message on either side.** A token minted under one
 environment and sent to the other is accepted by APNs and delivered to nobody.
 
-- [ ] A **TestFlight** build registers with `environment = production`. Check the row on the
-      server, not the client log.
-- [ ] A notification sent to that TestFlight device arrives.
+- [x] A **TestFlight** build registers with `environment = production`. Check the row on the
+      server, not the client log. — *Read off the `devices` row on the server.*
+- [x] A notification sent to that TestFlight device arrives. — *`HTTP/2 200` from
+      `api.push.apple.com`, `delivered_count = 1`, and it arrived.*
 - [ ] The Xcode build on the same phone registered a **separate** row with `environment =
       sandbox`, and both rows exist simultaneously. The same token string legitimately appears
-      twice.
+      twice. — *Not exercised. Only the production half is proven.*
 
 > `docs/api-contract.md` describes TestFlight as `sandbox`. **That is wrong** — TestFlight ships
 > through App Store infrastructure and addresses the production host. The client sends
 > `production` for every non-Debug build. If this section fails, this is the first thing to
 > re-read, and the contract's description is what needs correcting.
+>
+> **Confirmed wrong, Aug 12, 2026, and the confirmation is stronger than an inspection.** The
+> `200` came from the *production* host. APNs rejects a sandbox token there with
+> `400 BadDeviceToken`, so Apple accepting it proves the token is genuinely production and the
+> client's mapping is right. **`schemas/device.py:30` and `docs/api-contract.md` are the things
+> that need correcting** — tracked in `docs/blocked.md` §1a as the section's one open item.
 
 ## 3. The tap
 
-The simulator cannot tap a notification, so the whole of this section is unverified.
+The simulator cannot tap a notification, so this section was entirely unverified until
+Aug 12, 2026. The primary case is now proved on a real device; the edge cases are not.
 
-- [ ] Tapping a notification for a **live** assignment opens the composer for that assignment.
+- [x] Tapping a notification for a **live** assignment opens the composer for that assignment.
+      — *Confirmed on the `mission_b` notification delivered at `00:40:34Z`.*
 - [ ] Tapping one for an assignment already completed opens the entry it produced, or Today.
 - [ ] Tapping one whose assignment no longer exists — delete it server-side first — lands on
       **Today**, not on an empty composer.

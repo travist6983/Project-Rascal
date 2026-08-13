@@ -12,10 +12,15 @@ implementations and the choice is made once, by :func:`build_push_client`, from 
 * :class:`StubPushClient` — for tests. Records what it was asked to send and returns
   whatever the test scripted.
 
-**No real APNs call has ever been made from this repository.** The key comes from the same
-Apple Developer enrollment as Sign in with Apple, and that is still open — see
-`docs/blocked.md` §1. `ApnsClient` is written and its pure parts are tested (the provider
-token, the host and header construction, the response mapping); the socket is not.
+**The first real APNs call was made on Aug 12, 2026.** `api.push.apple.com` answered
+`HTTP/2 200` to a production token, the notification arrived on a locked phone, and tapping
+it deep-linked to the assignment. So the topic, the payload shape, the token format and the
+provider-token signature are all confirmed against Apple rather than assumed.
+
+**The socket is still not in the test suite**, and that has not changed. `ApnsClient`'s pure
+parts are tested (the provider token, the host and header construction, the response
+mapping); everything past `self._client.post` is covered by production runs and by
+`docs/device-verification-push.md`, not by pytest.
 
 :class:`PushMessage` is deliberately narrow. It carries a title, a body and an assignment
 id, and there is no field on it that could hold an entry, a transcript, a media key or a
@@ -175,8 +180,9 @@ class UnconfiguredPushClient:
 class ApnsClient:
     """The real client. HTTP/2 to Apple, ES256 provider-token authentication.
 
-    Never exercised against Apple — see the module docstring. What *is* exercised is
-    everything that does not need a socket: the provider token's header and claims, the host
+    Exercised against Apple for the first time on Aug 12, 2026 — see the module docstring —
+    but not by the test suite, which still stops at the socket. What the suite *does* cover
+    is everything that does not need one: the provider token's header and claims, the host
     chosen for each environment, the request headers, and the mapping from an APNs response
     onto :class:`PushResult`.
     """

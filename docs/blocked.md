@@ -13,11 +13,17 @@ been built** — the seal's setness, `children.pronouns`, the avatar presign pai
 resolved. They were checked by reading the merged code on `main`, one grep each, and the greps are
 in each section.
 
-**What is genuinely left on this list is three things**, and only the first is truly yours:
-the APNs key (§1a — the portal trip enrollment now permits), the notification job's scheduled
-machine (§1a, one `fly machine run`), and the multipart-over-cellular upload that has still never
-been performed (§2). Plus the device-verification checklists, which are **unrun rather than
-blocked**, and Phase 16, which is gated on one of them.
+**Aug 12, 2026 — §1a is closed. Push notifications work in production.** The APNs key is minted
+and set as Fly secrets, the notification job has its scheduled machine, and a real notification
+was delivered to a locked phone and deep-linked on tap. Details and the evidence are in §1a.
+
+**What is genuinely left on this list is two things**, and neither is a credential:
+the multipart-over-cellular upload that has still never been performed (§2), and the
+`sandbox`/`production` description bug in `schemas/device.py:30` and `docs/api-contract.md`
+(§1a — TestFlight registers `production`, and the first real send proved it). Plus the
+device-verification checklists, which are **unrun rather than blocked** — though
+`docs/device-verification-push.md` §0–§3 are now largely ticked — and Phase 16, which is gated
+on one of them.
 
 **Aug 11 second pass — the resolved sections were struck but not moved, and that was the defect.**
 The four iOS sections below (Seal control, Onboarding, Timeline v3, Settings) were all correct at
@@ -511,30 +517,44 @@ anywhere.** That is a silent failure, not a crash, so it is the first section of
 first device build; this is not blocked, it is just the one thing to confirm before concluding the
 snapshot pipeline is broken.
 
-### 1a. Push — the enrollment cleared, so this is now the only thing on this page genuinely waiting on you
+### 1a. ~~Push — the enrollment cleared, so this is now the only thing on this page genuinely waiting on you~~ — RESOLVED Aug 12, 2026. **A real notification was delivered.**
 
-**Status as of Aug 11, 2026: no longer blocked, merely not done.** §1 resolved, so the portal trip
-that mints an APNs key is available to make. Nothing is waiting on Apple's approval any more —
-this is waiting on twenty minutes and a `.p8` file.
+**Both actions are done, and the feature works end to end in production.**
 
-**Two actions, both yours, and the second is the one people forget:**
+1. **The key.** Minted in the portal, key id `3V94JLB7NQ`, team `8976QYWNC2`. `APNS_KEY_ID`,
+   `APNS_TEAM_ID` and `APNS_PRIVATE_KEY` are set as Fly secrets on `rascal-api`.
+2. **The scheduled machine.** `fly machine run` created `8900ddf6719058`
+   (`throbbing-water-1063`), hourly, `--restart no`, `init.cmd = python -m rascal.jobs.notify`.
+   It is a **second** scheduled machine alongside the scheduler's `185d762c643778`; the two are
+   independent and `fly deploy` updates neither.
 
-1. **The key.** Certificates, Identifiers & Profiles → Keys → + → Apple Push Notifications service
-   (APNs). Then `APNS_KEY_ID`, `APNS_TEAM_ID` and `APNS_PRIVATE_KEY` as Fly secrets —
-   `docs/runbook-deploy.md` §4a has the exact commands. **The `.p8` downloads exactly once.**
-2. **The scheduled machine** (`docs/runbook-deploy.md` §4b). It is created by hand, like the
-   scheduler's, and **nothing fails if you skip it** — the API stays green, devices register, and
-   no notification is ever sent. This matters more than it does for the scheduler, because
-   `GET /today` repairs a missed assignment and nothing repairs a missed notification.
+**What the first real send proved**, on Aug 12, 2026 at 20:40 America/Detroit:
 
-**One thing is now checkable that was not before, and it is the silent one.** A TestFlight build
-addresses **production** APNs, not sandbox. The client already gets this right —
-`ios/Rascal/Rascal/Push/PushEnvironment.swift` maps Debug to `.sandbox` and everything else to
-`.production`, and its own comment says TestFlight "ships through App Store infrastructure and
-addresses the production host". What is still wrong is the *description*: `schemas/device.py:30`
-and `docs/api-contract.md` both call `sandbox` the value for "a development or TestFlight build".
-No behaviour hangs off either string, but the first person to read them and hand-register a device
-will send the wrong environment and get silence. See the note at the end of the push section below.
+```
+HTTP/2 200 OK  ←  https://api.push.apple.com/3/device/…538530d8
+notify: 1 sent to 1 device(s), 0 failed, 0 dropped as stale
+notification_sends: date 2026-08-12, device_count 1, delivered_count 1, slot mission_b
+```
+
+The notification arrived on a locked phone and **tapping it deep-linked to the assignment**, which
+closes §3 of `docs/device-verification-push.md` — the section that could not be tested at all
+because the simulator cannot tap a notification.
+
+**The sandbox/production split is confirmed correct, not merely untested.** That `200` came from
+the *production* host. A sandbox token sent there is rejected with `400 BadDeviceToken`, so Apple
+accepting it proves the device minted a genuine production token and
+`ios/Rascal/Rascal/Push/PushEnvironment.swift` maps the environment correctly.
+
+**One thing is still wrong, and it is now wrong against evidence rather than against reasoning.**
+`schemas/device.py:30` and `docs/api-contract.md` both describe `sandbox` as the value for "a
+development or TestFlight build". TestFlight registers **production** — that is what was just
+verified. No behaviour hangs off either string, but the first person to read them and
+hand-register a device will send the wrong environment and get silence. **This is the only
+outstanding item in this section**, and it is an API-lane doc/schema fix.
+
+**What is still not covered by pytest:** the socket. `ApnsClient`'s pure parts are tested; the
+call to Apple is verified by production runs and by the device checklist, not by the suite. That
+was true before this and remains true.
 
 The original entry follows.
 
