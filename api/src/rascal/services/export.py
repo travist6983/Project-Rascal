@@ -388,7 +388,13 @@ def staging_path(child_id: uuid.UUID) -> Path:
 
 
 def filename_for(child: Child, now: dt.datetime | None = None) -> str:
-    """`rascal-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder.
+    """`dogear-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder.
+
+    Renamed from `rascal-` on Aug 12, 2026 with the product. **Nothing reads this string** — it is
+    a `Content-Disposition` suggestion, not an identifier — so archives downloaded under the old
+    prefix are unaffected and need no migration. The identifier that *must not* move is
+    `manifest.format`, which is still `rascal-export`: the viewer checks it, and changing it would
+    make every previously exported archive fail to open in a newer viewer.
 
     ASCII only, and not because ASCII is enough for a name. A `Content-Disposition` header is
     encoded latin-1 on the way out, so a name written in Arabic or Japanese would raise while
@@ -399,4 +405,4 @@ def filename_for(child: Child, now: dt.datetime | None = None) -> str:
     stamp = (now or dt.datetime.now(tz=dt.UTC)).strftime("%Y%m%d")
     ascii_only = (ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower())
     slug = "".join(ascii_only).strip("-")
-    return f"rascal-{slug or 'child'}-{stamp}.zip"
+    return f"dogear-{slug or 'child'}-{stamp}.zip"

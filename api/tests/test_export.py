@@ -341,6 +341,9 @@ async def test_the_manifest_says_what_is_in_the_box(
     response = await _download(client, world)
 
     manifest = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
+    # **Stays `rascal-export` through the Dogear rename, on purpose.** This is the identifier
+    # the viewer checks; renaming it would make every archive exported before the rename fail
+    # to open in a newer viewer. The download filename is decoration and did move — below.
     assert manifest["format"] == "rascal-export"
     assert manifest["format_version"] == 1
     assert manifest["child"]["name"] == "Miles"
@@ -356,7 +359,7 @@ async def test_the_manifest_says_what_is_in_the_box(
 
     assert response.headers["x-rascal-export-entries"] == "7"
     assert response.headers["content-length"] == str(len(response.content))
-    assert "rascal-miles-" in response.headers["content-disposition"]
+    assert "dogear-miles-" in response.headers["content-disposition"]
 
 
 async def test_a_name_that_is_not_ascii_still_downloads(
@@ -372,7 +375,7 @@ async def test_a_name_that_is_not_ascii_still_downloads(
     response = await client.get(f"/v1/children/{child.id}/export", headers=auth_headers(user))
     assert response.status_code == 200
     assert response.headers["content-disposition"].isascii()
-    assert "rascal-child-" in response.headers["content-disposition"]
+    assert "dogear-child-" in response.headers["content-disposition"]
 
     manifest = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
     assert manifest["child"]["name"] == "ミロ"
