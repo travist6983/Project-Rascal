@@ -30,7 +30,7 @@ def _entry_body(child, **overrides) -> dict:
         "occurred_at": "2026-08-14T18:22:00Z",
         "body": "He called it a 'hangaburger' again.",
         "entry_type": "text",
-        "tags": ["his-words"],
+        "tags": ["their-words"],
     }
     body.update(overrides)
     return body
@@ -51,7 +51,7 @@ async def test_creating_an_entry_stores_the_age_the_server_computed(
     # 2022-06-14 to 2026-08-14 is 50 completed months. The client never sends this.
     assert body["child_age_months"] == 50
     assert body["author_id"] == str(user.id)
-    assert [tag["name"] for tag in body["tags"]] == ["his-words"]
+    assert [tag["name"] for tag in body["tags"]] == ["their-words"]
     assert body["media"] == []
     assert body["media_count"] == 0
 
@@ -452,7 +452,7 @@ async def test_editing_tags_soft_deletes_the_link_it_removed(
     user, child = await _world(session)
     created = await client.post(
         "/v1/entries",
-        json=_entry_body(child, tags=["his-words", "humor"]),
+        json=_entry_body(child, tags=["their-words", "humor"]),
         headers=auth_headers(user),
     )
     entry_id = created.json()["id"]

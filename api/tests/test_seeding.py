@@ -10,7 +10,7 @@ import sqlalchemy as sa
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rascal.constants import PROMPT_TOKENS
+from rascal.constants import PROMPT_TOKENS, THEMES
 from rascal.models import Prompt
 from rascal.services.seeding import SEEDS_PATH, content_hash, load_seed_file, seed_prompts
 
@@ -28,6 +28,9 @@ ELIGIBLE_AT_48_MONTHS = {
     "monthly": 4,
     "letter": 8,
 }
+
+# The words a prompt library for somebody else's child may not contain, in a body or a slug.
+GENDERED = re.compile(r"\b(he|him|his|himself|she|her|hers|herself)\b", re.IGNORECASE)
 
 TOTAL_PROMPTS = 113
 # Every seeded prompt is served: video returned when multipart shipped, audio when the recorder
@@ -142,11 +145,26 @@ def test_no_seeded_body_assumes_the_child_is_a_boy() -> None:
 
     A regex rather than a spot check, because the failure this guards is one nobody sees —
     a she/her child reading `his hands` on a card, permanently, in an archive meant to
-    outlive the app. `his-words` is a theme slug, not copy, and is not what this reads.
+    outlive the app.
     """
-    gendered = re.compile(r"\b(he|him|his|himself|she|her|hers|herself)\b", re.IGNORECASE)
-    offenders = [row["body"] for row in load_seed_file() if gendered.search(row["body"])]
+    offenders = [row["body"] for row in load_seed_file() if GENDERED.search(row["body"])]
     assert offenders == [], offenders
+
+
+def test_no_theme_in_the_library_assumes_the_child_is_a_boy() -> None:
+    """`his-words` was the last gendered string the library carried, and it outlived the
+    bodies by a phase.
+
+    A theme is not copy — it renders nowhere in the app, which is exactly why it survived
+    the sweep that fixed the sentences. It is still a value in an archive meant to last
+    eighteen years. Both the constant and what the seed file actually holds are checked,
+    because they drift in opposite directions: a theme added to the yaml and not the tuple
+    seeds fine, since `theme` has no CHECK by design.
+    """
+    for theme in THEMES:
+        assert not GENDERED.search(theme), theme
+    for row in load_seed_file():
+        assert not GENDERED.search(row["theme"]), row["theme"]
 
 
 def test_every_token_in_the_library_is_one_a_client_can_render() -> None:

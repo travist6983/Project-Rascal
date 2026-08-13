@@ -5,7 +5,7 @@
   cadence: daily
   completion_mode: text
   body: What did {they} say this week that you want to remember exactly?
-  theme: his-words
+  theme: their-words
   min_age_months: 24
   max_age_months: 216
   month_tags: []
@@ -27,7 +27,7 @@
   cadence: daily
   completion_mode: text
   body: What does {name} call you? Write down every version.
-  theme: his-words
+  theme: their-words
   min_age_months: 24
   max_age_months: 96
   month_tags: []
@@ -82,7 +82,7 @@
   cadence: daily
   completion_mode: text
   body: What word does {name} mispronounce that you don't want to correct?
-  theme: his-words
+  theme: their-words
   min_age_months: 24
   max_age_months: 84
   month_tags: []
@@ -148,7 +148,7 @@
   cadence: daily
   completion_mode: text
   body: What's the last thing {they} asked that you couldn't answer?
-  theme: his-words
+  theme: their-words
   min_age_months: 36
   max_age_months: 216
   month_tags: []
@@ -589,7 +589,7 @@
   cadence: daily
   completion_mode: media
   body: Film {them} telling you about {their} day. Don't prompt {them}.
-  theme: his-words
+  theme: their-words
   min_age_months: 36
   max_age_months: 216
   month_tags: []
@@ -823,7 +823,7 @@
   cadence: daily
   completion_mode: media
   body: Record {them} answering "what's the best thing that happened today?"
-  theme: his-words
+  theme: their-words
   min_age_months: 36
   max_age_months: 216
   month_tags: []
@@ -878,7 +878,7 @@
   cadence: daily
   completion_mode: did_it
   body: Use {their} baby nickname out loud today, while {they_do} still answer to it.
-  theme: his-words
+  theme: their-words
   min_age_months: 24
   max_age_months: 120
   month_tags: []
@@ -933,7 +933,7 @@
   cadence: daily
   completion_mode: did_it
   body: Ask {them} a question and let the silence sit until the answer comes.
-  theme: his-words
+  theme: their-words
   min_age_months: 36
   max_age_months: 216
   month_tags: []

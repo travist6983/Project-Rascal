@@ -112,7 +112,7 @@ async def test_the_whole_daily_loop_through_the_api(
             "assignment_id": question["id"],
             "occurred_at": "2026-08-15T19:04:00Z",
             "body": "He called it a 'hangaburger' again, and corrected me when I said it right.",
-            "tags": ["his-words"],
+            "tags": ["their-words"],
         },
         headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
     )

@@ -1957,3 +1957,19 @@ Two documentation defects the same pass found, both of the kind this project tre
 - **The four `his mom` bodies were rewritten to "someone else in the family", not tokenised.**
   Owner's call, Aug 13, 2026. `{their} mom` fixes the gender and keeps the household shape that
   the library's own rejection rules forbid in new prompts.
+- **The `his-words` theme became `their-words`, and only the unreachable rows needed a migration.**
+  `theme` is in `seeding.MUTABLE_FIELDS` but not in `sha256(kind, cadence, body)`, so re-seeding
+  rewrites a theme on the live rows in place. `0009` exists for what re-seeding can never reach:
+  the 99 prompts phase 24 retired, which are gone from `prompts.yaml` forever and would have kept
+  the old slug permanently. It updates every matching row rather than only the retired ones, so it
+  does not depend on running before or after `make seed`.
+- **Tags were not migrated with the theme.** `tags.name` and `prompts.theme` share vocabulary by
+  convention only — no code path copies one to the other, and `entries.py:237` builds tags purely
+  from client-supplied names. A tag is a word a parent or the on-device model chose about one
+  entry, so rewriting it would be editing the parent's own record. Overrule this if a household
+  ever ends up with a stray `his-words` tag that bothers them; it is one UPDATE.
+- **`test_migrations.py` stopped stepping with `downgrade -1`.** The relative step meant "unwind
+  0008" only while 0008 was head, so 0009 silently retargeted it at a migration with nothing to do
+  with slots. Revisions are named explicitly now. The same fixture is module-scoped and arrives at
+  head, and `upgrade <earlier>` is a no-op in alembic rather than an error — so the new test
+  reaches its starting revision by downgrading from a known head.

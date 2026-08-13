@@ -45,7 +45,7 @@ async def test_a_full_pull_returns_every_entity(client: AsyncClient, session: As
     prompt = await make_prompt(session)
     assignment = await make_assignment(session, child, prompt)
     await session.commit()
-    await _entry(client, user, child, assignment_id=str(assignment.id), tags=["his-words"])
+    await _entry(client, user, child, assignment_id=str(assignment.id), tags=["their-words"])
 
     response = await client.get(
         "/v1/sync", params={"child_id": str(child.id)}, headers=auth_headers(user)
@@ -55,7 +55,7 @@ async def test_a_full_pull_returns_every_entity(client: AsyncClient, session: As
     body = response.json()
     assert len(body["entries"]) == 1
     assert len(body["assignments"]) == 1
-    assert [tag["name"] for tag in body["tags"]] == ["his-words"]
+    assert [tag["name"] for tag in body["tags"]] == ["their-words"]
     assert body["cursor"] is not None
 
 

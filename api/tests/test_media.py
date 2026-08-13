@@ -290,7 +290,7 @@ async def test_a_device_ai_write_never_eats_a_tag_a_human_typed(
     media_id = await _media_for(client, user, entry)
 
     await client.patch(
-        f"/v1/entries/{entry.id}", json={"tags": ["his-words"]}, headers=auth_headers(user)
+        f"/v1/entries/{entry.id}", json={"tags": ["their-words"]}, headers=auth_headers(user)
     )
     response = await client.patch(
         f"/v1/media/{media_id}/derived",
@@ -299,7 +299,7 @@ async def test_a_device_ai_write_never_eats_a_tag_a_human_typed(
     )
 
     by_name = {tag["name"]: tag["source"] for tag in response.json()["tags"]}
-    assert by_name == {"his-words": "user", "dinosaurs": "device_ai"}
+    assert by_name == {"their-words": "user", "dinosaurs": "device_ai"}
 
 
 async def test_a_user_edit_can_drop_a_device_ai_tag(

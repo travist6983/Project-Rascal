@@ -106,7 +106,7 @@ PROMPT_TOKENS: Final = (
 THEMES: Final = (
     "voice",
     "physical-affection",
-    "his-words",
+    "their-words",
     "everyday-ordinary",
     "skills-firsts",
     "relationships",

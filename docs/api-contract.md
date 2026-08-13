@@ -376,7 +376,7 @@ The single call the home screen makes. Returns everything the Today screen rende
   "child": { "id": "...", "name": "Miles", "age_months": 50 },
   "today": [
     { "id": "...", "slot": "question", "body": "What did he say this week...",
-      "kind": "question", "completion_mode": "text", "theme": "his-words",
+      "kind": "question", "completion_mode": "text", "theme": "their-words",
       "status": "pending", "expires_on": "2026-08-28" },
     { "id": "...", "slot": "mission", "body": "Photograph what he built today...",
       "kind": "photo", "completion_mode": "media", "theme": "everyday-ordinary",
@@ -415,7 +415,7 @@ Body:
   "body": "He called it a 'hangaburger' again.",
   "entry_type": "text",
   "unlock_at_age": null,
-  "tags": ["his-words"]
+  "tags": ["their-words"]
 }
 ```
 Header: `Idempotency-Key: {uuid}`. Retries are safe — a replay returns the original `201`
