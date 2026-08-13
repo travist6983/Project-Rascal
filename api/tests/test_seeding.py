@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import collections
+import re
 
+import pytest
 import sqlalchemy as sa
 import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from rascal.constants import PROMPT_TOKENS
 from rascal.models import Prompt
 from rascal.services.seeding import SEEDS_PATH, content_hash, load_seed_file, seed_prompts
 
@@ -66,20 +69,20 @@ def test_every_seeded_prompt_parses_and_validates() -> None:
 def test_age_ranges_and_month_tags_follow_the_conversion_rules() -> None:
     rows = load_seed_file()
     # `all` -> 24..216.
-    describe_his_laugh = next(row for row in rows if row["body"] == "Describe his laugh.")
-    assert (describe_his_laugh["min_age_months"], describe_his_laugh["max_age_months"]) == (
+    describe_the_laugh = next(row for row in rows if row["body"] == "Describe {their} laugh.")
+    assert (describe_the_laugh["min_age_months"], describe_the_laugh["max_age_months"]) == (
         24,
         216,
     )
 
     # An explicit range is carried across verbatim.
-    alphabet = next(row for row in rows if row["body"] == "Record him saying the alphabet.")
+    alphabet = next(row for row in rows if row["body"] == "Record {them} saying the alphabet.")
     assert (alphabet["min_age_months"], alphabet["max_age_months"]) == (30, 84)
 
     # A Months value becomes month_tags; everything else is any-month.
-    snow = next(row for row in rows if row["body"] == "Photograph him in the first snow.")
+    snow = next(row for row in rows if row["body"] == "Photograph {them} in the first snow.")
     assert snow["month_tags"] == [12, 1, 2]
-    assert describe_his_laugh["month_tags"] == []
+    assert describe_the_laugh["month_tags"] == []
 
 
 def test_only_letters_are_sealed_and_they_carry_their_unlock_age() -> None:
@@ -88,7 +91,9 @@ def test_only_letters_are_sealed_and_they_carry_their_unlock_age() -> None:
     assert {row["kind"] for row in sealed} == {"letter"}
     assert len(sealed) == 8
     birth_story = next(
-        row for row in rows if row["body"].startswith("Write down the story of the day he was born")
+        row
+        for row in rows
+        if row["body"].startswith("Write down the story of the day {they_were} born")
     )
     assert birth_story["default_unlock_age"] == 13
 
@@ -130,6 +135,80 @@ def test_each_daily_slots_own_pool_covers_a_fortnight() -> None:
     # `mission_b` pools its three kinds, which is why none of them needs 14 on its own — and
     # video and audio do not have 14 on their own.
     assert eligible("video", "audio", "activity") >= 14
+
+
+def test_no_seeded_body_assumes_the_child_is_a_boy() -> None:
+    """Phase 24, and the reason it happened: the library was 113 bodies of literal he/him.
+
+    A regex rather than a spot check, because the failure this guards is one nobody sees —
+    a she/her child reading `his hands` on a card, permanently, in an archive meant to
+    outlive the app. `his-words` is a theme slug, not copy, and is not what this reads.
+    """
+    gendered = re.compile(r"\b(he|him|his|himself|she|her|hers|herself)\b", re.IGNORECASE)
+    offenders = [row["body"] for row in load_seed_file() if gendered.search(row["body"])]
+    assert offenders == [], offenders
+
+
+def test_every_token_in_the_library_is_one_a_client_can_render() -> None:
+    """A misspelled token is not a crash anywhere — it is literal braces, forever.
+
+    Every renderer passes `{thier}` through intact and never throws, which is the right
+    behaviour downstream of an archive that already exists and the reason a typo here is
+    invisible until someone reads a card. So the seed loader is where it gets caught.
+    """
+    for row in load_seed_file():
+        for token in re.findall(r"\{([^{}]*)\}", row["body"]):
+            assert token in PROMPT_TOKENS, f"{{{token}}} in {row['body']!r}"
+
+
+def test_the_loader_refuses_a_body_carrying_an_unknown_token(tmp_path) -> None:
+    seed = tmp_path / "prompts.yaml"
+    seed.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "kind": "question",
+                    "cadence": "daily",
+                    "completion_mode": "text",
+                    "body": "What did {thier} day look like?",
+                    "theme": "everyday-ordinary",
+                    "min_age_months": 24,
+                    "max_age_months": 216,
+                    "source": "seeded",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="thier"):
+        load_seed_file(seed)
+
+
+def test_an_unclosed_brace_is_text_and_not_a_malformed_token(tmp_path) -> None:
+    """The renderers treat `{` with no `}` as literal text from the brace onwards.
+
+    A validator stricter than the thing it is protecting would reject bodies that render
+    perfectly well, so this pins the two to the same answer.
+    """
+    seed = tmp_path / "prompts.yaml"
+    seed.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "kind": "question",
+                    "cadence": "daily",
+                    "completion_mode": "text",
+                    "body": "What does a { mean to {them} right now?",
+                    "theme": "everyday-ordinary",
+                    "min_age_months": 24,
+                    "max_age_months": 216,
+                    "source": "seeded",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert len(load_seed_file(seed)) == 1
 
 
 def test_content_hash_distinguishes_kind_cadence_and_body() -> None:
@@ -196,14 +275,19 @@ async def test_reseeding_updates_a_changed_prompt_without_duplicating_it(
 async def test_reseeding_never_deletes_a_prompt_dropped_from_the_file(
     session: AsyncSession, tmp_path
 ) -> None:
-    """Entries and assignments point at prompts; removing the markdown row must not orphan them."""
+    """Entries and assignments point at prompts; removing the markdown row must not orphan them.
+
+    It is deactivated instead, which is the distinction the loader turns on: the scheduler
+    stops serving it, and every row that already points at it still resolves.
+    """
     await seed_prompts(session)
     rows = yaml.safe_load(SEEDS_PATH.read_text(encoding="utf-8"))
     dropped = rows.pop()
     shorter = tmp_path / "prompts.yaml"
     shorter.write_text(yaml.safe_dump(rows, allow_unicode=True), encoding="utf-8")
 
-    await seed_prompts(session, shorter)
+    result = await seed_prompts(session, shorter)
+    assert result.retired == 1
 
     survivor = await session.scalar(
         sa.select(Prompt).where(
@@ -212,8 +296,86 @@ async def test_reseeding_never_deletes_a_prompt_dropped_from_the_file(
         )
     )
     assert survivor is not None
+    assert survivor.active is False
     total = await session.scalar(sa.select(sa.func.count()).select_from(Prompt))
     assert total == TOTAL_PROMPTS
+
+
+async def test_rewriting_a_body_retires_the_old_prompt_and_inserts_the_new_one(
+    session: AsyncSession, tmp_path
+) -> None:
+    """The shape of phase 24, at a scale of one.
+
+    The body is the identity, so an edited body is not an update — it is a new prompt plus
+    an old one that must stop being served. Without the retirement half, tokenising 113
+    bodies would leave the pool drawing from 226 and serving `his hands` half the time.
+    """
+    await seed_prompts(session)
+    rows = yaml.safe_load(SEEDS_PATH.read_text(encoding="utf-8"))
+    literal = rows[0]["body"]
+    rows[0]["body"] = "Photograph the mess {they} made, and do not clean it up first."
+    edited = tmp_path / "prompts.yaml"
+    edited.write_text(yaml.safe_dump(rows, allow_unicode=True), encoding="utf-8")
+
+    result = await seed_prompts(session, edited)
+    assert (result.inserted, result.retired) == (1, 1)
+
+    old = await session.scalar(
+        sa.select(Prompt).where(
+            Prompt.content_hash == content_hash(rows[0]["kind"], rows[0]["cadence"], literal)
+        )
+    )
+    assert old.active is False
+    new = await session.scalar(
+        sa.select(Prompt).where(
+            Prompt.content_hash
+            == content_hash(rows[0]["kind"], rows[0]["cadence"], rows[0]["body"])
+        )
+    )
+    assert new.active is True
+
+    # And the retirement is idempotent: a second run finds nothing left to retire and does
+    # not rewrite the row it already retired.
+    assert (await seed_prompts(session, edited)).retired == 0
+
+
+async def test_retirement_never_touches_a_prompt_the_seed_file_never_owned(
+    session: AsyncSession, tmp_path
+) -> None:
+    """The condition the whole mechanism rests on.
+
+    A prompt a parent wrote, or one an llm generated and a reviewer accepted, was never in
+    `prompts.yaml` and is absent from every future version of it. Retiring by absence alone
+    would deactivate it on the next `make seed` — silently, and with nothing in the diff to
+    suggest it had happened.
+    """
+    await seed_prompts(session)
+    theirs = Prompt(
+        kind="question",
+        cadence="daily",
+        completion_mode="text",
+        body="What did {they} notice today that you walked straight past?",
+        theme="everyday-ordinary",
+        min_age_months=24,
+        max_age_months=216,
+        month_tags=[],
+        source="user",
+        active=True,
+        content_hash=content_hash("question", "daily", "walked straight past"),
+    )
+    session.add(theirs)
+    await session.commit()
+
+    rows = yaml.safe_load(SEEDS_PATH.read_text(encoding="utf-8"))
+    rows.pop()
+    shorter = tmp_path / "prompts.yaml"
+    shorter.write_text(yaml.safe_dump(rows, allow_unicode=True), encoding="utf-8")
+
+    result = await seed_prompts(session, shorter)
+    assert result.retired == 1  # the seeded row it dropped, and only that one
+
+    await session.refresh(theirs)
+    assert theirs.active is True
 
 
 async def test_a_new_prompt_is_inserted_on_the_next_seed(session: AsyncSession, tmp_path) -> None:

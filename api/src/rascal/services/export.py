@@ -216,6 +216,11 @@ async def plan_export(session: AsyncSession, child: Child) -> _Plan:
             "name": child.name,
             "birthdate": _iso(child.birthdate),
             "family_timezone": child.family_timezone,
+            # The viewer renders prompt bodies, and since phase 24 every seeded body carries
+            # pronoun tokens. Without this key the archive prints a literal `{their}` — the
+            # server still never renders (`decisions.md`), it just has to ship the answer the
+            # renderer needs. `None` is a real value here and means the they/them column.
+            "pronouns": child.pronouns,
         },
         entries=records,
         fetches=fetches,

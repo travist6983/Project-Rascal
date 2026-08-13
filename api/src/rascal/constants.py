@@ -74,6 +74,33 @@ TAG_SOURCES: Final = ("user", "device_ai")
 Pronouns = Literal["he/him", "she/her", "they/them"]
 PRONOUNS: Final = ("he/him", "she/her", "they/them")
 
+# The prompt token contract, spelled out in `docs/api-contract.md`. Thirteen tokens, and the
+# server renders none of them: bodies are stored and served with tokens intact, and each client
+# substitutes at the last moment before a human reads the sentence.
+#
+# This tuple exists so the seed loader can refuse a body containing `{thier}`. That is not in
+# tension with the rule that a renderer passes an unknown token through literally and never
+# throws — the two are opposite ends of the same contract. A renderer is downstream of an
+# archive that already exists and must never lose a word from it; the authoring pipeline is
+# upstream of everything and is the last place a typo can still be cheap. A misspelled token
+# that gets past here renders as literal braces on a card, in an export, and in a printed book,
+# for as long as the archive exists.
+PROMPT_TOKENS: Final = (
+    "they",
+    "them",
+    "their",
+    "theirs",
+    "themself",
+    "they_are",
+    "they_were",
+    "they_have",
+    "they_do",
+    "They",
+    "Them",
+    "Their",
+    "name",
+)
+
 # Not a CHECK constraint. The scheduler rotates on these, but the library will grow themes
 # and a prompt with an unrecognised theme should be seedable without a migration.
 THEMES: Final = (

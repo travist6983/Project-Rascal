@@ -21,6 +21,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from rascal.constants import PROMPT_TOKENS, PRONOUNS
 from rascal.services import export as export_service
 from test_export import _archive, _download, bucket  # noqa: F401  (bucket is a fixture)
 
@@ -262,8 +263,55 @@ def test_a_file_that_will_not_load_degrades_to_its_metadata() -> None:
 
 
 def test_the_viewer_writes_no_copy_that_assumes_the_childs_gender() -> None:
-    """Client-side strings are neutral and stay that way. The manifest carries no pronouns,
-    so the page addresses the child in the second person and never guesses."""
-    text = "\n".join(_code().values()).lower()
+    """Client-side strings are neutral and stay that way.
+
+    The viewer ships a pronoun table as of phase 24, and `he`, `his` and `her` are *data*
+    inside it — the one place in the viewer those words belong. Everything else is copy,
+    and copy addresses the child in the second person and never guesses. So the table is
+    cut out by name and the rest is checked as strictly as it was before, rather than the
+    check being loosened until the table fits through it.
+    """
+    files = dict(_code())
+    table = re.search(r"  var PRONOUN_COLUMN = \{.*?\n  \};\n", files["assets/app.js"], re.S)
+    assert table, "the pronoun table was renamed or reshaped; this test cuts it out by name"
+    files["assets/app.js"] = files["assets/app.js"].replace(table.group(0), "")
+
+    text = "\n".join(files.values()).lower()
     for word in (" he ", " his ", " him ", " she ", " her ", " hers "):
         assert word not in text, f"{word.strip()!r} appears in a shipped viewer string"
+
+
+def test_the_viewer_implements_the_whole_token_contract() -> None:
+    """Thirteen tokens and three columns, or an archive prints braces at somebody's kitchen
+    table in 2040.
+
+    The contract is `docs/api-contract.md`; `PROMPT_TOKENS` is the same list the seed loader
+    validates against, so a token added there without being added here fails now rather than
+    on the next export.
+    """
+    script = _code()["assets/app.js"]
+    table = re.search(r"var PRONOUN_COLUMN = \{.*?\n  \};", script, re.S).group(0)
+    for token in PROMPT_TOKENS:
+        if token == "name":
+            continue  # not a pronoun; it is read off the manifest's child block
+        assert re.search(rf"\b{token}:", table), f"{{{token}}} is missing from the viewer table"
+    for pronoun in PRONOUNS:
+        assert f'"{pronoun}"' in table, f"the {pronoun} column is missing from the viewer table"
+
+
+def test_every_place_the_viewer_shows_a_prompt_renders_its_tokens() -> None:
+    """Three sites, and the search index is the one that is easy to forget.
+
+    A card and the detail pane are visible the moment anything is wrong. The haystack is
+    not: miss it and the archive looks right but cannot be searched for the words it is
+    actually showing.
+    """
+    script = _code()["assets/app.js"]
+    lines = re.findall(r"[^\n]*raw\.prompt\.body[^\n]*", script)
+    guards = [line for line in lines if "raw.prompt && raw.prompt.body" in line]
+    rendered = [line for line in lines if "renderTokens(String(raw.prompt.body" in line]
+
+    # Every mention of the raw body is either a presence check or a rendered read. A third
+    # kind of line is the bug this is looking for.
+    assert len(guards) + len(rendered) == len(lines), lines
+    assert len(rendered) == 3, rendered

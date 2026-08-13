@@ -57,13 +57,13 @@ scoped by path so a commit in one lane never runs or deploys the other.
 - `dev-login` and every `/debug/*` route are registered only when `ENVIRONMENT == "local"`.
 - Prompts are seeded from `api/seeds/prompts.yaml`. `docs/mission-library.md` is the
   authoring surface; runtime never parses markdown.
-- The seeded library is written he/him, and **that is being reversed: all 113 bodies are to be
-  tokenised** — owner's decision, Aug 12, 2026, in `docs/decisions.md`. Until that phase lands,
-  do not write *new* copy that assumes a child's gender, and do not start the rewrite piecemeal:
-  re-seeding keys idempotency on `sha256(kind, cadence, body)` and never deletes, so a partial
-  pass **inserts** new prompts and leaves the literal ones active and serving. Edit
-  `docs/mission-library.md` and regenerate — never `prompts.yaml` by hand. Client-side strings
-  are already neutral and stay that way.
+- **The seeded library is tokenised.** All 113 bodies carry the pronoun tokens as of phase 24;
+  `constants.PROMPT_TOKENS` is the list and the seed loader rejects a body containing anything
+  else. Never write copy that assumes a child's gender — client-side strings are neutral too and
+  stay that way. Edit `docs/mission-library.md` and regenerate; never touch `prompts.yaml` by
+  hand. Re-seeding keys idempotency on `sha256(kind, cadence, body)`, so **an edited body is a
+  new prompt, not an update** — `seed_prompts` deactivates the seeded rows the file no longer
+  contains, which is what keeps the old and new copies from both serving.
 
 ## Stack (settled — do not substitute)
 

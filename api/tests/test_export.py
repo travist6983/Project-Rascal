@@ -348,6 +348,11 @@ async def test_the_manifest_says_what_is_in_the_box(
     assert manifest["format_version"] == 1
     assert manifest["child"]["name"] == "Miles"
     assert manifest["child"]["family_timezone"] == "America/Detroit"
+    # The key must be present even when unanswered, and null is the answer the viewer's
+    # table reads as they/them. Absent and null are the same thing to `||` in JavaScript,
+    # so this is pinned here rather than left to the viewer to be lenient about.
+    assert "pronouns" in manifest["child"]
+    assert manifest["child"]["pronouns"] is None
     assert manifest["counts"] == {
         "entries": 7,
         "deleted_entries": 1,

@@ -17,7 +17,8 @@ async def _run(path: Path) -> int:
         result = await seed_prompts(session, path)
     print(
         f"prompts: {result.inserted} inserted, {result.updated} updated, "
-        f"{result.unchanged} unchanged ({result.total} in the library)"
+        f"{result.unchanged} unchanged, {result.retired} retired "
+        f"({result.total} in the library)"
     )
     return 0
 
