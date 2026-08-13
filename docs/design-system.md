@@ -16,6 +16,7 @@ extension Color {
     static let periwinkle      = Color(hex: 0x5566D6)  // secondary
     static let periwinkleSoft  = Color(hex: 0xE9EBFB)
     static let periwinkleBorder = Color(hex: 0xDADDF7) // hairline on a periwinkle fill
+    static let periwinkleDeep  = Color(hex: 0x3F4FB0)  // periwinkle text on a periwinkle ground
 
     static let ink             = Color(hex: 0x23253C)  // headlines, body
     static let inkMuted        = Color(hex: 0x6E6A63)  // metadata, timestamps
@@ -342,7 +343,33 @@ Six zones, stacked, and **every one drops out when it is empty.** No reserved sp
 
 The body line is the parent's own preview, else the opening line of the voice transcript, else nothing — and **a line that is not the parent's is set italic**, because the words are somebody else's. Under search the matched sentence outranks both, so a row whose only connection to the query is forty seconds into a recording can say so. A sealed card carries no body and says when it opens instead, in `sealedInk`: the one fact about a sealed letter that is not sealed.
 
-The kind chip pairs fill with ink by tint: `terracottaSoft`/`terracottaDeep`, `periwinkleSoft`/`periwinkle`, `sageSoft`/`sageInk`. Terracotta takes the deep step because the base tint on its own soft fill does not read, and sage on sage is not a chip either. Two tags at most: a third pushes the row past the card on a narrow phone, and a truncated chip reads as a rendering fault rather than as a tag. **"Saving" is a fact about the network** — never an error, never a warning, never a loss.
+The kind chip pairs fill with ink by tint: `terracottaSoft`/`terracottaDeep`, `periwinkleSoft`/**`periwinkleDeep`**, `sageSoft`/`sageInk`. Terracotta and periwinkle both take the deep step because the base tint on its own soft fill does not read, and sage on sage is not a chip either.
+
+> **Contrast, measured Aug 12, 2026.** Chip text is 12pt semibold, which is *not* large text, so
+> the bar is 4.5:1.
+>
+> | Pairing | Ratio | |
+> |---|---|---|
+> | `terracottaSoft`/`terracottaDeep` | **5.73** | passes |
+> | `periwinkleSoft`/`periwinkleDeep` | **6.00** | passes — was `periwinkle` at 4.17 |
+> | `sageSoft`/`sageInk` | **3.96** | **fails, and is a known accepted exception** |
+>
+> **The sage exception is a decision, not a gap.** A `sageDeep` token was offered and declined by
+> the owner on Aug 12, 2026. Sage is the did-it tint — the completion shape that produces no
+> artifact — and it is the quietest thing on the card by design; a deep sage would make the chip
+> on a did-it entry louder than the entry. **It is recorded here so the next contrast audit finds
+> an answer rather than a bug**, which is the same reasoning the paper-grain rejection needed
+> three times before it was written in the words the exports use.
+>
+> `periwinkleDeep` was added for `KindBadge`, which had the identical defect. **The chip pairing
+> is written in three places** — `EntryCard.chipTint`, `EntryDetailScreen.kindChip` and
+> `KindBadge` — and they must move together. A shallower periwinkle was tried and rejected:
+> `#4A5AC4` clears AA on `surface` at 4.99 and **fails on `periwinkleSoft` at 4.33**, which is the
+> ground a question card actually uses.
+>
+> **Glyph tints are a different bar and are unchanged.** `MediaThumbnail` draws an SF Symbol, not
+> text, so it answers to the 3:1 graphical-object requirement and `periwinkle` on `periwinkleSoft`
+> clears it at 4.17. Two tags at most: a third pushes the row past the card on a narrow phone, and a truncated chip reads as a rendering fault rather than as a tag. **"Saving" is a fact about the network** — never an error, never a warning, never a loss.
 
 **The mosaic has four shapes**, by tile count: one (242 tall, 196 for video), two (164), three (62% wide plus two stacked, 216), and a 2×2 (108 per row). Gutters are 4pt of card showing through — no hairline per tile. Past four, the count is **printed on the last tile drawn** — `+8` at 22pt bold in `canvas` over a 30% terracotta wash — and never given a tile of its own: nine photos and four photos must produce the same card height. That tile drops its kind glyph, because a camera icon behind a number is two marks fighting over one square. The count is the server's media count minus the tiles drawn, **not this phone's cache**, so a card holding one downloaded photo of nine still says `+8`.
 
