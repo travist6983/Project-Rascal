@@ -13,6 +13,7 @@ import Foundation
 /// <container>/
 ///   today.json              the widget's, untouched by anything here
 ///   share-inbox/
+///     owner.json            which child the inbox belongs to, written by the app
 ///     records/<entry_id>.json
 ///     media/<media_id>.<ext>
 /// ```
@@ -37,6 +38,7 @@ nonisolated struct ShareInbox: Sendable {
     static let rootDirectoryName = "share-inbox"
     static let recordsDirectoryName = "records"
     static let mediaDirectoryName = "media"
+    static let ownerFilename = "owner.json"
 
     /// Nil when the App Group container is unavailable. Not an error worth surfacing: it is what a
     /// build with entitlements stripped looks like, and CI builds exactly that with
@@ -78,6 +80,10 @@ nonisolated struct ShareInbox: Sendable {
         directory?.appending(path: Self.mediaDirectoryName, directoryHint: .isDirectory)
     }
 
+    var ownerURL: URL? {
+        directory?.appending(path: Self.ownerFilename)
+    }
+
     func recordURL(for id: UUID) -> URL? {
         recordsDirectory?.appending(path: "\(id.uuidString.lowercased()).json")
     }
@@ -91,6 +97,69 @@ nonisolated struct ShareInbox: Sendable {
     static func filename(for mediaId: UUID, ext: String) -> String {
         let cleaned = ext.trimmingCharacters(in: CharacterSet(charactersIn: ". ")).lowercased()
         return "\(mediaId.uuidString.lowercased()).\(cleaned.isEmpty ? "dat" : cleaned)"
+    }
+
+    // MARK: Whose inbox this is
+
+    /// The child the app is signed in as, published for the extension to read.
+    ///
+    /// **The extension has no session and cannot get one.** It is a separate process with no
+    /// token, no `GET /children` and twelve seconds to live; the App Group container is the only
+    /// thing it can see. So the app writes down who it is and the extension stamps that into every
+    /// record it stages — which is what stops a queue of photographs staged by one family being
+    /// drained into another family's archive on a phone that changed hands.
+    ///
+    /// Versioned like everything else in this container. A marker this build cannot read resolves
+    /// to *no owner*, which is the safe direction: shares are refused rather than misfiled.
+    nonisolated struct Owner: Codable, Equatable, Sendable {
+        static let currentVersion = 1
+
+        let version: Int
+        let childId: UUID
+
+        init(version: Int = Owner.currentVersion, childId: UUID) {
+            self.version = version
+            self.childId = childId
+        }
+    }
+
+    /// Record who the inbox belongs to. Called by the app — `ShareDrain` — and never by the
+    /// extension, which is a reader here for the same reason the widget is a reader of the
+    /// snapshot: two writers with no coordination is how a file starts disagreeing with itself.
+    ///
+    /// **`.completeFileProtectionUntilFirstUserAuthentication` for the reason the widget snapshot
+    /// uses it**, and it matters more here: a marker that cannot be read is a share that cannot be
+    /// claimed, and an unclaimable share is discarded. The file holds one opaque uuid, so the
+    /// weaker class costs nothing.
+    ///
+    /// Failure is silent and reported by the return value. There is no user-facing recovery — the
+    /// app's own work is unaffected — and the consequence is felt only in the extension, which
+    /// says plainly that it cannot save.
+    @discardableResult
+    func publishOwner(_ childId: UUID) -> Bool {
+        guard let ownerURL else { return false }
+        guard let data = try? JSONEncoder().encode(Owner(childId: childId)) else { return false }
+        do {
+            try prepareDirectory()
+            try data.write(
+                to: ownerURL,
+                options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Who the inbox belongs to, or nil when nobody has claimed it — no App Group, nobody signed
+    /// in, or a marker written by a build that speaks a different version.
+    func currentOwner() -> UUID? {
+        guard let ownerURL,
+              let data = try? Data(contentsOf: ownerURL),
+              let owner = try? JSONDecoder().decode(Owner.self, from: data),
+              owner.version == Owner.currentVersion
+        else { return nil }
+        return owner.childId
     }
 
     // MARK: Staging bytes
@@ -156,9 +225,19 @@ nonisolated struct ShareInbox: Sendable {
     /// over it, so the app — a separate process that is never asked to wait — reads either a whole
     /// record or no record. A partially written record must never be drained, and this is what
     /// guarantees it rather than a convention someone has to remember.
+    ///
+    /// **A record that arrives unbound is bound here**, to whoever the container currently names.
+    /// The extension already stamps the owner it read when the share opened, and that stamp is
+    /// never overwritten — this is the backstop that makes "a record reached disk unbound while the
+    /// owner was known" a state no writer can produce by forgetting. With no owner published the
+    /// record stays unbound, and `ShareDrain` discards it rather than guessing.
     func write(_ record: PendingShare) throws {
         guard let url = recordURL(for: record.id) else { throw Failure.unavailable }
         try prepare()
+        var record = record
+        if record.ownerChildId == nil, let owner = currentOwner() {
+            record = record.bound(to: owner)
+        }
         guard let data = try? JSONEncoder().encode(record) else { throw Failure.encodingFailed }
         try data.write(to: url, options: [.atomic])
     }
@@ -229,6 +308,29 @@ nonisolated struct ShareInbox: Sendable {
         }
     }
 
+    /// Empty the inbox completely — every record, every staged file, and the owner marker.
+    ///
+    /// **This is the sign-out call**, and it is the counterpart to `WidgetSnapshotStore.clear`:
+    /// what the widget must not keep showing after somebody leaves, the inbox must not keep holding
+    /// for the next person to arrive. Without it a share staged by one family survives on the
+    /// device, and the only thing standing between it and the next family's archive is the owner
+    /// check in `ShareDrain` — one guard, on a permanent archive, is not enough.
+    ///
+    /// **The whole directory goes, not a loop over `pending()`.** A record this build cannot read
+    /// is invisible to `pending()` but still names photographs sitting in `media/`, and leaving
+    /// those behind is exactly the outcome this exists to prevent. Removing the owner marker too
+    /// means anything staged before the next sign-in is unclaimed rather than inherited.
+    ///
+    /// Returns how many records were on disk. Nothing here recreates the directory — `prepare()`
+    /// does that the next time something is staged.
+    @discardableResult
+    func clear() -> Int {
+        guard let directory else { return 0 }
+        let count = recordFiles().count
+        try? FileManager.default.removeItem(at: directory)
+        return count
+    }
+
     /// Media files no surviving record names.
     ///
     /// A share that died between copying bytes and writing its record leaves these, and nothing
@@ -269,9 +371,18 @@ nonisolated struct ShareInbox: Sendable {
     /// are transient copies of photos the library already holds, and backing them up would put a
     /// video into someone's iCloud quota twice.
     private func prepare() throws {
-        guard let directory, let recordsDirectory, let mediaDirectory else { throw Failure.unavailable }
+        guard let recordsDirectory, let mediaDirectory else { throw Failure.unavailable }
+        try prepareDirectory()
         try FileManager.default.createDirectory(at: recordsDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+    }
+
+    /// The root alone, for the owner marker — which the app publishes on every launch, including
+    /// launches where nothing is ever staged. Creating `records/` and `media/` for it would leave
+    /// an inbox that looks prepared for work nobody has asked for.
+    private func prepareDirectory() throws {
+        guard let directory else { throw Failure.unavailable }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         var resource = URLResourceValues()
         resource.isExcludedFromBackup = true

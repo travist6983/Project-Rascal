@@ -248,7 +248,7 @@ struct EditProfileModelTests {
         // Apple's relay addresses are unreliable and `users.email` is nullable for exactly that
         // reason. This is the row that has to survive it.
         let user = try decodeUser(userJSON(email: nil, displayName: "Travis"))
-        let model = EditProfileModel(user: user, fallbackEmail: nil, api: client(StubPerformer()))
+        let model = EditProfileModel(user: user, api: client(StubPerformer()))
 
         #expect(model.email == nil)
         #expect(model.emailIsMissing)
@@ -259,7 +259,7 @@ struct EditProfileModelTests {
     @Test("an email that exists is shown as itself")
     func emailShown() throws {
         let user = try decodeUser(userJSON(email: "travis@example.com", displayName: nil))
-        let model = EditProfileModel(user: user, fallbackEmail: nil, api: client(StubPerformer()))
+        let model = EditProfileModel(user: user, api: client(StubPerformer()))
 
         #expect(model.emailDisplay == "travis@example.com")
         #expect(model.emailIsMissing == false)
@@ -267,21 +267,23 @@ struct EditProfileModelTests {
         #expect(model.displayName.isEmpty)
     }
 
-    @Test("with no user record at all, the configured account stands in")
-    func warmStartFallback() {
-        // A warm start has a token and no user: the record arrived with the sign-in response
-        // and there is no `GET /me` to ask again.
-        let model = EditProfileModel(user: nil, fallbackEmail: "dev@rascal.local", api: client(StubPerformer()))
-        #expect(model.emailDisplay == "dev@rascal.local")
-
-        let blind = EditProfileModel(user: nil, fallbackEmail: nil, api: client(StubPerformer()))
+    @Test("with no user record at all, nothing stands in for the email")
+    func warmStartShowsNoEmail() {
+        // A warm start has a token and no user: the record arrived with the sign-in response and
+        // there is no `GET /me` to ask again. It used to substitute `AppConfig.devLoginEmail`
+        // here, which defaults to `dev@rascal.local` — so the row asserted a developer's address
+        // was the parent's. Absent is a state this screen can say; a stand-in is a claim.
+        let blind = EditProfileModel(user: nil, api: client(StubPerformer()))
+        #expect(blind.email == nil)
+        #expect(blind.emailIsMissing)
+        #expect(blind.emailDisplay == EditProfileModel.absentEmail)
         #expect(blind.emailDisplay == "Not provided")
     }
 
     @Test("save is disabled while unchanged, blank, over-length, or in flight")
     func disabledStates() throws {
         let user = try decodeUser(userJSON(email: "t@example.com", displayName: "Travis"))
-        let model = EditProfileModel(user: user, fallbackEmail: nil, api: client(StubPerformer()))
+        let model = EditProfileModel(user: user, api: client(StubPerformer()))
 
         #expect(model.canSave == false, "unchanged")
 
@@ -305,7 +307,7 @@ struct EditProfileModelTests {
         }
 
         let user = try decodeUser(userJSON(email: "t@example.com", displayName: "Travis"))
-        let model = EditProfileModel(user: user, fallbackEmail: nil, api: client(performer))
+        let model = EditProfileModel(user: user, api: client(performer))
         model.displayName = "Someone Else"
         let saved = await model.save()
 
@@ -321,7 +323,7 @@ struct EditProfileModelTests {
         performer.on("/me") { _ in (ok, 200) }
 
         let user = try decodeUser(userJSON(email: "t@example.com", displayName: "Travis"))
-        let model = EditProfileModel(user: user, fallbackEmail: nil, api: client(performer))
+        let model = EditProfileModel(user: user, api: client(performer))
         model.displayName = "  Travis T  "
         let saved = await model.save()
 

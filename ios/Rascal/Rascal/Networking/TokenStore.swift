@@ -9,8 +9,16 @@ nonisolated struct TokenPair: Equatable, Sendable {
 /// Where the session lives between launches.
 ///
 /// Keychain rather than UserDefaults: these tokens reach a child's photos and voice. Backed by
-/// `kSecAttrAccessibleAfterFirstUnlock` so a background refresh after a reboot still works,
-/// while the values stay unreadable on a device that has never been unlocked.
+/// `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` so a background refresh after a reboot
+/// still works, while the values stay unreadable on a device that has never been unlocked.
+///
+/// **`ThisDeviceOnly`, and the suffix is the point.** Without it the pair is *migratable*: it
+/// rides along in an encrypted Finder or iCloud backup and restores onto a different handset,
+/// where it is a live, rotating session over a child's entire archive that the parent has no
+/// way to see. The documented requirement above — a refresh after a reboot, before first
+/// unlock — is met identically by both classes, so migratability buys nothing and costs that.
+/// The one thing it gives up is a session surviving a restore-to-new-phone, and signing in
+/// again is the correct price for that.
 nonisolated protocol TokenStoring: Sendable {
     func load() -> TokenPair?
     func save(_ pair: TokenPair)
@@ -57,7 +65,10 @@ nonisolated final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
         let query = baseQuery()
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            // Device-bound on purpose — see the note on `TokenStoring`. An item written by an
+            // older build with the migratable class is rewritten with this one by the
+            // `SecItemUpdate` below, so nothing has to migrate it.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)

@@ -342,14 +342,7 @@ struct TodayScreen: View {
     /// Tapping a done card edits the entry behind it.
     private func edit(entryId: UUID) {
         guard let entry = localEntries.first(where: { $0.id == entryId }) else { return }
-        openComposer(
-            ComposerRequest(
-                childId: childId,
-                assignment: nil,
-                mode: entry.body?.isEmpty == false ? .text : .didIt,
-                editing: entry.id
-            )
-        )
+        openComposer(ComposerRequest.editing(entry, in: localMedia, childId: childId))
     }
 
     /// Files on this card that need a decision. Listed individually, never summarised.

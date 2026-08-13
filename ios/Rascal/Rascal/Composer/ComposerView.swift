@@ -24,6 +24,38 @@ struct ComposerRequest: Identifiable {
     var isEditing: Bool { editing != nil }
 }
 
+extension ComposerRequest {
+    /// Opening the one editor on an entry that already exists.
+    ///
+    /// **The mode is read off what is attached, and media comes first.** Both call sites — Today's
+    /// done card and Entry Detail's Edit — used to ask only whether the body was empty, which sent
+    /// every uncaptioned photo entry into `didIt`, where the composer draws a 96pt completion check
+    /// over an entry that has three photographs in it, and every captioned one into `text`, where
+    /// the pictures are equally absent. `media` is the only shape that renders the read-only
+    /// thumbnails, so an entry with files opens there whatever its words say.
+    ///
+    /// The other two branches survive because rule 3 needs them: an entry with no files and no
+    /// words is complete and legitimate, and `didIt` is what one looks like.
+    ///
+    /// `media` may be the whole local table or already scoped to this entry — the predicate here
+    /// covers both, so neither caller can pass the wrong one.
+    static func editing(_ entry: Entry, in media: [Media], childId: UUID) -> ComposerRequest {
+        ComposerRequest(
+            childId: childId,
+            assignment: nil,
+            mode: editMode(for: entry, in: media),
+            editing: entry.id
+        )
+    }
+
+    /// The branch order, separated so a test can pin it without building a view.
+    static func editMode(for entry: Entry, in media: [Media]) -> CompletionMode {
+        if media.contains(where: { $0.entryId == entry.id && $0.deletedAt == nil }) { return .media }
+        if entry.body?.isEmpty == false { return .text }
+        return .didIt
+    }
+}
+
 /// A gesture the parent already chose, before the composer opened.
 enum ComposerOpening: Equatable {
     case library
@@ -532,35 +564,11 @@ struct ComposerView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(existingMedia, id: \.id) { media in
-                        thumbnail(for: media)
+                        AttachedThumbnail(mediaId: media.id, staging: staging)
                     }
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func thumbnail(for media: Media) -> some View {
-        let url = staging.thumbnailURL(for: media.id)
-        Group {
-            #if canImport(UIKit)
-            if let data = try? Data(contentsOf: url), let image = UIImage(data: data) {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                // The local cache is disposable — the bytes are in storage and reachable
-                // through GET /media/{id}/url. A neutral tile is honest; an error is not.
-                Color.surface
-            }
-            #else
-            Color.surface
-            #endif
-        }
-        .frame(width: 84, height: 84)
-        .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-        )
     }
 
     /// Where the date under the pill came from.
@@ -834,6 +842,68 @@ struct ComposerView: View {
             entry.sync = .failed
         }
         try? context.save()
+    }
+}
+
+/// One file already attached to the entry being edited, decoded **once**, when the tile appears.
+///
+/// A child view rather than a `@ViewBuilder` method on the composer, and that is the whole point of
+/// it. The note field's text is `@State` on `ComposerView`, so every character typed re-evaluates
+/// that view's `body` — and the previous version read the JPEG off disk with `Data(contentsOf:)`
+/// and decoded it with `UIImage(data:)` right there, for every attached file, on the main actor.
+/// Editing is a first-class flow here, so that was the ordinary path and not an edge case.
+///
+/// `BackfillThumbnail` settled the same question for the picker grid: the bytes are what gets
+/// cached, "the decode belongs here, where it dies with the tile." A view of its own gives the
+/// decode somewhere to live that the composer's `@State` cannot reach.
+private struct AttachedThumbnail: View {
+    let mediaId: UUID
+    let staging: StagingStore
+
+    #if canImport(UIKit)
+    @State private var image: UIImage?
+    #endif
+
+    var body: some View {
+        // Also the ground before the picture arrives, so the tile never changes size and never
+        // flickers between two shapes. The local cache is disposable — the bytes are in storage
+        // and reachable through GET /media/{id}/url — so a thumbnail that is simply not there
+        // stays this tile: a neutral tile is honest; an error is not. Audio media, which never
+        // had a thumbnail, lands here too.
+        Color.surface
+            .overlay {
+                #if canImport(UIKit)
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
+                #endif
+            }
+            .frame(width: 84, height: 84)
+            .clipShape(RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                    .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+            )
+            // Keyed on the media id: a tile reused for a different file loads that file's picture
+            // rather than keeping the one it was showing.
+            .task(id: mediaId) { await load() }
+    }
+
+    private func load() async {
+        #if canImport(UIKit)
+        // The read is off the main actor. One 84pt tile is small, but a composer opened on an
+        // entry holding ten files would otherwise do ten synchronous disk reads before the sheet
+        // could draw a frame. The decode stays on the tile, where it dies with it.
+        //
+        // **`detached` rather than a plain `Task` or a `nonisolated` helper.** This target builds
+        // with `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` and approachable concurrency, so an
+        // async function called from here runs on the caller's actor unless something says
+        // otherwise — which would put the read straight back on the main thread it is leaving.
+        let url = staging.thumbnailURL(for: mediaId)
+        let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
+        guard !Task.isCancelled, let data else { return }
+        image = UIImage(data: data)
+        #endif
     }
 }
 

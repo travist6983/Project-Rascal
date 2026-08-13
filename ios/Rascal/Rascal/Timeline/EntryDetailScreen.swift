@@ -753,7 +753,6 @@ struct EntryDetailScreen: View {
                     }
                     Text(heading)
                         .typeRole(.cardTitle)
-                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1188,14 +1187,7 @@ struct EntryDetailScreen: View {
     /// second one — the same rule the Today screen's done-card edit follows.
     private func edit() {
         guard let entry else { return }
-        openComposer(
-            ComposerRequest(
-                childId: childId,
-                assignment: nil,
-                mode: entry.body?.isEmpty == false ? .text : .didIt,
-                editing: entry.id
-            )
-        )
+        openComposer(ComposerRequest.editing(entry, in: media, childId: childId))
     }
 
     private func delete() async {

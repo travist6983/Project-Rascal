@@ -47,6 +47,15 @@ extension Color {
     static let surface = Color(hex: 0xFFFDF9)
     static let border = Color(hex: 0xEDE5DA)
 
+    /// The wash's third stop, and therefore the ground a pinned action bar has to fade into at the
+    /// bottom of a washed screen.
+    ///
+    /// **Named because two places have to agree on it.** It was written as a literal at the use
+    /// sites — a hand-copy of the gradient's tail — so editing the wash desynced the backdrop that
+    /// is supposed to disappear into it, silently and only at the bottom of two screens. One name,
+    /// read by `Gradients.wash` and by every `PinnedActionBackdrop` standing on it.
+    static let washTail = Color(hex: 0xFBF6EF)
+
     /// The third step down the ink ramp, below `inkMuted`. Weekday labels, the closing line at
     /// the bottom of the archive, the date above a quoted prompt — text that is present but is
     /// never the thing being read.
@@ -69,6 +78,18 @@ extension Color {
 
     /// Neutral chip fill — a tag, not a kind. Warmer than `border`, which is a line colour.
     static let chipPlain = Color(hex: 0xF4EEE5)
+
+    /// The warm print in the drifted stack of rectangles standing in for photographs — the
+    /// illustration `docs/design-system.md` allows an angle for — and the shared-photos squares on
+    /// the limited-access screen.
+    ///
+    /// **A token rather than a literal because the palette genuinely has no pale terracotta fill.**
+    /// The doc says so outright — "there is no terracotta hairline token to reach for" — which is
+    /// why this colour got improvised at two use sites instead of found. `chipPlain` is the nearest
+    /// neutral and is far too light: against it the warm print all but vanishes into the `surface`
+    /// print beside it, and the stack stops reading as a stack. Illustration only. It is never a
+    /// ground for content and never a card fill.
+    static let printWarm = Color(hex: 0xE9DCCB)
 
     // MARK: Quote rules
     //
@@ -99,7 +120,7 @@ extension Color {
 /// entries. Diffuse and low contrast; it is never a background for ordinary content.
 enum Gradients {
     static let wash = LinearGradient(
-        colors: [Color(hex: 0xFDE8DC), Color(hex: 0xF7DDE8), Color(hex: 0xFBF6EF)],
+        colors: [Color(hex: 0xFDE8DC), Color(hex: 0xF7DDE8), .washTail],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )

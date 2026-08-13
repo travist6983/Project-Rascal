@@ -340,7 +340,13 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
     }
 
     func creationDates() async throws -> (onDevice: [Date], cloudOnly: [Date]) {
-        try await Task.detached(priority: .utility) {
+        // **Cancellation has to be carried across the detachment by hand.** The hop off the main
+        // thread is not optional — enumerating 40,000 assets there would block the app — but a
+        // detached task inherits nothing from its creator, cancellation included, and awaiting
+        // `.value` does not forward it either. Without this handler the `Task.isCancelled` checks
+        // below can never be true, `BackfillScanner.cancel()` stops nothing, and the Cancel button
+        // reports a scan that is still walking the library. Same shape as `thumbnail(for:)`.
+        let work = Task.detached(priority: .utility) {
             let options = PHFetchOptions()
             // Dates only. Nothing here requests an image, so nothing triggers an iCloud
             // download — **assets not on the device are counted, never fetched.**
@@ -370,7 +376,12 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
             }
             if cancelled { throw CancellationError() }
             return (onDevice, cloudOnly)
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     /// Metadata only. `PHAssetResource` describes what exists without asking for the bytes, so
@@ -386,7 +397,11 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
     // MARK: One month's assets
 
     func assets(in month: BackfillMonth) async throws -> [BackfillAsset] {
-        try await Task.detached(priority: .userInitiated) {
+        // Cancelled the same way `creationDates()` is, and for the same reason: leaving the month
+        // picker has to stop this fetch, and a detached task will not hear about it otherwise.
+        // The result type is spelled out because the empty-month `return []` below has no other
+        // context to infer from once the task is bound to a variable rather than awaited inline.
+        let work = Task.detached(priority: .userInitiated) { () -> [BackfillAsset] in
             let calendar = Calendar.current
             var start = DateComponents()
             start.year = month.year
@@ -425,7 +440,12 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
             }
             if cancelled { throw CancellationError() }
             return assets
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     /// The one caching manager the picker warms.

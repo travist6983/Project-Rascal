@@ -28,10 +28,14 @@ final class ShareDrain {
     let inbox: ShareInbox
     let staging: StagingStore
     let context: ModelContext
-    /// Resolved by the gate at launch and handed down. **The extension deliberately does not know
-    /// which child this is for** — it has no session and no `GET /children`, and asking a parent
-    /// to pick one inside a share sheet is a question a twelve-second screen cannot afford.
+    /// Resolved by the gate at launch and handed down. **The extension deliberately does not
+    /// choose which child a share is for** — it has no session and no `GET /children`, and asking a
+    /// parent to pick one inside a share sheet is a question a twelve-second screen cannot afford.
     /// Multi-kid selection is out of scope for this phase either way.
+    ///
+    /// What it does know is which child the app last published as the inbox's owner, because this
+    /// type writes that down (see `init`). That is a binding, not a choice: it says whose queue
+    /// this is, and this drain files nothing that says it belongs to somebody else.
     let childId: UUID
 
     /// One ingest at a time, for the reason `EntrySync.running` and `MediaCoordinator.sweeping`
@@ -53,6 +57,14 @@ final class ShareDrain {
     /// before this guard existed.
     private var running = false
 
+    /// **Publishing the owner is part of constructing the drain**, because this is the first moment
+    /// the app knows which child the inbox belongs to — the gate has resolved the child, and the
+    /// extension may be asked to stage something a second later. Doing it at a call site instead
+    /// would make the binding something a future screen can forget to set up, and a forgotten
+    /// binding is a share that gets discarded as unclaimed.
+    ///
+    /// It costs one small write per launch. The marker is cleared on sign-out by `ShareInbox.clear`
+    /// and re-published here at the next sign-in, so it names the current session or nobody.
     init(
         inbox: ShareInbox = .shared,
         staging: StagingStore = StagingStore(),
@@ -63,6 +75,7 @@ final class ShareDrain {
         self.staging = staging
         self.context = context
         self.childId = childId
+        inbox.publishOwner(childId)
     }
 
     struct Result: Equatable {
@@ -81,6 +94,15 @@ final class ShareDrain {
         /// Records that named files and had none left, with nothing written on them. There is
         /// nothing left to recover and nothing to keep.
         var unrecoverable = 0
+        /// Records staged for a different child. **Left exactly where they are** — they are
+        /// somebody's photographs, and this session is not the one entitled to decide what happens
+        /// to them. Signing out empties the inbox; a drain built for that child drains them.
+        ///
+        /// Worth knowing when multi-kid switching lands: a drain is bound to one child, so the
+        /// switch has to build a new one or the other child's shares stay counted here forever.
+        var foreign = 0
+        /// Records that name no child at all, discarded. See `ingest`.
+        var unclaimed = 0
         /// Bytes belonging to a share that never got a record — a cancel, or an extension killed
         /// between the copy and the write.
         var orphansSwept = 0
@@ -94,6 +116,17 @@ final class ShareDrain {
     /// is `synced` does `MediaCoordinator.dueMedia` consider its media — which is the standing
     /// entries-before-media ordering, inherited rather than re-implemented. An extension that
     /// uploaded on its own would have had to break it.
+    ///
+    /// **Only this child's shares are filed.** A phone gets handed on, and the inbox is a queue in
+    /// a shared container that outlives any one session: without this check, family A's photographs
+    /// are filed under family B's child and pushed into B's archive on the server, permanently and
+    /// invisibly. So a record naming another child is skipped, and a record naming nobody —
+    /// staged while signed out, or by a build from before the binding existed — is **discarded**.
+    ///
+    /// Discarding is the deliberate half. Keeping an unclaimed record means filing it under a guess
+    /// at some later launch, and there is no recovering from a stranger's child appearing in an
+    /// archive that is supposed to be permanent. What is lost by discarding is small and repairable
+    /// by comparison: the original is still in Photos and the parent can share it again.
     @discardableResult
     func ingest() async -> Result {
         var result = Result()
@@ -109,7 +142,21 @@ final class ShareDrain {
                 // **The double-drain guard.** The id came from the extension, so it is the same
                 // one a previous pass used. Nothing is written, and `reap` decides separately
                 // whether the inbox copy may go.
+                //
+                // Ahead of the owner check on purpose: a record that has already become an entry
+                // has already been filed, and discarding it here would throw away the inbox copy
+                // of a share whose media may still be mid-conversion. `reap` removes it once the
+                // server confirms, which is the one place allowed to.
                 result.alreadyPresent += 1
+                continue
+            }
+            guard let owner = record.ownerChildId else {
+                inbox.remove(record)
+                result.unclaimed += 1
+                continue
+            }
+            guard owner == childId else {
+                result.foreign += 1
                 continue
             }
             await ingest(record, into: &result)

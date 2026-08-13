@@ -276,6 +276,50 @@ struct ExtractionTests {
         #expect(entry.extractedAt != nil)
     }
 
+    // MARK: - What actually reaches the archive
+
+    /// **The whole result, routed through the queue rather than read back off the stub.**
+    ///
+    /// A model returns five fields; exactly one of them becomes durable. `people` and `place`
+    /// join `tags` because they are the findable part, and `mood` and `summary` are produced and
+    /// then deliberately dropped — this phase adds tags beside the parent's words and nothing
+    /// else. Asserting that against the request the queue actually sent is the only way to see
+    /// it; asking the stub what it was configured with proves nothing about any of it.
+    @Test("A full result reaches the server as device_ai tags, and as nothing else")
+    func aFullResultIsWrittenAsTagsOnly() async throws {
+        let context = try makeContext()
+        let entry = makeEntry(in: context)
+        let performer = patchPerformer(entryId: entry.id)
+        let queue = ExtractionQueue(
+            api: client(performer),
+            context: context,
+            extractor: StubExtractor(
+                result: ExtractedDetails(
+                    people: ["Ada"], place: "the beach", mood: "delighted",
+                    tags: ["sand", "sea"], summary: "An afternoon at the shore."
+                )
+            )
+        )
+
+        // Two tags, one person, one place — four names, under the limit of five.
+        #expect(await queue.extract(entryId: entry.id) == .extracted(tagCount: 4))
+
+        let body = try #require(performer.requests.last?.httpBody)
+        let raw = try JSONSerialization.jsonObject(with: body)
+        let payload = try #require(raw as? [String: Any])
+        let tags = try #require(payload["tags"] as? [[String: String]])
+
+        // Tags first, then people, then place — the model's own ordering survives.
+        #expect(tags.compactMap { $0["name"] } == ["sand", "sea", "Ada", "the beach"])
+        #expect(tags.allSatisfy { $0["source"] == "device_ai" })
+        // Exactly one top-level key. A mood or a summary in this payload would be the model
+        // writing prose into a permanent record beside the parent's own.
+        #expect(payload.keys.sorted() == ["tags"])
+
+        #expect(entry.extractedAt != nil, "stamped, so it is never re-run")
+        #expect(entry.body == "A long afternoon at the beach with Ada.")
+    }
+
     @Test("An entry with no body is skipped")
     func noBodyIsSkipped() async throws {
         let context = try makeContext()
@@ -338,22 +382,5 @@ struct ExtractedDetailsTests {
         #expect(details.place == nil)
         #expect(details.mood == nil)
         #expect(details.summary == nil)
-    }
-
-    @Test("A known body yields the expected shape against a stubbed model")
-    func knownBodyYieldsExpectedShape() async throws {
-        let stub = StubExtractor(
-            result: ExtractedDetails(
-                people: ["Ada"], place: "the beach", mood: "delighted",
-                tags: ["sand", "sea"], summary: "An afternoon at the shore."
-            )
-        )
-        let details = try await stub.extract(from: "A long afternoon at the beach with Ada.")
-
-        #expect(details.people == ["Ada"])
-        #expect(details.place == "the beach")
-        #expect(details.mood == "delighted")
-        #expect(details.tags == ["sand", "sea"])
-        #expect(details.summary == "An afternoon at the shore.")
     }
 }
