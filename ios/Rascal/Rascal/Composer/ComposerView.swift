@@ -700,9 +700,16 @@ struct ComposerView: View {
         // Cache the prompt at the moment it is answered.
         //
         // The timeline card quotes the prompt the entry answered, and there are only two other
-        // places it could come from: `GET /entries/{id}`, which the list never calls, and a
-        // cached `Assignment`, which only `/sync` writes and `/sync` ships disabled. So without
-        // this the quote on an entry written today would not appear until the parent opened it.
+        // places it could come from: `GET /entries/{id}`, which the list never calls, and
+        // `prompt_body` on the list row, which arrives only once the entry has been round-tripped
+        // to the server and read back.
+        //
+        // **Reviewed Aug 12, 2026, when the client started decoding `prompt_body`, and
+        // deliberately kept.** That decode covers every row the server has answered for; this
+        // covers the gap the server cannot — between pressing Save and the first successful list
+        // fetch, which on a plane or a bad signal is unbounded. An entry written offline would
+        // otherwise show a card with no quote until the network came back, and the archive's whole
+        // promise is that pressing Save is the end of the parent's obligation.
         //
         // The composer already has the sentence in hand — it is on screen above the field the
         // parent is typing into — so writing it down costs nothing and makes the card correct

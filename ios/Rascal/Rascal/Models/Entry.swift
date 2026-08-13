@@ -203,11 +203,21 @@ final class Entry {
         // this app would ever reconcile, because editing a seal has no UI. Copying it means the
         // card tells the truth about the permanent record.
         unlockAtAge = response.unlockAtAge
-        // Only `GET /entries/{id}` carries the prompt. A list response must not blank a value
-        // the detail fetch already cached.
-        if let prompt = response.prompt {
-            promptBody = prompt.body
-            promptKind = prompt.kind
+        // **Two sources, different reach.** `prompt_body` is on every row including list rows;
+        // the whole `prompt` object is `GET /entries/{id}` only and is the sole source of the
+        // *kind*. Detail wins where both arrived — they are the same sentence, and preferring the
+        // one that travels with the kind keeps body and kind from ever coming off different
+        // responses.
+        //
+        // **Both writes stay conditional, and that is the load-bearing part.** A response that
+        // omits either field must not blank a value an earlier response cached: a freeform entry
+        // legitimately has no prompt, so nil means "nothing to say here", never "erase what you
+        // have". This is why it is not a plain assignment.
+        if let body = response.prompt?.body ?? response.promptBody {
+            promptBody = body
+        }
+        if let kind = response.prompt?.kind {
+            promptKind = kind
         }
         sync = .synced
     }
@@ -357,10 +367,21 @@ nonisolated struct EntryResponse: Decodable, Identifiable, Sendable {
     /// `GET /entries/{id}` only. Nil on a list row and nil for a freeform entry — the two are
     /// indistinguishable here on purpose, because neither renders a prompt block.
     let prompt: PromptRefResponse?
+    /// `EntryOut.prompt_body` — the sentence this entry answered, on **every** row including list
+    /// rows, which is what lets a timeline card quote it without a per-row fetch.
+    ///
+    /// It is the *assignment's* resolved body, so a parent-authored `custom_body` wins over the
+    /// library prompt it replaced — what was actually on screen, not `prompts.body`.
+    ///
+    /// Nil for a freeform entry, which has no prompt behind it. `prompt` above carries the whole
+    /// `PromptRef` and is the only source of the **kind**; this is the only source of the body on
+    /// a list row.
+    let promptBody: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, childId, assignmentId, occurredAt, createdAt, updatedAt, deletedAt
         case title, body, entryType, childAgeMonths, unlockAtAge, tags, media, mediaCount, prompt
+        case promptBody
     }
 
     init(from decoder: Decoder) throws {
@@ -381,5 +402,6 @@ nonisolated struct EntryResponse: Decodable, Identifiable, Sendable {
         media = try container.decodeIfPresent([MediaSummaryResponse].self, forKey: .media) ?? []
         mediaCount = try container.decodeIfPresent(Int.self, forKey: .mediaCount) ?? media.count
         prompt = try container.decodeIfPresent(PromptRefResponse.self, forKey: .prompt)
+        promptBody = try container.decodeIfPresent(String.self, forKey: .promptBody)
     }
 }

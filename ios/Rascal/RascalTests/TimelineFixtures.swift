@@ -24,6 +24,10 @@ func entryJSON(
     tags: [String] = [],
     media: [String] = [],
     prompt: String? = nil,
+    // `EntryOut.prompt_body`, which every row carries — as opposed to `prompt`, the whole
+    // `PromptRef`, which only `GET /entries/{id}` sends. Defaults to nil so existing callers are
+    // unchanged, and so a caller can build the list-row shape and the detail shape separately.
+    promptBody: String? = nil,
     updatedAt: Date? = nil,
     deletedAt: Date? = nil
 ) -> String {
@@ -48,6 +52,7 @@ func entryJSON(
      "body":\(body.map { "\"\($0)\"" } ?? "null"),
      "entry_type":"\(type)","child_age_months":\(ageMonths),
      "unlock_at_age":\(unlockAtAge.map(String.init) ?? "null"),
+     "prompt_body":\(promptBody.map { "\"\($0)\"" } ?? "null"),
      \(promptJSON)
      "tags":[\(tagJSON)],"media":[\(media.joined(separator: ","))],
      "media_count":\(media.count)}

@@ -17,13 +17,19 @@ in each section.
 and set as Fly secrets, the notification job has its scheduled machine, and a real notification
 was delivered to a locked phone and deep-linked on tap. Details and the evidence are in §1a.
 
-**What is genuinely left on this list is two things**, and neither is a credential:
-the multipart-over-cellular upload that has still never been performed (§2), and the
-`sandbox`/`production` description bug in `schemas/device.py:30` and `docs/api-contract.md`
-(§1a — TestFlight registers `production`, and the first real send proved it). Plus the
+**What is genuinely left on this list is one thing**, and it is not a credential: the
+multipart-over-cellular upload that has still never been performed (§2). Plus the
 device-verification checklists, which are **unrun rather than blocked** — though
 `docs/device-verification-push.md` §0–§3 are now largely ticked — and Phase 16, which is gated
 on one of them.
+
+> **This paragraph said "two things" for about an hour, and the second one had already been
+> fixed.** It named the `sandbox`/`production` description bug in `schemas/device.py` and
+> `docs/api-contract.md`; commit `39fb97f` had corrected both earlier the same day. It was
+> copied here from `roadmap-status.md` without a grep, which is the exact failure that file
+> records five times over — and it propagated into two more documents before anyone checked.
+> **The rule that would have caught it is already written down: a shipped-status claim carries
+> the command that proves it.** One `git log -L` closed it.
 
 **Aug 11 second pass — the resolved sections were struck but not moved, and that was the defect.**
 The four iOS sections below (Seal control, Onboarding, Timeline v3, Settings) were all correct at
@@ -545,12 +551,10 @@ the *production* host. A sandbox token sent there is rejected with `400 BadDevic
 accepting it proves the device minted a genuine production token and
 `ios/Rascal/Rascal/Push/PushEnvironment.swift` maps the environment correctly.
 
-**One thing is still wrong, and it is now wrong against evidence rather than against reasoning.**
-`schemas/device.py:30` and `docs/api-contract.md` both describe `sandbox` as the value for "a
-development or TestFlight build". TestFlight registers **production** — that is what was just
-verified. No behaviour hangs off either string, but the first person to read them and
-hand-register a device will send the wrong environment and get silence. **This is the only
-outstanding item in this section**, and it is an API-lane doc/schema fix.
+**The description bug this section used to carry is fixed**, in commit `39fb97f` on Aug 12 —
+earlier the same day as the first real send, and before this section claimed it was outstanding.
+`schemas/device.py` and `docs/api-contract.md` now both say `production` covers "**TestFlight and
+the App Store alike**". **Nothing in this section is open.**
 
 **What is still not covered by pytest:** the socket. `ApnsClient`'s pure parts are tested; the
 call to Apple is verified by production runs and by the device checklist, not by the suite. That

@@ -173,19 +173,29 @@ extension EntryCardModel {
                 of: entry.body,
                 lines: entry.type == .text ? 3 : 2
             ),
-            // **`prompt_body` is on the list row now, so there is nothing to fall back to.**
+            // **`prompt_body` is on the list row and the client decodes it, so there is nothing
+            // to fall back to.** The second half of that sentence was missing for a while and it
+            // mattered — see below.
             //
             // It used to be filled only by `GET /entries/{id}`, which left it nil on every
-            // timeline row — so the card looked the completed assignment up in the local cache
-            // to find the same sentence. `EntryOut` carries `prompt_body` today (verified in
-            // phase 19: eleven of eleven assignment-backed rows returned it non-null), and the
-            // fallback resolved nothing anyway, because `Assignment` rows are written only by
-            // `SyncEngine` from a `/sync` response and sync pull ships behind `syncPullEnabled`,
-            // which is off.
+            // timeline row, so the card looked the completed assignment up in the local cache to
+            // find the same sentence. That fallback went in PR #48 on the grounds that `EntryOut`
+            // carries `prompt_body` (it does, and did) — **but `EntryResponse` did not decode the
+            // field until Aug 12, 2026.** For that window the server sent the sentence, the client
+            // dropped it on the floor, and the fallback that would have covered it was gone. The
+            // symptom was narrow enough to survive review: entries composed on *this* device kept
+            // their quote from the write below, and anything opened in detail healed itself, so
+            // what actually went blank was a timeline row for an entry this phone had never
+            // composed or opened — which on a single-device archive is close to nothing, and stops
+            // being nothing the moment sync pull or a second parent arrives.
+            //
+            // **The lesson is the shape, not the field:** deleting a fallback needs the thing it
+            // was falling back to checked on *both* sides of the wire. The server carrying a value
+            // is half of an answer.
             //
             // A freshly composed entry is still correct offline and immediately, because
             // `ComposerView` writes the prompt onto the row at composition time — that write is
-            // not this fallback and did not go with it.
+            // not this fallback, did not go with it, and is deliberately kept.
             prompt: entry.promptBody,
             type: entry.type,
             ageMonths: entry.childAgeMonths,

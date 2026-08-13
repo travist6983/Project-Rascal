@@ -77,6 +77,31 @@ struct TimelineWireTests {
         #expect(entry.media.first?.durationSeconds == 34)
     }
 
+    @Test("a list row carries prompt_body even though it carries no prompt object")
+    func decodesPromptBodyOnAListRow() throws {
+        // The regression this exists for: `EntryOut.prompt_body` shipped, PR #48 deleted the
+        // client's assignment-lookup fallback on the strength of it, and nothing decoded the
+        // field for the next day. The server sent the sentence and the client dropped it.
+        let entry = try decode(
+            EntryResponse.self,
+            Data(entryJSON(
+                id: UUID(), childId: UUID(), occurredAt: Date(), type: "photo",
+                promptBody: "Take a picture of what he built"
+            ).utf8)
+        )
+        #expect(entry.prompt == nil, "a list row still carries no prompt object")
+        #expect(entry.promptBody == "Take a picture of what he built")
+    }
+
+    @Test("a freeform entry decodes with no prompt body rather than failing")
+    func decodesFreeformWithNoPromptBody() throws {
+        let entry = try decode(
+            EntryResponse.self,
+            Data(entryJSON(id: UUID(), childId: UUID(), occurredAt: Date()).utf8)
+        )
+        #expect(entry.promptBody == nil)
+    }
+
     @Test("moments decodes both the grouped answer and the warm redirect")
     func decodesMoments() throws {
         let grouped = try decode(MomentsResponse.self, Data("""
@@ -219,13 +244,16 @@ struct EntryCacheTests {
         type: String = "text",
         body: String? = "from the server",
         tags: [String] = [],
-        media: [String] = []
+        media: [String] = [],
+        prompt: String? = nil,
+        promptBody: String? = nil
     ) throws -> EntryResponse {
         try APIClient.decoder.decode(
             EntryResponse.self,
             from: Data(entryJSON(
                 id: id, childId: childId, occurredAt: occurredAt,
-                type: type, body: body, tags: tags, media: media
+                type: type, body: body, tags: tags, media: media,
+                prompt: prompt, promptBody: promptBody
             ).utf8)
         )
     }
@@ -242,6 +270,50 @@ struct EntryCacheTests {
         #expect(rows.first?.tagNames == ["bedtime"])
         #expect(rows.first?.sync == .synced)
         #expect(rows.first?.existsOnServer == true)
+    }
+
+    @Test("a list row's prompt_body reaches the cached entry, so the card can quote it")
+    func listRowPromptBodyReachesTheRow() throws {
+        let context = try makeContext()
+        let id = UUID()
+        EntryCache.upsert(
+            [try response(id: id, promptBody: "Take a picture of what he built")],
+            into: context
+        )
+
+        let row = try #require(try context.fetch(FetchDescriptor<Entry>()).first)
+        // Without this the timeline card renders with no quote until the entry is opened.
+        #expect(row.promptBody == "Take a picture of what he built")
+    }
+
+    @Test("a response with no prompt_body does not blank a body already cached")
+    func nilPromptBodyDoesNotBlankTheCache() throws {
+        // The conditional write is the load-bearing part. A freeform entry legitimately has no
+        // prompt, so nil means "nothing to say", never "erase what you have" — and a plain
+        // assignment here would wipe the detail fetch's answer on the next list refresh.
+        let context = try makeContext()
+        let id = UUID()
+        EntryCache.upsert([try response(id: id, promptBody: "the original sentence")], into: context)
+        EntryCache.upsert([try response(id: id, promptBody: nil)], into: context)
+
+        let row = try #require(try context.fetch(FetchDescriptor<Entry>()).first)
+        #expect(row.promptBody == "the original sentence")
+    }
+
+    @Test("the detail prompt wins over prompt_body, so body and kind come off one response")
+    func detailPromptWinsOverPromptBody() throws {
+        let context = try makeContext()
+        let id = UUID()
+        EntryCache.upsert(
+            [try response(id: id, prompt: "the detail sentence", promptBody: "the list sentence")],
+            into: context
+        )
+
+        let row = try #require(try context.fetch(FetchDescriptor<Entry>()).first)
+        // They are the same sentence in production. Preferring the one that travels with the
+        // kind is what stops body and kind ever coming off different responses.
+        #expect(row.promptBody == "the detail sentence")
+        #expect(row.promptKind != nil)
     }
 
     @Test("an entry written here and fetched back is the same row, never two")

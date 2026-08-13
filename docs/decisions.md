@@ -178,7 +178,17 @@ Three invariants, all of which are assertions:
   exports actually use, so the next import can close it by reading rather than by asking.**
   The exports will keep carrying it; that is a property of the design system they come from, not a
   new argument.
-- Condensed poster type, rotated headlines, type breaking the grid
+- **Facebook / Meta as a sign-in provider — written down Aug 12, 2026, having been true and
+  unrecorded since the beginning.** The `credentials` CHECK constraint has permitted `apple` and
+  `google` since migration `0001` and has never listed `meta`; no code in either lane has ever
+  referenced it. **The absence was the finding**: an unwritten rejection is indistinguishable from
+  an option nobody considered, which is the same failure the paper-grain bullet above records.
+  The reason is the product's, not the protocol's — this archive is a private record of a child,
+  built by a parent who is choosing where it lives, and routing its identity through an ad-tech
+  company is a contradiction of the thing being sold. Sign in with Apple is the primary; Google is
+  the planned second because it is the credential a non-Apple household already has. Neither
+  argument extends to Meta. **Adding it later would need no schema change** — that is the point of
+  rule 2 — so this costs nothing to reverse if the reasoning ever changes.
 - Passport-stamp completion, receipt-spike card stacks
 - Full-bleed edge-to-edge photo timeline as the primary view
 - Electric cobalt as the secondary color

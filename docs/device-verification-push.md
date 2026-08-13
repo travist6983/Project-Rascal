@@ -83,11 +83,16 @@ environment and sent to the other is accepted by APNs and delivered to nobody.
 > `production` for every non-Debug build. If this section fails, this is the first thing to
 > re-read, and the contract's description is what needs correcting.
 >
-> **Confirmed wrong, Aug 12, 2026, and the confirmation is stronger than an inspection.** The
-> `200` came from the *production* host. APNs rejects a sandbox token there with
-> `400 BadDeviceToken`, so Apple accepting it proves the token is genuinely production and the
-> client's mapping is right. **`schemas/device.py:30` and `docs/api-contract.md` are the things
-> that need correcting** — tracked in `docs/blocked.md` §1a as the section's one open item.
+> **Both halves are closed as of Aug 12, 2026, and they closed independently.**
+>
+> The behaviour was confirmed by evidence stronger than an inspection: the `200` came from the
+> *production* host, and APNs rejects a sandbox token there with `400 BadDeviceToken`, so Apple
+> accepting it proves the token is genuinely production and the client's mapping is right.
+>
+> **The descriptions were already corrected** in commit `39fb97f`, before that run — both
+> `schemas/device.py` and `docs/api-contract.md` now say `production` covers "**TestFlight and the
+> App Store alike**". The paragraph above is kept because it is the reasoning, and because a
+> reader who finds a stale copy of it elsewhere should be able to see it was answered twice.
 
 ## 3. The tap
 
