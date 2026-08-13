@@ -60,6 +60,9 @@ struct EntryDetailScreen: View {
     /// `sheet(_:)`. Both measured, for the same reason `bottomInset` is.
     @State private var sheetContentHeight: CGFloat = 0
     @State private var screenHeight: CGFloat = 932
+    /// The video on the canvas, and the scrubber in the sheet, sharing one position.
+    @State private var playback = VideoPlayback()
+    @State private var editingTags = false
 
     private let staging = StagingStore()
 
@@ -120,19 +123,25 @@ struct EntryDetailScreen: View {
         .background(Color.canvas)
         .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: { bottomInset = $0 }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { screenHeight = $0 }
-        .statusBarHidden(immersive)
-        // **Light status bar glyphs over a photograph, dark over every cream and tinted canvas.**
+        // **The clock goes away over a photograph, and the app still pins no colour scheme.**
         //
-        // `preferredColorScheme` rather than `colorScheme`, and the difference is the whole point:
-        // `colorScheme` only seeds the environment for descendants, so it moves no status bar at
-        // all — while quietly flipping this screen's `Menu` and delete dialog to dark appearance,
-        // which is the drift `docs/design-system.md` measures at 1.03:1 and forbids.
+        // Dark status-bar glyphs on a 50% ink scrim do not read, so something had to change. The
+        // two candidates were a light status bar — which needs `preferredColorScheme(.dark)`,
+        // the only API that actually moves it — or hiding it, which is what `MediaViewerScreen`
+        // already does over full-bleed media.
         //
-        // Scoped to the picture canvas alone. Everything else stays light, which is what the app
-        // is; over a photograph the top is a 50% ink scrim, and dark glyphs on it do not read.
-        // A second scheme pin in the product — see the report, which proposes the doc line.
-        .preferredColorScheme(backdropKind == .picture ? .dark : .light)
+        // Hiding it wins on three counts. `docs/design-system.md` says this app is light only and
+        // "pins no scheme", with the widget as its single documented exception; a second one is a
+        // precedent, and it would also flip this screen's `Menu` and delete dialog to dark. The
+        // design file draws a status bar here, but it draws one on all seven of its screens
+        // because all seven are drawn inside a phone frame — that is mockup chrome, not a
+        // decision about photographs. And immersive mode already hides it, so the picture canvas
+        // now has one behaviour rather than two.
+        .statusBarHidden(immersive || backdropKind == .picture)
         .task(id: entryId) { await load() }
+        // A player left running behind a dismissed screen keeps the audio session active and
+        // the sound playing over whatever the parent opened next.
+        .onDisappear { playback.stop() }
         .confirmationDialog(
             "Delete this entry?",
             isPresented: $confirmingDelete,
@@ -142,6 +151,9 @@ struct EntryDetailScreen: View {
             Button("Keep it", role: .cancel) {}
         } message: {
             Text("It leaves the timeline on every device. Photos and video go with it.")
+        }
+        .sheet(isPresented: $editingTags) {
+            TagEditorSheet(entryId: entryId, api: api)
         }
         .fullScreenCover(item: $viewing) { request in
             MediaViewerScreen(
@@ -281,6 +293,7 @@ struct EntryDetailScreen: View {
                 media: only,
                 api: api,
                 localFile: stagedOriginal(only),
+                playback: only.mediaKind == .video ? playback : nil,
                 onOpen: { open(only) }
             )
         } else {
@@ -290,6 +303,7 @@ struct EntryDetailScreen: View {
                         media: item,
                         api: api,
                         localFile: stagedOriginal(item),
+                        playback: nil,
                         onOpen: { open(item) }
                     )
                     .tag(index)
@@ -717,6 +731,17 @@ struct EntryDetailScreen: View {
     @ViewBuilder
     private func collapsedContent(_ entry: Entry) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // **In the sheet, not over the picture** — the design's whole reason for putting it
+            // here. Only for a single video, which is the only shape with a position to report.
+            if isSingleVideo, playback.duration > 0 {
+                EntryScrubber(
+                    elapsed: playback.elapsed,
+                    duration: playback.duration,
+                    onScrub: { playback.scrub(toFraction: $0) },
+                    onCommit: { Task { await playback.endScrub() } }
+                )
+                .padding(.bottom, 18)
+            }
             if let heading = sheetHeading(entry) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     // Only when the canvas is not already carrying it — see `completionMark`. A
@@ -900,8 +925,35 @@ struct EntryDetailScreen: View {
                 ForEach(tags, id: \.self) { tag in
                     Chip(text: tag, background: .chipPlain, emphasis: true)
                 }
+                addTagChip
             }
         }
+    }
+
+    /// **Add tag**, and it opens a real editor.
+    ///
+    /// Dashed rather than filled, because it is an invitation rather than a label — the one chip
+    /// in the row that is a control. The design file draws it in `#D9CFC0` over `#A8A096`, and
+    /// neither is a palette colour: the dash takes `border` and the ink takes `inkMuted` rather
+    /// than `inkFaint`, which measures 2.13:1 on cream and is under the 3:1 floor for anything
+    /// that is not decorative. Reported rather than added as two new tokens.
+    private var addTagChip: some View {
+        Button { editingTags = true } label: {
+            Text("Add tag")
+                .typeRole(.metadata)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.inkMuted)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5)
+                .overlay(
+                    Capsule().strokeBorder(
+                        Color.border,
+                        style: StrokeStyle(lineWidth: Layout.borderWidth, dash: [4, 3])
+                    )
+                )
+        }
+        .buttonStyle(TapScaleButtonStyle())
+        .accessibilityLabel("Add a tag")
     }
 
     /// Name, fill and ink for the kind chip — the pairing `EntryCard` already uses, so the two
@@ -1009,6 +1061,11 @@ struct EntryDetailScreen: View {
     /// Exactly one picture, and it is a photograph. The only shape that offers `[⛶]`.
     private var isSinglePhoto: Bool {
         pictures.count == 1 && pictures.first?.mediaKind == .photo
+    }
+
+    /// Exactly one picture, and it is a video. The only shape with a scrubber.
+    private var isSingleVideo: Bool {
+        pictures.count == 1 && pictures.first?.mediaKind == .video
     }
 
     /// The words to set in the sheet, or nothing at all.
@@ -1183,6 +1240,9 @@ private struct FullBleedMedia: View {
     let media: Media
     let api: APIClient
     let localFile: URL?
+    /// Set only for a single video. Nil everywhere else, and nil is what keeps a ten-photo entry
+    /// from standing up a player it will never use.
+    let playback: VideoPlayback?
     let onOpen: () -> Void
 
     @Environment(\.thumbnails) private var thumbnails
@@ -1206,25 +1266,66 @@ private struct FullBleedMedia: View {
                         .clipped()
                 }
                 #endif
-                if media.mediaKind == .video {
-                    Button(action: onOpen) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundStyle(Color.terracotta)
+                // The frames, once there is a player. It sits over the poster rather than
+                // replacing it, so the first frame does not flash cream on the way in.
+                if let player = playback?.currentPlayer {
+                    VideoSurface(player: player)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .allowsHitTesting(false)
+                }
+                if media.mediaKind == .video, let playback {
+                    // **It plays here.** The scrubber is in the sheet and the picture is never
+                    // covered by chrome, which only works if the picture stays where it is.
+                    // Hidden while playing, so a running video is a running video rather than a
+                    // picture with a button on it; a tap anywhere brings the control back.
+                    if !playback.isPlaying {
+                        Button {
+                            Task { await playback.toggle(mediaId: media.id, localFile: localFile, api: api) }
+                        } label: {
+                            Group {
+                                if playback.loading {
+                                    ProgressView().tint(.terracotta)
+                                } else {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 26, weight: .semibold))
+                                        .foregroundStyle(Color.terracotta)
+                                }
+                            }
                             .frame(width: 76, height: 76)
                             .background(Color.surface.opacity(0.92), in: Circle())
                             .shadow(color: .ink.opacity(0.28), radius: 12, y: 6)
+                        }
+                        .buttonStyle(TapScaleButtonStyle())
+                        .accessibilityLabel(videoLabel)
                     }
-                    .buttonStyle(TapScaleButtonStyle())
-                    .accessibilityLabel(videoLabel)
+                    if let notice = playback.notice {
+                        Text(notice)
+                            .typeRole(.metadata)
+                            .foregroundStyle(Color.surface)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Color.ink.opacity(0.55), in: Capsule())
+                            .offset(y: 62)
+                    }
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .ignoresSafeArea()
         .contentShape(Rectangle())
-        .onTapGesture { if media.mediaKind != .video { onOpen() } }
-        .task(id: media.id) { await loadPoster() }
+        .onTapGesture {
+            guard media.mediaKind == .video else { return onOpen() }
+            // Pause a running video; a paused one is left alone so the tap that revealed the
+            // control does not also restart it.
+            if let playback, playback.isPlaying {
+                Task { await playback.toggle(mediaId: media.id, localFile: localFile, api: api) }
+            }
+        }
+        .task(id: media.id) {
+            playback?.prime(durationSeconds: media.durationSeconds)
+            await loadPoster()
+        }
         .accessibilityLabel(media.mediaKind == .video ? videoLabel : "Photo, tap to open")
     }
 

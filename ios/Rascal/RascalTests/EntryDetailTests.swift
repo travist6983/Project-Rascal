@@ -631,6 +631,79 @@ struct EntryDetailFidelityTests {
         #expect(EntryDetailScreen.factsSentence(for: entry, media: []).isEmpty == false)
     }
 
+    // MARK: Tags, and who wrote them
+
+    /// **The provenance the client used to throw away.** `TagResponse.source` has always been on
+    /// the wire; `applyServerResponse` mapped `\.name` and dropped it. That was harmless while
+    /// tags were read-only and stops being harmless the moment a parent can add one.
+    @Test("a cached entry remembers who decided each tag")
+    func tagSourcesAreCached() throws {
+        let entry = try cachedEntry(tags: ["kitchen table"])
+        entry.setTags([("kitchen table", "user"), ("baking", "device_ai")])
+
+        #expect(entry.tagNames == ["kitchen table", "baking"], "both still render")
+        #expect(entry.tags.map(\.source) == [.user, .deviceAI])
+        #expect(entry.userTagNames == ["kitchen table"], "only the parent's own")
+    }
+
+    /// **The write that must not promote the model's guesses.** `PATCH /entries/{id}` replaces
+    /// the set for each source it carries and leaves absent sources alone — so a tag edit sends
+    /// `user` rows only, and the `device_ai` rows survive untouched. A client that could not tell
+    /// them apart would have to send everything as `user`, permanently rewriting the model's
+    /// guesses as the parent's own words.
+    @Test("a tag edit sends only the parent's tags, so the model's survive")
+    func tagEditDoesNotPromoteExtractedTags() throws {
+        let entry = try cachedEntry()
+        entry.setTags([("kitchen table", "user"), ("baking", "device_ai"), ("flour", "device_ai")])
+
+        // What the editor puts on the wire: the user set, plus the new one.
+        let written = (entry.userTagNames + ["the big mess"])
+            .map { EntryTagWrite(name: $0, source: .user) }
+
+        #expect(written.map(\.name) == ["kitchen table", "the big mess"])
+        #expect(written.allSatisfy { $0.source == .user })
+        #expect(
+            written.contains { $0.name == "baking" } == false,
+            "a device_ai tag is never echoed back as the parent's"
+        )
+    }
+
+    /// A row cached before this build has names and no sources. It reports `user` — the server's
+    /// own default for a bare tag — rather than crashing or dropping the tag, and the next fetch
+    /// of any kind corrects it, because every entry response carries sources.
+    @Test("a row cached before sources existed still renders every tag")
+    func missingSourcesDegradeToUser() throws {
+        let entry = try cachedEntry(tags: ["one", "two"])
+        entry.storedTagSources = nil
+
+        #expect(entry.tagNames == ["one", "two"])
+        #expect(entry.userTagNames == ["one", "two"])
+        #expect(entry.tags.allSatisfy { $0.source == .user })
+    }
+
+    /// The two arrays are written together and only together, so they cannot fall out of step —
+    /// and a shorter sources array than names cannot drop a tag off the end.
+    @Test("names and sources cannot desync")
+    func tagArraysStayAligned() throws {
+        let entry = try cachedEntry()
+        entry.setTags([("a", "user"), ("b", "device_ai"), ("c", "user")])
+        #expect(entry.storedTagNames?.count == entry.storedTagSources?.count)
+
+        // A truncated sources array — the shape a partial write would leave — still renders
+        // every name rather than losing the tail.
+        entry.storedTagSources = ["user"]
+        #expect(entry.tags.map(\.name) == ["a", "b", "c"])
+        #expect(entry.tags.map(\.source) == [.user, .user, .user])
+    }
+
+    /// Setting `tagNames` the old way still works and means what it always meant: the parent's.
+    @Test("the plain tagNames setter still writes user tags")
+    func plainSetterIsUserSourced() throws {
+        let entry = try cachedEntry()
+        entry.tagNames = ["seaside"]
+        #expect(entry.userTagNames == ["seaside"])
+    }
+
     /// Sealed still answers before anything reads the media, and the correction did not disturb
     /// the ordering that guarantees it.
     @Test("the seal still outranks every other route")

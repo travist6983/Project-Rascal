@@ -238,12 +238,111 @@ I also wrote one bad assertion myself and let the suite catch it: `#expect(sente
 
 ## 9. Open questions — things I stopped on rather than guessed
 
-1. **The in-sheet video scrubber is not shipped.** The design puts an elapsed/duration scrubber inside the sheet. Drawing it is easy; making it *seek* means an inline `AVPlayer` on this screen, which is a new playback surface — video currently plays in the existing fullscreen `MediaViewerScreen`, reached by the centre play control. A scrubber that does not seek is a control that lies. §8 says stop and report rather than expand scope, so the canvas keeps the play control and the sheet states the length. **Needs a decision: build the inline player, or drop the scrubber from the design.**
-2. **`Add tag` is not shipped.** §2 and §4 both call for it on Written and Did it. There is no tag editor in this app — tags are read-only in this phase, which is why `Entry.storedTagNames` is a denormalised copy rather than a relationship. Building one is a feature, and a dashed chip opening nothing is a control that lies. Existing tags render; the affordance does not. **Needs a decision.**
+~~1. The in-sheet video scrubber is not shipped.~~ **Now built** — see §10.
+~~2. `Add tag` is not shipped.~~ **Now built** — see §10.
+~~8. `preferredColorScheme(.dark)` over a photograph is a second scheme pin.~~ **Decided** — see §10.
+
 3. **Two colours in the design file have no palette equivalent** — the `Add tag` chip's `#D9CFC0` dash and `#A8A096` ink. Per §6 that is a finding, not a constant to add. Note also that `#A8A096` is close to `inkFaint`, which `design-system.md` measures at 2.13:1 on cream and forbids for controls (floor 3:1) — so even with a tag editor, that chip needs `inkMuted`.
 4. **The design file's Edit entry / Share buttons** in the expanded photo sheet are not built (§2.7). Edit is in the overflow menu; Share has no implementation. Say the word if the pair should exist.
 5. **`DayHeaderText.full` was deliberately left alone**, so the timeline's and the card's VoiceOver labels still speak "Monday, August 10, 2026" while Entry Detail prints "Monday 10 August 2026". That is two orders in one app. Unifying them is a one-line change that touches two screens outside this pass's scope — **your call.**
 6. **The sheet's 72% height cap is invented.** No token governs how tall a sheet may grow. It wants a home in `design-system.md` or a better number.
-8. **`preferredColorScheme(.dark)` over a photograph is a second scheme pin.** `design-system.md` says the app is light only and "pins no scheme", with the widget as the one exception. Over a photograph under a 50% ink scrim, dark status-bar glyphs do not read, and this is the only API that moves them. The alternative the codebase already uses is `MediaViewerScreen`'s `.statusBarHidden()` — hiding the clock entirely. **Needs a decision: the scoped pin, or hide the status bar over pictures.**
 9. **`FlowRow` is a new layout primitive** in `Layout.swift`, which `RascalShare` also compiles. It is ~40 lines, uses only SwiftUI, and exists because chips must wrap rather than truncate at accessibility sizes. If you would rather it not live in the shared design-system file, it moves in one commit.
 7. **iPhone 15 Pro Max did not exist on this machine** — only iPhone 17-family simulators. I created one on iOS 26.3 to match the 430 × 932 pt the D1–D9 measurements were taken at. Worth knowing the brief's device is not installed by default here.
+
+
+* * *
+
+## 10. Follow-up: the two features, and the status bar
+
+Added after the first review, at the owner's request.
+
+### The video scrubber — built, with a real inline player
+
+`VideoPlayback` is an `@Observable` holding the `AVPlayer`, the elapsed clock and the duration;
+`VideoSurface` draws the frames; `EntryScrubber` draws the position in the sheet. **The state is
+one object because two views share it** — the canvas draws the picture and the sheet draws the
+position, and a scrubber keeping its own idea of elapsed time drifts from the frames above it
+within a second.
+
+- `AVPlayerLayer`, not AVKit's `VideoPlayer`, which brings Apple's transport controls with it — a
+  second scrubber over the picture, which is the exact arrangement the design moved into the
+  sheet to avoid.
+- The track is `border` and only the played part and the knob are terracotta. §2 called the track
+  terracotta; the design file does not, and a terracotta track leaves played and unplayed the
+  same colour.
+- Dragging seeks continuously rather than on release. `TakeScrubber` commits on release because
+  scrubbing AAC continuously stutters; video seeks cleanly, and a scrubber that shows nothing
+  until you let go gives no feedback about where you are going.
+- VoiceOver gets `accessibilityAdjustableAction` in 5-second steps. A drag is not an affordance
+  to someone who cannot see the thumb.
+- The audio session is set to `.playback`/`.moviePlayback` explicitly and deactivated on the way
+  out, for the reason `VoicePlayerView` already documents: the recorder leaves `.playAndRecord`
+  on the shared session, and a category outlives the screen that set it.
+- Playing from the end replays instead of sitting on the last frame — a play button that does not
+  play is a control that lies.
+
+`MediaViewerScreen` is untouched and still reached by tapping the frame.
+
+### Add tag — built, and it exposed a data-fidelity bug
+
+The editor is a sheet with the standard chrome: `canvas`, inline title, Cancel in `inkMuted`,
+Save in terracotta reading "Saving" while the write is in flight. No API change was needed —
+`PATCH /entries/{id}` has always taken `tags`, and `EntryChanges.tags` and `EntryTagWrite` already
+existed for extraction.
+
+**What it turned up is the part worth reading.** `TagResponse.source` has always been on the wire
+and is documented as load-bearing — "a tag the phone's transcriber wrote and a tag a parent typed
+are not the same claim". `Entry.applyServerResponse` mapped `\.name` and **threw the source
+away.** Harmless while tags were read-only. The moment a parent can add one it is not: a write
+carrying only `user` tags leaves `device_ai` rows alone server-side, so a client that cannot tell
+them apart has to send everything as `user` — silently and permanently rewriting the model's
+guesses as the parent's own words, in an archive that is supposed to be a record.
+
+So `Entry` now keeps them: `storedTagSources`, a **new optional property with a declaration
+default**, which is the migration shape `ios/CLAUDE.md` rule 6 endorses (optional is always
+inferrable; the failure mode for getting this wrong is the app refusing to launch on every device
+that had the previous build). Names and sources are written only through `setTags`, so they cannot
+desync, and a row cached before this build reports `user` for everything — the server's own
+default for a bare tag — and is corrected by the next fetch of any kind, because every entry
+response carries sources.
+
+The sheet shows the two sets separately: **On this entry** (yours, removable) and **Found on this
+phone** (the model's, shown and left alone). Five new assertions cover the split, including one
+that pins "a `device_ai` tag is never echoed back as the parent's".
+
+**It writes to the server before it changes the cache**, which is the opposite of how an entry is
+composed and is deliberate: a composed entry holds bytes that exist nowhere else, a tag is a label
+on a row the archive already has, and `EntrySync` re-sends bodies and dates — not tags. A tag
+shown locally that the archive never accepted is the cache quietly disagreeing with the archive.
+
+The chip is dashed in `border` over `inkMuted`, not the design file's `#D9CFC0`/`#A8A096` — see
+§9.3; `inkFaint` is 2.13:1 on cream and under the 3:1 floor for a control.
+
+### The status bar — decided: hide it over pictures
+
+Not the scheme pin. `docs/design-system.md` says this app is light only and "pins no scheme", with
+the widget as its single documented exception, and `MediaViewerScreen` already hides the status
+bar over full-bleed media — so hiding it follows the app's own precedent, adds no second
+exception, and avoids flipping this screen's `Menu` and delete dialog to dark appearance.
+
+The design file does draw a status bar here, but it draws one on all seven of its screens because
+all seven sit in a phone frame. That is mockup chrome, not a decision about photographs. Immersive
+mode already hid it, so the picture canvas now has one behaviour rather than two. **No doc change
+is needed** — the proposed diff in §2 no longer contains a scheme line.
+
+### Verification, and one thing I tried and could not do
+
+Both features were rendered and screenshotted at default size: the scrubber sits in the sheet with
+`0:00` / `0:42` and a terracotta knob on a cream track, and the editor shows `kitchen table` under
+**On this entry** with `baking` under **Found on this phone**. The harness generates a real 6-second
+H.264 movie on disk so playback resolves locally with no server.
+
+**I attempted to drive real taps** — reading the Simulator's window geometry through System Events
+and clicking the play control at its mapped coordinates. Accessibility permission is granted and
+the window reads fine, but the click fails with `-25204` and the screen is byte-identical before
+and after. So the interaction column in §6 is unchanged: play/pause, seeking by drag, and typing a
+tag were **not** driven by touch. What is verified is that they render correctly, that the seek
+arithmetic and the tag-provenance rules hold under assertion, and that the code paths compile and
+run. A UI test target remains the thing that would close this, and it is still the largest gap.
+
+855 tests, 21 warnings — the inherited count, unchanged.
