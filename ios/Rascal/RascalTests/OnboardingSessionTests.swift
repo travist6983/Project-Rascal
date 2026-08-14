@@ -335,6 +335,84 @@ struct OnboardingSessionTests {
         #expect(store.readData() == nil)
     }
 
+    // MARK: Adding a child
+
+    /// The entry point exists in Settings and not in the switcher, because the switcher does not
+    /// exist until there are two children — which is the account that needs to add one.
+    @Test("adding a child creates it, holds it, and switches to it")
+    func addingAChildSwitchesToThem() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { n in
+            n == 1 ? (meChildrenJSON(first), 200) : (oneChildJSON(second, name: "Ada"), 200)
+        }
+
+        let store = InMemorySelectedChildStore()
+        let session = onboardingSession(performer, tokens: signedIn, selected: store)
+        await session.resume()
+        #expect(session.canSwitchChild == false, "precondition: one child, no switcher")
+
+        let added = await session.addChild(
+            name: "  Ada  ",
+            birthdate: "2024-01-02",
+            familyTimezone: "America/Detroit",
+            pronouns: .sheHer
+        )
+
+        #expect(added)
+        #expect(session.state.readyChild?.id == second, "a new child you cannot see reads as failure")
+        #expect(session.children.count == 2)
+        #expect(store.load() == second, "and the next launch opens them")
+        #expect(session.canSwitchChild, "the pill gains its chevron in the same turn")
+    }
+
+    @Test("the name is trimmed on the way to the server")
+    func addTrimsTheName() async throws {
+        let first = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { n in
+            n == 1 ? (meChildrenJSON(first), 200) : (oneChildJSON(UUID(), name: "Ada"), 200)
+        }
+
+        let session = onboardingSession(performer, tokens: signedIn)
+        await session.resume()
+        await session.addChild(
+            name: "  Ada  ", birthdate: "2024-01-02", familyTimezone: "UTC", pronouns: nil
+        )
+
+        let body = try #require(performer.requests.last?.httpBody)
+        let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["name"] as? String == "Ada")
+    }
+
+    /// **`createChild`'s adopt-the-existing-child guard must not be reused here.** That guard
+    /// exists because setup has no idempotency key and a lost response would strand a parent who
+    /// already has a child on the server. This account already has children, so "find one and
+    /// adopt it" would select a *sibling* and report success for a create that may never have
+    /// happened. A visible error the parent can retry is the better failure.
+    @Test("a failed add reports it and leaves the current child alone")
+    func failedAddDoesNotAdoptASibling() async throws {
+        let first = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { n in
+            n == 1 ? (meChildrenJSON(first), 200) : (Data("{}".utf8), 500)
+        }
+
+        let session = onboardingSession(performer, tokens: signedIn)
+        await session.resume()
+
+        let added = await session.addChild(
+            name: "Ada", birthdate: "2024-01-02", familyTimezone: "UTC", pronouns: nil
+        )
+
+        #expect(added == false)
+        #expect(session.notice != nil, "the sheet stays open and says why")
+        #expect(session.state.readyChild?.id == first)
+        #expect(session.children.count == 1, "nothing was added")
+        #expect(session.canSwitchChild == false)
+    }
+
     @Test("signing out forgets which child was selected")
     func signOutForgetsTheSelection() async throws {
         let first = UUID()
