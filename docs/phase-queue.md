@@ -88,9 +88,12 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   describing an archive that was just deleted — and the store silently never refills. Latent
   today because `syncPullEnabled` ships false; multi-kid makes it two children wide. Needs a
   decision on whether `resetCursor()` belongs to erasure, which is why it is a line here.
-- **Per-entry visibility — design first, then 30.** Undesigned, not just unbuilt:
-  `docs/data-model.md`'s `entries` spec has no visibility column. Must answer per-entry vs
-  per-kind, what a `viewer` sees by default, and whether a sealed letter is a visibility state.
+- **Per-entry visibility — designed Aug 14, built with 30.** All three questions are answered in
+  `docs/decisions.md` and the column is specified in `docs/data-model.md`: per-entry with a
+  per-kind default, a viewer sees everything not marked private, and a seal is a separate axis.
+  **Nothing is built and nothing should be** until a route can create a `viewer` row — the
+  migration and the `child_access("viewer")` filter belong to 30, which is where they have a
+  consumer.
 - **27 — Letter on any day.** Freeform-plus-seal; sealing is what asks for the unlock age; entry
   point is the *Add to the archive* sheet behind **+**. The API needs no change. iOS end to end.
 - **Editing a seal after the fact.** `PATCH /entries/{id}` supports it and
