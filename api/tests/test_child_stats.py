@@ -215,6 +215,27 @@ async def test_as_of_is_the_childs_day(client: AsyncClient, session: AsyncSessio
     assert body["as_of"] == today_in("Pacific/Kiritimati").isoformat()
 
 
+async def test_a_zone_postgres_does_not_know_is_still_counted(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**The zone must never reach SQL.** `family_timezone` is validated against Python's
+    `zoneinfo`, whose name set is larger than Postgres's: `Asia/Calcutta` is accepted by
+    `ChildCreate` and rejected by `timezone()` with `time zone "Asia/Calcutta" not recognized`.
+    The first version of this endpoint interpolated the stored zone into the query, so a
+    household spelled a way the API itself allows got a 500 on a read.
+    """
+    user, child = await _world(session, timezone="Asia/Calcutta")
+    # 2024-03-02 23:40 UTC is already 2024-03-03 in Calcutta (+05:30) — so this also pins that
+    # the conversion still happens, rather than the fix having quietly dropped it.
+    await _entry(session, child, user, occurred_at=dt.datetime(2024, 3, 2, 23, 40, tzinfo=dt.UTC))
+    await session.commit()
+
+    body = await _stats(client, user, child)
+
+    assert body["entries"] == 1
+    assert body["first_entry_on"] == "2024-03-03"
+
+
 async def test_a_stranger_cannot_count_somebody_elses_archive(
     client: AsyncClient, session: AsyncSession
 ) -> None:

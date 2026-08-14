@@ -2100,3 +2100,12 @@ Two documentation defects the same pass found, both of the kind this project tre
   entries say 18.6; the two saying 26.4 are project-level and lose. Recorded because it makes every
   `#available(iOS 26.0, *)` guard load-bearing rather than defensive, and because a captioning
   design that assumed a 26+ floor would have been wrong about its own install base.
+- **`/stats` pushed a user-controlled timezone into SQL, and Postgres knows fewer zone names than
+  Python does.** `family_timezone` is validated against `zoneinfo`; `Asia/Calcutta` and
+  `US/Eastern` pass that and are rejected by Postgres's `timezone()` with `not recognized` — a 500
+  on a read endpoint for a household spelled a way the API itself accepts. The original reasoning
+  ("convert in the same pass as the aggregate; pulling every row back would be O(archive)") was
+  sound about cost and wrong about necessity: **converting to a fixed zone is monotonic**, so the
+  earliest instant is the earliest local day in every zone. Taking `min`/`max` of the raw column
+  and converting exactly two values in Python is the same answer, still one query, and no
+  user-controlled string in the SQL. Regression test uses `Asia/Calcutta` deliberately.
