@@ -126,6 +126,7 @@ What the scheduler served on a given day.
 | `body` | text | nullable |
 | `entry_type` | text | denormalized from the prompt for filtering |
 | `unlock_at_age` | int | nullable. Sealed until the child is this age. |
+| `visibility` | text | `shared` \| `private`. **NOT NULL, defaults `shared`.** Who may read it — see below. Orthogonal to `unlock_at_age`. |
 | `deleted_at` | timestamptz | soft delete |
 | `updated_at` | timestamptz | sync cursor |
 | `search_vector` | tsvector | **stored generated** — `setweight(title, 'A') \|\| setweight(body, 'B')`, config `english` |
@@ -212,7 +213,7 @@ These apply to every table above. They're here so the migration doesn't have to 
 
 **Constrained-value columns are `text` with a CHECK constraint, never Postgres enums.**
 `status`, `kind`, `cadence`, `completion_mode`, `role`, `source`, `slot`, `provider`,
-`upload_status`. Adding a value to a Postgres enum inside a transaction-safe migration is
+`upload_status`, `visibility`. Adding a value to a Postgres enum inside a transaction-safe migration is
 a chore; adding one to a CHECK is a one-line `ALTER`. Name every constraint explicitly
 (`ck_assignments_status`) so migrations can find it later.
 
@@ -248,6 +249,38 @@ everything else. Both are `uuid` columns; the difference is only who calls `uuid
 **`occurred_at` vs `created_at`** — the entire backdating story. A photo from 2023 added tonight has `occurred_at` in 2023 and `created_at` today. Every timeline query sorts by `occurred_at`; every sync query filters on `updated_at`.
 
 **`child_age_months`** — stored, not computed on read. You'll browse by "age 4," and you don't want the whole archive to shift if you correct a birthdate typo.
+
+**`visibility`** — settled Aug 14, 2026 by the owner, and specified here before any of it is built
+because the column is the part that cannot be retrofitted cheaply. Three decisions:
+
+*Per-entry, with a per-kind default.* The column lives on the entry, and the kind supplies the
+value at creation time — `letter` defaults to `private`, everything else to `shared`. Per-kind
+alone was the cheaper design and is wrong for the case that matters: the sensitive entry is
+usually an ordinary question answered honestly on a bad week, and a scheme that can only hide
+*categories* cannot hide that one. Asking on every save was the other option and is worse for a
+different reason — it puts a decision on the screen the app spends its whole design budget keeping
+to one tap.
+
+*A viewer sees everything not marked private.* Default `shared`, so an invite shows an archive.
+Default-private was considered and rejected on the same grounds the seal was: an invited
+grandparent who opens an empty archive concludes the app is broken, and the alternative is
+somebody hand-marking four years of entries before the invite is worth sending. The trade is
+stated plainly rather than hidden: **a parent who wants something withheld has to withhold it**,
+and the app's job is to make that reachable on the entry itself rather than in a settings screen
+nobody visits.
+
+*It is orthogonal to `unlock_at_age`.* They are different questions — a seal is **when** an entry
+can be read, visibility is **who** may read it — and collapsing them would mean a seal silently
+overriding an explicit `shared`. So a sealed letter is hidden from everyone including the parent
+until the age, and *then* obeys its visibility like anything else. Two columns, two questions, no
+precedence rule to remember.
+
+**Nothing reads this column yet, and that is deliberate.** No route can create a `viewer` row, so
+until guardian invites exist the only guardian is a `parent` and every read returns everything.
+The column is specified now because it is a migration on the one table that will be largest, and
+because the invite phase should not also be the phase that invents the model. Write paths set it
+from the kind default from the day it lands; read paths filter on it when there is a role that
+needs filtering.
 
 **`unlock_at_age`** — nullable, and impossible to retrofit cleanly at 500 entries. Letters written *to* him — the money letter, the who-you-are-right-now letter — set this. Everything else leaves it null.
 

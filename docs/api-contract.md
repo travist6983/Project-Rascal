@@ -439,6 +439,24 @@ freeform entry has no assignment and so falls through to (3)/(4). What was asked
 reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
 `text`, `did_it`.
 
+#### `visibility`: specified, not yet built
+
+`shared` | `private`, never null. **Not accepted on `POST /entries`** — the server sets it from the
+prompt kind (`letter` → `private`, everything else → `shared`), because the default is the whole
+point of the per-kind half of the decision and a client that could send it would drift from the
+rule. `PATCH /entries/{id}` is where a parent changes it, and it follows the same set-ness rule as
+`unlock_at_age` below: omitting the key leaves it alone.
+
+**Every read path returns it, and no read path filters on it yet.** Until a route can create a
+`viewer` row the only guardian is a `parent`, and a parent sees their own archive whole. When
+guardian invites land, `child_access("viewer")` is where the filter goes — one place, the same
+place every other authorization decision already lives. `/sync` returns it like any other column,
+and the export writes it into `entries.json`: an archive that dropped it would come back with the
+distinction erased.
+
+**A seal is not a visibility state.** `unlock_at_age` is *when*, `visibility` is *who*. See
+`docs/decisions.md`.
+
 #### `unlock_at_age`: omitting the key and sending `null` are different
 
 | What you send | What happens |
