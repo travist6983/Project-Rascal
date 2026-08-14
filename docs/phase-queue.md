@@ -27,21 +27,32 @@ stays rejected (no action).
 
 ---
 
-## Now — production is wrong today
+## Now — production
 
-- Confirm tomorrow's 5am Detroit scheduler run puts a **photo** in the `mission` slot. All-time it
-  is `activity ×2, audio ×1` and has never once held a photo. Check the rows, not the deploy.
-- If it does not: recreate machine `185d762c643778` inside the app's machine set, or give
-  `api/fly.toml` a `scheduler` process group so `fly deploy` reaches it.
-- Do the same for the notify machine `8900ddf6719058` — created Aug 12, outside the process group,
-  pinning its own image. Current today, stale after the next deploy. Same flaw, same fix.
-- Ship an iOS build. The installed TestFlight build predates `3df6cd4` and renders `mission_b` as
-  an unknown grey "Still open" slot regardless of what the server does.
-- **Run `make migrate` and `make seed` against production.** Phases **24** (tokenised prompts) and
-  **35** (the `their-words` theme) are both inert until they do — 24's retirement of the 113
-  literal prompts lives in the seed loader, not in a migration, so merging alone changes nothing
-  and the archive keeps serving `his hands`. Verify afterwards that no active prompt matches
-  `\y(he|him|his|himself|she|her|hers|herself)\y`; locally that count is 0.
+**Four of the five things this section carried were closed on Aug 14, 2026.** What is left is the
+iOS build, and it is the one nobody here can do.
+
+- **The `mission` slot served a photo** on the morning of Aug 14 — observed on the phone, which is
+  the first time it has ever happened. **The scheduler was not the cause and the machine image was
+  not the fix**: that run fired at ~09:00 UTC, hours before the images were refreshed, so the
+  narrowing was working and the slot was simply never drawing a photo before. Recorded this way on
+  purpose, because "we changed something and then it worked" is how a real cause goes unfound. If
+  the photo slot goes quiet again, the pool is where to look, not the machine.
+- **Both scheduled machines are on the deployed image.** `185d762c643778` and `8900ddf6719058`
+  were updated in place with `fly machine update --image` on Aug 14 — their `schedule`, restart
+  policy, command and env were all already correct, and only the image was stale. **The recurrence
+  is closed in code**: the deploy workflow now moves any machine with a non-empty `schedule` onto
+  the image the app is running, so they cannot drift again.
+- **The prompt library is seeded in production.** The Aug 14 run reported
+  `99 inserted, 0 updated, 14 unchanged, 99 retired (113 in the library)` — the tokenised bodies
+  are live and the 99 literal ones are deactivated. **The recurrence is closed in code**: the seed
+  is on `fly.toml`'s `release_command`, so every deploy reconciles the library with the file.
+- **Ship an iOS build — still open, and still yours.** `ios.yml` is a *test* workflow: it builds
+  for the simulator and runs the suite, and has no archive, signing or upload step anywhere. The
+  only signing identity on the build machine is `Apple Development`, so a TestFlight build needs a
+  Distribution certificate and an App Store Connect key that live with the owner. Until one ships,
+  the installed build predates `3df6cd4` and renders `mission_b` as an unknown grey "Still open"
+  slot regardless of what the server does.
 
 ## Blocked on you, not on code
 
