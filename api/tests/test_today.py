@@ -11,7 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 
-TODAY = dt.date(2026, 8, 14)
+# **A date in the past, and that is the whole point of it.**
+#
+# This was `2026-08-14`, which was comfortably in the future when it was written and arrived on
+# 14 Aug 2026. `GET /today` self-heals: when the requested date *is* the child's current date,
+# `ensure_day_filled` mints the day's missing slots before answering. So for the eleven days this
+# constant was in the future these tests asserted a board nothing had filled — and on the one day
+# it matched, the fill ran, minted the `mission_b` migration 0008 added, and the suite went red
+# having never once exercised what it claimed to.
+#
+# A fixture date in the past cannot become today again, so the read path is all these tests see.
+# Filling has its own file — `test_today_self_healing.py` — and that is where it belongs.
+TODAY = dt.date(2026, 8, 4)
 
 
 async def _world(session: AsyncSession, timezone: str = "America/Detroit"):
@@ -46,8 +57,9 @@ async def test_today_returns_today_waiting_and_done_in_one_call(
 
     assert response.status_code == 200
     body = response.json()
-    assert body["date"] == "2026-08-14"
-    assert body["child"]["age_months"] == 50
+    assert body["date"] == TODAY.isoformat()
+    # 2022-06-14 to 2026-08-04 is 49 completed months.
+    assert body["child"]["age_months"] == 49
     assert {item["slot"] for item in body["today"]} == {"question", "mission"}
     assert [item["body"] for item in body["waiting"]] == ["Old one."]
     assert body["done_today"] == []
@@ -139,7 +151,7 @@ async def test_completing_an_assignment_moves_it_into_done_today(
             "id": str(uuid.uuid4()),
             "child_id": str(child.id),
             "assignment_id": str(assignment.id),
-            "occurred_at": "2026-08-14T18:22:00Z",
+            "occurred_at": "2026-08-04T18:22:00Z",
             "body": "Like a hiccup with a cough on the end.",
         },
         headers=auth_headers(user),
