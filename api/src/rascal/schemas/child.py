@@ -133,3 +133,30 @@ class ChildSummary(ApiModel):
     id: uuid.UUID
     name: str
     age_months: int
+
+
+class ChildStatsOut(ApiModel):
+    """What is in the archive, counted by the only participant that can count it.
+
+    `docs/settings-v2-inventory.md` dropped the hero's stats strip and its first-entry line
+    because a paged client cannot know either without asserting the size of an archive it has
+    only partly seen. This is the endpoint that lets it stop guessing.
+    """
+
+    child_id: uuid.UUID
+    as_of: dt.date
+
+    entries: int
+    """Live entries. Soft-deleted rows are not in the archive and are not counted."""
+
+    sealed: int
+    """Entries with an `unlock_at_age`. A subset of `entries`, never a separate population."""
+
+    media: dict[str, int]
+    """Every media kind, always, including the ones at zero — an absent key is a client crash
+    and `0` is a true statement about the archive."""
+
+    first_entry_on: dt.date | None
+    last_entry_on: dt.date | None
+    """Calendar days in the child's `family_timezone`, not instants. `null` on an empty
+    archive, which is the honest answer rather than today's date standing in for one."""

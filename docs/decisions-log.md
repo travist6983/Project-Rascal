@@ -2040,3 +2040,16 @@ Two documentation defects the same pass found, both of the kind this project tre
   claimed to. The fixture date moved into the past, where it cannot become today again; filling has
   its own file in `test_today_self_healing.py` and that is where it belongs. Worth generalising:
   **a fixture date in the future is a test that has not run yet.**
+- **`/stats` counts media through a live entry, not through `media.deleted_at`.** A soft-deleted
+  entry takes its media with it in the contract, so a media row whose entry is gone is not in the
+  archive whatever its own column says. Counting the column alone would have reported files
+  belonging to a deleted entry, and it is the kind of wrong that only shows up once somebody
+  deletes something.
+- **`media` returns every kind including zeros, and the two dates return `null` on an empty
+  archive.** A key that appears only once a child has recorded audio is a key every client has to
+  guard; `0` is a true statement. And a first-entry date standing in for "there is no first entry"
+  renders as a real day on somebody's screen — `null` is the only honest empty.
+- **The two dates are family-timezone calendar days.** `occurred_at` is stored UTC and an evening
+  entry in Detroit is the next day in UTC, so a `date()` on the raw column reports a day the
+  parent did not live. Converted in Postgres rather than Python because it happens in the same
+  pass as the aggregate; pulling every row back to convert would make the endpoint O(archive).

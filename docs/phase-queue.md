@@ -98,8 +98,9 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   enforced code nothing can enter. Needs the visibility design above first.
 - **25 — Author photo prompts.** Not urgent until the scheduler fix lands; the photo pool is the
   healthiest in the archive (20 of 20 available), just unreachable. Zero photo candidates among the 79.
-- **28 — `GET /children/{id}/stats`.** Nothing exists. Lights up three dropped Settings surfaces at
-  once. Model it on `pool-health` (`routers/children.py:303`), same shape, same `child_access`.
+- **Settings can light up D1 and D12 now.** `GET /children/{id}/stats` ships the counts and the
+  first-entry date those two were dropped for. iOS work, and small: the hero already draws the
+  name, age and born-date from `ChildResponse`; the strip needs one more fetch.
 - **33 — Photo captioning, device half.** Server half is complete and was being carried as "not
   started". Needs a third protocol: the two existing on-device seams take text, not pixels.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
