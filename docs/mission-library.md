@@ -1,6 +1,6 @@
 # RASCAL — Mission Library (seed set)
 
-~105 hand-authored prompts. This is the content that makes or breaks the app; treat it as the most valuable file in the project.
+133 hand-authored prompts. This is the content that makes or breaks the app; treat it as the most valuable file in the project.
 
 **Ages** are in months. `all` = 24–216. **Mode** maps to `completion_mode`.
 Rows with a **Months** value get `month_tags` set; everything else is any-month.
@@ -72,6 +72,26 @@ Tone rules for anything added later: **specific over sentimental**, second perso
 | Take a picture of {them} outside doing nothing in particular. | outdoors | all | |
 | Take a photo of {them} with {their} grandparents. | relationships | all | |
 | Photograph {them} next to something for scale — a doorway, the dog, your hand. | growth-measurement | all | |
+| Photograph {their} hair first thing in the morning, before anyone fixes it. | everyday-ordinary | 24–144 | |
+| Take a photo of what {they} chose to wear when nobody helped. | everyday-ordinary | 36–144 | |
+| Photograph the bottom of {their} feet after a day outside. | outdoors | 24–120 | |
+| Take a picture of {their} hands working a zip, a button, or a spoon. | skills-firsts | 24–96 | |
+| Photograph where {they} fell asleep that was not a bed. | sleep-routine | 24–96 | |
+| Photograph the book {they_have} asked for every night this week. | everyday-ordinary | 24–120 | |
+| Photograph {their} plate at the end of dinner, exactly as {they} left it. | food | 24–144 | |
+| Take a picture of {them} from behind, walking away from you. | growth-measurement | 24–216 | |
+| Photograph the thing {they} carried around all day. | everyday-ordinary | 24–96 | |
+| Take a photo of {their} face while {they_are} concentrating. | everyday-ordinary | 24–216 | |
+| Photograph what {they} left on the stairs. | humor | 24–144 | |
+| Take a photo of the chair that is always {theirs}, empty. | everyday-ordinary | 36–216 | |
+| Photograph {their} shoes on the wrong feet. | humor | 24–72 | |
+| Take a photo of what {they} built and then knocked down. | making-building | 24–96 | |
+| Photograph {them} asleep in the car. | sleep-routine | 24–120 | |
+| Take a picture of {their} pockets emptied out. | everyday-ordinary | 36–144 | |
+| Take a photo of {them} eating something {they} said {they} hated. | food | 30–144 | |
+| Photograph {their} name in {their} own handwriting. | skills-firsts | 48–144 | |
+| Take a photo of {them} helping with something {they_are} too small for. | making-building | 24–96 | |
+| Photograph the spot {they_do} most of {their} playing in, with nobody in the frame. | everyday-ordinary | 24–144 | |
 | Photograph {them} in the first snow. | seasons-holidays | all | 12,1,2 |
 | Take a photo of {them} on the first day of school. | seasons-holidays | 48–216 | 8,9 |
 | Photograph whatever {they} made out of leaves, pumpkins, or mud this month. | seasons-holidays | 24–144 | 9,10,11 |
@@ -190,7 +210,7 @@ version predated the last handful of prompts and under-counted video, activity, 
 | Kind | Total | Active | Eligible at 48mo | Of those, any-month | Slot it feeds | Enough for 14 days? |
 |---|---|---|---|---|---|---|
 | Question | 30 | 30 | 30 | 30 | `question` | ✅ |
-| Photo | 22 | 22 | 22 | 18 | `mission` | ✅ |
+| Photo | 42 | 42 | 42 | 38 | `mission` | ✅ |
 | Video | 11 | 11 | 11 | 10 | `mission_b` | ✅ (pooled) |
 | Audio | 12 | 12 | 11 | 11 | `mission_b` | ✅ (pooled) |
 | Activity | 16 | 16 | 16 | 16 | `mission_b` | ✅ |
@@ -198,7 +218,7 @@ version predated the last handful of prompts and under-counted video, activity, 
 | Monthly | 4 | 4 | 4 | 4 | `monthly` | ✅ |
 | Letter | 8 | 8 | 8 | 8 | `letter` | ✅ |
 
-**113 prompts in the library, and all 113 are active.** This table said `active: 0` for video
+**133 prompts in the library, and all 133 are active.** This table said `active: 0` for video
 and audio for far longer than it was true. Both kinds were deactivated through
 `UNCOMPLETABLE_KINDS` in `api/scripts/mission_library_to_yaml.py` because no client could
 complete them, and a prompt the client cannot complete is a dead end rather than a mission — a
@@ -219,18 +239,24 @@ together" — stopped being true when the day split into three. What replaced it
 | Slot | Draws from | Available on an August day at 49mo | First repeat | Relaxation begins |
 |---|---|---|---|---|
 | `question` | question | 30 | ~30 days | 2026-09-10 |
-| `mission` | **photo only** | 20 | ~20 days | **2026-08-31** |
+| `mission` | **photo only** | 40 | ~40 days | *re-measure* |
 | `mission_b` | video + audio + activity, pooled | 37 | ~37 days | 2026-09-17 |
 
-Measured with `GET /children/{id}/pool-health` on 2026-08-11, not estimated from this file.
+Measured with `GET /children/{id}/pool-health` on 2026-08-11, not estimated from this file —
+**except the `mission` row, which phase 25 doubled on Aug 14, 2026.** Its count is arithmetic (20
+untagged photo prompts became 40) and its first-repeat figure follows from pool size, but the
+relaxation date is a projection the endpoint computes and this file must not invent: re-measure it
+rather than trusting the dash.
 The figures differ slightly from the "any-month" column above because that column counts only
 untagged prompts, while the scheduler also serves prompts tagged to the current month.
 
-**`mission` is now the thin slot, and it is thin because the photo pool is the smallest of the
-three.** Splitting a 57-prompt combined pool into 20 and 37 is what buys three items a day; the
-cost is that the photo slot reaches its cooldown relaxation in under three weeks rather than
-in two months. That is a call for authoring, not for tuning: **the fix is more photo prompts**,
-and nothing in this phase generated any. `estimated_days_until_first_repeat` is a projection
+**`mission` was the thin slot, and phase 25 is the authoring that answered it.** Splitting a
+57-prompt combined pool into 20 and 37 bought three items a day at the cost of the photo slot
+reaching cooldown relaxation in under three weeks. The note here used to read *"the fix is more
+photo prompts, and nothing in this phase generated any"* — twenty were written on Aug 14, 2026,
+taking the untagged photo pool from 20 to 40 and roughly doubling the runway before a repeat.
+**It stayed the right call rather than a tuning change**: nothing about cooldown or rotation
+moved. `estimated_days_until_first_repeat` is a projection
 from pool size, not a promise — theme rotation can relax a single pick earlier without the
 slot being exhausted.
 

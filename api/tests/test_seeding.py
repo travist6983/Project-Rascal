@@ -20,7 +20,7 @@ from rascal.services.seeding import SEEDS_PATH, content_hash, load_seed_file, se
 # direction fails here and names the new numbers.
 ELIGIBLE_AT_48_MONTHS = {
     "question": 30,
-    "photo": 22,
+    "photo": 42,
     "video": 11,
     "audio": 11,
     "activity": 16,
@@ -32,10 +32,10 @@ ELIGIBLE_AT_48_MONTHS = {
 # The words a prompt library for somebody else's child may not contain, in a body or a slug.
 GENDERED = re.compile(r"\b(he|him|his|himself|she|her|hers|herself)\b", re.IGNORECASE)
 
-TOTAL_PROMPTS = 113
+TOTAL_PROMPTS = 133
 # Every seeded prompt is served: video returned when multipart shipped, audio when the recorder
 # did. `UNCOMPLETABLE_KINDS` is empty and stays in place for the next kind that needs it.
-ACTIVE_PROMPTS = 113
+ACTIVE_PROMPTS = 133
 
 
 def _buckets() -> dict[str, list[dict]]:

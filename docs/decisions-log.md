@@ -2053,3 +2053,32 @@ Two documentation defects the same pass found, both of the kind this project tre
   entry in Detroit is the next day in UTC, so a `date()` on the raw column reports a day the
   parent did not live. Converted in Postgres rather than Python because it happens in the same
   pass as the aggregate; pulling every row back to convert would make the endpoint O(archive).
+- **The fixture-date rule is enforced now, not remembered.** `tests/test_fixture_dates.py` parses
+  every test module and fails on any `dt.date(...)` literal that has not happened yet. A future
+  date is a test that has not run: it asserts one branch until the clock arrives and then silently
+  starts asserting another, and nothing about a green run says which branch it took. Where being
+  ahead of the clock is the point — a horizon, a `?date=` override that must *not* self-heal — the
+  line carries `# future-date: <why>`, so the exemption is earned where the next reader sees it.
+- **`make_assignment`'s default `assigned_on` was `2026-08-14`, and that is how the pattern
+  spread.** Every assignment built without an explicit date landed on the real today the moment the
+  clock arrived, which is when `GET /today` begins self-healing a board the test just set up. Moved
+  into the past, where it cannot become today again.
+- **`test_pool_health.py`'s `TODAY` looked like the same bomb and is not.** It is passed as an
+  explicit `as_of` to the pure `pool_health()`, so the real clock never participates and the
+  assertions are stable whatever day it is. Recorded because "same literal, same file shape" was a
+  reasonable suspicion and the answer is a property of how the value is *used*, not how it is
+  written — the branch condition is `on == local_today` in `routers/today.py`, and only `/today`
+  has one.
+- **The twenty new photo prompts were verified against the library's own filters, not just read.**
+  Every daily photo body — the original 22 and the new 20 — was run through
+  `generate_prompts.judge`, which is the same gate a generated candidate passes. All 42 accepted.
+  That check is worth more than it looks: the filters forbid an occasion, an income, an ability and
+  a gender, and it is easy to write "photograph them at the beach" without noticing you have
+  assumed three of them.
+- **They are any-month on purpose.** A seasonal tag makes a prompt invisible for eleven months of
+  the year, and the slot's problem was availability *today*. The four seasonal photo prompts stay
+  seasonal; nothing new joined them.
+- **Verb agreement drove several rewordings.** "the book {they} keep asking for" renders "he keep",
+  so it became "{they_have} asked for every night this week"; "the chair {they} always sit in"
+  became "the chair that is always {theirs}". The token table has no conjugator by design, so the
+  authoring has to route around inflection — the same constraint phase 24 hit at scale.
