@@ -107,8 +107,9 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   consumer.
 - **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
   enforced code nothing can enter. Needs the visibility design above first.
-- **25 — Author photo prompts.** Not urgent until the scheduler fix lands; the photo pool is the
-  healthiest in the archive (20 of 20 available), just unreachable. Zero photo candidates among the 79.
+- **Re-measure `mission`'s pool health.** Phase 25 took the untagged photo pool from 20 to 40, so
+  the relaxation date in `mission-library.md` is stale by arithmetic. One call to
+  `GET /children/{id}/pool-health` replaces a projection this file must not invent.
 - **Settings can light up D1 and D12 now.** `GET /children/{id}/stats` ships the counts and the
   first-entry date those two were dropped for. iOS work, and small: the hero already draws the
   name, age and born-date from `ChildResponse`; the strip needs one more fetch.

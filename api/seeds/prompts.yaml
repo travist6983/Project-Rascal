@@ -533,6 +533,226 @@
 - kind: photo
   cadence: daily
   completion_mode: media
+  body: Photograph {their} hair first thing in the morning, before anyone fixes it.
+  theme: everyday-ordinary
+  min_age_months: 24
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of what {they} chose to wear when nobody helped.
+  theme: everyday-ordinary
+  min_age_months: 36
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph the bottom of {their} feet after a day outside.
+  theme: outdoors
+  min_age_months: 24
+  max_age_months: 120
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a picture of {their} hands working a zip, a button, or a spoon.
+  theme: skills-firsts
+  min_age_months: 24
+  max_age_months: 96
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph where {they} fell asleep that was not a bed.
+  theme: sleep-routine
+  min_age_months: 24
+  max_age_months: 96
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph the book {they_have} asked for every night this week.
+  theme: everyday-ordinary
+  min_age_months: 24
+  max_age_months: 120
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph {their} plate at the end of dinner, exactly as {they} left it.
+  theme: food
+  min_age_months: 24
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a picture of {them} from behind, walking away from you.
+  theme: growth-measurement
+  min_age_months: 24
+  max_age_months: 216
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph the thing {they} carried around all day.
+  theme: everyday-ordinary
+  min_age_months: 24
+  max_age_months: 96
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of {their} face while {they_are} concentrating.
+  theme: everyday-ordinary
+  min_age_months: 24
+  max_age_months: 216
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph what {they} left on the stairs.
+  theme: humor
+  min_age_months: 24
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of the chair that is always {theirs}, empty.
+  theme: everyday-ordinary
+  min_age_months: 36
+  max_age_months: 216
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph {their} shoes on the wrong feet.
+  theme: humor
+  min_age_months: 24
+  max_age_months: 72
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of what {they} built and then knocked down.
+  theme: making-building
+  min_age_months: 24
+  max_age_months: 96
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph {them} asleep in the car.
+  theme: sleep-routine
+  min_age_months: 24
+  max_age_months: 120
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a picture of {their} pockets emptied out.
+  theme: everyday-ordinary
+  min_age_months: 36
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of {them} eating something {they} said {they} hated.
+  theme: food
+  min_age_months: 30
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph {their} name in {their} own handwriting.
+  theme: skills-firsts
+  min_age_months: 48
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Take a photo of {them} helping with something {they_are} too small for.
+  theme: making-building
+  min_age_months: 24
+  max_age_months: 96
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
+  body: Photograph the spot {they_do} most of {their} playing in, with nobody in the frame.
+  theme: everyday-ordinary
+  min_age_months: 24
+  max_age_months: 144
+  month_tags: []
+  default_unlock_age: null
+  source: seeded
+  active: true
+- kind: photo
+  cadence: daily
+  completion_mode: media
   body: Photograph {them} in the first snow.
   theme: seasons-holidays
   min_age_months: 24
