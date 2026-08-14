@@ -27,9 +27,9 @@ from rascal.services.scheduler import (
 )
 
 # A Saturday that is neither the 1st nor the 15th, so the weekly slot is tested alone.
-SATURDAY = dt.date(2026, 8, 22)
-SUNDAY = dt.date(2026, 8, 16)
-FIRST = dt.date(2026, 9, 1)
+SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
+SUNDAY = dt.date(2026, 8, 16)  # future-date: explicit, pure
+FIRST = dt.date(2026, 9, 1)  # future-date: explicit, pure
 RNG = random.Random(1234)
 
 
@@ -169,7 +169,7 @@ def test_the_weekly_slot_only_fires_on_saturday() -> None:
 
 def test_the_monthly_slot_only_fires_on_the_first() -> None:
     assert "monthly" in slots_for(FIRST)
-    assert "monthly" not in slots_for(dt.date(2026, 9, 2))
+    assert "monthly" not in slots_for(dt.date(2026, 9, 2))  # future-date: explicit, pure
 
 
 # --- The runner --------------------------------------------------------------------------
@@ -241,8 +241,8 @@ async def test_two_children_in_different_zones_get_different_dates_from_one_inst
             await session.execute(sa.select(Assignment.child_id, Assignment.assigned_on).distinct())
         ).all()
     )
-    assert dates[auckland.id] == dt.date(2026, 8, 16)
-    assert dates[detroit.id] == dt.date(2026, 8, 15)
+    assert dates[auckland.id] == dt.date(2026, 8, 16)  # future-date: explicit, pure
+    assert dates[detroit.id] == dt.date(2026, 8, 15)  # future-date: explicit, pure
     assert dates[auckland.id] != dates[detroit.id]
 
 
@@ -531,7 +531,7 @@ async def test_the_debug_routes_are_not_registered_outside_local(engine) -> None
 # --- B1: letters get their own slot, on the 15th ------------------------------------------
 
 
-FIFTEENTH = dt.date(2026, 9, 15)
+FIFTEENTH = dt.date(2026, 9, 15)  # future-date: explicit, pure
 
 
 def test_the_letter_slot_only_fires_on_the_fifteenth() -> None:
@@ -567,7 +567,7 @@ def test_a_saturday_that_is_also_the_fifteenth_is_the_five_item_day() -> None:
     2026-08-15 is a Saturday *and* the 15th, so the weekly and the letter both fire on top of
     the daily three. Nothing suppresses either — that was decided, not overlooked.
     """
-    saturday_the_fifteenth = dt.date(2026, 8, 15)
+    saturday_the_fifteenth = dt.date(2026, 8, 15)  # future-date: explicit, pure
     assert saturday_the_fifteenth.weekday() == 5, "the fixture must actually be a Saturday"
 
     slots = slots_for(saturday_the_fifteenth)
@@ -776,8 +776,8 @@ async def test_every_timezone_gets_its_own_five_am_across_a_day_of_firings(
     # Each was served on their *own* local date, not on a shared UTC one. Within a single UTC
     # day of firings, 5am in Detroit (UTC-4) is the 22nd and 5am in Auckland (UTC+12) is
     # already the 23rd — which is exactly the point.
-    assert served[detroit.id] == dt.date(2026, 8, 22)
-    assert served[auckland.id] == dt.date(2026, 8, 23)
+    assert served[detroit.id] == dt.date(2026, 8, 22)  # future-date: explicit, pure
+    assert served[auckland.id] == dt.date(2026, 8, 23)  # future-date: explicit, pure
 
 
 async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
@@ -807,7 +807,7 @@ async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
         .scalars()
         .all()
     )
-    assert days == {dt.date(2026, 8, 22), dt.date(2026, 12, 12)}
+    assert days == {dt.date(2026, 8, 22), dt.date(2026, 12, 12)}  # future-date: explicit, pure
 
 
 async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
@@ -919,7 +919,7 @@ def _aged_prompt(*, min_age_months: int, max_age_months: int) -> Prompt:
 # --- The three-slot day --------------------------------------------------------------------
 
 
-TUESDAY = dt.date(2026, 8, 18)
+TUESDAY = dt.date(2026, 8, 18)  # future-date: explicit, pure
 
 
 async def _every_daily_kind(session: AsyncSession) -> None:
@@ -1069,7 +1069,7 @@ def test_slots_for_never_invents_a_slot_the_schema_would_reject() -> None:
 
     day = dt.date(2026, 1, 1)
     produced: set[str] = set()
-    while day < dt.date(2027, 1, 1):
+    while day < dt.date(2027, 1, 1):  # future-date: explicit, pure
         produced.update(slots_for(day))
         day += dt.timedelta(days=1)
 

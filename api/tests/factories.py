@@ -135,7 +135,11 @@ async def make_assignment(
     custom_body: str | None = None,
     expires_in_days: int = 14,
 ) -> Assignment:
-    assigned_on = assigned_on or dt.date(2026, 8, 14)
+    # **In the past, and that is load-bearing.** This was `2026-08-14`, which arrived on
+    # 14 Aug 2026 and made every assignment built without an explicit date land on the real
+    # today — at which point `GET /today` starts self-healing the board a test just set up.
+    # A default in the past cannot become today again. See `test_fixture_dates.py`.
+    assigned_on = assigned_on or dt.date(2026, 8, 4)
     assignment = Assignment(
         child_id=child.id,
         prompt_id=prompt.id if prompt else None,

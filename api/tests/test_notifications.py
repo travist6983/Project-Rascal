@@ -132,7 +132,9 @@ async def test_the_window_resolves_in_the_family_timezone_rather_than_utc(
     15th, a day that has not happened where the child lives.
     """
     instant = _utc(DAY, dt.time(19, 30), HONOLULU)
-    assert instant.date() == dt.date(2026, 8, 15), "the fixture must straddle a UTC midnight"
+    # future-date: this asserts the UTC side of a Honolulu evening, so it is derived, not chosen
+    tomorrow_in_utc = dt.date(2026, 8, 15)  # future-date: explicit, pure
+    assert instant.date() == tomorrow_in_utc, "the fixture must straddle a UTC midnight"
 
     await _world(session, timezone=HONOLULU)
     run, push = await _run(session, at=instant)
@@ -689,7 +691,7 @@ async def test_a_five_item_day_still_produces_exactly_one_notification(
     This day was not reachable before the third daily slot existed — the old ceiling was four
     — which is why it gets its own test rather than being folded into the once-a-day one.
     """
-    saturday_the_fifteenth = dt.date(2026, 8, 15)
+    saturday_the_fifteenth = dt.date(2026, 8, 15)  # future-date: explicit, pure
     assert saturday_the_fifteenth.weekday() == 5, "the fixture must actually be a Saturday"
     assert saturday_the_fifteenth.day == 15, "...and actually the 15th"
 
