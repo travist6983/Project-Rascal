@@ -1,0 +1,12 @@
+# Append-only files, merged by union.
+#
+# `docs/decisions-log.md` is one chronological list and every change adds to its last line, so
+# two branches touching it always conflict on the same spot — it happened four times in a single
+# day, and every resolution was the same: keep both sides. `merge=union` makes git do that.
+#
+# The trade is explicit. Union merge keeps both sides in an arbitrary relative order and will
+# duplicate a line if two branches add the identical one. For a log whose value is that every
+# entry is present — not that entries are in a particular order within a day — that is the right
+# trade. It is *not* the right trade for a file where two changes to the same region mean
+# something, which is why this is one named path and not a glob.
+docs/decisions-log.md merge=union

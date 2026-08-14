@@ -2109,3 +2109,17 @@ Two documentation defects the same pass found, both of the kind this project tre
   earliest instant is the earliest local day in every zone. Taking `min`/`max` of the raw column
   and converting exactly two values in Python is the same answer, still one query, and no
   user-controlled string in the SQL. Regression test uses `Asia/Calcutta` deliberately.
+- **The scheduled-machine refresh compared image strings that are never equal.** An app machine
+  reports `…:deployment-01M016AD`; a machine that has been through `fly machine update` reports
+  `…:deployment-01M016AD@sha256:20b638…`. The first version of that step compared the two raw, so
+  the "only when the image differs" guard was permanently true and every deploy restarted both
+  cron machines. Bounded — the scheduler is idempotent on `(child_id, assigned_on, slot)` and the
+  notifier claims on a unique `(user_id, notification_date)`, so nothing double-fired — but the
+  guard did nothing it claimed to. Both sides are now compared with the digest stripped, checked
+  against the live app in both directions: empty when the images match, and still non-empty
+  against an older target.
+- **The defect was invisible to every check that had been run on it.** The workflow parsed, the
+  jq was valid, the step reported success, and the deploy went green — it just did the wrong
+  thing quietly. What found it was querying the live app and reading the two image strings side by
+  side, which is the only place the asymmetry exists at all. Worth remembering for the next piece
+  of automation whose correctness lives in a string comparison against a platform's output.
