@@ -22,6 +22,7 @@ from rascal.schemas.child import (
     AvatarUrlResponse,
     ChildCreate,
     ChildOut,
+    ChildStatsOut,
     ChildUpdate,
     ChildWithRole,
     RecomputeAgesResult,
@@ -37,6 +38,7 @@ from rascal.services import avatars
 from rascal.services import entries as entries_service
 from rascal.services.dates import age_in_months, today_in
 from rascal.services.pool_health import pool_health
+from rascal.services.stats import child_stats
 
 router = APIRouter(prefix="/children", tags=["children"])
 
@@ -343,4 +345,37 @@ async def child_pool_health(
         as_of=as_of,
         age_months=age_in_months(access.child.birthdate, as_of),
         slots=[SlotHealthOut.model_validate(slot.__dict__) for slot in slots],
+    )
+
+
+@router.get(
+    "/{child_id}/stats",
+    response_model=ChildStatsOut,
+    summary="How much is in this child's archive",
+    description=(
+        "Counted on every call, never cached — the same admin-grade read `pool-health` is, "
+        "and for the same reason: a cached count of a growing archive is a number that is "
+        "wrong for exactly as long as the cache lives.\n\n"
+        "**This exists because the client cannot answer it.** The timeline is a paged, "
+        "partial cache, so Settings dropped its stats strip and its first-entry line rather "
+        "than let the app assert the size of an archive it has only seen part of.\n\n"
+        "`first_entry_on` and `last_entry_on` are calendar days in the child's "
+        "`family_timezone`, and are `null` on an empty archive."
+    ),
+)
+async def child_stats_route(
+    session: SessionDep,
+    access: Annotated[ChildAccess, Depends(child_access("viewer"))],
+) -> ChildStatsOut:
+    stats = await child_stats(session, access.child)
+    return ChildStatsOut(
+        child_id=access.child.id,
+        # The child's day, not the server's — every other date this API returns is in the
+        # family timezone and this one has no reason to be the exception.
+        as_of=today_in(access.child.family_timezone),
+        entries=stats.entries,
+        sealed=stats.sealed,
+        media=stats.media,
+        first_entry_on=stats.first_entry_on,
+        last_entry_on=stats.last_entry_on,
     )

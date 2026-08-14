@@ -627,6 +627,34 @@ worse than no decision.** Idempotent; `404` for a prompt this child never suppre
 Query: `include_revoked` (default false). Each row carries the prompt, so a client can show what
 has been suppressed and offer to restore it without fanning out.
 
+**`GET /children/{id}/stats`** — any guardian → what is in the archive.
+
+```json
+{
+  "child_id": "...", "as_of": "2026-08-14",
+  "entries": 412, "sealed": 3,
+  "media": { "photo": 1204, "video": 22, "audio": 61 },
+  "first_entry_on": "2022-06-21", "last_entry_on": "2026-08-14"
+}
+```
+
+**This exists because the client cannot answer it.** The timeline is a paged, partial cache, so
+`docs/settings-v2-inventory.md` dropped the hero's stats strip (D1) and its first-entry line (D12)
+rather than let the app assert the size of an archive it has only seen part of — the same rule the
+Timeline header follows when it says *"412 so far"*.
+
+- Counted live, never cached. A cached count of a growing archive is wrong for as long as the
+  cache lives, and this is an admin-grade read like `pool-health`, not a hot path.
+- **Soft-deleted rows are excluded**, and media is counted through a live entry — a delete takes
+  the media with it, so a media row whose entry is gone is not in the archive whatever its own
+  `deleted_at` says.
+- `sealed` is a **subset** of `entries`, not a separate population.
+- `media` carries **every kind, always, including zeros.** A key that appears only once a child
+  has recorded audio is a key every client has to guard.
+- `first_entry_on` / `last_entry_on` are **calendar days in the child's `family_timezone`**, not
+  instants — an evening entry in Detroit is a Detroit day, and a UTC date would report the next
+  one. `null` on an empty archive, never today standing in for one.
+
 **`GET /children/{id}/pool-health`**
 Per slot and per kind: `eligible`, `suppressed`, `served_within_cooldown`, `available_now`,
 `estimated_days_until_first_repeat`, `relaxation_active`, `relaxation_step`.
