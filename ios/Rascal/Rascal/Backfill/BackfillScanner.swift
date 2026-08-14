@@ -130,18 +130,24 @@ final class BackfillScanner {
     private let cache: BackfillScanCaching
     private var task: Task<Void, Never>?
 
+    /// `childId` namespaces the two `UserDefaults` stores. It is a parameter rather than a
+    /// property because nothing here re-reads it: a switch tears this object down and builds
+    /// another, which is what `.id(child.id)` on `RootView` is for.
     init(
         source: any BackfillAssetSource,
-        dismissals: any BackfillDismissalStoring = UserDefaultsBackfillDismissalStore(),
-        cache: BackfillScanCaching = UserDefaultsBackfillScanCache()
+        childId: UUID,
+        dismissals: (any BackfillDismissalStoring)? = nil,
+        cache: BackfillScanCaching? = nil
     ) {
+        let scope = childId.uuidString
         self.source = source
         self.dismissals = dismissals
-        self.cache = cache
+            ?? UserDefaultsBackfillDismissalStore(key: "backfill.dismissedMonths.\(scope)")
+        self.cache = cache ?? UserDefaultsBackfillScanCache(key: "backfill.scan.\(scope)")
         // Read at init rather than at the first scan. The browse screen can be reached before a
         // scan has completed — a cached result renders immediately — and a dismissal recorded last
         // week must not reappear for the length of that first render.
-        self.dismissedMonths = dismissals.dismissed()
+        self.dismissedMonths = self.dismissals.dismissed()
     }
 
     /// `entryDates` is every `occurred_at` this device holds, read from the local store by the
@@ -274,6 +280,11 @@ nonisolated struct UserDefaultsBackfillScanCache: BackfillScanCaching {
     nonisolated(unsafe) private let defaults: UserDefaults
     private let key: String
 
+    /// **Namespaced by child, like `SyncCursorStore`.** One store holds every child's rows and
+    /// one `UserDefaults` holds every child's scan; a device-wide key served the sibling's
+    /// coverage under this child's name, which is the same defect the `entryOccurredDates`
+    /// scoping fixed one layer down — and it defeated that fix, because a cached scan is
+    /// returned without recomputing.
     init(defaults: UserDefaults = .standard, key: String = "backfill.scan") {
         self.defaults = defaults
         self.key = key

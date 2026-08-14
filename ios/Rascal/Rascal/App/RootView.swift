@@ -245,7 +245,7 @@ struct RootView: View {
             if backfill == nil {
                 let source = PhotoLibraryBackfillSource()
                 backfillSource = source
-                backfill = BackfillScanner(source: source)
+                backfill = BackfillScanner(source: source, childId: childId)
             }
             // The engine needs the child, which the gate has already resolved.
             if syncEngine == nil {

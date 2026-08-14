@@ -2123,3 +2123,20 @@ Two documentation defects the same pass found, both of the kind this project tre
   thing quietly. What found it was querying the live app and reading the two image strings side by
   side, which is the only place the asymmetry exists at all. Worth remembering for the next piece
   of automation whose correctness lives in a string comparison against a platform's output.
+- **An existing seal is carried, never clamped.** `SealSetting.initial` reused `resolvedAge` for
+  the edit path, which rounds into the stepper's 10–21 window. That clamp is right for a prompt
+  *default* — a number nobody has committed to — and wrong for the archive's own value: an entry
+  sealed at 25 rendered "Opens at 21" while `EntryCard` said 25, and an untouched Save moved the
+  seal to 21 permanently. It reintroduced, one line below, exactly the regression
+  `existingUnlockAtAge` was added to prevent. Latent in the seed library (13/16/18 only) but
+  reachable without any unusual client, because `services/entries.py` seals from the prompt's own
+  `default_unlock_age` and the server permits 0–120.
+- **The backfill's two `UserDefaults` stores are namespaced by child.** `backfill.scan` and
+  `backfill.dismissedMonths` were device-wide, so a sibling's coverage was served under this
+  child's name and a month waved away for one hid it for the other. This *defeated* the
+  `entryOccurredDates` scoping shipped with multi-kid, because a cached scan is returned without
+  recomputing — the fix one layer down was invisible behind the cache one layer up.
+- **`refreshChildren` was unreachable for the account it was written for.** Its only caller was the
+  switcher sheet, which does not open until there are two children — i.e. never for the one-child
+  account that needs to discover a second one added elsewhere. It now also runs when the
+  add-a-child sheet opens, which is the likeliest moment for that to be true.
