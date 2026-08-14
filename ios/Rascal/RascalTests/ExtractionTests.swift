@@ -83,11 +83,12 @@ struct ExtractionTests {
         in context: ModelContext,
         body: String? = "A long afternoon at the beach with Ada.",
         unlockAtAge: Int? = nil,
-        extractedAt: Date? = nil
+        extractedAt: Date? = nil,
+        childId: UUID = UUID()
     ) -> Entry {
         let entry = Entry(
             id: UUID(),
-            childId: UUID(),
+            childId: childId,
             occurredAt: Date(timeIntervalSince1970: 1_700_000_000),
             body: body,
             unlockAtAge: unlockAtAge
@@ -336,12 +337,30 @@ struct ExtractionTests {
     @Test("Pending never offers a sealed or already-extracted entry")
     func pendingExcludesSealedAndDone() throws {
         let context = try makeContext()
-        makeEntry(in: context, body: "Ordinary.")
-        makeEntry(in: context, body: "Sealed.", unlockAtAge: 18)
-        makeEntry(in: context, body: "Done.", extractedAt: Date())
-        makeEntry(in: context, body: nil)
+        let child = UUID()
+        makeEntry(in: context, body: "Ordinary.", childId: child)
+        makeEntry(in: context, body: "Sealed.", unlockAtAge: 18, childId: child)
+        makeEntry(in: context, body: "Done.", extractedAt: Date(), childId: child)
+        makeEntry(in: context, body: nil, childId: child)
 
-        #expect(ExtractionQueue.pending(in: context).count == 1)
+        #expect(ExtractionQueue.pending(in: context, childId: child).count == 1)
+    }
+
+    /// **One store holds every child's rows, and extraction is not repeatable.** `extractedAt` is
+    /// stamped once and never revisited, so an unscoped queue can spend a sibling's only pass on
+    /// the wrong entry — and the tags it would have produced are not recoverable by reopening the
+    /// app. This is the reason `pending` takes a child at all.
+    @Test("Pending never offers another child's entry")
+    func pendingIsScopedToOneChild() throws {
+        let context = try makeContext()
+        let mine = UUID()
+        let sibling = UUID()
+        let ours = makeEntry(in: context, body: "Ours.", childId: mine)
+        makeEntry(in: context, body: "Theirs.", childId: sibling)
+
+        let pending = ExtractionQueue.pending(in: context, childId: mine)
+
+        #expect(pending.map(\.id) == [ours.id])
     }
 }
 

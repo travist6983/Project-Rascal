@@ -151,8 +151,15 @@ struct BackfillFlowView: View {
         // the entry just written or reach into the next day.
         let calendar = BackfillCalendar.family(familyTimezone)
         guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { return }
+        // This child's entries only. The sibling having written something on this day would
+        // otherwise badge it "Written" for a child who has nothing there — the same shape of lie
+        // as a completion check on a prompt with no entry behind it.
+        let child = childId
         var descriptor = FetchDescriptor<Entry>(
-            predicate: #Predicate { $0.deletedAt == nil && $0.occurredAt >= day && $0.occurredAt < next }
+            predicate: #Predicate {
+                $0.childId == child && $0.deletedAt == nil
+                    && $0.occurredAt >= day && $0.occurredAt < next
+            }
         )
         descriptor.fetchLimit = 1
         if let count = try? context.fetchCount(descriptor), count > 0 {

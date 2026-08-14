@@ -183,6 +183,9 @@ struct TodayScreen: View {
     /// than in a composer for nothing.
     var requestedAssignment: Binding<UUID?> = .constant(nil)
     var onRetrySync: () -> Void = {}
+    /// Open the child switcher. Nil with one child, which is what keeps the pill a label — see
+    /// `ChildSwitcherPill`. Passed down untouched; this screen does not decide the condition.
+    var onSwitchChild: (() -> Void)?
     /// Runs the push-then-pull sweep. One of the four triggers, and the boring one: opening the
     /// screen a parent opens most is a good moment to be up to date.
     var onSync: () async -> Void = {}
@@ -277,6 +280,7 @@ struct TodayScreen: View {
                 onSkip: { model.skip($0.assignment) },
                 onUndoSkip: { model.undoSkip() },
                 onDismissNotice: { model.notice = nil },
+                onSwitchChild: onSwitchChild,
                 // Debug builds only. The `/debug/*` route behind it is registered only when the
                 // API runs with ENVIRONMENT=local, so in a release build this button is a 404
                 // wearing a refresh icon.
@@ -295,7 +299,18 @@ struct TodayScreen: View {
     /// Hidden rather than marked, because a row that sits there greyed out while a toast offers to
     /// undo it has not visibly done anything, and the parent taps the swipe again.
     private func visibleBoard(from response: TodayResponse) -> TodayBoard {
-        var board = TodayBoard.merge(response: response, entries: localEntries, media: localMedia)
+        // **`localEntries` is every child's, so it is narrowed here.** The queries above cannot
+        // carry the child — a `@Query` predicate is fixed at init, and capturing a property means
+        // a hand-written `init` re-declaring five defaulted parameters for no gain. The merge
+        // binds entries to cards by assignment id, which is unique per row, so a sibling's entry
+        // cannot key into this board even unfiltered; this makes that a stated constraint rather
+        // than a property of UUIDs. `media` stays whole: it has no `childId` and is grouped by
+        // `entryId` off these now-scoped entries.
+        var board = TodayBoard.merge(
+            response: response,
+            entries: localEntries.filter { $0.childId == childId },
+            media: localMedia
+        )
         let hidden = model.hiddenSkips
         guard !hidden.isEmpty else { return board }
         board.today = board.today.filter { !hidden.contains($0.id) }

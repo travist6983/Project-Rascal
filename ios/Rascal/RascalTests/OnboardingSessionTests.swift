@@ -191,7 +191,7 @@ struct OnboardingSessionTests {
         )
     }
 
-    @Test("more than one child takes the first and builds no picker")
+    @Test("with nothing remembered, more than one child resolves to the first")
     func multipleChildrenTakesTheFirst() async throws {
         let first = UUID()
         let second = UUID()
@@ -202,6 +202,171 @@ struct OnboardingSessionTests {
         await session.resume()
 
         #expect(session.state.readyChild?.id == first)
+        #expect(session.children.count == 2, "the list is held, not just the one that won")
+    }
+
+    /// The point of remembering at all: a parent who switched to their second child and closed
+    /// the app is looking at that child's archive, not back at the first one.
+    @Test("a remembered child is resolved instead of the first")
+    func rememberedChildWins() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+
+        let session = onboardingSession(
+            performer, tokens: signedIn, selected: InMemorySelectedChildStore(second)
+        )
+        await session.resume()
+
+        #expect(session.state.readyChild?.id == second)
+    }
+
+    /// **Not an error, and not an empty screen.** The child may have been removed on another
+    /// device, and a stored id naming somebody this account cannot see has to land somewhere —
+    /// the first child is where a fresh install lands, so it is where this lands too.
+    @Test("a remembered child the account no longer has falls back to the first")
+    func rememberedChildThatIsGoneFallsBack() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+
+        let session = onboardingSession(
+            performer, tokens: signedIn, selected: InMemorySelectedChildStore(UUID())
+        )
+        await session.resume()
+
+        #expect(session.state.readyChild?.id == first)
+    }
+
+    /// **The rule `ChildSwitcherPill` exists to serve**: one child and a chevron is a control that
+    /// lies. The condition is asserted here rather than in a view because this is the only layer
+    /// that knows how many children there are — and a chevron is not assertable without a UI test
+    /// target this lane does not have.
+    @Test("one child offers no switcher; two children do")
+    func switcherAppearsOnlyWithSomewhereToGo() async throws {
+        let onlyChild = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (meChildrenJSON(onlyChild), 200) }
+
+        let session = onboardingSession(performer, tokens: signedIn)
+        await session.resume()
+        #expect(session.canSwitchChild == false)
+
+        let second = UUID()
+        performer.on("/children") { _ in (twoChildrenJSON(onlyChild, second), 200) }
+        await session.refreshChildren()
+        #expect(session.canSwitchChild)
+    }
+
+    @Test("selecting a child moves ready to that child and remembers it")
+    func selectingMovesAndRemembers() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+
+        let store = InMemorySelectedChildStore()
+        let session = onboardingSession(performer, tokens: signedIn, selected: store)
+        await session.resume()
+
+        let target = try #require(session.children.first { $0.id == second })
+        session.select(target)
+
+        #expect(session.state.readyChild?.id == second)
+        #expect(store.load() == second, "the next launch opens the child that is on screen now")
+    }
+
+    /// Selecting the child already showing must be inert. `RootView` is rendered with
+    /// `.id(child.id)`, so a redundant `.ready` would tear the whole subtree down — dropping the
+    /// board, restarting sync and clearing the widget — to arrive back exactly where it started.
+    @Test("selecting the child already showing changes nothing")
+    func selectingTheCurrentChildIsInert() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+
+        let directory = URL.temporaryDirectory.appending(path: "widget-\(UUID().uuidString)")
+        let store = WidgetSnapshotStore(directory: directory)
+        let session = onboardingSession(
+            performer,
+            tokens: signedIn,
+            widget: WidgetSnapshotPublisher(store: store, reload: {})
+        )
+        await session.resume()
+
+        _ = store.write(placeholderSnapshot())
+
+        let current = try #require(session.children.first { $0.id == first })
+        session.select(current)
+
+        #expect(session.state.readyChild?.id == first)
+        #expect(store.readData() != nil, "a no-op switch must not clear the Home Screen")
+    }
+
+    /// **The snapshot is one child's first name and today's prompts, and the extension does no
+    /// work of its own.** Left alone across a switch, the Home Screen keeps the previous child's
+    /// name until the new board lands — and forever if that fetch fails. Clearing is the honest
+    /// state; `WidgetSnapshotSync` republishes as soon as Today answers.
+    @Test("switching child clears the widget snapshot")
+    func switchingClearsTheSnapshot() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+
+        let directory = URL.temporaryDirectory.appending(path: "widget-\(UUID().uuidString)")
+        let store = WidgetSnapshotStore(directory: directory)
+        let session = onboardingSession(
+            performer,
+            tokens: signedIn,
+            widget: WidgetSnapshotPublisher(store: store, reload: {})
+        )
+        await session.resume()
+
+        _ = store.write(placeholderSnapshot())
+        #expect(store.readData() != nil, "precondition: something is on the Home Screen")
+
+        let target = try #require(session.children.first { $0.id == second })
+        session.select(target)
+
+        #expect(store.readData() == nil)
+    }
+
+    @Test("signing out forgets which child was selected")
+    func signOutForgetsTheSelection() async throws {
+        let first = UUID()
+        let second = UUID()
+        let performer = StubPerformer()
+        performer.on("/children") { _ in (twoChildrenJSON(first, second), 200) }
+        performer.on("/auth/logout") { _ in (Data("{}".utf8), 200) }
+
+        let store = InMemorySelectedChildStore()
+        let session = onboardingSession(performer, tokens: signedIn, selected: store)
+        await session.resume()
+        #expect(store.load() == first, "precondition: resolving remembers")
+
+        await session.signOut()
+
+        #expect(store.load() == nil)
+        #expect(
+            session.canSwitchChild == false,
+            "a signed-out session must not offer a switcher for the account that left"
+        )
+    }
+
+    /// A value that cannot be parsed reads as "nothing chosen", which is the same branch a fresh
+    /// install takes. The store parses on the way out precisely so there is one path to get right.
+    @Test("a remembered child that cannot be parsed reads as none")
+    func unparseableSelectionReadsAsNone() async throws {
+        let defaults = try #require(UserDefaults(suiteName: "selected-child-\(UUID().uuidString)"))
+        defaults.set("not-a-uuid", forKey: "session.selectedChildID")
+
+        let store = UserDefaultsSelectedChildStore(defaults: defaults)
+
+        #expect(store.load() == nil)
     }
 
     // MARK: Creating the child
@@ -669,7 +834,19 @@ func onboardingSession(
     avatars: AvatarStoring = InMemoryAvatarStore(),
     // In memory so a setup test never writes a pending upload into the process's real
     // `UserDefaults` and leaves it there for the next run's sweep to find.
-    pendingAvatars: PendingAvatarUploadStoring = InMemoryPendingAvatarUploadStore()
+    pendingAvatars: PendingAvatarUploadStoring = InMemoryPendingAvatarUploadStore(),
+    // Same reasoning as `pendingAvatars`: which child was last selected is a real `UserDefaults`
+    // key in the app, and a test that resolves a session must not leave one behind for the next.
+    selected: SelectedChildStoring = InMemorySelectedChildStore(),
+    // Defaulted to a throwaway directory rather than `.live`, because the real store needs an App
+    // Group entitlement the test runner does not have — and because a test signing out would
+    // otherwise clear the snapshot of whatever is actually on this machine's Home Screen.
+    widget: WidgetSnapshotPublisher = WidgetSnapshotPublisher(
+        store: WidgetSnapshotStore(
+            directory: URL.temporaryDirectory.appending(path: "widget-\(UUID().uuidString)")
+        ),
+        reload: {}
+    )
 ) -> OnboardingSession {
     let store = InMemoryTokenStore(tokens)
     let account = AppSession(
@@ -686,8 +863,22 @@ func onboardingSession(
         drafts: drafts,
         appleIDs: appleIDs,
         credentials: credentials,
+        selected: selected,
         avatars: avatars,
-        pendingAvatars: pendingAvatars
+        pendingAvatars: pendingAvatars,
+        widget: widget
+    )
+}
+
+/// Something, anything, on the Home Screen — the switching tests care that a file exists and
+/// then does not, never what is in it.
+func placeholderSnapshot() -> WidgetSnapshot {
+    WidgetSnapshot(
+        assignedOn: "2026-08-13",
+        familyTimezone: "America/Detroit",
+        childFirstName: "Milo",
+        mission: nil,
+        question: nil
     )
 }
 

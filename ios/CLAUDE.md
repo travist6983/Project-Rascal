@@ -78,13 +78,28 @@ An Android or web client, a design system package, offline media
 transcoding, analytics, a login screen for anything other than Sign in with Apple and
 `dev-login`.
 
-**Multi-kid switching UI came off this list on Aug 12, 2026** — the owner's decision, recorded in
-`docs/decisions.md`. It is a prioritised phase, not a someday. The server has supported it since
-migration `0001`; the work is here: the child is hardcoded to `.first` in three places, and
-`ChildSwitcherPill` already draws its chevron and tap target whenever `onSelect` is non-nil, which
-today only a preview supplies. **The rule that survives the scope change** is the one that file
-states at `ChildSwitcherPill.swift:11-13` — *"One child and a chevron is a control that lies"* —
-so the chevron appears when there is a second child to switch to, and not before.
+**Multi-kid shipped in phase 31 (Aug 13, 2026)**, after coming off this list on Aug 12 by the
+owner's decision. The rule it was built around is the one `ChildSwitcherPill` states — *"One child
+and a chevron is a control that lies"* — so the chevron appears when there is a second child and
+not before, and the condition lives in `OnboardingSession.canSwitchChild` because the gate is the
+only layer that knows how many children there are.
+
+**The switch is a gate-level state change and nothing else, and that is load-bearing.**
+`OnboardingGate` renders `RootView` with `.id(child.id)`, so a new `.ready(child)` tears the whole
+subtree down and rebuilds it. Every child-bound object — `TodayModel`, `SyncEngine`, `ShareDrain`,
+`TimelineModel`, `MomentsModel`, and the Timeline's `@Query` predicates — captures its child once
+at init and never re-reads it. **Never make a `childId` mutable to implement a switch.** Doing so
+leaves all of them pointed at the previous child while the header shows the new one: the timeline
+lists a sibling's entries and the sync engine advances the wrong child's cursor. That is a
+corrupted archive, not a display bug.
+
+**One local store holds every child's rows**, so a read that is not scoped by `childId` sees both.
+Entries and assignments carry one; `Media` and `MediaPart` do not, and reach their child through
+`entryId`. Device-wide work queues — `EntrySync.unsyncedDescriptor()`, the upload, transcription
+and staging sweeps — are deliberately unscoped, because each row carries its own child to its own
+route and narrowing them would strand the other child's offline writes. **Switching never erases
+anything**: both children share the store and neither is entitled to empty it. `LocalArchiveErasing`
+belongs to sign-out alone.
 
 **Push notifications came off this list in Phase 14** and are now built. What remains out of
 scope within push is everything that was out of scope then: local notifications and
