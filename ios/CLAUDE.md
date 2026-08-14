@@ -84,6 +84,12 @@ and a chevron is a control that lies"* — so the chevron appears when there is 
 not before, and the condition lives in `OnboardingSession.canSwitchChild` because the gate is the
 only layer that knows how many children there are.
 
+**Adding a child lives in Settings, not in the switcher**, because the switcher's chevron does not
+exist until there are two children — an entry point only there would be sealed behind its own
+door. It is a create against `POST /children` from one sheet, deliberately not `ChildSetupFlow`:
+setup's last step is the notification soft-ask, and a parent adding a sibling has already answered
+that for the account. A successful add switches to the new child.
+
 **The switch is a gate-level state change and nothing else, and that is load-bearing.**
 `OnboardingGate` renders `RootView` with `.id(child.id)`, so a new `.ready(child)` tears the whole
 subtree down and rebuilds it. Every child-bound object — `TodayModel`, `SyncEngine`, `ShareDrain`,

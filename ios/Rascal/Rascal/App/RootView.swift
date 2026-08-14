@@ -71,6 +71,10 @@ struct RootView: View {
     /// — and this view deliberately does not second-guess it, because a `RootView` that decided
     /// for itself would need the child list, which is exactly the state the gate owns.
     let onSwitchChild: (() -> Void)?
+
+    /// Open the add-a-child sheet. Threaded to Settings, and — unlike `onSwitchChild` — never nil:
+    /// an account with one child is exactly the one that needs it.
+    let onAddChild: () -> Void
     /// The one `NotificationPreference` in the process, owned by `OnboardingGate`. Handed down
     /// rather than rebuilt: a second instance would keep its own copy of whether the single
     /// post-entry re-offer had been spent, and would offer it again.
@@ -163,6 +167,7 @@ struct RootView: View {
         promptSubject: PromptSubject,
         onSignOut: @escaping () async -> Void,
         onSwitchChild: (() -> Void)? = nil,
+        onAddChild: @escaping () -> Void = {},
         notifications: NotificationPreference,
         pendingLink: Binding<WidgetDeepLink?>
     ) {
@@ -173,6 +178,7 @@ struct RootView: View {
         self.initialPromptSubject = promptSubject
         self.onSignOut = onSignOut
         self.onSwitchChild = onSwitchChild
+        self.onAddChild = onAddChild
         self.notifications = notifications
         self._pendingLink = pendingLink
         // Written by hand for one property, the same way `ComposerView` does: the model needs the
@@ -470,6 +476,7 @@ struct RootView: View {
                         childId: childId,
                         session: session,
                         onSignOut: onSignOut,
+                        onAddChild: onAddChild,
                         sync: sync,
                         avatarSync: avatarSync,
                         syncEngine: syncEngine,

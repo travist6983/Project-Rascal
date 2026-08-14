@@ -28,6 +28,12 @@ struct SettingsScreen: View {
     /// screen. Calling `AppSession.signOut()` from here would revoke the token and leave this
     /// screen exactly where it is.
     let onSignOut: () async -> Void
+
+    /// Ask for the add-a-child sheet. **Presented by the gate, not from here**, for the same
+    /// reason the switcher is: creating a child ends in a switch, and a switch replaces the whole
+    /// view tree this screen is inside — a sheet owned down here would be destroying its own
+    /// presenter as it succeeded.
+    var onAddChild: () -> Void = {}
     /// The app's one sync, so the status section reads the same numbers the sweep acts on rather
     /// than inventing a second source of truth for upload state.
     let sync: EntrySync?
@@ -106,6 +112,7 @@ struct SettingsScreen: View {
                 ChildHeroCard(child: child, avatar: avatar) { openChild() }
 
                 archiveSection
+                childrenSection
                 accountSection
                 exportSection
                 syncSection
@@ -241,6 +248,24 @@ struct SettingsScreen: View {
                     label: "Timezone",
                     value: child.map { TimeZoneCatalog.city($0.familyTimezone) }
                 ) { openChild() }
+            }
+        }
+    }
+
+    // MARK: Children
+
+    /// **The only way to add a second child, and it has to be here rather than in the switcher.**
+    /// The switcher's chevron does not exist until there are two children — which is precisely the
+    /// account that needs to add one — so an entry point that lived only there would be sealed
+    /// behind its own door, the same shape of bug `AddToArchiveModel` records about the camera
+    /// roll row.
+    ///
+    /// One row, and no list of the children themselves: the switcher already lists them, and a
+    /// second list here would be a second place to keep correct for no new capability.
+    private var childrenSection: some View {
+        section("Children") {
+            SettingsCard {
+                SettingsRow(label: "Add a child") { onAddChild() }
             }
         }
     }

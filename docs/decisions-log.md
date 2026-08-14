@@ -1999,3 +1999,17 @@ Two documentation defects the same pass found, both of the kind this project tre
   resolves `GET /children` first and only then asks whether the remembered id is among them —
   missing, unparseable and no-longer-present all land on the same branch as never having chosen.
   That is why the store parses on the way out rather than validating on the way in.
+- **Adding a child is a Settings entry point, not a switcher one.** The switcher's chevron only
+  exists once there are two children, so an "add" that lived only there would be unreachable for
+  exactly the account that needs it — the same shape as the camera-roll row that was sealed behind
+  its own authorization door.
+- **`AddChildSheet` is not `ChildSetupFlow`.** Setup's sixth step is the notification soft-ask, and
+  a parent adding a sibling has already answered that for the account; `ios/CLAUDE.md` puts
+  re-prompting out of scope by any mechanism. Reusing the flow would mean branching through every
+  step to skip the last one. The sheet collects the four fields `POST /children` requires and
+  stops — avatar stays where the existing child's is set, in `EditChildSheet`.
+- **`addChild` deliberately does not reuse `createChild`'s adopt-the-existing-child guard.** That
+  guard exists because setup has no idempotency key and a lost response would otherwise strand a
+  parent whose child was already created. It cannot be reused here: this account already has
+  children, so "find one and adopt it" would silently select a *sibling* and report success for a
+  create that may never have happened. A visible error the parent can retry is the better failure.

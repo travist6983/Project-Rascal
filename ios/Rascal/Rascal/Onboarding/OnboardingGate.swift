@@ -489,6 +489,60 @@ final class OnboardingSession {
         state = .ready(child)
     }
 
+    /// Add a second — or fifth — child, from a signed-in session.
+    ///
+    /// **Not the setup flow, and deliberately not `.needsChild`.** That state means "authenticated,
+    /// zero children" and drives the whole six-step flow, the last step of which asks for
+    /// notification permission. A parent adding a sibling has already answered that question for
+    /// the account, and `ios/CLAUDE.md` puts re-prompting out of scope by any mechanism. So this
+    /// is a create against the same route, from a sheet that collects the four things the route
+    /// requires and nothing else — avatar and everything else stay editable in Settings, where
+    /// they already are for the child that exists.
+    ///
+    /// **The new child is switched to on success.** Creating somebody and being left looking at
+    /// their sibling is the kind of thing that reads as a failure, and the switch is the same
+    /// gate-level state change every other switch is.
+    ///
+    /// Returns whether it landed, so the sheet knows whether to close. The notice is set here
+    /// either way, because this type owns the interface's voice for everything on this path.
+    @discardableResult
+    func addChild(
+        name: String,
+        birthdate: String,
+        familyTimezone: String,
+        pronouns: PronounSet?
+    ) async -> Bool {
+        guard !isWorking else { return false }
+        isWorking = true
+        notice = nil
+        defer { isWorking = false }
+
+        do {
+            let child = try await account.api.createChild(
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                birthdate: birthdate,
+                familyTimezone: familyTimezone,
+                pronouns: pronouns
+            )
+            // Appended before the switch, because `select` is a no-op for a child the session
+            // does not know about — and because `canSwitchChild` reads this list, so the pill
+            // gains its chevron in the same turn the second child arrives.
+            children.append(child)
+            select(child)
+            return true
+        } catch {
+            // **No adopt-the-existing-child fallback here, unlike `createChild`.** That guard
+            // exists because setup has no `Idempotency-Key` and a lost response would otherwise
+            // strand a parent who already has a child on the server. It cannot be reused: this
+            // account already has children, so "find one and adopt it" would silently select a
+            // sibling and report success for a create that may never have happened. A parent who
+            // sees the error and taps again gets a duplicate they can see and we can talk about,
+            // which is the better failure.
+            notice = (error as? APIError)?.userMessage ?? error.localizedDescription
+            return false
+        }
+    }
+
     /// Re-read the account's children, so a child added on another device appears in the list.
     ///
     /// Best effort and deliberately silent: this runs when the switcher opens, and a parent who
@@ -584,6 +638,11 @@ struct OnboardingGate: View {
     /// own presenter as it acted.
     @State private var isPresentingSwitcher = false
 
+    /// **Presented here for the same reason the switcher is.** A successful add ends in a switch,
+    /// which replaces the whole `RootView` subtree — including the Settings screen the parent
+    /// tapped from. A sheet owned down there would be tearing down its own presenter.
+    @State private var isPresentingAddChild = false
+
     var body: some View {
         ZStack {
             Color.canvas.ignoresSafeArea()
@@ -637,6 +696,9 @@ struct OnboardingGate: View {
                     // control that lies. The condition is `OnboardingSession.canSwitchChild`
                     // because this is the only layer that knows how many children exist.
                     onSwitchChild: session.canSwitchChild ? { isPresentingSwitcher = true } : nil,
+                    // **Never nil.** Unlike the switcher, this is offered with one child — that
+                    // is the account it exists for. See `SettingsScreen.childrenSection`.
+                    onAddChild: { isPresentingAddChild = true },
                     notifications: session.notifications,
                     pendingLink: $pendingLink
                 )
@@ -653,6 +715,20 @@ struct OnboardingGate: View {
                 onRefresh: { await session.refreshChildren() },
                 onSelect: { session.select($0) }
             )
+        }
+        .sheet(isPresented: $isPresentingAddChild) {
+            AddChildSheet(
+                familyTimezone: session.readyChild?.familyTimezone,
+                notice: session.notice,
+                isWorking: session.isWorking
+            ) { name, birthdate, timezone, pronouns in
+                await session.addChild(
+                    name: name,
+                    birthdate: birthdate,
+                    familyTimezone: timezone,
+                    pronouns: pronouns
+                )
+            }
         }
         .onOpenURL { url in
             pendingLink = WidgetDeepLink.parse(url)
