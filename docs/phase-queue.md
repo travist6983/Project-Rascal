@@ -93,6 +93,18 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
+- **`StagingSweeper` is never called.** Found while checking whether a captioner could reach a
+  photo's pixels. It is constructed only in `RascalTests/StagingStoreTests.swift`; nothing in
+  `ios/Rascal/Rascal/` runs it, so originals accumulate on disk forever and the disposal rule the
+  code documents has never once executed. **Decide before wiring it up**: the moment it runs, every
+  uploaded photo's full-resolution original is deleted, which is exactly the input any future
+  captioner would need. Deferral or oversight is not recorded anywhere, so do not guess.
+- **The caption clobber is latent.** `Media.applyServerResponse` writes `caption = summary.caption
+  ?? caption` *outside* the `!hasUnpushedTranscript` guard, and `SyncEngine.hasUnpushedChanges`
+  knows only about transcripts. Harmless today because nothing writes a caption locally — but it is
+  the Aug 9 transcript defect pre-installed on this field, waiting for the first device-side
+  caption. It lands with phase 33 rather than before it: the fix needs the state ladder, and the
+  ladder is the speculative migration that phase is deliberately not doing yet.
 - **Sign-out empties the store but leaves the sync cursors.** Found while building 31 and
   deliberately not fixed there. `LocalArchiveErasure.erase()` clears SwiftData and never touches
   `sync.cursor.*`, so signing out and back in as the same account resumes from a timestamp
@@ -113,8 +125,14 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 - **Settings can light up D1 and D12 now.** `GET /children/{id}/stats` ships the counts and the
   first-entry date those two were dropped for. iOS work, and small: the hero already draws the
   name, age and born-date from `ChildResponse`; the strip needs one more fetch.
-- **33 — Photo captioning, device half.** Server half is complete and was being carried as "not
-  started". Needs a third protocol: the two existing on-device seams take text, not pixels.
+- **33 — Photo captioning, device half. Blocked on the platform — see `docs/blocked.md` §9.** The
+  server half is complete and the device half cannot be written: the on-device model's whole input
+  vocabulary is `Transcript.Segment`, which is text or structure, so there is no pixels-to-prose
+  call to make. **The stated reason here was half wrong** — `SpeechTranscribing` takes a file URL
+  and *returns* text, so the two seams never shared an input to widen. It is a third protocol
+  because they diverge, which is the stronger argument. **Do not land the seam ahead of the API**:
+  its state ladder is a SwiftData migration on every media row for a feature that may never ship,
+  and a Settings row that permanently reads "0 waiting" is the furniture this app refuses.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
 - **34 — Membership billing / costs.** *(Was written as a second 33; renumbered, since this file
   exists partly to stop the phase-number collisions the ledger already carries four of.)*

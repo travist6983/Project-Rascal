@@ -1,6 +1,9 @@
 # RASCAL — blocked
 
-Things I cannot finish because they need a credential or an account only you have. Nothing
+Things I cannot finish because they need a credential or an account only you have — **and, as of
+Aug 14, 2026, one that needs a platform.** §9 is the first entry here blocked by a missing API
+rather than a missing secret, and it is filed here anyway because the effect is identical: the
+work cannot proceed and no amount of engineering changes that. Nothing
 here blocks the backend from running: `cp .env.example .env && make up && make migrate &&
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
@@ -1118,3 +1121,53 @@ because it changes how the sheet reads over a photo and is coupled to question 1
 - **`KindBadge` contrast** (~3.3–3.7:1, below AA). Untouched, per the brief. The import does not
   reuse the component, but its chips are the same shape of pairing — `#5566D6` on `#E9EBFB` is the
   one to measure first in any new surface.
+
+---
+
+## §9 — Photo captioning has no on-device API to call (Aug 14, 2026)
+
+**Phase 33's server half is complete and its device half cannot be written.** Not "is hard", not
+"needs design" — there is no public, on-device, no-network API in the installed SDK that turns
+pixels into prose, so the one function at the centre of the phase has nothing to call. Everything
+downstream of it — a queue, a Settings row, a backoff ladder, a wire field — is scaffolding for a
+body that cannot be filled in.
+
+**The evidence, so nobody re-derives it.** Against iPhoneOS26.4 (Xcode 26.4.1), the only SDK
+installed here:
+
+```
+SDK=/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk
+FM=$SDK/System/Library/Frameworks/FoundationModels.framework/Modules/FoundationModels.swiftmodule/arm64e-apple-ios.swiftinterface
+grep -n "public enum Segment" -A 3 "$FM"        # -> case text(...) / case structure(...), and nothing else
+grep -ciE "CGImage|CVPixelBuffer|UIImage|CIImage" "$FM"   # -> 0
+```
+
+`Transcript.Segment` is the entire input vocabulary of the on-device model, and it has exactly two
+cases, neither of which is an image. **That single grep is the whole answer**, and it is the one to
+re-run when a new SDK lands.
+
+**The near misses are worse than nothing, and each is a trap worth naming:**
+
+- `Vision.ClassifyImageRequest` returns `ClassificationObservation { identifier, confidence }` — a
+  taxonomy label, not a sentence. Composing prose out of labels invents the specifics, and a
+  caption is durable data the server never regenerates. A permanent plausible lie about somebody's
+  child is worse than an empty field.
+- `VisionKit`'s `ImageAnalysis.transcript` is OCR of text *inside* the picture.
+- `AnalysisTypes.visualLookUp` is **server-backed**. Reaching for it would send a child's
+  photograph to a third party, which rule 4 of `ios/CLAUDE.md` forbids outright.
+- `ImagePlayground` runs the other way: text in, image out.
+- `MediaAccessibility`'s `MAImageCaptioningCopyCaption` exists and has since iOS 13, but it is a
+  *metadata accessor* — it reads an XMP field a human or another tool already embedded. It runs no
+  model. (Worth a measurement spike as a different, smaller feature; see below.)
+
+**The roadmap's scheduling claim is unverified and has been corrected.** It read *"on-device image
+input landed in the iOS 27 wave"*, in the past tense, about a release whose SDK is not installed
+here — and `docs/phases/phase-17.md` already quotes it forward as settled. The half that is
+confirmed is *not available now*. When it arrives is not something this repo has checked.
+
+**One shippable alternative, if it is ever wanted:** `MAImageCaptioning` covers the entire 18.6
+install base, needs no model, no Apple Intelligence hardware, no battery and no network — and
+because the text is human-authored rather than machine-invented, it sidesteps the permanent-lie
+hazard entirely. The hit rate on photos straight from an iPhone camera is unknown and probably
+low, so it is worth a measurement before it is worth a phase. It is a different feature from the
+one the roadmap describes, so it is the owner's call.
