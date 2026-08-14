@@ -2082,3 +2082,21 @@ Two documentation defects the same pass found, both of the kind this project tre
   so it became "{they_have} asked for every night this week"; "the chair {they} always sit in"
   became "the chair that is always {theirs}". The token table has no conjugator by design, so the
   authoring has to route around inflection — the same constraint phase 24 hit at scale.
+- **Phase 33's device half is blocked on the platform, and the seam is deliberately not landed
+  ahead of it.** There is no public on-device pixels-to-prose API in iPhoneOS26.4 — the model's
+  entire input vocabulary is `Transcript.Segment`, text or structure. Writing the protocol now
+  would mean a stub that always answers `.unavailable`, a queue that never runs, a Settings row
+  that permanently reads "0 waiting" — furniture this screen explicitly refuses — and, worst, a
+  SwiftData migration adding a caption state ladder to every media row for a feature that may
+  never ship or may ship a different shape. `Media.bytesSent` already bricked the app once over a
+  missing declaration default, and every test is `isStoredInMemoryOnly` so nothing catches it.
+- **Two claims the repo carried were wrong, and both are corrected.** The queue said the two
+  on-device seams "take text, not pixels" — `SpeechTranscribing.transcribe(fileURL:in:)` takes a
+  file URL and *returns* text, so there was never a shared input to widen; the case for a third
+  protocol is divergence, which is stronger. And the roadmap asserted in the past tense that
+  on-device image input "landed in the iOS 27 wave", about a release this repo has never verified,
+  which `phase-17.md` then quoted forward as established.
+- **The shipping floor is iOS 18.6, not 26.** Eight target-level `IPHONEOS_DEPLOYMENT_TARGET`
+  entries say 18.6; the two saying 26.4 are project-level and lose. Recorded because it makes every
+  `#available(iOS 26.0, *)` guard load-bearing rather than defensive, and because a captioning
+  design that assumed a 26+ floor would have been wrong about its own install base.

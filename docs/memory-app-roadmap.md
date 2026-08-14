@@ -179,7 +179,7 @@ On-device first, cloud only where the small model can't reach. Everything it pro
 2. **Structured extraction with `@Generable`.** Feed a freeform entry to the on-device model, get back a typed struct: people, place, mood, tags, one-line summary. Auto-tagging with no cloud round-trip. This is what a 3B model is genuinely good at.
 3. **Camera-roll backfill missions.** PhotoKit scan for clusters from months you have no entries for, surfaced as a mission: "you have 40 photos from last October and nothing logged — pick three." Nothing leaves the device until you choose. Only possible on native.
 4. **Device-side personalization.** Server sends the canonical mission; the device rewrites it to use his name, current age, and recent entries. Web later shows the canonical version and degrades gracefully.
-5. **Photo captioning** — on-device image input landed in the iOS 27 wave, so this is gated on the fall release and on Apple Intelligence-capable hardware. Treat as a bonus, not a dependency.
+5. **Photo captioning** — **blocked on the platform, and the date is unverified.** This line used to say on-device image input "landed in the iOS 27 wave", in the past tense, about a release this repo has never checked; `docs/phases/phase-17.md` then quoted it forward as established. What *is* verified, against iPhoneOS26.4 on Aug 14, 2026: the on-device model's entire input vocabulary is `Transcript.Segment`, which is text or structure and nothing else. There is no pixels-to-prose API to call. See `docs/blocked.md` §9 for the grep that re-checks it. A bonus, never a dependency.
 
 **Guardrails:**
 - Gate every call behind an availability check and degrade silently. Not every device qualifies.
