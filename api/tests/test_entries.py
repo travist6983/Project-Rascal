@@ -530,14 +530,28 @@ async def test_deleting_an_entry_puts_its_assignment_back_on_the_today_screen(
     user, child = await _world(session)
     prompt = await make_prompt(session, body="Record him singing.")
     assignment = await make_assignment(
-        session, child, prompt, slot="mission", assigned_on=dt.date(2026, 8, 14)
+        # Past, so `ensure_day_filled` cannot mint slots into the board under test —
+        # see the note on `TODAY` in `test_today.py`.
+        session,
+        child,
+        prompt,
+        slot="mission",
+        assigned_on=dt.date(2026, 8, 4),
     )
     await session.commit()
     headers = auth_headers(user)
 
     first = await client.post(
         "/v1/entries",
-        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        json=_entry_body(
+            child,
+            assignment_id=str(assignment.id),
+            tags=[],
+            # On the board's own day. `done_today` is computed against the assignment's date,
+            # so an entry stamped a different day is correctly not in it — which is what this
+            # test is checking the *absence* of, two assertions further down.
+            occurred_at="2026-08-04T18:22:00Z",
+        ),
         headers=headers,
     )
     assert first.status_code == 201
@@ -555,7 +569,7 @@ async def test_deleting_an_entry_puts_its_assignment_back_on_the_today_screen(
     screen = (
         await client.get(
             f"/v1/children/{child.id}/today",
-            params={"date": "2026-08-14"},
+            params={"date": "2026-08-04"},
             headers=headers,
         )
     ).json()
@@ -565,14 +579,19 @@ async def test_deleting_an_entry_puts_its_assignment_back_on_the_today_screen(
     # And redoing it lands in done_today, so the day can actually be completed.
     second = await client.post(
         "/v1/entries",
-        json=_entry_body(child, assignment_id=str(assignment.id), tags=[]),
+        json=_entry_body(
+            child,
+            assignment_id=str(assignment.id),
+            tags=[],
+            occurred_at="2026-08-04T18:22:00Z",
+        ),
         headers=headers,
     )
     assert second.status_code == 201
     after = (
         await client.get(
             f"/v1/children/{child.id}/today",
-            params={"date": "2026-08-14"},
+            params={"date": "2026-08-04"},
             headers=headers,
         )
     ).json()

@@ -2031,3 +2031,12 @@ Two documentation defects the same pass found, both of the kind this project tre
   the request as `mode: .text`; the verb only decides what opens on top. `mode` therefore
   separates shapes only on the edit path, which is where the rule refuses to seal an unsealed
   photo — an already-sealed one is always editable, whatever shape it is.
+- **Two `GET /today` tests were time bombs, and 14 Aug 2026 was the fuse.** Their fixture date was
+  the literal `2026-08-14`, written when that was comfortably in the future. `GET /today`
+  self-heals — when the requested date *is* the child's current date, `ensure_day_filled` mints the
+  day's missing slots before answering — so for as long as the constant was in the future the tests
+  asserted a board nothing had filled, and on the day it arrived the fill ran, minted the
+  `mission_b` that migration 0008 added, and the suite went red having never once exercised what it
+  claimed to. The fixture date moved into the past, where it cannot become today again; filling has
+  its own file in `test_today_self_healing.py` and that is where it belongs. Worth generalising:
+  **a fixture date in the future is a test that has not run yet.**
