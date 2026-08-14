@@ -12,7 +12,22 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 [deploy]
   # Runs once, before the new machines take traffic. A failed migration fails the deploy
   # instead of leaving a running app in front of the wrong schema.
-  release_command = "alembic upgrade head"
+  #
+  # **The seed runs here too, and it has to.** Phase 24 tokenised all 113 prompt bodies and
+  # merged; the migration that came with phase 35 applied itself on the next deploy, and the
+  # bodies did not, because nothing anywhere invoked the loader. Production spent a day
+  # serving `his hands` from rows whose *theme* had been renamed to `their-words` — a
+  # half-applied state that is worse than either end of it, and that nothing reported.
+  #
+  # Idempotent by construction: the loader keys on `sha256(kind, cadence, body)`, updates
+  # what changed, inserts what is new, and deactivates seeded rows the file no longer
+  # contains. A deploy that changes no prompts is `0 inserted, 0 updated, 0 retired`.
+  #
+  # Chained with `&&` rather than added as a second CI step on purpose — the comment in
+  # `.github/workflows/deploy.yml` about a second Alembic path applies here identically. One
+  # path, and a failure fails the deploy instead of leaving the app in front of a library
+  # that does not match the file it was built from.
+  release_command = "sh -c 'alembic upgrade head && python -m rascal.jobs.seed'"
   strategy = "rolling"
 
 [env]

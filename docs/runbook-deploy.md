@@ -14,6 +14,29 @@ but the two steps that went wrong on the first run are still the two worth readi
 
 ---
 
+
+## The two things a deploy now does that it used to not
+
+**The prompt library is seeded on every deploy.** `fly.toml`'s `release_command` is
+`alembic upgrade head && python -m rascal.jobs.seed`. It used to be the migration alone, and the
+gap cost a day: phase 24 tokenised all 113 bodies, phase 35's migration applied itself on the next
+deploy, and the bodies never loaded because nothing invoked the loader. Production served
+`his hands` from rows whose theme had already been renamed. The seed is idempotent — a deploy that
+changes no prompts reports `0 inserted, 0 updated, 0 retired` — so this costs nothing and closes
+the gap permanently.
+
+**Scheduled machines are moved onto the deployed image.** `fly deploy` only manages machines in a
+process group, and a machine created by `fly machine run` has none — so the scheduler and the
+notifier pinned the image they were created from and ran it for three days after the app moved on,
+firing on time every hour, executing older code. The deploy workflow now finds every machine with
+a non-empty `schedule` whose image differs from the app's and runs `fly machine update --image`,
+which preserves the schedule, the restart policy, the command and the env.
+
+**You still create a scheduled machine by hand the first time.** Nothing here invents one — the
+`fly machine run` command below is still how they come into existence, and the three flags it
+gets right are still the three that were got wrong on Aug 10. What changed is that they no longer
+rot afterwards.
+
 ## 0. What you are about to build
 
 One Fly app, `rascal-api`, in `ord`. One always-running machine serving the API, one
