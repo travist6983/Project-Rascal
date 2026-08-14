@@ -8,9 +8,11 @@ import SwiftUI
 /// so `avatar_key` stays null). The design draws a coloured disc with a letter in it and never
 /// draws a photograph, which is the one treatment that is honest about what the endpoint serves.
 ///
-/// The chevron appears only when there is somewhere to go. One child and a chevron is a control
-/// that lies; `ios/CLAUDE.md` scopes multi-kid switching UI out beyond what `GET /children`
-/// already returns, so `onSelect` is nil until that exists.
+/// The chevron appears only when there is somewhere to go. **One child and a chevron is a control
+/// that lies** — the rule survived the scope change, and phase 31 built the switcher around it
+/// rather than relaxing it. `onSelect` is supplied by `RootView` and originates at
+/// `OnboardingSession.canSwitchChild`, which is nil until the account has a second child, because
+/// the gate is the only layer that knows how many there are. This view still decides nothing.
 struct ChildSwitcherPill: View {
     let name: String
     /// Supplied only when more than one child exists. Nil renders a label, not a button.

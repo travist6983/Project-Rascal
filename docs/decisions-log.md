@@ -1973,3 +1973,29 @@ Two documentation defects the same pass found, both of the kind this project tre
   with slots. Revisions are named explicitly now. The same fixture is module-scoped and arrives at
   head, and `upgrade <earlier>` is a no-op in alembic rather than an error — so the new test
   reaches its starting revision by downgrading from a known head.
+- **Multi-kid switching is a gate-level state change, and nothing below the gate may mutate a
+  child.** `OnboardingGate` renders `RootView` with `.id(child.id)`, so a new `SessionState.ready`
+  tears the subtree down and rebuilds it — which is what makes `TodayModel`, `SyncEngine`,
+  `ShareDrain`, `TimelineModel`, `MomentsModel` and the Timeline's `@Query` predicates correct
+  across a switch. Every one of them captures its child once at init and never re-reads it, so a
+  `@State selectedChildId` or a mutable `childId` would leave them all pointed at the previous
+  child while the header showed the new one: a sibling's entries under the wrong name, and the
+  wrong child's sync cursor advanced. Recorded because the wrong implementation looks simpler and
+  its failure is invisible on screen.
+- **Switching never erases local data; sign-out still erases everything.** Both children's rows
+  live in one SwiftData store and neither is entitled to empty it, so `LocalArchiveErasing` stays
+  bound to sign-out. Conversely sign-out remains account-scoped and unconditional — it must not
+  become per-child, or a signed-out phone keeps the siblings' thumbnails and faces.
+- **Six local reads were unscoped and are now child-filtered**; the device-wide queues are
+  deliberately left alone. Today's merge, the widget snapshot, the backfill's month and day
+  coverage, the notification re-offer, `ExtractionQueue.pending` and Settings' `?? children.first`
+  all see one child now. `EntrySync.unsyncedDescriptor()`, the upload, transcription and staging
+  sweeps stay global on purpose: each row carries its own `childId` to its own route, so a sweep
+  under one child correctly pushes the other's offline writes, and narrowing them strands work.
+- **`Media` has no `childId` and is not given one.** It reaches its child through `entryId`, so
+  media reads are scoped by scoping the entries they are grouped against. Adding the column would
+  be a schema migration to duplicate a fact the join already carries.
+- **The selected child lives in `UserDefaults`, and nothing downstream trusts it.** The gate
+  resolves `GET /children` first and only then asks whether the remembered id is among them —
+  missing, unparseable and no-longer-present all land on the same branch as never having chosen.
+  That is why the store parses on the way out rather than validating on the way in.

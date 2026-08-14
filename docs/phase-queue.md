@@ -82,10 +82,12 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
-- **31 — Multi-kid.** Now in scope — `ios/CLAUDE.md` updated. Entirely iOS: the child is hardcoded
-  to `.first` in three places and `ChildSwitcherPill` already draws its chevron whenever
-  `onSelect` is non-nil, which today only a preview supplies. The chevron appears when there is a
-  second child, never before.
+- **Sign-out empties the store but leaves the sync cursors.** Found while building 31 and
+  deliberately not fixed there. `LocalArchiveErasure.erase()` clears SwiftData and never touches
+  `sync.cursor.*`, so signing out and back in as the same account resumes from a timestamp
+  describing an archive that was just deleted — and the store silently never refills. Latent
+  today because `syncPullEnabled` ships false; multi-kid makes it two children wide. Needs a
+  decision on whether `resetCursor()` belongs to erasure, which is why it is a line here.
 - **Per-entry visibility — design first, then 30.** Undesigned, not just unbuilt:
   `docs/data-model.md`'s `entries` spec has no visibility column. Must answer per-entry vs
   per-kind, what a `viewer` sees by default, and whether a sealed letter is a visibility state.

@@ -63,6 +63,14 @@ struct RootView: View {
     /// Handed down to Settings. The gate owns signing out, because it is the only thing that can
     /// put the app back on the welcome screen afterwards.
     let onSignOut: () async -> Void
+
+    /// Open the child switcher, or nil when there is nowhere to switch to.
+    ///
+    /// **Passed straight through to the pill without being interpreted.** The decision about
+    /// whether a second child exists belongs to the gate — see `OnboardingSession.canSwitchChild`
+    /// — and this view deliberately does not second-guess it, because a `RootView` that decided
+    /// for itself would need the child list, which is exactly the state the gate owns.
+    let onSwitchChild: (() -> Void)?
     /// The one `NotificationPreference` in the process, owned by `OnboardingGate`. Handed down
     /// rather than rebuilt: a second instance would keep its own copy of whether the single
     /// post-entry re-offer had been spent, and would offer it again.
@@ -154,6 +162,7 @@ struct RootView: View {
         childBirthdate: String,
         promptSubject: PromptSubject,
         onSignOut: @escaping () async -> Void,
+        onSwitchChild: (() -> Void)? = nil,
         notifications: NotificationPreference,
         pendingLink: Binding<WidgetDeepLink?>
     ) {
@@ -163,6 +172,7 @@ struct RootView: View {
         self.childBirthdate = childBirthdate
         self.initialPromptSubject = promptSubject
         self.onSignOut = onSignOut
+        self.onSwitchChild = onSwitchChild
         self.notifications = notifications
         self._pendingLink = pendingLink
         // Written by hand for one property, the same way `ComposerView` does: the model needs the
@@ -178,6 +188,7 @@ struct RootView: View {
             // archive whichever tab is showing.
             WidgetSnapshotSync(
                 model: todayModel,
+                childId: childId,
                 familyTimezone: timezone,
                 // **Rendered before the snapshot is written, not in the extension.** The widget
                 // reads a file and does no networking, so it has no child and no environment —
@@ -385,8 +396,15 @@ struct RootView: View {
     /// **Compared locally and never by asking the server** — the server has no idea what is in this
     /// camera roll, and a round trip per month would make a forty-thousand-asset library unusable.
     private func entryOccurredDates() -> [Date] {
+        // **Scoped to this child, and it is not cosmetic.** One store holds every child's rows,
+        // and these dates are what tells the camera-roll backfill which months already have
+        // something written in them. Unscoped, a month the sibling wrote in counts as covered,
+        // and this child's empty months are silently never offered — a prompt that never appears
+        // is not a bug anyone can see. `let child` because `#Predicate` cannot capture `self`;
+        // `TimelineModel.oldestCachedOccurredAt` uses the same shape.
+        let child = childId
         var descriptor = FetchDescriptor<Entry>(
-            predicate: #Predicate { $0.deletedAt == nil }
+            predicate: #Predicate { $0.childId == child && $0.deletedAt == nil }
         )
         // Only the dates are wanted; nothing here reads a body or a relationship.
         descriptor.propertiesToFetch = [\.occurredAt]
@@ -407,7 +425,14 @@ struct RootView: View {
     /// system-level denial.
     private func considerNotificationReoffer() {
         guard notifications.shouldReofferAfterFirstEntry else { return }
-        var descriptor = FetchDescriptor<Entry>()
+        // This child's first entry, not the device's. The re-offer is spent once and never comes
+        // back, so an unscoped count hands a newly added second child an offer that was already
+        // used up by their sibling's archive — on the one screen where the parent is most likely
+        // to say yes.
+        let child = childId
+        var descriptor = FetchDescriptor<Entry>(
+            predicate: #Predicate { $0.childId == child && $0.deletedAt == nil }
+        )
         descriptor.fetchLimit = 1
         guard let count = try? context.fetchCount(descriptor), count > 0 else { return }
         notifications.markReofferShown()
@@ -425,6 +450,7 @@ struct RootView: View {
                         familyTimezone: timezone,
                         requestedAssignment: $requestedAssignment,
                         onRetrySync: { Task { await runSweep() } },
+                        onSwitchChild: onSwitchChild,
                         onSync: { await runSweep() },
                         openComposer: { composer = $0 },
                         model: todayModel
@@ -537,7 +563,7 @@ extension RootView {
     /// and says nothing about it.
     private func extractLatest() async {
         guard let extraction else { return }
-        guard let newest = ExtractionQueue.pending(in: context)
+        guard let newest = ExtractionQueue.pending(in: context, childId: childId)
             .max(by: { $0.createdAt < $1.createdAt })
         else { return }
         await extraction.extract(entryId: newest.id)

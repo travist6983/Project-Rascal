@@ -18,6 +18,10 @@ import SwiftUI
 /// regardless of which tab is showing.
 struct WidgetSnapshotSync: View {
     let model: TodayModel
+    /// Whose board this is. **Not written into the snapshot** — the file is one child's Today and
+    /// the extension has no notion of a second one — but used to keep a sibling's rows out of the
+    /// merge that produces it.
+    let childId: UUID
     let familyTimezone: String
     /// **Prompt bodies are rendered here, before the file is written.**
     ///
@@ -45,7 +49,17 @@ struct WidgetSnapshotSync: View {
     private var snapshot: WidgetSnapshot? {
         guard case .loaded(let response) = model.state else { return nil }
         return WidgetSnapshotBuilder.snapshot(
-            from: TodayBoard.merge(response: response, entries: entries, media: media),
+            // **Filtered here rather than in the `@Query`.** A `@Query` predicate is fixed at
+            // init and would need a hand-written one to capture `childId`; the rows are already
+            // in memory, and this is the only place they are read. The merge binds entries to
+            // cards through per-row assignment ids, so a sibling's entry could not key into this
+            // child's board anyway — but that is uniqueness doing a constraint's job, and the
+            // file this produces is the one on the Lock Screen.
+            from: TodayBoard.merge(
+                response: response,
+                entries: entries.filter { $0.childId == childId },
+                media: media
+            ),
             familyTimezone: familyTimezone,
             subject: subject
         )

@@ -173,9 +173,17 @@ final class ExtractionQueue {
     /// Deliberately **not** called anywhere automatically. Enumerating the archive on launch is
     /// the behaviour `TranscriptionQueue` was careful to avoid, and this phase does not add a
     /// backlog action of its own.
-    static func pending(in context: ModelContext) -> [Entry] {
+    ///
+    /// **Child-scoped, and this one is not a display concern.** One store holds every child's
+    /// rows. Extraction stamps `extractedAt` once and never revisits a row, so running it over
+    /// the globally newest un-extracted entry can spend a sibling's only pass — and the tags it
+    /// would have produced for that entry are not recoverable by reopening the app.
+    static func pending(in context: ModelContext, childId: UUID) -> [Entry] {
+        let child = childId
         let descriptor = FetchDescriptor<Entry>(
-            predicate: #Predicate { $0.deletedAt == nil && $0.extractedAt == nil }
+            predicate: #Predicate {
+                $0.childId == child && $0.deletedAt == nil && $0.extractedAt == nil
+            }
         )
         return ((try? context.fetch(descriptor)) ?? []).filter {
             $0.unlockAtAge == nil && !($0.body ?? "").trimmingCharacters(in: .whitespaces).isEmpty

@@ -44,6 +44,28 @@ final class OnboardingSession {
     /// the same create twice.
     private(set) var isWorking = false
 
+    /// Every child this account can see, in the order `GET /children` returned them.
+    ///
+    /// Held so the switcher has something to list and so `canSwitchChild` can be answered without
+    /// a request. Empty until the first resolve, and empty is not "no children" — it is "not
+    /// asked yet", which is why `state` and not this is what decides between setup and Today.
+    private(set) var children: [ChildResponse] = []
+
+    /// **The chevron condition, and the reason it lives here rather than in the view.**
+    ///
+    /// `ChildSwitcherPill` states the rule it exists to serve: *one child and a chevron is a
+    /// control that lies*. This is the only place that knows how many children there are, so this
+    /// is where the rule is expressed — the pill stays a dumb view that draws a chevron when it
+    /// is handed a closure, and the closure is nil until there is somewhere to go.
+    var canSwitchChild: Bool { children.count > 1 }
+
+    /// The child on screen, when there is one. Nil in every other state, which is what the
+    /// switcher's checkmark wants — during setup or a sign-out there is no current child to tick.
+    var readyChild: ChildResponse? {
+        if case .ready(let child) = state { return child }
+        return nil
+    }
+
     /// What the parent has typed. Persisted after every step.
     var draft: OnboardingDraft
 
@@ -62,6 +84,10 @@ final class OnboardingSession {
     private let drafts: OnboardingDraftStoring
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
+
+    /// Which child the parent was last looking at, across launches. See `SelectedChildStoring`
+    /// for why nothing downstream has to trust what comes out of it.
+    private let selected: SelectedChildStoring
 
     /// Saves the crop locally **and** owes it to the server. Setup is the only place in the app
     /// that produces an avatar, so this is the only place that enqueues one.
@@ -91,6 +117,7 @@ final class OnboardingSession {
         drafts: OnboardingDraftStoring = UserDefaultsOnboardingDraftStore(),
         appleIDs: AppleUserIDStoring = UserDefaultsAppleUserIDStore(),
         credentials: AppleCredentialChecking = LiveAppleCredentialCheck(),
+        selected: SelectedChildStoring = UserDefaultsSelectedChildStore(),
         avatars: AvatarStoring = LocalAvatarStore(),
         pendingAvatars: PendingAvatarUploadStoring = UserDefaultsPendingAvatarUploadStore(),
         widget: WidgetSnapshotPublisher = .live,
@@ -109,6 +136,7 @@ final class OnboardingSession {
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
+        self.selected = selected
         self.localArchive = localArchive ?? NoLocalArchiveErasure()
         // Built here rather than injected whole so the two stores stay separately substitutable —
         // a test asserting where the bytes landed passes `avatars`, and one asserting what is
@@ -185,8 +213,13 @@ final class OnboardingSession {
     private func resolveChild() async {
         do {
             let children = try await account.api.children()
-            // Multi-kid is out of scope: take the first and build no picker.
-            if let child = children.first {
+            self.children = children
+            // The remembered child if the account still has it, and otherwise the first — which
+            // is what every account had before there was anything to remember. A stored id that
+            // names a child this account can no longer see is not an error to report: the child
+            // may have been removed on another device, and landing on the first one is the same
+            // answer a fresh install gives.
+            if let child = children.first(where: { $0.id == selected.load() }) ?? children.first {
                 finish(with: child)
                 // Re-read the account, exactly as `AppSession.start()` used to before the gate
                 // took over resolving. Deliberately best effort and deliberately after the state
@@ -418,7 +451,52 @@ final class OnboardingSession {
         drafts.clear()
         notice = nil
         resolveFailed = false
+        // Remembered here rather than only in `select(_:)`, so the child a parent just created —
+        // and the one resolved on a launch that fell back to the first — is the one the next
+        // launch opens. Without this, creating a second child would still reopen the first.
+        selected.save(child.id)
         state = .ready(child)
+    }
+
+    // MARK: Switching child
+
+    /// Show a different child.
+    ///
+    /// **This is a state change on the gate and nothing else, and that is the whole design.**
+    /// `RootView` is rendered with `.id(child.id)`, so a new `.ready` tears the entire subtree
+    /// down and builds it again — which is what makes every child-bound object in the app correct
+    /// across a switch. `TodayModel`, `SyncEngine`, `ShareDrain`, `TimelineModel`, `MomentsModel`
+    /// and the Timeline's `@Query` predicates all capture their child once, at init, and none of
+    /// them re-read it. Mutating a `childId` in place anywhere below this line would leave every
+    /// one of them pointed at the previous child while the header showed the new one: the
+    /// timeline would list a sibling's entries, and the sync engine would advance the wrong
+    /// child's cursor. That is not a display bug, it is a corrupted archive.
+    ///
+    /// **Nothing local is erased.** Both children's rows live in one store and neither is
+    /// entitled to empty it — `LocalArchiveErasing` belongs to sign-out alone. The rows are
+    /// already tagged with their own `childId`, so the switch is a change of which ones are read.
+    func select(_ child: ChildResponse) {
+        // Selecting the child already showing must not tear the tree down: it would drop the
+        // board, restart sync and clear the widget to arrive back where it started.
+        guard case .ready(let current) = state, current.id != child.id else { return }
+        // The snapshot holds one child's first name and today's prompts, and the extension does
+        // no work of its own. Left alone, the Home Screen keeps the previous child's name until
+        // the new board lands — and forever if that fetch fails. Clearing is the honest state:
+        // `WidgetSnapshotSync` republishes as soon as Today answers.
+        widget.publish(nil)
+        selected.save(child.id)
+        notice = nil
+        state = .ready(child)
+    }
+
+    /// Re-read the account's children, so a child added on another device appears in the list.
+    ///
+    /// Best effort and deliberately silent: this runs when the switcher opens, and a parent who
+    /// is offline should still be able to switch between the children this device already knows
+    /// about. Failure leaves the previous list standing rather than emptying it.
+    func refreshChildren() async {
+        guard let fetched = try? await account.api.children(), !fetched.isEmpty else { return }
+        children = fetched
     }
 
     // MARK: Signing out
@@ -453,6 +531,11 @@ final class OnboardingSession {
     private func forgetLocalIdentity() {
         appleIDs.clear()
         drafts.clear()
+        // Which child was on screen is part of what a signed-out phone must stop remembering, and
+        // it goes with the list itself — leaving `children` populated would let `canSwitchChild`
+        // answer true for an account that is no longer signed in.
+        selected.clear()
+        children = []
         draft = OnboardingDraft()
         avatar = nil
         pendingExchange = nil
@@ -470,6 +553,12 @@ final class OnboardingSession {
     private func forgetSession() async {
         await account.api.signOut()
         appleIDs.clear()
+        // The same reasoning as `forgetLocalIdentity`, and for the same reason both paths already
+        // clear the widget: a revoked credential ends the session just as completely as a tapped
+        // Sign out, and a remembered child that outlives it would be restored for whoever signs
+        // in next on this phone.
+        selected.clear()
+        children = []
         widget.publish(nil)
     }
 }
@@ -489,6 +578,11 @@ struct OnboardingGate: View {
     /// and the tap does nothing. Since a widget is mostly tapped when the app is *not* already
     /// running, that was the normal path, not the edge one.
     @State private var pendingLink: WidgetDeepLink?
+
+    /// **Presented from the gate, not from Today.** The sheet's selection replaces the whole
+    /// `RootView` subtree, so a sheet owned by a view inside that subtree would be destroying its
+    /// own presenter as it acted.
+    @State private var isPresentingSwitcher = false
 
     var body: some View {
         ZStack {
@@ -539,6 +633,10 @@ struct OnboardingGate: View {
                     childBirthdate: child.birthdate,
                     promptSubject: child.promptSubject,
                     onSignOut: { await session.signOut() },
+                    // Nil with one child, which is what makes the pill a label rather than a
+                    // control that lies. The condition is `OnboardingSession.canSwitchChild`
+                    // because this is the only layer that knows how many children exist.
+                    onSwitchChild: session.canSwitchChild ? { isPresentingSwitcher = true } : nil,
                     notifications: session.notifications,
                     pendingLink: $pendingLink
                 )
@@ -548,6 +646,14 @@ struct OnboardingGate: View {
         // Held rather than acted on. A signed-out phone can be tapped through from a widget that
         // has not caught up yet, and the honest response is to show the welcome screen and forget
         // the link — which is what happens, because only `RootView` ever reads this.
+        .sheet(isPresented: $isPresentingSwitcher) {
+            ChildSwitcherSheet(
+                children: session.children,
+                selected: session.readyChild?.id,
+                onRefresh: { await session.refreshChildren() },
+                onSelect: { session.select($0) }
+            )
+        }
         .onOpenURL { url in
             pendingLink = WidgetDeepLink.parse(url)
         }

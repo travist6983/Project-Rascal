@@ -636,7 +636,14 @@ struct SettingsScreen: View {
     private func loadChild() async {
         do {
             let children = try await session.api.children()
-            child = children.first { $0.id == childId } ?? children.first
+            // **No `?? children.first`.** With one child that fallback was unreachable; with two
+            // it renders a different child's name, birthdate, avatar and timezone over the
+            // `childId` that every write on this screen still uses — `export?.start(childId:)`
+            // among them — and then pushes that child's zone and pronouns up through
+            // `onTimezoneResolved` and `onPromptSubjectChanged`, which sit above every tab and
+            // re-render every prompt in the app. A selection that is not in the response is
+            // nothing to show, not somebody else; `ChildHeroCard` already draws that honestly.
+            child = children.first { $0.id == childId }
             // Also covers a change made on another device: this is the freshest the client ever
             // sees the zone, whether or not it was edited here.
             if let zone = child?.familyTimezone { onTimezoneResolved(zone) }
