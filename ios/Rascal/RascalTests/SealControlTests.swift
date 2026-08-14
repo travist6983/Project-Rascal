@@ -25,26 +25,55 @@ struct SealControlTests {
 
     // MARK: Who gets the control
 
-    @Test("a letter prompt offers the control and nothing else does")
+    @Test("a letter prompt offers the control, and other prompts do not")
     func onlyLettersOfferIt() throws {
-        #expect(SealSetting.isOffered(for: try assignment(kind: "letter"), isEditing: false))
+        #expect(
+            SealSetting.isOffered(
+                mode: .text, assignment: try assignment(kind: "letter"), isSealed: false
+            )
+        )
 
         for other in ["question", "photo", "video", "audio", "activity"] {
             #expect(
-                SealSetting.isOffered(for: try assignment(kind: other), isEditing: false) == false,
+                SealSetting.isOffered(
+                    mode: .text, assignment: try assignment(kind: other), isSealed: false
+                ) == false,
                 "\(other) must not offer sealing"
             )
         }
-
-        // Freeform — no assignment at all. Sealing one is a separate decision.
-        #expect(SealSetting.isOffered(for: nil, isEditing: false) == false)
     }
 
-    /// `PATCH` supports changing a seal; no UI does this phase. Offering the control while
-    /// editing would imply an edit that never gets sent.
-    @Test("editing an existing entry does not offer the control")
-    func editingDoesNotOfferIt() throws {
-        #expect(SealSetting.isOffered(for: try assignment(kind: "letter"), isEditing: true) == false)
+    /// **Phase 27.** `slots_for` mints a `letter` slot only on the 15th, so before this the
+    /// answer to "I want to write him something today" was to wait a fortnight. Sealing is what
+    /// makes an entry a letter, so a freeform write can become one on any day.
+    @Test("a freeform write offers the control")
+    func freeformWritingOffersIt() {
+        #expect(SealSetting.isOffered(mode: .text, assignment: nil, isSealed: false))
+    }
+
+    /// Every control on the capture path is paid for on every entry, and nobody asked to seal a
+    /// photograph. The exception is an entry that is *already* sealed — see below.
+    @Test("a freeform capture that is not writing does not offer it")
+    func freeformCaptureDoesNotOfferIt() {
+        for mode in [CompletionMode.media, .didIt] {
+            #expect(
+                SealSetting.isOffered(mode: mode, assignment: nil, isSealed: false) == false,
+                "\(mode) must not offer sealing"
+            )
+        }
+    }
+
+    /// **`decisions.md`: a seal is always editable.** The entry that most needs unsealing is the
+    /// one sealed by mistake, and a rule that only offered the control to text would strand a
+    /// sealed photo as sealed forever.
+    @Test("an entry that is already sealed always offers the control, whatever shape it is")
+    func sealedEntriesAlwaysOfferIt() {
+        for mode in [CompletionMode.text, .media, .didIt] {
+            #expect(
+                SealSetting.isOffered(mode: mode, assignment: nil, isSealed: true),
+                "a sealed \(mode) entry must be able to be unsealed"
+            )
+        }
     }
 
     // MARK: The default
@@ -54,6 +83,20 @@ struct SealControlTests {
         #expect(SealSetting.initial(for: try assignment(kind: "letter")).isSealed)
         #expect(SealSetting.initial(for: try assignment(kind: "question")).isSealed == false)
         #expect(SealSetting.initial(for: nil).isSealed == false)
+    }
+
+    /// Seeding from the prompt default instead would mean opening a letter sealed at 16 and
+    /// saving it at 18 without anyone having touched the stepper.
+    @Test("editing seeds from the entry's own seal, not from the prompt")
+    func editingSeedsFromTheRow() throws {
+        let existing = SealSetting.initial(
+            for: try assignment(kind: "letter", unlockAtAge: 16), existingUnlockAtAge: 21
+        )
+        #expect(existing.isSealed)
+        #expect(existing.age == 21)
+
+        // An unsealed entry opens with the toggle off, so saving cannot seal it by accident.
+        #expect(SealSetting.initial(for: nil, existingUnlockAtAge: nil).isSealed == false)
     }
 
     /// `GET /today` already carries the prompt's `default_unlock_age` on the assignment —

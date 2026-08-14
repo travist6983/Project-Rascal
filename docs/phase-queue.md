@@ -94,11 +94,6 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   **Nothing is built and nothing should be** until a route can create a `viewer` row — the
   migration and the `child_access("viewer")` filter belong to 30, which is where they have a
   consumer.
-- **27 — Letter on any day.** Freeform-plus-seal; sealing is what asks for the unlock age; entry
-  point is the *Add to the archive* sheet behind **+**. The API needs no change. iOS end to end.
-- **Editing a seal after the fact.** `PATCH /entries/{id}` supports it and
-  `EntryChanges.unlockAtAge` already exists at `TimelineAPI.swift:118` and is never set — a dead
-  seam to wire, not a type to add. Includes unsealing, which the setness fix made expressible.
 - **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
   enforced code nothing can enter. Needs the visibility design above first.
 - **25 — Author photo prompts.** Not urgent until the scheduler fix lands; the photo pool is the

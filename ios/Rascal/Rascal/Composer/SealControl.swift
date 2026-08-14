@@ -34,17 +34,55 @@ nonisolated struct SealSetting: Equatable, Sendable {
     /// zero would render as "Opens at 0." rather than as an ordinary entry.
     var unlockAtAge: Int? { isSealed ? age : nil }
 
-    /// The control is offered for **letter prompts only**, and never while editing.
+    /// When the control appears. Three ways in, and the order matters.
     ///
-    /// Sealing a freeform entry is a separate decision, and editing the seal on an entry that
-    /// already exists has no UI this phase — `PATCH` supports it, nothing calls it.
-    static func isOffered(for assignment: AssignmentResponse?, isEditing: Bool) -> Bool {
-        !isEditing && assignment?.promptKind == .letter
+    /// **An entry that is already sealed always offers it**, whatever shape it is. `decisions.md`
+    /// says a seal is always editable, and the entry that most needs unsealing is the one sealed
+    /// by mistake — a rule that only offered the control to text would strand a sealed photo.
+    ///
+    /// **A `letter` prompt offers it**, as it always has. That is what a letter prompt is for.
+    ///
+    /// **A freeform write offers it, and that is phase 27.** `slots_for` mints a `letter` slot
+    /// only on the 15th, so before this the answer to "I want to write him something today" was
+    /// to wait a fortnight. Sealing is what makes an entry a letter, so any freeform writing can
+    /// become one — the age is asked only once sealing is chosen, which the control does by
+    /// hiding its stepper until the toggle is on.
+    ///
+    /// **`mode` only separates shapes on the edit path, and that is where the last clause earns
+    /// its keep.** Every freeform capture is built `.text` whatever verb opened it — `RootView`
+    /// says so: "a freeform entry can hold photos, a voice note, or nothing but words, and the
+    /// verb chosen only decides what opens on top of it" — so all four verbs offer sealing, which
+    /// is exactly what letter-on-any-day means. `editMode(for:in:)` is the only thing that ever
+    /// produces `.media` or `.didIt`, so an unsealed photo opened for editing gets no control:
+    /// nobody asked to seal a photograph after the fact, and an already-sealed one is covered by
+    /// the first clause above.
+    static func isOffered(
+        mode: CompletionMode,
+        assignment: AssignmentResponse?,
+        isSealed: Bool
+    ) -> Bool {
+        if isSealed { return true }
+        if assignment?.promptKind == .letter { return true }
+        return assignment == nil && mode == .text
     }
 
     /// Sealed by default for a letter prompt, because that is what a letter prompt is for.
-    static func initial(for assignment: AssignmentResponse?, isEditing: Bool = false) -> SealSetting {
-        guard isOffered(for: assignment, isEditing: isEditing) else {
+    ///
+    /// **An existing seal wins over both defaults.** Editing seeds from the row: a sealed entry
+    /// opens with the toggle on at its own age, and an unsealed one opens with it off. Seeding
+    /// from the prompt default instead would mean opening a letter sealed at 16 and saving it at
+    /// 18 without anyone touching the stepper.
+    ///
+    /// A freeform write starts **unsealed** — `decisions.md` calls this freeform-plus-seal, and
+    /// the entry is the thing; the seal is a decision made about it, not a default applied to it.
+    static func initial(
+        for assignment: AssignmentResponse?,
+        existingUnlockAtAge: Int? = nil
+    ) -> SealSetting {
+        if let existingUnlockAtAge {
+            return SealSetting(isSealed: true, age: resolvedAge(existingUnlockAtAge))
+        }
+        guard assignment?.promptKind == .letter else {
             return SealSetting(isSealed: false, age: fallbackAge)
         }
         return SealSetting(isSealed: true, age: resolvedAge(assignment?.unlockAtAge))
@@ -81,6 +119,10 @@ nonisolated struct SealSetting: Equatable, Sendable {
 /// object, being made.
 struct SealControl: View {
     @Binding var seal: SealSetting
+    /// Only the title changes. A letter prompt asked for a letter, so the control says so; a
+    /// freeform write is an entry until sealing makes it one, and calling it a letter before the
+    /// toggle is on would name something the parent has not chosen.
+    var isLetterPrompt: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -90,13 +132,13 @@ struct SealControl: View {
                     .foregroundStyle(Color.terracottaDeep)
                     .accessibilityHidden(true)
 
-                Text("Seal this letter")
+                Text(isLetterPrompt ? "Seal this letter" : "Seal this entry")
                     .typeRole(.cardTitle)
                     .foregroundStyle(Color.ink)
 
                 Spacer(minLength: 8)
 
-                Toggle("Seal this letter", isOn: $seal.isSealed)
+                Toggle(isLetterPrompt ? "Seal this letter" : "Seal this entry", isOn: $seal.isSealed)
                     .labelsHidden()
                     .tint(.terracotta)
             }

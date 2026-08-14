@@ -61,6 +61,46 @@ struct EntrySyncTests {
         #expect(sync.unsyncedCount() == 0)
     }
 
+    /// **The seam phase 27 wired.** `PATCH /entries/{id}` has always supported `unlock_at_age`
+    /// and `EntryChanges.unlockAtAge` has always existed; nothing ever set it, so a seal changed
+    /// on the phone reached the archive on no path at all.
+    ///
+    /// Both directions matter, and unsealing is the one that needs the set-ness rule: an omitted
+    /// key means "leave it alone" and an explicit null means "not sealed", so a client that could
+    /// only omit could seal an entry and never take it back.
+    @Test("a seal set or removed on the phone reaches the archive")
+    func sealChangesAreSent() async throws {
+        let context = try makeContext()
+        let entry = Entry(childId: UUID(), occurredAt: Date(), body: "a letter, on a Tuesday")
+        entry.existsOnServer = true
+        entry.unlockAtAge = 18
+        entry.sync = .pending
+        context.insert(entry)
+
+        let performer = StubPerformer()
+        let ok = entryResponse(id: entry.id, childId: entry.childId, occurredAt: entry.occurredAt)
+        performer.on("/entries") { _ in (ok, 200) }
+
+        _ = await EntrySync(api: client(performer), context: context).sweep()
+
+        let sealed = try #require(performer.requests.last?.httpBody)
+        let sealedJSON = try #require(
+            try JSONSerialization.jsonObject(with: sealed) as? [String: Any]
+        )
+        #expect(sealedJSON["unlock_at_age"] as? Int == 18)
+
+        // And back off again. `NSNull` rather than an absent key is the whole point.
+        entry.unlockAtAge = nil
+        entry.sync = .pending
+        _ = await EntrySync(api: client(performer), context: context).sweep()
+
+        let unsealed = try #require(performer.requests.last?.httpBody)
+        let unsealedJSON = try #require(
+            try JSONSerialization.jsonObject(with: unsealed) as? [String: Any]
+        )
+        #expect(unsealedJSON["unlock_at_age"] is NSNull, "an omitted key would leave it sealed")
+    }
+
     @Test("a failed entry is retried, not abandoned")
     func retriesFailed() async throws {
         let context = try makeContext()

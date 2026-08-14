@@ -10,6 +10,10 @@ struct ComposerRequest: Identifiable {
     /// Set when opening an existing entry to edit. Date, title, and body are editable; media
     /// is shown read-only, because adding or removing files after save is a later phase.
     var editing: UUID?
+    /// The seal the entry already has, when one is being edited. Nil for a new entry and for an
+    /// entry that is not sealed — the composer cannot read the row itself, and `editing` carries
+    /// no assignment for the control to seed from.
+    var existingUnlockAtAge: Int?
     /// What to open the moment the composer appears.
     ///
     /// Set by the **+** sheet, whose four verbs each name a gesture before the composer exists —
@@ -44,7 +48,12 @@ extension ComposerRequest {
             childId: childId,
             assignment: nil,
             mode: editMode(for: entry, in: media),
-            editing: entry.id
+            editing: entry.id,
+            // **Carried, because the composer cannot ask the row for it.** Editing sets
+            // `assignment: nil`, so without this the seal control would seed from nothing and a
+            // parent opening a sealed letter would find the toggle off — and saving would then
+            // silently unseal it. `docs/decisions.md`: a seal is always editable.
+            existingUnlockAtAge: entry.unlockAtAge
         )
     }
 
@@ -97,7 +106,12 @@ struct ComposerView: View {
     init(request: ComposerRequest, api: APIClient) {
         self.request = request
         self.api = api
-        _seal = State(initialValue: .initial(for: request.assignment, isEditing: request.isEditing))
+        _seal = State(
+            initialValue: .initial(
+                for: request.assignment,
+                existingUnlockAtAge: request.existingUnlockAtAge
+            )
+        )
         _drafts = State(initialValue: request.backfill?.drafts ?? [])
         _occurredAt = State(initialValue: request.backfill?.plan.occurredAt ?? Date())
         // **The plan's date is already settled, and this is what stops anything overwriting it.**
@@ -188,8 +202,12 @@ struct ComposerView: View {
 
                     // After the writing, before the save. The letter is the thing; when it
                     // opens is what you decide once it exists.
-                    if SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing) {
-                        SealControl(seal: $seal)
+                    if SealSetting.isOffered(
+                        mode: request.mode,
+                        assignment: request.assignment,
+                        isSealed: request.existingUnlockAtAge != nil
+                    ) {
+                        SealControl(seal: $seal, isLetterPrompt: request.assignment?.promptKind == .letter)
                     }
 
                     if let notice {
@@ -812,7 +830,11 @@ struct ComposerView: View {
     ///
     /// Returns true when it kept the sheet open to say something.
     private func reportSealMismatch(_ entry: Entry) -> Bool {
-        guard SealSetting.isOffered(for: request.assignment, isEditing: request.isEditing),
+        guard SealSetting.isOffered(
+                  mode: request.mode,
+                  assignment: request.assignment,
+                  isSealed: request.existingUnlockAtAge != nil
+              ),
               !seal.isSealed,
               let sealedAt = entry.unlockAtAge
         else { return false }
@@ -828,6 +850,12 @@ struct ComposerView: View {
 
         entry.occurredAt = occurredAt
         entry.body = trimmed.isEmpty ? nil : trimmed
+        // **The seam this phase wired.** `PATCH /entries/{id}` has always supported it and
+        // `EntryChanges.unlockAtAge` has always existed; nothing ever set either. Sealing an
+        // entry after the fact, changing the age, and unsealing entirely are all this line plus
+        // the `.set` in `updateEntry(_:)` — the setness fix is what made "unsealed" expressible
+        // as a value rather than as an absence.
+        entry.unlockAtAge = seal.unlockAtAge
         entry.updatedAt = Date()
         entry.sync = .pending
         try? context.save()

@@ -2013,3 +2013,21 @@ Two documentation defects the same pass found, both of the kind this project tre
   parent whose child was already created. It cannot be reused here: this account already has
   children, so "find one and adopt it" would silently select a *sibling* and report success for a
   create that may never have happened. A visible error the parent can retry is the better failure.
+- **Letter-on-any-day and editing a seal are one change, because they are one control.** 27 needed
+  `SealSetting.isOffered` to stop requiring a `letter` assignment; seal-editing needed it to stop
+  refusing while editing. Shipping them apart would have meant two rewrites of the same predicate
+  and a half-built seal in between.
+- **The composer had to start carrying the entry's existing seal.** `ComposerRequest.editing` sets
+  `assignment: nil`, so the control had nothing to seed from — a parent opening a sealed letter
+  would have found the toggle off, and saving would have silently unsealed it. The request now
+  carries `existingUnlockAtAge`, and it wins over both defaults.
+- **`updateEntry(_:)` now sends `unlock_at_age`, and `title` still does not.** The rule is whether
+  the caller has an opinion: there is no title field anywhere in the app, so claiming one would
+  let editing a body revert a title set on another phone. There *is* a seal control on the edit
+  path now, seeded from the row and shown to the parent, so the value sent is one they looked at.
+  `.set(nil)` is what unsealing is on the wire — an omitted key means "leave it alone", so without
+  the explicit null a seal could be added and never taken back.
+- **Sealing is offered on every freeform capture, not only the Write verb.** All four verbs build
+  the request as `mode: .text`; the verb only decides what opens on top. `mode` therefore
+  separates shapes only on the edit path, which is where the rule refuses to seal an unsealed
+  photo — an already-sealed one is always editable, whatever shape it is.
