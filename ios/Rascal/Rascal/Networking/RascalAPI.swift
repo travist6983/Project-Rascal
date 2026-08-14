@@ -273,7 +273,17 @@ extension APIClient {
             id: entry.id,
             changes: EntryChanges(
                 body: .set(entry.body),
-                occurredAt: .set(entry.occurredAt)
+                occurredAt: .set(entry.occurredAt),
+                // **Sent, unlike `title`, and the difference is whether the caller has an
+                // opinion.** There is no title field anywhere, so this call must not claim one.
+                // There *is* a seal control on the edit path now, seeded from this row and shown
+                // to the parent, so the value being sent is one they just looked at.
+                //
+                // `.set(nil)` is what unsealing is on the wire — the server distinguishes an
+                // omitted key from an explicit null, which is the whole reason `Change` exists.
+                // Without this line the composer could seal a row locally and the archive would
+                // never hear about it.
+                unlockAtAge: .set(entry.unlockAtAge)
             )
         )
     }
