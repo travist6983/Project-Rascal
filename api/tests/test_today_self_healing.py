@@ -26,11 +26,11 @@ from rascal.services.dates import local_date
 from rascal.services.scheduler import ensure_day_filled, run_scheduler
 
 # A Saturday that is neither the 1st nor the 15th, so `weekly` is tested on its own.
-SATURDAY = dt.date(2026, 8, 22)
+SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
 # The 1st, and a Tuesday, so `monthly` is tested without `weekly` riding along.
-FIRST = dt.date(2026, 9, 1)
+FIRST = dt.date(2026, 9, 1)  # future-date: explicit, pure
 # A plain Wednesday: the daily three and nothing else.
-WEEKDAY = dt.date(2026, 8, 19)
+WEEKDAY = dt.date(2026, 8, 19)  # future-date: explicit, pure
 
 # UTC+14 and UTC-11. At any instant at least one of them is on a different calendar date
 # from UTC: before 11:00Z the Midway date is yesterday's, and from 10:00Z the Kiritimati
@@ -229,7 +229,8 @@ async def test_the_date_override_stays_read_only(
     user, child = await _world(session)
     await session.commit()
 
-    far_off = dt.date(2027, 3, 9)
+    # Being ahead of the clock is the assertion itself: `?date=` must never fill.
+    far_off = dt.date(2027, 3, 9)  # future-date: the override must not self-heal
     response = await client.get(
         f"/v1/children/{child.id}/today",
         params={"date": far_off.isoformat()},
