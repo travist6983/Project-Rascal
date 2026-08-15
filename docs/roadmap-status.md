@@ -427,6 +427,26 @@ done, one contradicts a settled decision, one has an inverted premise.** Verdict
 | **auth** | Apple revocation | ◐ | **The client half shipped and is genuinely wired** — `getCredentialState` runs on every launch and signs out on `.revoked`, with three tests. **The server-to-server endpoint does not exist in any form**, so "not registered" follows from "no route." Consequence: revoke while the app is closed and the server session lives until the refresh token expires |
 | **auth** | Facebook/Meta | ✅ **written down Aug 12, 2026** | ~~The rejection is written down nowhere~~ — it is now a row in `decisions.md`'s "Rejected — do not revisit", in the terms the decision actually rests on: the product's, not the protocol's. Routing a private record of a child through an ad-tech company contradicts the thing being sold; Apple is primary and Google is the planned second because it is the credential a non-Apple household already has, and neither argument extends to Meta. **Reversible at no schema cost** — the `credentials` CHECK has never listed `meta`, and rule 2 means adding it would need no migration |
 
+**Monetization is specified as of Aug 15, 2026 — D1–D6 in `docs/decisions.md` — and none of it is
+built.** Four forward items follow from it, numbered **36–39**: the next unclaimed numbers, taken
+from this table, where 35 is the highest in use and 34 is monetization itself. The tables those
+phases need are the PROPOSED section of `data-model.md`; the endpoint shapes are the UNBUILT section
+of `api-contract.md`. **No open-decision row in this file was closed by D1–D6** — the open-decisions
+table never carried a monetization question, which is itself why 34 sat unspecified for so long.
+
+**The dependency chain, recorded because its far end is already in the backlog below.** The printed
+book (D6) is a physical good, so it must never go through IAP → which requires a non-App-Store
+checkout → which requires **a web client this API has never had** → which requires the `aud`
+comma-separated allowlist change already sitting in the auth bundle, since a browser client is a
+second audience for the same Apple credential. **That last link is one line at `services/apple.py`
+once `config.py` parses a list**, and it is the cheapest thing on the chain by a wide margin — worth
+knowing that the book's blocker bottoms out in a one-line change nobody has made.
+
+| **36** | Guardian invite flow | ○ **new, Aug 15, 2026** | A signed expiring invite link; the second guardian signs in and a `guardians` row is created, with **entitlement resolved from the family** so the invitee is covered the moment they arrive — per D4, the household is the unit. **Depends on Google sign-in**, which is already in the auth bundle below: the second parent may not have an Apple device, and an invite they cannot accept is not an invite. **Apple Family Sharing is not used** and this phase must not reach for it — D4 records why: it creates a second, Apple-owned opinion about who is entitled |
+| **37** | Entitlement and StoreKit | ○ **new, Aug 15, 2026** | Per D5. The entitlement table on the family, the App Store Server Notifications V2 webhook as the only writer of `tier`, and every gate reading the server. **StoreKit is a receipt, not the entitlement** — the device never decides whether a household is subscribed, for the same reason it never decides what day it is. Small Business Program enrollment is a precondition and is an owner account action; see `docs/blocked.md` |
+| **38** | Lifecycle notices | ○ **new, Aug 15, 2026** | **The phase D3 actually requires, and it is not part of 37.** The win-back and deletion-warning pipeline, the two consent lanes as separate fields, per-channel delivery records, and the job that moves original media to the Archive tier at 90 days lapsed. Deletion may not fire unless a notice was confirmed delivered on some channel, and any sign-in in the warning window cancels it outright. Shipping 37 without this gives a product that can lapse a family and never tell them |
+| **39** | Print partner evaluation | ○ **new, Aug 15, 2026** | **A research task, not an implementation.** Scored against the D6 constraints with **margin retained as the primary criterion** — not sticker price, because consumer photo-book brands keep the retail margin while wholesale print-on-demand APIs charge print-and-ship with no service fee. A public self-serve API is required; contact-sales is disqualifying for a solo developer. No partner is chosen in D6 and none may be chosen without this |
+
 #### Item 24 contradicted a decision settled on Aug 11 — resolved by the owner Aug 12, shipped Aug 13
 
 > **Closed.** The owner reversed the coexistence decision, all three costs below turned out to be

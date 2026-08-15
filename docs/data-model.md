@@ -367,3 +367,100 @@ cooldown, the dropped theme rotation, the dropped age window and the final "anyt
 fallback each fall back to. There is no rung of the ladder that can resurrect one.
 
 Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusion subquery.
+
+---
+
+## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
+
+**None of this exists.** No table, column or index below has been created, and no migration writes
+any of it. It is written down so the shape is settled before it is built — the decisions are D1–D6
+in `docs/decisions.md` — and so the two things that would be expensive to retrofit are decided
+first: the consent lanes and the per-channel delivery record.
+
+Nothing here modifies an existing table.
+
+### Entitlement sits on the household, never on a user or a child
+
+One row per family. **Not a column on `users`**: any guardian may be the payer, all guardians are
+covered, and a per-user flag would make "is this family subscribed" a question with as many answers
+as there are guardians. Per D4.
+
+| Column | Type | Notes |
+|---|---|---|
+| `family_id` | uuid PK | the household — one entitlement per family, never per user or child |
+| `tier` | text | `free` \| `subscribed`, `text` + a named CHECK per the constrained-value convention |
+| `payer_user_id` | uuid FK | nullable — who is paying now. Nullable because a family can be `free` with nobody paying |
+| `lapsed_at` | timestamptz | nullable; null while subscribed. Set when the entitlement flips to `free` |
+| `last_sign_in_at` | timestamptz | most recent sign-in by **any** guardian |
+| `updated_at` | timestamptz | maintained by the `set_updated_at()` trigger, never by application code |
+
+**The deletion eligibility date is computed on read and never stored.**
+
+```
+eligible_at = max(lapsed_at + 24 months, last_sign_in_at + 12 months)
+```
+
+Both clocks move. A stored deadline written the day a family lapsed would be wrong the moment
+somebody opened the app, and a wrong deadline in this particular table deletes photographs. Storing
+it would also mean every sign-in rewriting a date somebody could read as a promise.
+
+### Media carries its storage tier
+
+A single column on `media`, **added and not backfilled into the definitions above**:
+
+| Column | Type | Notes |
+|---|---|---|
+| `storage_tier` | text | `hot` \| `archive`, `text` + named CHECK. Originals move to `archive` at 90 days lapsed; **thumbnails always stay `hot`** so the timeline is instant and browsable whatever the tier |
+
+Search is unaffected: it runs against transcripts and captions in Postgres, which never move.
+Full-resolution retrieval from `archive` needs a restore of roughly an hour, or an active
+subscription. **That is a property of the storage tier and not a penalty**, and no copy anywhere may
+frame it as one.
+
+### The two consent lanes are two fields, from day one
+
+On `users`, and deliberately **not one flag with two meanings**:
+
+| Column | Type | Notes |
+|---|---|---|
+| `marketing_consent` | boolean | win-back only. Requires an unsubscribe and must honour it |
+| `transactional_consent` | boolean | deletion warnings. Sends regardless of the marketing field |
+
+Untangling one flag into two later, under a GDPR or CCPA request, is the failure this shape exists
+to avoid. It costs one extra column now.
+
+### Notices, and delivery proven per channel
+
+Two tables, because a notice is one decision and a delivery is one attempt per channel.
+
+`lifecycle_notices` — one row per notice sent to a family:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | server-generated |
+| `family_id` | uuid FK | |
+| `kind` | text | `winback` \| `deletion_warning`, `text` + named CHECK |
+| `scheduled_for` | text | which notice this is — `t_minus_90`, `t_minus_30`, `t_minus_7` for warnings |
+| `created_at` | timestamptz | |
+
+`lifecycle_notice_deliveries` — one row per channel per notice:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `notice_id` | uuid FK | → `lifecycle_notices` |
+| `channel` | text | `in_app` \| `push` \| `email`, `text` + named CHECK |
+| `outcome` | text | `delivered` \| `failed` \| `suppressed`, `text` + named CHECK |
+| `created_at` | timestamptz | |
+
+**This is why the second table exists.** Sign in with Apple private-relay forwarding can be switched
+off by the user at any time, which kills the email channel silently and tells the sender nothing. So
+a notice goes out on three channels and each records its own outcome, and **deletion may not fire
+unless at least one channel recorded `delivered`.** An account that cannot be reached is kept
+indefinitely and flagged for manual review — never deleted on a timer that assumed the notice
+arrived.
+
+`notification_sends` is **not** this table and must not be extended into it. That one is unique on
+`(user_id, notification_date)` and that index *is* the daily-notification product guarantee; a
+lifecycle notice is a different thing on a different cadence, and folding them together would break
+the guarantee to save a table.

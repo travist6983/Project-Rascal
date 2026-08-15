@@ -852,3 +852,48 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
 a `psycopg` message in a client alert is a leak, not a debugging aid.
+
+---
+
+## Monetization — **UNBUILT**
+
+**No endpoint in this section exists.** Nothing below is implemented, routed, or callable; this
+records the shape D5 requires so that it is settled before it is built. The decisions are D1–D6 in
+`docs/decisions.md`, and the tables are the PROPOSED section of `docs/data-model.md`.
+
+### The entitlement is read from the server, always
+
+**`GET /families/{id}/entitlement`** — any guardian. *Would* return the household's tier and, when
+lapsed, the computed deletion-eligibility date.
+
+```json
+{
+  "family_id": "...",
+  "tier": "free",
+  "lapsed_at": "2026-05-01T00:00:00Z",
+  "eligible_at": "2028-05-01",
+  "media_storage_tier": "archive"
+}
+```
+
+**`eligible_at` is computed per request**, never stored — `max(lapsed_at + 24 months,
+last_sign_in_at + 12 months)`, and both clocks move. A client may display it and must not cache it.
+
+**The device never decides whether a household is subscribed.** A StoreKit transaction on the phone
+is a receipt, not an entitlement, in exactly the way an Apple identity token is a credential and not
+the identity model. Every gate reads the server, for the same reason the server owns what day it is.
+
+### App Store Server Notifications V2
+
+**`POST /webhooks/app-store`** — unauthenticated in the bearer sense and authenticated by signature.
+*Would* accept Apple's V2 notification, verify the signed payload, and write the entitlement.
+
+This is the **only** path that may set `tier`. A subscribe, a renewal, a cancellation, a billing
+failure and a refund all arrive here, which is what keeps one authority over the answer — and is why
+Apple Family Sharing is not enabled on the subscription: it would create a second opinion about who
+is entitled, and two authorities that can disagree about the same fact is the shape of bug this
+contract avoids everywhere else.
+
+A notification for a family this server does not recognise is recorded and acknowledged, never
+rejected — Apple retries, and a 4xx to a real notification is an entitlement that silently never
+lands.
