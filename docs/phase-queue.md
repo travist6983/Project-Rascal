@@ -133,8 +133,17 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   its state ladder is a SwiftData migration on every media row for a feature that may never ship,
   and a Settings row that permanently reads "0 waiting" is the furniture this app refuses.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
-- **34 — Membership billing / costs.** *(Was written as a second 33; renumbered, since this file
-  exists partly to stop the phase-number collisions the ledger already carries four of.)*
+- **34 — Membership billing / costs. Partly decided Aug 15, and two questions are still open.**
+  Settled in `decisions.md`: a subscription with a free tier, one price for the whole family,
+  StoreKit/IAP, unit economics measured before any price is set, and a lapse that runs 90 days of
+  grace — missions and questions still work, no new media — then a recoverable year in cold
+  storage, then deletion. **Still open, and both block building it:** (1) whether a family can
+  *export* during that cold year without paying — my recommendation is yes, since `decisions.md`
+  already holds that "an export you cannot read is not a backup", and this is the moment a backup
+  matters most; (2) what the free tier caps — the recommendation is **media storage**, because it
+  is the real cost driver and because it is the same line the grace period already draws, leaving
+  prompts and text entries uncapped so the daily habit is never what stops.
+  **Nothing should be built until those two are answered** — both change the schema.
 - **auth — credential linking.** Do this before Google sign-in, or Google mints second,
   disconnected `users` rows.
 - **auth — `aud` allowlist.** One line at `services/apple.py:89` once `config.py:70` parses a list.

@@ -2183,3 +2183,12 @@ Two documentation defects the same pass found, both of the kind this project tre
   genuinely inert: nothing writes a caption on device, so there is nothing to overwrite. Guarding
   it now would guard against a writer that does not exist, and the real fix needs the state ladder
   that phase 33 is deliberately not building ahead of the platform.
+- **Phase 34 was specified from nothing on Aug 15.** It had no spec at all — one line in the
+  roadmap's launch checklist and a renumbering note. Six of eight questions are answered and in
+  `decisions.md`; two are recorded as open in the queue rather than guessed, because both change
+  the schema: whether export is free during the cold-storage year, and what the free tier caps.
+- **The lapse lifecycle is the owner's, not one of the options offered.** I proposed three shapes
+  and the answer was a fourth: 90 days grace, then a recoverable year in cold storage, then
+  deletion — and during grace, missions and questions keep working while new *media* is refused.
+  That line is better than the read-only line I suggested, because it is drawn where the cost
+  actually is: text is free to keep, so the daily habit never has to stop to save money.
