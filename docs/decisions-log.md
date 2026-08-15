@@ -2192,3 +2192,77 @@ Two documentation defects the same pass found, both of the kind this project tre
   deletion — and during grace, missions and questions keep working while new *media* is refused.
   That line is better than the read-only line I suggested, because it is drawn where the cost
   actually is: text is free to keep, so the daily habit never has to stop to save money.
+
+## Aug 15, 2026 — the monetization decisions, and what each rejected
+
+**Phase 34 had no specification at all** — one line in the roadmap's launch checklist and a note
+explaining its number. It has one now, covering the model, the free tier, lapse behaviour, the
+unit, the billing rail and the printed book. None of it is implemented, and nothing below should be
+read as describing something that exists.
+
+**The model is a subscription because the cost is a subscription.** Storage and bandwidth grow
+every month the product works, and a one-time purchase pays once against eighteen years of that —
+the gap widening fastest for the families using it most, which is precisely backwards. Free forever
+leaves a recurring cost with no revenue against it; paid up front with no free tier asks for money
+before the value is visible, and this app's value is invisible until somebody has used it for a
+month.
+
+**The free tier is generous on prompts and mean on storage, deliberately.** Every daily question
+and mission forever, unlimited text and did-it entries, audio at two minutes a recording — and 100
+photos *lifetime*. Lifetime rather than monthly because a monthly reset lets a free account accrue
+eighteen years of storage at zero revenue; the cap has to bound the total, not the rate. 100 is low
+on purpose: a free cap can be raised forever and can never be lowered. Competitors meter the
+questions themselves by tier, and not doing that is the point of difference worth paying for.
+
+**The arithmetic behind not deleting.** Tigris Standard is $0.02/GB-month and Archive is roughly a
+fifth of that, with no egress charge. A lapsed 50 GB archive on Archive tier is therefore about
+**$0.20 a month** — around $2.40 a year to keep somebody's childhood rather than delete it. That
+number is why lock-and-delete was rejected: the saving does not come close to justifying breaking
+the promise the product is sold on.
+
+**The competitor evidence points the same way, and none of them delete.** Qeepsake moves cancelled
+accounts to a Lite tier with entries still readable. Storyworth goes read-only. Tinybeans drops to
+its free tier. Deleting would make this the only product in the category that does, at a saving of
+twenty cents a month.
+
+**Deletion eligibility is computed from two clocks rather than stored as a deadline.**
+`max(lapsed_at + 24 months, last_sign_in_at + 12 months)`, derived on read, because either clock can
+move — and a stored deadline written when somebody lapsed would be wrong the moment they opened the
+app again. Media only is ever deleted; text never is, because an entire abandoned archive's text is
+a few hundred kilobytes and *"we have never deleted a word a parent wrote"* is a sentence worth
+being able to say.
+
+**The notice sequence is two consent lanes because it is two legal categories.** Win-back is
+marketing and needs an unsubscribe that is honoured; a deletion warning is transactional and sends
+regardless. Keeping them as separate fields from day one is cheap now and is the thing that is
+expensive to untangle later under a GDPR or CCPA request. No marketing mail may enter the warning
+window: *"we miss you"* arriving beside *"your photos will be deleted"* is the worst version of this
+product, and it is the kind of thing that happens when one flag does two jobs.
+
+**Delivery is recorded per channel per notice because the email channel can fail silently.** Sign in
+with Apple private relay forwarding can be switched off by the user at any moment, and nothing tells
+the sender. So notices go by in-app banner, push and email, and an account that cannot be reached on
+any of them is kept indefinitely and flagged rather than deleted on a timer that assumes the notice
+arrived. Any sign-in inside the warning window cancels deletion outright and resets both clocks —
+not a pause, because a parent who opens the app has already answered the question the notice asked.
+
+**The household is the unit, and Apple Family Sharing is not used.** Per-child pricing taxes having
+another child, and the cost driver is media volume rather than child count. Family Sharing was
+rejected for a subtler reason: it creates a second, Apple-owned opinion about who is entitled, and
+two authorities that can disagree about the same fact is exactly the shape of bug this codebase
+already avoids for identity and for what day it is.
+
+**StoreKit is a receipt, not the entitlement.** App Store Server Notifications V2 write server-side
+and every gate reads the server, for the same reason the device does not decide what today is. The
+Small Business Program is 15% in year one, and subscriptions drop to 15% in year two regardless of
+enrollment.
+
+**The printed book cannot go through IAP** — physical goods are 0% commission and Apple does not
+take them — so it needs a non-App-Store checkout, which makes it dependent on a web client this API
+has never had. No print partner is chosen. The evaluation is scored on **margin retained rather than
+sticker price**, because consumer photo-book brands price at retail and keep the retail margin while
+wholesale print-on-demand APIs charge print-and-ship with no service fee for API access, leaving the
+entire markup ours to set. Price derives from page count and is computed server-side before
+checkout, because that number becomes money. And the annual book is curated rather than exhaustive:
+ten photos a day for a year is 3,650 photos, no book holds that, so the export flow needs a
+selection step — which bounds the price and makes a better object than a complete one would be.

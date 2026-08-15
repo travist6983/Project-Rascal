@@ -1175,3 +1175,27 @@ because the text is human-authored rather than machine-invented, it sidesteps th
 hazard entirely. The hit rate on photos straight from an iPhone camera is unknown and probably
 low, so it is worth a measurement before it is worth a phase. It is a different feature from the
 one the roadmap describes, so it is the owner's call.
+
+---
+
+## §10 — Monetization needs App Store Connect before any of it can be built (Aug 15, 2026)
+
+Phase 37 (entitlement and StoreKit) cannot be written against nothing. Two account actions come
+first, and both are yours — this file's original terms exactly: a credential or an account only you
+have.
+
+- **Enrol in the App Store Small Business Program.** D5 assumes 15%, and enrollment is what makes
+  that true in year one. Subscriptions fall to 15% in year two regardless, so this is a year-one
+  difference of 15 percentage points on every payment.
+- **Create the subscription products in App Store Connect** — the annual and the monthly, with the
+  14-day trial and annual preselected per D1. Without product identifiers there is no StoreKit
+  transaction to receive, no sandbox to test against, and nothing for the webhook to be sent about.
+
+**Nothing else in D1–D6 is blocked.** 38 (lifecycle notices) needs no Apple account at all — it is a
+job, two tables and three channels, and it can be built and tested before a single payment exists.
+39 is a research task. And the print partner (D6) needs an account only once one is chosen, which
+D6 explicitly does not do.
+
+**This is recorded rather than acted on**: creating products and choosing price tiers were named out
+of scope for the phase that wrote this, and doing either from here would be picking a price.
+
