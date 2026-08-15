@@ -294,7 +294,7 @@ struct BackfillScannerTests {
         _ source: StubAssetSource,
         dismissals: BackfillDismissalStoring = InMemoryBackfillDismissalStore()
     ) -> BackfillScanner {
-        BackfillScanner(source: source, dismissals: dismissals, cache: InMemoryBackfillScanCache())
+        BackfillScanner(source: source, childId: UUID(), dismissals: dismissals, cache: InMemoryBackfillScanCache())
     }
 
     @Test("A completed scan reports its clusters")
@@ -416,8 +416,7 @@ struct BackfillScannerTests {
         }
 
         // And a fresh scanner reading the same store does not re-offer it.
-        let second = BackfillScanner(
-            source: StubAssetSource(dates: dates),
+        let second = BackfillScanner(source: StubAssetSource(dates: dates), childId: UUID(),
             dismissals: dismissals,
             cache: InMemoryBackfillScanCache()
         )
@@ -916,8 +915,7 @@ struct BackfillAssetFetchTests {
             dates: [date(2025, 10, 3), date(2025, 10, 4), date(2025, 10, 5)],
             monthAssets: ["2025-10": [BackfillAsset(id: "a", creationDate: nil, isOnDevice: true)]]
         )
-        let model = BackfillScanner(
-            source: source, dismissals: InMemoryBackfillDismissalStore(),
+        let model = BackfillScanner(source: source, childId: UUID(), dismissals: InMemoryBackfillDismissalStore(),
             cache: InMemoryBackfillScanCache()
         )
 
@@ -936,8 +934,7 @@ struct BackfillAssetFetchTests {
     func undoRestores() async {
         let dismissals = InMemoryBackfillDismissalStore()
         let dates = [date(2025, 10, 3), date(2025, 10, 4), date(2025, 10, 5)]
-        let model = BackfillScanner(
-            source: StubAssetSource(dates: dates), dismissals: dismissals,
+        let model = BackfillScanner(source: StubAssetSource(dates: dates), childId: UUID(), dismissals: dismissals,
             cache: InMemoryBackfillScanCache()
         )
         let october = BackfillMonth(year: 2025, month: 10)

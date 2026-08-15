@@ -99,6 +99,21 @@ struct SealControlTests {
         #expect(SealSetting.initial(for: nil, existingUnlockAtAge: nil).isSealed == false)
     }
 
+    /// **The archive's own value is never clamped.** `resolvedAge` exists for a prompt *default*,
+    /// where rounding into the stepper's 10–21 window is friendly. Reusing it here took an entry
+    /// sealed at 25, rendered "Opens at 21" — contradicting `EntryCard`, which says 25 — and let
+    /// an untouched Save move the seal to 21 permanently. The server permits 0–120 and
+    /// `services/entries.py` seals from the prompt's own `default_unlock_age`, so a value outside
+    /// the stepper's range needs no unusual client to exist.
+    @Test("an existing seal outside the stepper's range is carried, not rounded")
+    func anExistingSealIsNeverClamped() {
+        #expect(SealSetting.initial(for: nil, existingUnlockAtAge: 25).age == 25)
+        #expect(SealSetting.initial(for: nil, existingUnlockAtAge: 8).age == 8)
+
+        // And the create path still clamps, because there the number is only a suggestion.
+        #expect(SealSetting.resolvedAge(25) == 21)
+    }
+
     /// `GET /today` already carries the prompt's `default_unlock_age` on the assignment —
     /// `schemas/today.py` sets it from `prompt.default_unlock_age` — so this reads a real field
     /// rather than guessing.

@@ -80,7 +80,20 @@ nonisolated struct SealSetting: Equatable, Sendable {
         existingUnlockAtAge: Int? = nil
     ) -> SealSetting {
         if let existingUnlockAtAge {
-            return SealSetting(isSealed: true, age: resolvedAge(existingUnlockAtAge))
+            // **Not `resolvedAge`, and the difference is the whole point of this branch.** That
+            // clamp is for a prompt *default* — a number nobody has committed to yet, where
+            // rounding into the stepper's window is the friendly answer. This one is the
+            // archive's own value. Clamping it makes `seal.unlockAtAge` differ from
+            // `entry.unlockAtAge` before the parent has touched anything, and `saveEdit` then
+            // writes the difference back and PATCHes it: an entry sealed at 25 would render
+            // "Opens at 21" — contradicting the reader, which says 25 — and an untouched Save
+            // would move the archive's seal to 21 permanently.
+            //
+            // That is precisely the regression `existingUnlockAtAge` was added to prevent, and
+            // it was reintroduced one line below by reusing the create path's helper. The
+            // stepper does not write back an out-of-range value — `Stepper(value:in:)` only
+            // disables the offending button — so an untouched Save now sends what it was given.
+            return SealSetting(isSealed: true, age: existingUnlockAtAge)
         }
         guard assignment?.promptKind == .letter else {
             return SealSetting(isSealed: false, age: fallbackAge)

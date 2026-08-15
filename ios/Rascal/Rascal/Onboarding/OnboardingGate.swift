@@ -543,6 +543,10 @@ final class OnboardingSession {
         }
     }
 
+    /// Forget the last thing that went wrong. Used when opening a sheet that would otherwise
+    /// inherit a notice from an attempt the parent has already walked away from.
+    func clearNotice() { notice = nil }
+
     /// Re-read the account's children, so a child added on another device appears in the list.
     ///
     /// Best effort and deliberately silent: this runs when the switcher opens, and a parent who
@@ -698,7 +702,14 @@ struct OnboardingGate: View {
                     onSwitchChild: session.canSwitchChild ? { isPresentingSwitcher = true } : nil,
                     // **Never nil.** Unlike the switcher, this is offered with one child — that
                     // is the account it exists for. See `SettingsScreen.childrenSection`.
-                    onAddChild: { isPresentingAddChild = true },
+                    onAddChild: {
+                // **Clear first.** `addChild` sets `notice` on failure and only clears it at the
+                // top of its own next invocation, so a parent who failed, cancelled, and came
+                // back later found the sheet pre-loaded with an error about an action they had
+                // not taken yet.
+                session.clearNotice()
+                isPresentingAddChild = true
+            },
                     notifications: session.notifications,
                     pendingLink: $pendingLink
                 )
@@ -729,6 +740,14 @@ struct OnboardingGate: View {
                     pronouns: pronouns
                 )
             }
+            // **The only refresh a one-child account can reach.** `refreshChildren` was written
+            // so a child added on another device appears in the list, and its only other caller
+            // is the switcher sheet — which does not open until there are two children, i.e.
+            // never for exactly the account that needs to discover the second one. A parent
+            // opening Add a child is the likeliest person to have already added one elsewhere,
+            // so asking here closes the loop: if the account has two now, the pill gains its
+            // chevron behind this sheet.
+            .task { await session.refreshChildren() }
         }
         .onOpenURL { url in
             pendingLink = WidgetDeepLink.parse(url)

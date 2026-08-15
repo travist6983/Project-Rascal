@@ -210,6 +210,8 @@ nonisolated final class UserDefaultsBackfillDismissalStore: BackfillDismissalSto
     private let defaults: UserDefaults
     private let key: String
 
+    /// **Namespaced by child.** Waving October away for one child must not hide October for
+    /// their sibling: the months are different months, about different archives.
     init(defaults: UserDefaults = .standard, key: String = "backfill.dismissedMonths") {
         self.defaults = defaults
         self.key = key
