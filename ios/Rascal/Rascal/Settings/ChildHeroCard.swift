@@ -37,6 +37,13 @@ struct ChildHeroCard: View {
     /// disc — which is what this card showed unconditionally before there was anywhere to upload
     /// an avatar to, so the fallback is the previous design rather than a new one.
     var avatar: Data?
+
+    /// What is in the archive, once the server has said. **Nil until it answers, and nil is not
+    /// zero** — the strip and the archive-start line simply do not render, so the hero is exactly
+    /// what it was before this shipped. That distinction is the reason D1 was dropped rather than
+    /// built against the local cache: the app may never assert a size it does not know, and a
+    /// placeholder that says "0" or "—" while a request is in flight is an assertion.
+    var stats: ChildStatsResponse?
     /// Opens the edit sheet. Never called while `child` is nil: the placeholder is not a button,
     /// which is the single condition rather than a second nullable the caller could disagree with.
     let action: () -> Void
@@ -88,6 +95,23 @@ struct ChildHeroCard: View {
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if let stats, stats.hasSomething {
+                    // D12. Under the born-date because they are two dates about the same child:
+                    // when they arrived, then when somebody started writing it down.
+                    if let started = Self.archiveStart(stats) {
+                        Text(started)
+                            .typeRole(.metadata)
+                            .foregroundStyle(Color.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // D1.
+                    Text(Self.strip(stats))
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                }
             }
 
             Spacer(minLength: 8)
@@ -99,6 +123,62 @@ struct ChildHeroCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
+
+    /// `412 entries · 1,204 photos · 3 sealed` — the strip `settings-v2-inventory.md` drew as D1
+    /// and dropped for want of a source of truth. `GET /children/{id}/stats` is that source.
+    ///
+    /// **The middle cell counts photographs, not media.** The server returns video and audio too
+    /// and this deliberately ignores them: "photos" is what a parent pictures when they think
+    /// about the archive, and "1,287 files" is a computer's word for a shoebox of memories.
+    /// A family's voice notes are not being hidden — they are not being *counted here*, which is
+    /// a different thing, and the timeline shows every one of them.
+    ///
+    /// Grouped digits, because four figures without a separator is a number you have to read
+    /// twice, and this is a line somebody glances at.
+    static func strip(_ stats: ChildStatsResponse) -> String {
+        [
+            "\(number(stats.entries)) \(stats.entries == 1 ? "entry" : "entries")",
+            "\(number(stats.photos)) \(stats.photos == 1 ? "photo" : "photos")",
+            "\(number(stats.sealed)) sealed",
+        ].joined(separator: " · ")
+    }
+
+    /// `Archive starts 21 June 2022`. **Not "First entry"**, which names a row in a list; this is
+    /// the day the archive begins, which is the thing the date actually means next to a birthdate.
+    ///
+    /// Nil when the server sent no date — an empty archive has no first day, and inventing one
+    /// would be the same lie as a zero-filled strip.
+    static func archiveStart(_ stats: ChildStatsResponse) -> String? {
+        guard let raw = stats.firstEntryOn, let day = dayParser.date(from: raw) else { return nil }
+        return "Archive starts \(dayFormatter.string(from: day))"
+    }
+
+    private static func number(_ value: Int) -> String {
+        numberFormatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    private static let numberFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    /// The server's wire shape — a plain calendar day, no zone, no time.
+    private static let dayParser: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    /// Long form, matching the born-date it sits under.
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .long
+        formatter.timeStyle = .none
+        return formatter
+    }()
 
     /// The child's face when there is one, their initial when there is not.
     ///

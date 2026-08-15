@@ -37,6 +37,72 @@ private func child(
 @Suite("Settings v2 — the child hero")
 struct ChildHeroCardTests {
 
+    // MARK: The hero's stats strip — D1 and D12
+
+    private func stats(
+        entries: Int = 412,
+        sealed: Int = 3,
+        photo: Int = 1204,
+        firstEntryOn: String? = "2022-06-21"
+    ) -> ChildStatsResponse {
+        let json = """
+        {"entries":\(entries),"sealed":\(sealed),
+         "media":{"photo":\(photo),"video":22,"audio":61},
+         "first_entry_on":\(firstEntryOn.map { "\"\($0)\"" } ?? "null"),
+         "last_entry_on":"2026-08-14"}
+        """
+        return try! APIClient.decoder.decode(ChildStatsResponse.self, from: Data(json.utf8))
+    }
+
+    /// The strip `settings-v2-inventory.md` drew as D1 and dropped for want of a source of truth.
+    @Test("the strip reads the way the design drew it")
+    func stripMatchesTheDesign() {
+        #expect(ChildHeroCard.strip(stats()) == "412 entries · 1,204 photos · 3 sealed")
+    }
+
+    /// **The middle cell counts photographs, not media.** The response carries 22 videos and 61
+    /// voice notes and this deliberately ignores them: "photos" is what a parent pictures, and
+    /// "1,287 files" is a computer's word for a shoebox of memories. Pinned because the fixture
+    /// makes the total easy to reach for by accident.
+    @Test("the middle cell counts photos, not every media row")
+    func middleCellIsPhotosOnly() {
+        #expect(ChildHeroCard.strip(stats()).contains("1,204 photos"))
+        #expect(ChildHeroCard.strip(stats()).contains("1,287") == false)
+    }
+
+    @Test("singulars are singular")
+    func singularsRead() {
+        let one = ChildHeroCard.strip(stats(entries: 1, sealed: 1, photo: 1))
+        #expect(one == "1 entry · 1 photo · 1 sealed")
+    }
+
+    /// **Nil is not zero.** The strip is absent until the server answers, which is the whole
+    /// reason D1 was dropped rather than built against the paged local cache: the app may never
+    /// assert a size it does not know, and a placeholder reading "0" or "—" mid-flight is an
+    /// assertion. An empty archive is the same — three zeros greeting somebody on the day they
+    /// signed up is the closest thing to a score this app would ever print.
+    @Test("an empty archive shows no strip at all")
+    func emptyArchiveHidesTheStrip() {
+        #expect(stats(entries: 0, sealed: 0, photo: 0).hasSomething == false)
+        #expect(stats().hasSomething)
+    }
+
+    /// D12, and it is a date rather than a row label: "Archive starts" is what the day means
+    /// sitting under a birthdate.
+    @Test("the archive-start line reads as a date about a life")
+    func archiveStartReads() throws {
+        let line = try #require(ChildHeroCard.archiveStart(stats()))
+        #expect(line.hasPrefix("Archive starts"))
+        #expect(line.contains("2022"))
+    }
+
+    /// An empty archive has no first day, and inventing one would be the same lie as a
+    /// zero-filled strip.
+    @Test("no first entry means no archive-start line")
+    func noFirstEntryMeansNoLine() {
+        #expect(ChildHeroCard.archiveStart(stats(firstEntryOn: nil)) == nil)
+    }
+
     @Test("the initial is one glyph, uppercased, whatever the name starts with")
     func initials() {
         #expect(ChildHeroCard.initial(of: "Hendrix") == "H")

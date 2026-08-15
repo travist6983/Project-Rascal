@@ -14,6 +14,17 @@ extension APIClient {
         try await send(.get, "v1/children")
     }
 
+    /// `GET /v1/children/{id}/stats` — how much is in the archive.
+    ///
+    /// **The client cannot answer this itself, which is the whole reason the route exists.** The
+    /// timeline is a paged, partial cache, so counting it would answer "how much has this phone
+    /// happened to page in", not "how big is the archive" — the exact thing `design-system.md`'s
+    /// `TimelineHeader` rule forbids, and the reason `settings-v2-inventory.md` dropped the hero's
+    /// stats strip as D1 and its first-entry line as D12.
+    func childStats(childId: UUID) async throws -> ChildStatsResponse {
+        try await send(.get, "v1/children/\(childId.uuidString.lowercased())/stats")
+    }
+
     /// `GET /v1/me` — the account behind the bearer token.
     ///
     /// The user record otherwise arrives exactly once, with the sign-in response, so a relaunch
@@ -63,6 +74,29 @@ extension APIClient {
     func dismissAssignment(_ id: UUID) async throws {
         _ = try await send(.post, "v1/assignments/\(id.uuidString.lowercased())/dismiss", as: EmptyResponse.self)
     }
+}
+
+/// What is in one child's archive, counted by the only participant that can count it.
+///
+/// `media` is a dictionary rather than three properties because the server returns every kind,
+/// always, including the ones at zero — a shape that survives a fourth kind without a client
+/// release. The hero reads `photo` from it; nothing today needs the others, and they are here
+/// because dropping them on the way in would mean another round trip to get them back.
+nonisolated struct ChildStatsResponse: Decodable, Equatable, Sendable {
+    let entries: Int
+    let sealed: Int
+    let media: [String: Int]
+    /// Calendar days in the child's `family_timezone`, and `nil` on an empty archive — never
+    /// today standing in for "there is no first entry".
+    let firstEntryOn: String?
+    let lastEntryOn: String?
+
+    var photos: Int { media["photo"] ?? 0 }
+
+    /// **The strip is shown only when there is something to show.** Three zeros greeting somebody
+    /// on the day they signed up is the closest thing to a score this app would ever print, and it
+    /// has no streaks and no guilt copy anywhere else.
+    var hasSomething: Bool { entries > 0 }
 }
 
 nonisolated struct ChildResponse: Decodable, Identifiable, Equatable, Sendable {

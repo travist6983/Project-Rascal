@@ -2160,3 +2160,10 @@ Two documentation defects the same pass found, both of the kind this project tre
   real basis is the product's own on-device promise. And `mission-library.md` called 40 the
   *untagged* photo pool when untagged is 38 and 40 is what August can serve; the table two
   paragraphs above already said 38. Numbers re-derived from `prompts.yaml`, not from the prose.
+- **The hero's stats strip and first-entry line are built, and the rule they were dropped over is
+  intact.** D1 and D12 were dropped because counting a paged local cache answers "how much has
+  this phone paged in", not "how big is the archive" — the `TimelineHeader` rule. `/stats` counts
+  server-side, so the objection is gone rather than overridden: that rule governs a paged list,
+  and this is a counted total. Three owner decisions came with it — the middle cell counts
+  photographs and not media, the strip does not render until the server answers because nil is
+  not zero, and an empty archive shows nothing rather than three zeros.

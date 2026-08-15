@@ -262,10 +262,18 @@ interaction.
 - `sealed` is `unlock_at_age`, which per `design-system.md` and `docs/blocked.md` the server has
   no filter for at all.
 
-**Resolution: dropped.** The hero keeps the avatar disc, the name, the age, the born-date and the
-chevron — all four sourced exactly from `ChildResponse`. Building the strip would mean the client
-asserting the size of the archive, which is the specific thing the Timeline header rule exists to
-prevent. Recorded as open question **Q1**.
+~~**Resolution: dropped.**~~ **Built Aug 15, 2026, once a source of truth existed.** Phase 28 added
+`GET /children/{id}/stats`, which counts server-side — so the strip no longer means the client
+asserting the size of the archive, which was the entire objection. The Timeline header rule is
+untouched and still right: it governs a *paged list*, and this is a counted total.
+
+Three copy decisions came with it, all the owner's. **The middle cell counts photographs, not
+media** — the response carries video and audio too, and "1,287 files" is a computer's word for a
+shoebox of memories. **The strip does not render until the server answers**, because nil is not
+zero and a placeholder reading "0" or "—" mid-flight is exactly the assertion this was dropped
+over; offline, the hero is what it always was. **An empty archive shows nothing**, since three
+zeros greeting somebody on the day they signed up is the closest thing to a score this app would
+print. Q1 is closed.
 
 ### D2 — The hero's gradient is a reserved token, and it fails contrast anyway
 
@@ -397,8 +405,14 @@ defect on `PromptCard` is untouched, per the brief.
 
 ### D12 — "First entry — 21 Jun 2022"
 
-Same root cause as D1: the app cannot know the oldest entry in the archive from a partial, paged
-cache, and no endpoint reports it. **Dropped.** Recorded as **Q5**.
+~~Same root cause as D1: the app cannot know the oldest entry in the archive from a partial, paged
+cache, and no endpoint reports it. **Dropped.**~~ **Built Aug 15, 2026** — `/stats` returns
+`first_entry_on` as a calendar day in the child's own timezone. It renders under the born-date
+rather than as a row or a fourth cell, because two dates about the same child belong together:
+when they arrived, then when somebody started writing it down. It reads *"Archive starts 21 June
+2022"* rather than "First entry", which names a row in a list. Nil when the archive is empty — an
+empty archive has no first day and inventing one would be the same lie as a zero-filled strip.
+Q5 is closed.
 
 ---
 
