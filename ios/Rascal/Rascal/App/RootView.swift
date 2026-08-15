@@ -326,7 +326,21 @@ struct RootView: View {
                 await extractLatest()
             }
         }) { request in
+            // **The subject and the personalizer are re-applied here, and they have to be.**
+            // `.promptSubject(_:)` is set further down, inside the tab content — and a sheet is
+            // presented outside the subtree it is attached to, so the composer was getting the
+            // default empty subject. `{name}` has no name to resolve to under that default and
+            // renders literally, which is exactly what reached the phone: Today said "What is
+            // Hendrix afraid of right now?" and the composer, quoting the same assignment, said
+            // "What is {name} afraid of right now?".
+            //
+            // It stayed invisible until phase 24 because no seeded body contained a brace, so the
+            // renderer was an identity function everywhere and a missing subject cost nothing. The
+            // pronoun tokens still degrade quietly — they/them is grammatical for anyone — so
+            // `{name}` was the only visible half of a gap that covers all thirteen.
             ComposerView(request: request, api: session.api)
+                .promptSubject(promptSubject)
+                .environment(\.personalization, personalization)
         }
         .sheet(isPresented: $showingAddSheet, onDismiss: consumePendingAdd) {
             AddToArchiveSheet(model: addToArchiveModel) { pendingAdd = $0 }
