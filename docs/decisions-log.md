@@ -2140,3 +2140,15 @@ Two documentation defects the same pass found, both of the kind this project tre
   switcher sheet, which does not open until there are two children — i.e. never for the one-child
   account that needs to discover a second one added elsewhere. It now also runs when the
   add-a-child sheet opens, which is the likeliest moment for that to be true.
+- **The fixture-date guard had four holes, and the worst was `<= today`.** It exempted the single
+  most dangerous value it exists to catch: on the day `dt.date(2026, 8, 14)` took the suite down,
+  the guard written in response would have passed that literal clean. It was also blind to
+  `datetime` literals, checked only the line a call *starts* on — so `ruff format` rewrapping an
+  assertion silently revoked an exemption — and globbed one directory level while pytest collects
+  the whole tree. All four are closed, and the four behaviours are demonstrated rather than
+  assumed: today flagged, future `datetime` flagged, past clean, marker honoured.
+- **Triage split by how a date is used, not by where it lives.** Fixture timestamps —
+  `assigned_on`, `occurred_at`, `deleted_at` — moved into the past, because those are the ones
+  that become "today" and change which branch runs. Values handed to a pure function as an
+  explicit `as_of` kept their dates and earned a marker, because the clock never sees them. Same
+  distinction that made `test_pool_health.py` safe and `test_today.py` a bomb.

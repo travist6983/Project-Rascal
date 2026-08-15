@@ -110,7 +110,7 @@ def test_the_provider_token_is_es256_and_carries_the_key_id(private_key: str) ->
 
 def test_the_provider_token_is_reused_until_it_is_nearly_expired(private_key: str) -> None:
     """Apple rejects a token older than an hour and rate-limits minting them."""
-    now = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
+    now = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
     clock = {"now": now}
     client = _client(private_key, now=lambda: clock["now"])
 
@@ -155,7 +155,7 @@ def test_the_notification_expires_rather_than_being_stored_and_delivered_late(
     private_key: str,
 ) -> None:
     """Today's mission is worthless tomorrow. Apple should drop it, not hold it."""
-    now = dt.datetime(2026, 8, 14, 19, 0, tzinfo=dt.UTC)
+    now = dt.datetime(2026, 8, 14, 19, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
     headers = _client(private_key, now=lambda: now).headers_for(_message())
 
     expiry = int(headers["apns-expiration"])

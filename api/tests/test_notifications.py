@@ -29,7 +29,7 @@ from rascal.services.push import PushResult, StubPushClient
 # A plain Friday: not a Saturday, not the 1st, not the 15th, so `slots_for` is the daily
 # pair and nothing else. A date that quietly also carried a weekly would make "the mission
 # is what gets sent" ambiguous.
-DAY = dt.date(2026, 8, 14)
+DAY = dt.date(2026, 8, 14)  # future-date: explicit, pure
 DETROIT = "America/Detroit"
 # UTC-10 all year, so a local evening is the *next* UTC day. No DST to reason about.
 HONOLULU = "Pacific/Honolulu"

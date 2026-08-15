@@ -473,7 +473,7 @@ async def test_a_row_committed_by_a_slow_transaction_is_not_skipped(
             id=uuid.uuid4(),
             child_id=child.id,
             author_id=user.id,
-            occurred_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC),
+            occurred_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC),
             child_age_months=50,
             entry_type="text",
             body="written on the subway, committed much later",

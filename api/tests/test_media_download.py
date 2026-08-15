@@ -48,7 +48,7 @@ async def _media(session: AsyncSession, *, status: str = "complete") -> tuple:
         id=uuid.uuid4(),
         child_id=child.id,
         author_id=user.id,
-        occurred_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC),
+        occurred_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC),
         child_age_months=50,
         entry_type="photo",
     )

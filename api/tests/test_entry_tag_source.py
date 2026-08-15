@@ -20,7 +20,7 @@ from factories import grant, make_child, make_user
 from helpers import auth_headers
 from rascal.models import EntryTag
 
-TODAY = dt.datetime(2026, 8, 14, 15, 0, tzinfo=dt.UTC)
+TODAY = dt.datetime(2026, 8, 14, 15, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
 
 
 async def _world(session: AsyncSession):
