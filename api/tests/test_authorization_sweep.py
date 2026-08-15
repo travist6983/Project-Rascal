@@ -25,13 +25,13 @@ async def _populated(session: AsyncSession) -> dict:
     await grant(session, owner, child, "parent")
 
     prompt = await make_prompt(session)
-    assignment = await make_assignment(session, child, prompt, assigned_on=dt.date(2026, 8, 14))
+    assignment = await make_assignment(session, child, prompt, assigned_on=dt.date(2026, 8, 4))
 
     entry = Entry(
         id=uuid.uuid4(),
         child_id=child.id,
         author_id=owner.id,
-        occurred_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC),
+        occurred_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC),
         child_age_months=50,
         entry_type="text",
         body="private",

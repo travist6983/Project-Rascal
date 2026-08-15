@@ -18,7 +18,7 @@ from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.services.scheduler import ensure_day_filled, select_prompt
 
-TODAY = dt.date(2026, 8, 14)
+TODAY = dt.date(2026, 8, 14)  # future-date: explicit, pure
 
 
 async def _world(session: AsyncSession):

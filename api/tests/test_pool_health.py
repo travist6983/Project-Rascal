@@ -16,7 +16,7 @@ from rascal.services.pool_health import (
     pool_health,
 )
 
-TODAY = dt.date(2026, 8, 14)
+TODAY = dt.date(2026, 8, 14)  # future-date: explicit, pure
 
 
 async def _world(session: AsyncSession):

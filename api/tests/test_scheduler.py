@@ -232,7 +232,7 @@ async def test_two_children_in_different_zones_get_different_dates_from_one_inst
 
     # 2026-08-15 06:00 UTC is still Aug 15 in Detroit (02:00) but already Aug 15 18:00 in
     # Auckland; at 14:00 UTC Auckland has rolled over to Aug 16 while Detroit is on Aug 15.
-    instant = dt.datetime(2026, 8, 15, 14, 0, tzinfo=dt.UTC)
+    instant = dt.datetime(2026, 8, 15, 14, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
     await run_scheduler(session, as_of=instant, seed=3)
     await session.commit()
 
@@ -743,7 +743,7 @@ async def test_the_hourly_job_only_serves_children_for_whom_it_is_five_am(
     await session.commit()
 
     # 09:00 UTC on 2026-08-22 is 05:00 in Detroit (EDT, UTC-4) and 21:00 in Auckland.
-    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
     run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=30)
     await session.commit()
 
@@ -763,7 +763,7 @@ async def test_every_timezone_gets_its_own_five_am_across_a_day_of_firings(
 
     # Twenty-four hourly firings, exactly as the Fly machine would produce them.
     for hour in range(24):
-        instant = dt.datetime(2026, 8, 22, hour, 0, tzinfo=dt.UTC)
+        instant = dt.datetime(2026, 8, 22, hour, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
         await run_scheduler(session, as_of=instant, only_local_hour=5, seed=31)
         await session.commit()
 
@@ -790,8 +790,8 @@ async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
 
     # Detroit is UTC-4 in August and UTC-5 in December, so 5am local is a different UTC hour
     # on either side of the change. Both firings must find the child.
-    summer = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
-    winter = dt.datetime(2026, 12, 12, 10, 0, tzinfo=dt.UTC)
+    summer = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
+    winter = dt.datetime(2026, 12, 12, 10, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
 
     for instant in (summer, winter):
         run = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=32)
@@ -818,7 +818,7 @@ async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
     await _library(session)
     await session.commit()
 
-    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)
+    instant = dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
     first = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=33)
     await session.commit()
     second = await run_scheduler(session, as_of=instant, only_local_hour=5, seed=34)
@@ -835,7 +835,11 @@ async def test_without_the_filter_every_child_is_served(session: AsyncSession) -
     await _library(session)
     await session.commit()
 
-    run = await run_scheduler(session, as_of=dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC), seed=35)
+    run = await run_scheduler(
+        session,
+        as_of=dt.datetime(2026, 8, 22, 9, 0, tzinfo=dt.UTC),  # future-date: explicit, pure
+        seed=35,
+    )
     await session.commit()
 
     assert run.skipped_off_hour == 0

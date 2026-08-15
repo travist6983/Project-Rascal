@@ -47,7 +47,7 @@ async def _entry(session: AsyncSession) -> tuple:
         id=uuid.uuid4(),
         child_id=child.id,
         author_id=user.id,
-        occurred_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC),
+        occurred_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC),
         child_age_months=50,
         entry_type="photo",
     )

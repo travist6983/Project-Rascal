@@ -64,7 +64,7 @@ async def test_assignments_are_unique_per_child_day_and_slot(session: AsyncSessi
     """This unique index is what makes rerunning the scheduler free."""
     child = await _child(session)
     prompt = await _prompt(session)
-    day = dt.date(2026, 8, 14)
+    day = dt.date(2026, 8, 4)
 
     session.add(
         Assignment(
@@ -94,7 +94,7 @@ async def test_assignments_are_unique_per_child_day_and_slot(session: AsyncSessi
 
 async def test_an_assignment_must_have_a_prompt_or_a_custom_body(session: AsyncSession) -> None:
     child = await _child(session)
-    day = dt.date(2026, 8, 14)
+    day = dt.date(2026, 8, 4)
 
     session.add(
         Assignment(
@@ -112,7 +112,7 @@ async def test_an_assignment_must_have_a_prompt_or_a_custom_body(session: AsyncS
 
 async def test_constrained_columns_reject_unknown_values(session: AsyncSession) -> None:
     child = await _child(session)
-    day = dt.date(2026, 8, 14)
+    day = dt.date(2026, 8, 4)
     prompt = await _prompt(session)
 
     session.add(

@@ -105,7 +105,7 @@ def _populate(url: str) -> dict:
                 "id": entry_id,
                 "child_id": child_id,
                 "author_id": user_id,
-                "occurred_at": dt.datetime(2026, 8, 15, 19, 4, tzinfo=dt.UTC),
+                "occurred_at": dt.datetime(2026, 8, 15, 19, 4, tzinfo=dt.UTC),  # future-date: pure
                 "body": body,
             },
         )

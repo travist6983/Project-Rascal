@@ -44,7 +44,7 @@ async def _entry(
         entry_type="text",
         body="something",
         unlock_at_age=unlock_at_age,
-        deleted_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC) if deleted else None,
+        deleted_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC) if deleted else None,
     )
     session.add(entry)
     await session.flush()
@@ -60,7 +60,7 @@ async def _media(session: AsyncSession, entry, kind: str, *, deleted: bool = Fal
             kind=kind,
             bytes=1024,
             upload_status="complete",
-            deleted_at=dt.datetime(2026, 8, 14, tzinfo=dt.UTC) if deleted else None,
+            deleted_at=dt.datetime(2026, 8, 4, tzinfo=dt.UTC) if deleted else None,
         )
     )
 
