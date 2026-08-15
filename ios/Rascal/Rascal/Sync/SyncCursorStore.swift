@@ -24,6 +24,17 @@ nonisolated protocol SyncStateStoring: AnyObject, Sendable {
 
     /// **Defaults to false and ships false.** Every write the pull performs is gated on this.
     var pullEnabled: Bool { get set }
+
+    /// Forget every child's position, for a sign-out.
+    ///
+    /// **The store is emptied and the cursor is not**, which is the bug this closes: signing out
+    /// deletes every row and signing back in as the same account then resumes from a timestamp
+    /// describing an archive that no longer exists, so `/sync` returns the handful of rows changed
+    /// since — and the store silently never refills. Latent only because `pullEnabled` ships false.
+    ///
+    /// `pullEnabled` is deliberately **not** cleared. It is a device feature flag somebody turned
+    /// on, not account data, and it survives a sign-out the way any other setting does.
+    func forgetAllChildren()
 }
 
 /// UserDefaults-backed, keyed per child.
@@ -88,6 +99,17 @@ nonisolated final class UserDefaultsSyncStateStore: SyncStateStoring, @unchecked
 
     // MARK: The switch
 
+    func forgetAllChildren() {
+        // Every key this store owns except the flag, found by prefix rather than by asking for a
+        // list of children — the eraser does not have one, and a sign-out has to work for a child
+        // this build never loaded.
+        let keep = "\(namespace).pullEnabled"
+        for key in defaults.dictionaryRepresentation().keys
+        where key.hasPrefix("\(namespace).") && key != keep {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     var pullEnabled: Bool {
         get { defaults.bool(forKey: "\(namespace).pullEnabled") }
         set { defaults.set(newValue, forKey: "\(namespace).pullEnabled") }
@@ -115,6 +137,14 @@ nonisolated final class InMemorySyncStateStore: SyncStateStoring, @unchecked Sen
     private var successes: [UUID: Date] = [:]
     private var errors: [UUID: String] = [:]
     private var enabled: Bool
+
+    func forgetAllChildren() {
+        lock.lock(); defer { lock.unlock() }
+        cursors.removeAll()
+        successes.removeAll()
+        errors.removeAll()
+        // `enabled` survives, matching the real store: a device flag is not account data.
+    }
 
     init(pullEnabled: Bool = false) {
         self.enabled = pullEnabled

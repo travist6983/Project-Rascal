@@ -410,6 +410,13 @@ struct LocalArchiveErasure: LocalArchiveErasing {
         // one file here that is deliberately *included* in iCloud backup.
         try? manager.removeItem(at: LocalAvatarStore().root)
 
+        // **The sync cursors, which used to survive this.** Emptying the store and keeping the
+        // position is the combination that silently never refills: sign back in as the same
+        // account and `/sync` resumes from a timestamp describing an archive that was just
+        // deleted, so it returns the handful of rows changed since and nothing else. Latent only
+        // because `pullEnabled` ships false, and a bad thing to discover on the day it is not.
+        UserDefaultsSyncStateStore().forgetAllChildren()
+
         // Any export zip left in Caches. Already best-effort and already called when the Settings
         // screen appears; called again here because "left the tab mid-download" and "signed out"
         // are the same orphan.

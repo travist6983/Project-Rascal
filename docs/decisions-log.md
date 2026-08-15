@@ -2167,3 +2167,19 @@ Two documentation defects the same pass found, both of the kind this project tre
   and this is a counted total. Three owner decisions came with it — the middle cell counts
   photographs and not media, the strip does not render until the server answers because nil is
   not zero, and an empty archive shows nothing rather than three zeros.
+- **`StagingSweeper` is wired to foreground, after never once having run.** It was written, tested
+  and called from nothing, so the disposal rule its own doc comment describes had never executed
+  and every uploaded photo's original stayed on the phone forever. **The accepted cost**: entry
+  detail's full-resolution pass reads the staged original when it is there, so once the sweep
+  removes it that pass comes over the network — the cached thumbnail still paints instantly, which
+  is how the fullscreen viewer has always behaved for older entries. Owner's call, Aug 15.
+- **Sign-out now forgets the sync cursors.** Emptying the store and keeping the position is the
+  combination that silently never refills: signing back in as the same account resumes from a
+  timestamp describing an archive that was just deleted. `pullEnabled` deliberately survives — it
+  is a device feature flag somebody turned on, not account data. Found by prefix rather than by
+  iterating children, because the eraser has no list and a sign-out has to work for a child this
+  build never loaded.
+- **The caption clobber stays until 33.** Owner's call, Aug 15, and the reasoning is that it is
+  genuinely inert: nothing writes a caption on device, so there is nothing to overwrite. Guarding
+  it now would guard against a writer that does not exist, and the real fix needs the state ladder
+  that phase 33 is deliberately not building ahead of the platform.

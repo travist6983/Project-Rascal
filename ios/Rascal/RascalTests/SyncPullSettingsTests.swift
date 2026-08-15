@@ -253,3 +253,43 @@ struct SyncPullSettingsTests {
         #expect(engine.lastSuccess != nil)
     }
 }
+
+/// Signing out has to forget where sync had got to, not just what it had fetched.
+@MainActor
+@Suite("Sync cursors — sign-out")
+struct SyncCursorErasureTests {
+
+    /// **The store is emptied and the cursor used to survive it.** That combination is the one
+    /// that silently never refills: sign back in as the same account and `/sync` resumes from a
+    /// timestamp describing an archive that was just deleted, returns the handful of rows changed
+    /// since, and the timeline stays empty with nothing reporting a problem.
+    @Test("forgetting all children clears every child's position")
+    func forgettingClearsEveryChild() {
+        let store = InMemorySyncStateStore()
+        let first = UUID()
+        let second = UUID()
+        store.setCursor(Date(timeIntervalSince1970: 1_000), for: first)
+        store.setCursor(Date(timeIntervalSince1970: 2_000), for: second)
+        store.recordSuccess(Date(timeIntervalSince1970: 3_000), for: first)
+        store.recordError("boom", for: second)
+
+        store.forgetAllChildren()
+
+        #expect(store.cursor(for: first) == nil)
+        #expect(store.cursor(for: second) == nil, "including a child this build never loaded")
+        #expect(store.lastSuccess(for: first) == nil)
+        #expect(store.lastError(for: second) == nil)
+    }
+
+    /// `pullEnabled` is a device feature flag somebody turned on, not account data. It survives a
+    /// sign-out the way any other setting does.
+    @Test("the pull flag is not account data and survives")
+    func pullFlagSurvives() {
+        let store = InMemorySyncStateStore()
+        store.pullEnabled = true
+
+        store.forgetAllChildren()
+
+        #expect(store.pullEnabled)
+    }
+}

@@ -106,24 +106,13 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
-- **`StagingSweeper` is never called.** Found while checking whether a captioner could reach a
-  photo's pixels. It is constructed only in `RascalTests/StagingStoreTests.swift`; nothing in
-  `ios/Rascal/Rascal/` runs it, so originals accumulate on disk forever and the disposal rule the
-  code documents has never once executed. **Decide before wiring it up**: the moment it runs, every
-  uploaded photo's full-resolution original is deleted, which is exactly the input any future
-  captioner would need. Deferral or oversight is not recorded anywhere, so do not guess.
-- **The caption clobber is latent.** `Media.applyServerResponse` writes `caption = summary.caption
-  ?? caption` *outside* the `!hasUnpushedTranscript` guard, and `SyncEngine.hasUnpushedChanges`
-  knows only about transcripts. Harmless today because nothing writes a caption locally — but it is
-  the Aug 9 transcript defect pre-installed on this field, waiting for the first device-side
-  caption. It lands with phase 33 rather than before it: the fix needs the state ladder, and the
-  ladder is the speculative migration that phase is deliberately not doing yet.
-- **Sign-out empties the store but leaves the sync cursors.** Found while building 31 and
-  deliberately not fixed there. `LocalArchiveErasure.erase()` clears SwiftData and never touches
-  `sync.cursor.*`, so signing out and back in as the same account resumes from a timestamp
-  describing an archive that was just deleted — and the store silently never refills. Latent
-  today because `syncPullEnabled` ships false; multi-kid makes it two children wide. Needs a
-  decision on whether `resetCursor()` belongs to erasure, which is why it is a line here.
+- **The caption clobber is latent, and stays that way until 33.** `Media.applyServerResponse`
+  writes `caption = summary.caption ?? caption` *outside* the `!hasUnpushedTranscript` guard, and
+  `SyncEngine.hasUnpushedChanges` knows only about transcripts — the Aug 9 transcript defect,
+  pre-installed on this field. **Decided Aug 15: leave it.** Nothing on the device writes a
+  caption, so there is nothing for a server response to overwrite, and the real fix needs the
+  caption state ladder — which is a SwiftData migration on every media row for a feature that may
+  never ship. It lands with 33, not before.
 - **Per-entry visibility — designed Aug 14, built with 30.** All three questions are answered in
   `docs/decisions.md` and the column is specified in `docs/data-model.md`: per-entry with a
   per-kind default, a viewer sees everything not marked private, and a seal is a separate axis.

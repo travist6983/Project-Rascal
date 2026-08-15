@@ -264,6 +264,23 @@ struct RootView: View {
         // that something: without it, local-first saving keeps the work and never delivers it.
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                // **The staging sweep, which until now had never once run.** It was written,
+                // tested and never called, so the disposal rule its own doc comment describes
+                // had never executed and every uploaded photo's full-resolution original stayed
+                // on the phone forever.
+                //
+                // Foreground rather than launch, and synchronous: it is a filesystem walk over a
+                // directory the size of what this phone has staged, not a network call, and it
+                // must not race the uploader — which is why it runs here, on the main actor,
+                // where `MediaCoordinator` also lives.
+                //
+                // **One consequence, accepted deliberately.** Entry detail's full-resolution pass
+                // reads the staged original when it is there; once the sweep removes it, that
+                // pass comes over the network instead. The cached thumbnail still paints
+                // instantly, so the tile is never empty — it sharpens a moment later rather than
+                // immediately, which is how the fullscreen viewer has always behaved for older
+                // entries.
+                StagingSweeper(store: StagingStore(), context: context).sweep()
                 Task { await runSweep() }
                 // `force: false`, so the cache does its job. A foreground is not a reason to walk
                 // forty thousand assets again.
