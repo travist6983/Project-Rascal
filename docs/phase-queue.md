@@ -7,9 +7,12 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 12, 2026**; **24 and 35 shipped Aug 13** and their lines
-are gone. The queue below carries 25–34, so a genuinely new phase takes **36** — measured from
-`main`, and expected to rot. Measure it again rather than trusting this line.
+Synced with `roadmap-status.md` at **Aug 15, 2026**. Everything in scope has shipped: 24, 25, 27,
+28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
+the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
+you can do, and follow-ups the work itself turned up. The highest number used is **35**, so a
+genuinely new phase takes **36** — measured from `main`, and expected to rot. Measure it again
+rather than trusting this line.
 
 ---
 
@@ -17,6 +20,14 @@ are gone. The queue below carries 25–34, so a genuinely new phase takes **36**
 
 **Nothing is open.** Every question this file has asked has been answered, and the answers are in
 `docs/decisions.md`. Add new ones here as they come up.
+
+**Answered Aug 14–15, 2026.** Per-entry visibility: **per-entry with a per-kind default**, a
+`viewer` sees **everything not marked private**, and **a seal is a separate axis** from visibility
+— all three in `decisions.md`, with the column specified in `data-model.md`. The four `his mom`
+prompts were **rewritten household-neutral** rather than tokenised around. And the hero's stats
+strip: the middle cell **counts photographs, not media**; the strip **does not render until the
+server answers**, because nil is not zero; and an **empty archive shows nothing** rather than three
+zeros. Those last three are recorded in `settings-v2-inventory.md` where D1 and D12 were dropped.
 
 **Answered Aug 12, 2026** and written into `docs/decisions.md`, which is the authority for all of
 these — **the app is called `Dogear`**, tokenise all 113 prompts, letter-on-any-day is
@@ -42,7 +53,9 @@ iOS build, and it is the one nobody here can do.
   were updated in place with `fly machine update --image` on Aug 14 — their `schedule`, restart
   policy, command and env were all already correct, and only the image was stale. **The recurrence
   is closed in code**: the deploy workflow now moves any machine with a non-empty `schedule` onto
-  the image the app is running, so they cannot drift again.
+  the image the app is running. That step shipped with a defect of its own — it compared
+  `…:deployment-X` against `…:deployment-X@sha256:…`, which are never equal, so it restarted both
+  machines on every deploy — fixed Aug 15 by comparing on the tag.
 - **The prompt library is seeded in production.** The Aug 14 run reported
   `99 inserted, 0 updated, 14 unchanged, 99 retired (113 in the library)` — the tokenised bodies
   are live and the 99 literal ones are deactivated. **The recurrence is closed in code**: the seed
