@@ -718,3 +718,44 @@ struct EntryDetailFidelityTests {
         }
     }
 }
+
+/// The fullscreen viewer's request — paging across a set rather than opening one picture.
+@MainActor
+@Suite("Media viewer — the request")
+struct ViewerRequestTests {
+
+    private func item(_ id: UUID) -> ViewerItem {
+        ViewerItem(id: id, kind: .photo, localFile: nil)
+    }
+
+    /// **The viewer opens on what was tapped, not on the first photo.** Tapping the fourth of
+    /// nine and landing on the first is the version of this that looks like it works until you
+    /// use it on a real entry.
+    @Test("the request starts on the tapped picture")
+    func startsOnTheTappedPicture() {
+        let ids = (0..<9).map { _ in UUID() }
+        let request = ViewerRequest(id: ids[3], items: ids.map(item))
+
+        #expect(request.startIndex == 3)
+    }
+
+    /// A picture that is somehow not in the set opens the set at the beginning rather than
+    /// crashing on an index, and rather than presenting an empty viewer.
+    @Test("an id outside the set falls back to the first")
+    func unknownIdFallsBackToTheFirst() {
+        let request = ViewerRequest(id: UUID(), items: (0..<3).map { _ in item(UUID()) })
+
+        #expect(request.startIndex == 0)
+    }
+
+    /// The request carries the whole gallery, which is the change that made paging possible —
+    /// it used to carry one id, so the next photo needed a dismiss and a second tap.
+    @Test("the request carries every picture in the entry")
+    func carriesTheWholeSet() {
+        let ids = (0..<9).map { _ in UUID() }
+        let request = ViewerRequest(id: ids[0], items: ids.map(item))
+
+        #expect(request.items.count == 9)
+        #expect(request.items.map(\.id) == ids, "and in the order the screen showed them")
+    }
+}

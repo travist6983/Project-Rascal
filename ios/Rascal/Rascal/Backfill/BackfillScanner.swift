@@ -479,7 +479,15 @@ nonisolated struct PhotoLibraryBackfillSource: BackfillAssetSource {
         // quietly pull from iCloud is a large download nobody asked for, on a screen someone
         // opened to browse. A cloud-only asset returns nil and renders as unavailable.
         options.isNetworkAccessAllowed = false
-        options.deliveryMode = .fastFormat
+        // **Not `.fastFormat`.** That asks PhotoKit for a deliberately degraded rendition, and it
+        // is the reason the picker grid rendered soft on a device: the pixel arithmetic below is
+        // right, the *quality* flag was wrong, so every tile came back blurry at the correct size.
+        //
+        // `.opportunistic` is the other candidate and is wrong here for a mechanical reason: it
+        // delivers twice, low quality first, and the one-shot continuation in `thumbnail(for:)`
+        // resolves on the first callback — so it would pin exactly the blurry image it promises to
+        // replace. `.highQualityFormat` delivers once, and once is what a latch can take.
+        options.deliveryMode = .highQualityFormat
         options.resizeMode = .exact
         options.isSynchronous = false
         return options
