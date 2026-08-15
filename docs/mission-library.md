@@ -254,7 +254,9 @@ untagged prompts, while the scheduler also serves prompts tagged to the current 
 57-prompt combined pool into 20 and 37 bought three items a day at the cost of the photo slot
 reaching cooldown relaxation in under three weeks. The note here used to read *"the fix is more
 photo prompts, and nothing in this phase generated any"* — twenty were written on Aug 14, 2026,
-taking the untagged photo pool from 20 to 40 and roughly doubling the runway before a repeat.
+taking the photo pool servable on an August day from 20 to 40 — **untagged** it is 18 to 38, which
+is what the table above counts; the extra two either side are the seasonal prompts August happens
+to reach. Roughly doubles the runway before a repeat.
 **It stayed the right call rather than a tuning change**: nothing about cooldown or rotation
 moved. `estimated_days_until_first_repeat` is a projection
 from pool size, not a promise — theme rotation can relax a single pick earlier without the

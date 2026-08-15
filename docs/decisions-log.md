@@ -2152,3 +2152,11 @@ Two documentation defects the same pass found, both of the kind this project tre
   that become "today" and change which branch runs. Values handed to a pure function as an
   explicit `as_of` kept their dates and earned a marker, because the clock never sees them. Same
   distinction that made `test_pool_health.py` safe and `test_today.py` a bomb.
+- **Four stale claims corrected after the audit found them asserted as verified.**
+  `roadmap-status.md` still said the `mission` slot had never held a photo and that per-entry
+  visibility was "not even designed" — both false since Aug 14, and #72 had only updated
+  `phase-queue.md`, so the two files disagreed. `blocked.md` cited rule 4 for sending data
+  off-device; rule 4 is "no third-party dependencies" and says nothing about where bytes go — the
+  real basis is the product's own on-device promise. And `mission-library.md` called 40 the
+  *untagged* photo pool when untagged is 38 and 40 is what August can serve; the table two
+  paragraphs above already said 38. Numbers re-derived from `prompts.yaml`, not from the prose.
