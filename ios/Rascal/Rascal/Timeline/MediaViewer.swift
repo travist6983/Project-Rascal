@@ -131,19 +131,27 @@ struct DetailMediaView: View {
 /// wants to look at properly should not be competing with a scroll gesture, and a video should
 /// own the screen while it plays.
 struct MediaViewerScreen: View {
-    let mediaId: UUID
-    let kind: PromptKind
-    /// The staged original where this phone still has it. Free, and identical to what storage
-    /// holds — the sweep only removes an original the server has acknowledged.
-    let localFile: URL?
+    /// Every picture in the entry, in the order the screen showed them.
+    let items: [ViewerItem]
+    let startIndex: Int
     let api: APIClient
 
     @Environment(\.dismiss) private var dismiss
-    @State private var image: PlatformImage?
-    @State private var player: AVPlayer?
-    @State private var failed = false
-    @State private var zoom: CGFloat = 1
-    @GestureState private var pinch: CGFloat = 1
+    @State private var current: UUID
+    /// How far the sheet has been dragged down. Drives both the offset and the fade, so the
+    /// gesture shows its own progress rather than being all-or-nothing at the threshold.
+    @GestureState private var drag: CGFloat = 0
+
+    init(items: [ViewerItem], startIndex: Int, api: APIClient) {
+        self.items = items
+        self.startIndex = startIndex
+        self.api = api
+        _current = State(initialValue: items.indices.contains(startIndex) ? items[startIndex].id : (items.first?.id ?? UUID()))
+    }
+
+    /// Past this, letting go closes it. Short enough to feel like a flick and long enough that a
+    /// sloppy pan while looking at a photo does not dismiss the thing being looked at.
+    private static let dismissThreshold: CGFloat = 120
 
     var body: some View {
         ZStack {
@@ -151,7 +159,17 @@ struct MediaViewerScreen: View {
             // better against cream photos than a void does.
             Color.ink.ignoresSafeArea()
 
-            content
+            // **A page per picture.** The viewer used to take one id, so seeing the next photo in
+            // an entry meant closing this and tapping again — on a screen whose whole purpose is
+            // looking at a set. Each page owns its own load and its own zoom, so paging away from
+            // a photo does not carry its magnification onto the next one.
+            TabView(selection: $current) {
+                ForEach(items) { item in
+                    ViewerPage(item: item, api: api).tag(item.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: items.count > 1 ? .automatic : .never))
+            .ignoresSafeArea()
 
             VStack {
                 HStack {
@@ -169,15 +187,63 @@ struct MediaViewerScreen: View {
             }
             .padding(Layout.screenMargin)
         }
-        .task { await load() }
-        .onDisappear {
-            // Released rather than only paused. A paused AVPlayer still holds its item and its
-            // decode buffers, and this screen is opened and dismissed repeatedly while someone
-            // works through an afternoon's photos.
-            player?.pause()
-            player = nil
-        }
+        .offset(y: drag)
+        // Fades toward the timeline underneath as it goes, so the gesture reads as putting the
+        // photo down rather than as the screen glitching.
+        .opacity(1 - min(drag / (Self.dismissThreshold * 2.5), 0.5))
+        .gesture(
+            // **Vertical only, and downward only.** A horizontal drag belongs to the pager, and
+            // an upward one means nothing here — claiming either would make paging feel sticky.
+            DragGesture(minimumDistance: 12)
+                .updating($drag) { value, state, _ in
+                    guard value.translation.height > 0,
+                          abs(value.translation.height) > abs(value.translation.width)
+                    else { return }
+                    state = value.translation.height
+                }
+                .onEnded { value in
+                    guard value.translation.height > Self.dismissThreshold,
+                          abs(value.translation.height) > abs(value.translation.width)
+                    else { return }
+                    dismiss()
+                }
+        )
+        .animation(Motion.tap, value: drag)
         .statusBarHidden()
+    }
+
+}
+
+/// One picture in the viewer's pager.
+///
+/// **A view of its own so each page owns its load and its zoom.** Held on the container, a single
+/// `zoom` would follow the parent's finger onto the next photograph, and a single `image` would
+/// mean every page rendering whichever one resolved last. It also means a page that fails is one
+/// page that failed, not the viewer.
+private struct ViewerPage: View {
+    let item: ViewerItem
+    let api: APIClient
+
+    @State private var image: PlatformImage?
+    @State private var player: AVPlayer?
+    @State private var failed = false
+    @State private var zoom: CGFloat = 1
+    @GestureState private var pinch: CGFloat = 1
+
+    private var kind: PromptKind { item.kind }
+    private var mediaId: UUID { item.id }
+    private var localFile: URL? { item.localFile }
+
+    var body: some View {
+        content
+            .task { await load() }
+            .onDisappear {
+                // Released rather than only paused. A paused AVPlayer still holds its item and
+                // its decode buffers, and pages are created and destroyed as somebody swipes
+                // through an afternoon's photos.
+                player?.pause()
+                player = nil
+            }
     }
 
     @ViewBuilder

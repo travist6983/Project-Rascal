@@ -156,12 +156,7 @@ struct EntryDetailScreen: View {
             TagEditorSheet(entryId: entryId, api: api)
         }
         .fullScreenCover(item: $viewing) { request in
-            MediaViewerScreen(
-                mediaId: request.id,
-                kind: request.kind,
-                localFile: request.localFile,
-                api: api
-            )
+            MediaViewerScreen(items: request.items, startIndex: request.startIndex, api: api)
         }
     }
 
@@ -315,10 +310,13 @@ struct EntryDetailScreen: View {
     }
 
     private func open(_ item: Media) {
+        // The whole gallery, in the order the screen shows it, so the viewer can page across the
+        // set the parent is already looking at rather than the one photo they happened to tap.
         viewing = ViewerRequest(
             id: item.id,
-            kind: item.mediaKind,
-            localFile: stagedOriginal(item)
+            items: pictures.map {
+                ViewerItem(id: $0.id, kind: $0.mediaKind, localFile: stagedOriginal($0))
+            }
         )
     }
 
@@ -1331,12 +1329,32 @@ private struct FullBleedMedia: View {
         return "Video, \(DurationText.spoken(seconds)), tap to play"
     }
 
+    /// **Two passes, and the second is why the picture stopped looking soft.**
+    ///
+    /// The cached thumbnail is 400px on its long edge — right for a filmstrip cell, and roughly a
+    /// third of what a full-width tile needs on a 3× phone, so displaying it here upscaled it
+    /// about three times and every photo on this screen read as blurry. The bytes were never the
+    /// problem: the fullscreen viewer loads the original and has always looked sharp, which is
+    /// what makes this a display-path bug rather than a storage one.
+    ///
+    /// The thumbnail is still fetched first and still shown. It is instant and usually already in
+    /// memory, so the tile has a picture in it immediately rather than a cream rectangle; the
+    /// full-resolution pass replaces it a moment later. Dropping the first pass would trade blur
+    /// for a flash of empty ground, which is the worse of the two.
     private func loadPoster() async {
         #if canImport(UIKit)
         if let cached = await thumbnails?.image(for: media.id, kind: media.mediaKind) {
             poster = cached
+        }
+        if media.mediaKind == .photo {
+            if let data = await MediaAccess.fullImageData(
+                mediaId: media.id, localFile: localFile, api: api
+            ), let full = UIImage(data: data) {
+                poster = full
+            }
             return
         }
+        if poster != nil { return }
         guard media.mediaKind == .video else { return }
         guard let data = await MediaAccess.posterFrame(
             mediaId: media.id, localFile: localFile, api: api, staging: staging
@@ -1391,7 +1409,21 @@ private struct StripTile: View {
 /// What the fullscreen cover needs. `Identifiable` so it can drive `fullScreenCover(item:)`,
 /// which is the presentation that cannot get out of step with its content.
 struct ViewerRequest: Identifiable, Equatable {
+    /// The one to open on. Also the request's identity, so tapping a different photo presents
+    /// a fresh cover rather than reusing the old one's state.
+    let id: UUID
+    /// **The whole set, not just the tapped item.** The fullscreen viewer pages across an entry's
+    /// photographs, and it can only do that if it is handed all of them — a viewer given one id
+    /// has to be dismissed and reopened to see the next, which is what it used to be.
+    let items: [ViewerItem]
+
+    var startIndex: Int { items.firstIndex { $0.id == id } ?? 0 }
+}
+
+nonisolated struct ViewerItem: Identifiable, Equatable, Sendable {
     let id: UUID
     let kind: PromptKind
+    /// The staged original where this phone still has it. Free, and identical to what storage
+    /// holds — the sweep only removes an original the server has acknowledged.
     let localFile: URL?
 }
