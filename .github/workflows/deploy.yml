@@ -79,7 +79,13 @@ jobs:
       #   * **Only machines with a non-empty `schedule`.** That is exactly the set `fly deploy`
       #     cannot see, and it can never match an `app` machine — those have no schedule.
       #   * **Only when the image actually differs**, so a no-op deploy does not restart the
-      #     cron machines for nothing.
+      #     cron machines for nothing. **Compared on the tag with any digest stripped**, because
+      #     the two sides are not written the same way: an app machine reports
+      #     `…:deployment-01M016AD`, while a machine that has been through `machine update`
+      #     reports `…:deployment-01M016AD@sha256:20b638…`. The first version of this step
+      #     compared the raw strings, which are never equal even when the image is identical —
+      #     so it updated both cron machines on every single deploy and the guard did nothing.
+      #     Verified against the live app: with the digest stripped the set is correctly empty.
       #
       # `fly machine update` preserves the schedule, the restart policy, the command and the
       # env, so this is not a recreate and none of the flags that were got wrong by hand on
@@ -101,11 +107,17 @@ jobs:
             echo "::error::No app machine found; refusing to guess an image."
             exit 1
           fi
-          echo "app image: $target"
+          # Everything before `@`. Both sides get the same treatment below, so a digest on
+          # either one cannot make two identical images look different.
+          target_tag="${target%%@*}"
+          echo "app image: $target_tag"
 
           stale=$(echo "$machines" \
-            | jq -r --arg target "$target" \
-                '.[] | select((.config.schedule // "") != "") | select(.config.image != $target) | .id')
+            | jq -r --arg target "$target_tag" \
+                '.[]
+                 | select((.config.schedule // "") != "")
+                 | select((.config.image | split("@")[0]) != $target)
+                 | .id')
 
           if [ -z "$stale" ]; then
             echo "every scheduled machine is already on the deployed image"
