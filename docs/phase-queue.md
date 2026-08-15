@@ -10,9 +10,11 @@ exact failure `roadmap-status.md` has now made six revisions running.
 Synced with `roadmap-status.md` at **Aug 15, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. The highest number used is **35**, so a
-genuinely new phase takes **36** — measured from `main`, and expected to rot. Measure it again
-rather than trusting this line.
+you can do, and follow-ups the work itself turned up. **The highest number used is 40**, so a
+genuinely new phase takes **41** — 36–39 are monetization's forward items and 40 is the correction
+that settled this. **This line disagreed with `roadmap-status.md` for a day** and a preflight gate
+caught it: the queue still said 36 was free after the roadmap had taken 36–39. The roadmap is the
+source and this line follows it — measure it there rather than trusting this one.
 
 ---
 
@@ -121,6 +123,7 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   consumer.
 - **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
   enforced code nothing can enter. Needs the visibility design above first.
+- **Check Tinybeans Group's ASX announcements quarterly (ticker TNY).** It is the only competitor whose product roadmap is legally required to be public, and the Qeepsake acquisition release announced an AI-prompt, voice-and-video, transcription-searchable journaling roadmap — which is this product's feature set. Whether that ships is the single most decision-relevant external fact available, and it arrives on a schedule rather than needing to be dug for.
 - **Re-measure `mission`'s pool health.** Phase 25 took the untagged photo pool from 20 to 40, so
   the relaxation date in `mission-library.md` is stale by arithmetic. One call to
   `GET /children/{id}/pool-health` replaces a projection this file must not invent.

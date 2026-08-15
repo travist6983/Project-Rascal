@@ -2220,10 +2220,45 @@ fifth of that, with no egress charge. A lapsed 50 GB archive on Archive tier is 
 number is why lock-and-delete was rejected: the saving does not come close to justifying breaking
 the promise the product is sold on.
 
-**The competitor evidence points the same way, and none of them delete.** Qeepsake moves cancelled
-accounts to a Lite tier with entries still readable. Storyworth goes read-only. Tinybeans drops to
-its free tier. Deleting would make this the only product in the category that does, at a saving of
-twenty cents a month.
+**The competitor evidence was wrong, and the way it was wrong is worth keeping.** The paragraph
+this replaces said *"none of them delete"* and treated Qeepsake and Tinybeans as two independent
+products converging on a policy. **They had been one company for nine months.** Tinybeans Group
+acquired Qeepsake's assets on 2025-11-03 in a US$2.7M all-stock deal
+(`https://www.prnewswire.com/news-releases/tinybeans-acquires-qeepsake-creating-the-leading-privacy-first-family-memory-platform-302603273.html`,
+checked 2026-08-15). Two data points that are really one company is the oldest way to mistake a
+coincidence for a trend, and it produced a claim that was not merely unsupported but false.
+
+**Tinybeans deletes.** Permanently, after **12 months of account inactivity** — no logins, no
+upgrades, no photo-book purchases — having sent email reminders first
+(`https://tinybeans.helpscoutdocs.com/article/87-will-my-memories-be-deleted-if-i-cancel-my-subscription-or-downgrade`,
+page last updated 2025-07-15, checked 2026-08-15). **This is not the embarrassment it looks like.**
+Their trigger is inactivity rather than lapse, which is `last_sign_in_at + 12 months` — one of the
+two clocks D3 already uses. The incumbent and this product arrived at the same clock independently,
+and D3 then takes the strictly kinder version: both clocks must elapse, media only is deleted and
+text never is, a notice must be confirmed delivered on some channel first, and any sign-in cancels
+it outright rather than pausing it.
+
+**On cancellation Tinybeans reverts to the free plan and archives media above the 5 GB free cap,
+which can be accessed again on upgrade** (same source and date). **Do not let this be described as
+the same thing D3 does**, in copy or anywhere else. D3 moves originals to the Archive tier at day 90
+and the retrieval path back does **not** require paying — it is a restore of about an hour, a
+property of the storage tier rather than a lever. Their archive is retrieval gated on payment; ours
+is retrieval gated on time. The two look superficially identical and any future marketing that
+attacks the pattern would land squarely on our own storage tiering.
+
+**The export claim has to be made narrowly, because the wide version is publicly correctable.**
+Tinybeans export is for paid subscribers via the website, with one exception: free users who have
+passed the storage limit and had memories archived can export at no cost via the app
+(`https://tinybeans.helpscoutdocs.com/article/29-who-can-export-all-my-tinybeans-moments`, page last
+updated 2026-07-29, checked 2026-08-15). So the defensible sentence is **an active free user in good
+standing cannot export from Tinybeans and can from Dogear** — not "they don't let you export".
+
+**Two claims from the earlier session are carried forward unverified and are labelled so
+deliberately.** *Qeepsake moves cancelled accounts to a Lite tier with entries still readable* and
+*Storyworth content becomes read-only unless the user pays again* were both recorded on 2025-08-15
+and **were not re-verified on 2026-08-15**. Qeepsake's post-acquisition status is unknown, which
+makes its row the less trustworthy of the two. Neither may be asserted anywhere until re-checked.
+**An unverified claim that is labelled is useful; one that is not is what caused this correction.**
 
 **Deletion eligibility is computed from two clocks rather than stored as a deadline.**
 `max(lapsed_at + 24 months, last_sign_in_at + 12 months)`, derived on read, because either clock can
