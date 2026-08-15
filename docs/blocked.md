@@ -1154,7 +1154,11 @@ re-run when a new SDK lands.
   child is worse than an empty field.
 - `VisionKit`'s `ImageAnalysis.transcript` is OCR of text *inside* the picture.
 - `AnalysisTypes.visualLookUp` is **server-backed**. Reaching for it would send a child's
-  photograph to a third party, which rule 4 of `ios/CLAUDE.md` forbids outright.
+  photograph to a third party. That is forbidden by the product's own promise that nothing leaves
+  the device — `docs/memory-app-roadmap.md`'s on-device guardrails and rule 7's "on-device AI
+  output is durable data" premise. **Not rule 4**, which an earlier draft of this cited: rule 4 is
+  "no third-party dependencies", about SPM and CocoaPods, and it has nothing to say about where
+  bytes go.
 - `ImagePlayground` runs the other way: text in, image out.
 - `MediaAccessibility`'s `MAImageCaptioningCopyCaption` exists and has since iOS 13, but it is a
   *metadata accessor* — it reads an XMP field a human or another tool already embedded. It runs no
