@@ -122,9 +122,6 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 - **Re-measure `mission`'s pool health.** Phase 25 took the untagged photo pool from 20 to 40, so
   the relaxation date in `mission-library.md` is stale by arithmetic. One call to
   `GET /children/{id}/pool-health` replaces a projection this file must not invent.
-- **Settings can light up D1 and D12 now.** `GET /children/{id}/stats` ships the counts and the
-  first-entry date those two were dropped for. iOS work, and small: the hero already draws the
-  name, age and born-date from `ChildResponse`; the strip needs one more fetch.
 - **33 — Photo captioning, device half. Blocked on the platform — see `docs/blocked.md` §9.** The
   server half is complete and the device half cannot be written: the on-device model's whole input
   vocabulary is `Transcript.Segment`, which is text or structure, so there is no pixels-to-prose

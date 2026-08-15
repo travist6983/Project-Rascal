@@ -69,6 +69,9 @@ struct SettingsScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var child: ChildResponse?
+    /// Archive-wide counts. Nil until the server answers; the hero renders without the strip
+    /// until then, and keeps rendering without it if the call never lands.
+    @State private var stats: ChildStatsResponse?
     /// The avatar's bytes once something has them. Nil covers every no-picture case — no avatar,
     /// no connection on a fresh install, a key that 404s — and all of them render the same disc.
     @State private var avatar: Data?
@@ -109,7 +112,7 @@ struct SettingsScreen: View {
                     .typeRole(.display)
                     .foregroundStyle(Color.ink)
 
-                ChildHeroCard(child: child, avatar: avatar) { openChild() }
+                ChildHeroCard(child: child, avatar: avatar, stats: stats) { openChild() }
 
                 archiveSection
                 childrenSection
@@ -146,6 +149,7 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             await loadChild()
+            await loadStats()
         }
         // **`sync` arrives late for exactly the same reason `syncEngine` does**, and the counts
         // are worse than the rows when they are wrong: with no `EntrySync` the default
@@ -657,6 +661,16 @@ struct SettingsScreen: View {
     }
 
     // MARK: Actions
+
+    /// **Best effort, and never blocks the screen.** Settings renders the account, the version and
+    /// the sync state without it; a failed count is a strip that does not appear, which is the
+    /// honest outcome and the same one a cold offline launch gets. No notice is set — there is
+    /// nothing for a parent to do about it, and a line of apology under the hero would be noise
+    /// about a decoration.
+    private func loadStats() async {
+        guard let fetched = try? await session.api.childStats(childId: childId) else { return }
+        stats = fetched
+    }
 
     private func loadChild() async {
         do {
