@@ -47,9 +47,13 @@ final class CredentialsModel {
         defer { isWorking = false }
 
         do {
-            _ = try await api.addEmailCredential(address)
+            try await api.addEmailCredential(address)
             pendingAddress = address.lowercased()
-            notice = nil
+            // **The same sentence whatever happened**, because the server deliberately does not
+            // say. If the address belongs to another account, nothing was written and nothing
+            // was sent — and telling the parent that would be the leak the server just closed.
+            // A link that never arrives is the honest outcome for a mistyped address.
+            notice = "If that address can be added, a link is on its way to it."
             await load()
         } catch let error as APIError {
             notice = Self.explainAdd(error)
@@ -87,9 +91,13 @@ final class CredentialsModel {
         return error.userMessage
     }
 
+    /// `credentialInUse` is no longer reachable from the email path — the server answers 202
+    /// there whatever the address's status. It is kept because `POST /me/credentials` still
+    /// raises it for Apple and Google, where the subject is proved rather than typed and
+    /// saying so leaks nothing.
     nonisolated static func explainAdd(_ error: APIError) -> String {
         if case .api(let code, _, _, _) = error, code == .credentialInUse {
-            return "That address already signs in to a different account."
+            return "That already signs in to a different account."
         }
         return error.userMessage
     }
@@ -124,7 +132,7 @@ struct CredentialsSheet: View {
                 } footer: {
                     Text(
                         "We'll send a link to that address. Opening it is what turns it on, "
-                        + "so a typo costs nothing."
+                        + "so a typo costs nothing — a link simply never arrives."
                     )
                 }
 

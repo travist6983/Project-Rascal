@@ -68,9 +68,14 @@ extension APIClient {
     /// forwarding a relay at any time without telling anybody — a magic link to a dead relay is
     /// a key that looks alive. Prefilling this field would be the client quietly choosing the
     /// one address most likely to fail.
-    @discardableResult
-    func addEmailCredential(_ email: String) async throws -> CredentialSummary {
-        try await send(
+    ///
+    /// **Returns nothing, deliberately.** The server answers `202` with the same body whether
+    /// the address was free, already this account's, or already somebody else's — because a
+    /// distinguishable answer would tell any caller whether a given address signs in to
+    /// Dogear, and anyone who can create a free account is a caller. Read the result from
+    /// `credentials()`, which is the only place the state is visible.
+    func addEmailCredential(_ email: String) async throws {
+        let _: EmptyResponse = try await send(
             .post, "v1/me/credentials/email",
             body: EmailCredentialRequest(email: email)
         )
