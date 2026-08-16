@@ -377,3 +377,138 @@ async def test_dev_login_is_not_registered_outside_local(engine) -> None:
     assert not any(path.startswith("/v1/debug") for path in paths), (
         "debug routes must be gated the same way as dev-login"
     )
+
+
+# --- The activity clock, and the two consent lanes (phase 49) -----------------------------
+#
+# `last_sign_in_at` feeds D3's second deletion clock, `last_sign_in_at + 12 months`. Nothing
+# reads it yet. These tests exist because the column's whole value is the history it
+# accumulates before anything reads it — a bug here is invisible until the day it deletes
+# somebody's archive, and by then the record it got wrong cannot be reconstructed.
+
+
+async def test_signing_in_records_the_activity_clock(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    before = dt.datetime.now(tz=dt.UTC)
+    response = await apple_client.post(
+        "/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)}
+    )
+    assert response.status_code == 200
+
+    user = await session.scalar(sa.select(User))
+    await session.refresh(user)
+    assert user.last_sign_in_at is not None
+    assert user.last_sign_in_at >= before
+
+
+async def test_a_refresh_counts_as_activity(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """**The test that stops the clock deleting active families.**
+
+    An app in daily use rotates its refresh token and never performs a fresh credential
+    sign-in again. If only `/auth/apple` moved the clock, the most engaged households would
+    look dormant for twelve months while writing entries the whole time, and the eligibility
+    date would come due underneath them.
+    """
+    signed_in = await apple_client.post(
+        "/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)}
+    )
+    refresh_token = signed_in.json()["refresh_token"]
+
+    user = await session.scalar(sa.select(User))
+    # Push the recorded activity back beyond the throttle, so a fresh write is expected rather
+    # than suppressed. Without this the assertion would pass on a no-op.
+    stale = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=400)
+    await session.execute(sa.update(User).where(User.id == user.id).values(last_sign_in_at=stale))
+    await session.commit()
+
+    response = await apple_client.post("/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert response.status_code == 200
+
+    await session.refresh(user)
+    assert user.last_sign_in_at > stale, "a refresh must count as activity"
+    assert user.last_sign_in_at > dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=5)
+
+
+async def test_a_second_sign_in_within_the_day_does_not_rewrite_the_clock(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """Throttled deliberately: an active app rotates four times an hour and this column feeds
+    a twelve-month clock. A day's granularity is three orders of magnitude finer than it needs.
+    """
+    await apple_client.post("/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)})
+    user = await session.scalar(sa.select(User))
+    await session.refresh(user)
+    first = user.last_sign_in_at
+
+    await apple_client.post("/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)})
+    await session.refresh(user)
+    assert user.last_sign_in_at == first
+
+
+async def test_the_clock_moves_once_the_recorded_activity_is_stale(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    await apple_client.post("/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)})
+    user = await session.scalar(sa.select(User))
+    stale = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=2)
+    await session.execute(sa.update(User).where(User.id == user.id).values(last_sign_in_at=stale))
+    await session.commit()
+
+    await apple_client.post("/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)})
+    await session.refresh(user)
+    assert user.last_sign_in_at > stale
+
+
+async def test_a_new_user_starts_with_both_consent_lanes_and_they_are_separate_columns(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """Two fields, never one flag — D3a. The assertion is that both exist independently, which
+    is the whole point: one boolean cannot later be untangled into consent-for-marketing and
+    consent-for-required-notices under a GDPR or CCPA request.
+    """
+    await apple_client.post("/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)})
+    user = await session.scalar(sa.select(User))
+    await session.refresh(user)
+
+    assert user.marketing_consent is True
+    assert user.transactional_consent is True
+
+    # Independently settable, which a single flag could not be. Marketing off must leave the
+    # deletion-warning lane untouched — that is the failure mode the two columns prevent.
+    await session.execute(sa.update(User).where(User.id == user.id).values(marketing_consent=False))
+    await session.commit()
+    await session.refresh(user)
+    assert user.marketing_consent is False
+    assert user.transactional_consent is True
+
+
+async def test_the_consent_lanes_are_not_settable_through_the_api(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """No route may switch off `transactional_consent`. D3's hard stop is that deletion cannot
+    fire without a confirmed delivery; a user who could silence the warning would leave the
+    timer running and lose the archive quietly. Nothing sends email yet, so neither lane has a
+    consumer — and a field a client can set with no consumer is furniture.
+    """
+    signed_in = await apple_client.post(
+        "/v1/auth/apple", json={"identity_token": apple_token(apple_keypair)}
+    )
+    token = signed_in.json()["access_token"]
+    assert "marketing_consent" not in signed_in.json()["user"]
+    assert "transactional_consent" not in signed_in.json()["user"]
+    assert "last_sign_in_at" not in signed_in.json()["user"]
+
+    response = await apple_client.patch(
+        "/v1/me",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"transactional_consent": False, "marketing_consent": False},
+    )
+    # Whatever the route does with unknown keys, it must not have changed either lane.
+    user = await session.scalar(sa.select(User))
+    await session.refresh(user)
+    assert user.transactional_consent is True
+    assert user.marketing_consent is True
+    assert response.status_code in {200, 422}

@@ -26,6 +26,12 @@ Exchanges an Apple credential for a session. Creates a `users` row on first sigh
 Verification is real: fetch Apple's JWKS, verify the signature, check `iss`, `aud`
 against the bundle ID, and `exp`. Cache the JWKS with a TTL; don't fetch it per request.
 
+**Sign-in and refresh both record activity.** `POST /auth/apple`, `POST /auth/dev-login` and
+`POST /auth/refresh` all stamp `users.last_sign_in_at`, throttled to a day's granularity. It is
+server-side bookkeeping with no field in any response — it feeds D3's twelve-month inactivity
+clock, and **a refresh has to count** or an app in daily use, which rotates its token and never
+signs in afresh again, would look dormant for a year. Nothing reads the column yet.
+
 **`POST /auth/refresh`**
 Body: `{ refresh_token }` → `{ access_token, refresh_token }`
 

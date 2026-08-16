@@ -18,6 +18,9 @@ Alembic migration; if the code and this file disagree, the code is wrong.
 | `is_admin` | boolean | gates writes to the mission library |
 | `notify_enabled` | boolean | default `false`; the client turns it on after the parent grants OS permission |
 | `notify_local_time` | time (no zone) | default `19:00`; a wall clock read in the **child's** `family_timezone`, never the device's and never UTC |
+| `last_sign_in_at` | timestamptz | nullable. Written by every path that proves the app ran — Apple sign-in, dev-login, **and a token refresh** — throttled to a day. **Null means never observed, not long ago.** Feeds D3's inactivity clock; nothing reads it yet. See the lifecycle section below |
+| `marketing_consent` | boolean | default `true`. Win-back email only; needs a working unsubscribe when there is email to unsubscribe from |
+| `transactional_consent` | boolean | default `true`. Deletion warnings, which send regardless of the marketing lane. **Two fields and never one flag**, per D3a — and not settable through the API |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
@@ -380,12 +383,19 @@ Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusi
 
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
-**None of this exists.** No table, column or index below has been created, and no migration writes
-any of it. It is written down so the shape is settled before it is built — the decisions are D1–D6
-in `docs/decisions.md` — and so the two things that would be expensive to retrofit are decided
-first: the consent lanes and the per-channel delivery record.
+**Almost none of this exists.** No table below has been created. It is written down so the shape is
+settled before it is built — the decisions are D1–D6 in `docs/decisions.md` — and so the two things
+that would be expensive to retrofit are decided first: the consent lanes and the per-channel
+delivery record.
 
-Nothing here modifies an existing table.
+**Three columns on `users` are the exception and did ship, in phase 49 on Aug 16, 2026** —
+`last_sign_in_at`, `marketing_consent` and `transactional_consent`, in migration
+`0010_activity_and_consent`. They are listed with the live `users` table above. Nothing reads any
+of them yet. They landed ahead of the phase that consumes them because **all three are cheap now
+and expensive or impossible later**, and one of them is accumulating a record that cannot be
+reconstructed. See "The activity clock landed early" below.
+
+Everything else here modifies no existing table.
 
 ### Entitlement sits on the household, never on a user or a child
 
@@ -399,7 +409,7 @@ as there are guardians. Per D4.
 | `tier` | text | `free` \| `subscribed`, `text` + a named CHECK per the constrained-value convention |
 | `payer_user_id` | uuid FK | nullable — who is paying now. Nullable because a family can be `free` with nobody paying |
 | `lapsed_at` | timestamptz | nullable; null while subscribed. Set when the entitlement flips to `free` |
-| `last_sign_in_at` | timestamptz | most recent sign-in by **any** guardian |
+| `last_sign_in_at` | timestamptz | most recent sign-in by **any** guardian — a `MAX` over `users.last_sign_in_at`, which **exists now** and is the source of truth. This column is a denormalisation for the eligibility read, and must never be written independently of it |
 | `updated_at` | timestamptz | maintained by the `set_updated_at()` trigger, never by application code |
 
 **The deletion eligibility date is computed on read and never stored.**
@@ -425,9 +435,36 @@ Full-resolution retrieval from `archive` needs a restore of roughly an hour, or 
 subscription. **That is a property of the storage tier and not a penalty**, and no copy anywhere may
 frame it as one.
 
+### The activity clock landed early, and on `users` rather than here
+
+**Phase 49 shipped `users.last_sign_in_at` before this entitlement table existed**, and the reason
+is that it is the one column in this section that **cannot be backfilled**. A lapse date can be
+reconstructed later from the payment rail, which keeps its own history. *When a parent last opened
+the app* exists nowhere else — not in `entries`, which records when somebody wrote rather than when
+they looked, and not in `refresh_tokens`, which are revoked and pruned. Every day it did not exist
+was a day of the record simply gone, and the households generating it are using the app now.
+
+Putting it on `users` is a refinement of the row above rather than a contradiction of it. The
+family-level value is specified as *"most recent sign-in by any guardian"*, which is a `MAX` over
+exactly this per-user column — so per-user is strictly more information than the entitlement row
+needs, and the entitlement's copy is a denormalisation of it. The household entity belongs to phase
+37, which is blocked on an App Store Connect action; waiting for it would have meant waiting on an
+account action to start recording history that cannot be recovered afterwards.
+
+**Every path that proves the app ran writes it — including a token refresh, and that is
+load-bearing.** An app in daily use rotates its refresh token and never performs a fresh credential
+sign-in again, so recording only `POST /auth/apple` would leave the most engaged households looking
+dormant against the twelve-month clock and bring their eligibility date due while they were still
+writing entries. Writes are throttled to a day's granularity, because an active app rotates four
+times an hour and this feeds a twelve-month clock.
+
+**Null means never observed, not long ago.** Every user created before the migration has null.
+Treating it as ancient would make the oldest accounts the first eligible for deletion, which is the
+precise opposite of correct, so every read must handle null explicitly.
+
 ### The two consent lanes are two fields, from day one
 
-On `users`, and deliberately **not one flag with two meanings**:
+**Shipped in phase 49** on `users`, and deliberately **not one flag with two meanings**:
 
 | Column | Type | Notes |
 |---|---|---|
@@ -436,6 +473,12 @@ On `users`, and deliberately **not one flag with two meanings**:
 
 Untangling one flag into two later, under a GDPR or CCPA request, is the failure this shape exists
 to avoid. It costs one extra column now.
+
+Both default `true` — the soft opt-in D3a describes, and what makes deletion warnings sendable to
+every existing user. **Neither is settable through the API and `transactional_consent` in
+particular must never become so**: a user who could switch it off would silence the deletion warning
+and leave the timer running, which converts a safety interlock into a quiet way to lose an archive.
+Nothing sends email today, so neither lane reaches anybody yet.
 
 ### Notices, and delivery proven per channel
 
