@@ -33,6 +33,7 @@ import logging
 import secrets
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import SignInTokenPurpose
@@ -165,13 +166,22 @@ async def complete_sign_in(
 
 async def attach_email_credential(
     session: AsyncSession, user: User, email: str, *, now: dt.datetime | None = None
-) -> tuple[Credential, str]:
+) -> tuple[Credential, str] | None:
     """Add an email address to an account, inactive until the link is clicked.
 
-    Returns the credential and the raw link token. Three outcomes, mirroring
-    `attach_credential`'s but with verification in the middle:
+    Returns the credential and the raw link token, or **`None` when the address belongs to
+    somebody else** — which the caller answers exactly as it answers success.
 
-    - Bound to a **different** user → `409 credential_in_use`, nothing written.
+    **The silent `None` is the whole privacy argument, and it is a consistency argument too.**
+    This route used to answer `409 credential_in_use` there, which told any caller — and anyone
+    who can create a free account is a caller — whether a given address signs in to Dogear.
+    `POST /auth/email/start` already refuses that exact question with an unconditional `202`,
+    so answering it here was not merely a leak but an inconsistency: two endpoints, the same
+    question about the same address, two different answers. The quieter one is the correct one.
+
+    The three outcomes:
+
+    - Bound to a **different** user → `None`. Nothing written, nothing sent.
     - Bound to **this** user already → a fresh link, so an expired verification can be retried
       without a second row. An already-active credential is re-verified rather than refused,
       which is the harmless reading and avoids a dead end.
@@ -190,11 +200,8 @@ async def attach_email_credential(
     existing = await find_credential(session, "email", address)
     if existing is not None:
         if existing.user_id != user.id:
-            raise RascalError(
-                ErrorCode.CREDENTIAL_IN_USE,
-                "That address is already a sign-in method on a different account.",
-                field="email",
-            )
+            log.info("email credential add refused, address belongs elsewhere")
+            return None
         return existing, await issue_token(session, existing, purpose="verify", now=moment)
 
     credential = Credential(
@@ -206,6 +213,17 @@ async def attach_email_credential(
         revoked_at=moment,
     )
     session.add(credential)
-    await session.flush()
+    try:
+        # A savepoint, so losing the race leaves the surrounding transaction usable — the same
+        # shape `attach_credential` already uses. Without it, two accounts adding one address
+        # at the same instant gave the loser a raw `IntegrityError`, which reached the generic
+        # handler as a 500 and leaked a SQL failure in place of an answer.
+        async with session.begin_nested():
+            await session.flush()
+    except IntegrityError:
+        # Somebody claimed the address between the SELECT and the INSERT. Indistinguishable to
+        # the caller from the pre-check above, which is the point.
+        log.info("email credential add lost the insert race")
+        return None
     log.info("email credential added, awaiting verification", extra={"user_id": str(user.id)})
     return credential, await issue_token(session, credential, purpose="verify", now=moment)

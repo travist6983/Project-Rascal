@@ -226,7 +226,6 @@ async def add_my_credential(
 
 @router.post(
     "/credentials/email",
-    response_model=CredentialOut,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Add an email address as a sign-in method",
     description=(
@@ -239,10 +238,14 @@ async def add_my_credential(
         "is on a `privaterelay.appleid.com` address, and Apple can stop forwarding a relay at "
         "any time without telling anybody — a magic link to a dead relay is a key that looks "
         "alive.\n\n"
-        "`202` rather than `200`: the credential exists but is not yet usable, and the thing "
-        "that finishes the job has not happened. An address already on a *different* account "
-        "is `409 credential_in_use`. One already on this account gets a fresh link, so an "
-        "expired verification is retryable without a second row."
+        "**Always `202`, and the body says nothing about the address.** An address already on "
+        "a *different* account is answered identically to a fresh one, with nothing written "
+        "and nothing sent — anything else would tell any caller, and anyone who can create a "
+        "free account is a caller, whether a given address signs in to Dogear. "
+        "`POST /auth/email/start` already refuses that question unconditionally, so answering "
+        "it here would be an inconsistency as much as a leak.\n\n"
+        "An address already on *this* account gets a fresh link, so an expired verification is "
+        "retryable without a second row. Read `GET /me/credentials` afterwards for the result."
     ),
 )
 async def add_my_email_credential(
@@ -251,7 +254,7 @@ async def add_my_email_credential(
     session: SessionDep,
     settings: SettingsDep,
     user: CurrentUser,
-) -> CredentialOut:
+) -> dict[str, str]:
     # **Rate limited even though it is authenticated, which is the exception to the rule this
     # service otherwise follows.** Everything behind a bearer token is normally the account's
     # own business — but this route sends mail to an address the account does not own and has
@@ -268,13 +271,16 @@ async def add_my_email_credential(
         window=window,
     )
 
-    credential, raw = await attach_email_credential(session, user, payload.email)
-    # Queued rather than awaited, for the same reason `POST /auth/email/start` queues: the
-    # response must not carry the mail provider's latency, and a provider outage must not
-    # become this route's status code.
-    background.add_task(_deliver_verification_link, settings, credential.subject_id, raw)
+    attached = await attach_email_credential(session, user, payload.email)
+    if attached is not None:
+        credential, raw = attached
+        # Queued rather than awaited, for the same reason `POST /auth/email/start` queues: the
+        # response must not carry the mail provider's latency, and a provider outage must not
+        # become this route's status code — which would reintroduce the oracle by another door.
+        background.add_task(_deliver_verification_link, settings, credential.subject_id, raw)
     await session.flush()
-    return _rendered(credential)
+    # The same body either way, exactly as `POST /auth/email/start` answers.
+    return {"status": "accepted"}
 
 
 async def _deliver_verification_link(settings: Settings, address: str, raw_token: str) -> None:

@@ -30,6 +30,15 @@ from rascal.models import RateLimitEvent
 
 log = logging.getLogger("rascal.rate_limit")
 
+#: How long a recorded attempt is kept, regardless of the window being checked.
+#:
+#: **Deliberately not the caller's own `window`.** The sweep below is global — it has to be, or
+#: a bucket nobody queries again keeps its rows forever — and pruning everything older than
+#: *this* call's window would delete rows that a limiter with a longer window still needs to
+#: count. One generous retention, larger than any window in the service, keeps the sweep
+#: correct no matter which limiter happens to run it.
+MAX_RETENTION = dt.timedelta(days=1)
+
 #: Fly's proxy sets this to the real client address and **strips any client-supplied copy**,
 #: which is what makes it trustworthy where a raw `X-Forwarded-For` is not.
 FLY_CLIENT_IP_HEADER = "Fly-Client-IP"
@@ -82,12 +91,14 @@ async def check_and_record(
     moment = now or dt.datetime.now(tz=dt.UTC)
     since = moment - window
 
-    # Prune this bucket's expired rows while we are here. It keeps the table proportional to
-    # live traffic without a scheduled job, and the index makes it the same scan as the count.
+    # **Prune every expired row, not just this bucket's.** Scoped to the bucket in hand, a
+    # bucket that is never queried again keeps its rows forever — and buckets are minted from
+    # caller-supplied addresses, so "never queried again" is the common case rather than the
+    # rare one. An attacker spraying distinct addresses would have grown this table and its
+    # index without limit, which is a slow denial of service against the database rather than
+    # against the endpoint. There is no scheduled job for this table, so the sweep lives here.
     await session.execute(
-        delete(RateLimitEvent).where(
-            RateLimitEvent.bucket == bucket, RateLimitEvent.created_at < since
-        )
+        delete(RateLimitEvent).where(RateLimitEvent.created_at < moment - MAX_RETENTION)
     )
 
     # **Record first, then count — the order is the whole correctness argument.**

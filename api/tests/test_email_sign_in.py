@@ -97,17 +97,26 @@ async def test_start_answers_the_same_for_a_known_and_an_unknown_address(
 async def test_adding_an_address_creates_an_inactive_credential_and_sends_a_link(
     apple_client: AsyncClient, apple_keypair, session: AsyncSession, capsys
 ) -> None:
-    """**Inactive until the click.** A typo must not hand a stranger's inbox a key."""
+    """**Inactive until the click.** A typo must not hand a stranger's inbox a key.
+
+    The response body deliberately says nothing about the credential — see
+    `test_an_address_on_another_account_is_indistinguishable_from_a_new_one` — so the state is
+    asserted against the row and against `GET /me/credentials`, which is where a client reads
+    it too.
+    """
     signed_in = await _apple_session(apple_client, apple_keypair)
     response, printed = await _add_email(apple_client, _auth(signed_in), capsys)
 
     assert response.status_code == 202
-    assert response.json()["revoked_at"] is not None, "not a way in until it is verified"
     assert "?token=" in printed
 
     credential = await session.scalar(sa.select(Credential).where(Credential.provider == "email"))
     assert credential.subject_id == ADDRESS
-    assert credential.revoked_at is not None
+    assert credential.revoked_at is not None, "not a way in until it is verified"
+
+    listed = (await apple_client.get("/v1/me/credentials", headers=_auth(signed_in))).json()
+    pending = next(row for row in listed if row["provider"] == "email")
+    assert pending["revoked_at"] is not None
 
 
 async def test_an_unverified_address_cannot_start_a_sign_in(
@@ -134,18 +143,38 @@ async def test_the_address_is_lowercased(
     assert credential.subject_id == ADDRESS
 
 
-async def test_an_address_on_another_account_is_a_409(
+async def test_an_address_on_another_account_is_indistinguishable_from_a_new_one(
     apple_client: AsyncClient, apple_keypair, session: AsyncSession, capsys
 ) -> None:
+    """**This answered `409 credential_in_use` and that was an enumeration oracle.**
+
+    The route is authenticated, but anyone who can create a free account is authenticated — so
+    a 409 told any caller whether a given address signs in to Dogear, one probe at a time.
+    `POST /auth/email/start` already refuses that exact question with an unconditional 202, so
+    answering it here was an inconsistency as well as a leak.
+
+    Both calls now return the same status and the same body, and the conflicting one writes
+    nothing and sends nothing.
+    """
     first = await _apple_session(apple_client, apple_keypair, subject="001.first")
     await _add_email(apple_client, _auth(first), capsys)
+    before = await session.scalar(sa.select(sa.func.count()).select_from(Credential))
     second = await _apple_session(apple_client, apple_keypair, subject="001.second")
+    capsys.readouterr()
 
-    response, _ = await _add_email(apple_client, _auth(second), capsys)
+    conflicting, printed = await _add_email(apple_client, _auth(second), capsys)
+    fresh, _ = await _add_email(apple_client, _auth(second), capsys, address="unused@example.com")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "credential_in_use"
-    assert await session.scalar(sa.select(sa.func.count()).select_from(Credential)) == 3
+    assert conflicting.status_code == fresh.status_code == 202
+    assert conflicting.json() == fresh.json()
+    # Nothing written for the conflict, and no link mailed to an address this account cannot
+    # prove it owns.
+    assert "?token=" not in printed
+    after = await session.scalar(
+        sa.select(sa.func.count()).select_from(Credential).where(Credential.subject_id == ADDRESS)
+    )
+    assert after == 1, "the conflicting add must not create a second row"
+    assert before == 2
 
 
 async def test_adding_requires_a_bearer_token(client: AsyncClient) -> None:

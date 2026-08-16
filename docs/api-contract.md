@@ -242,7 +242,7 @@ one behind the bearer token, never one resolved from an email address.
   household, not a mistake.
 
 **`POST /me/credentials/email`**
-Body: `{ provider: "email", email }` → the credential, `202`.
+Body: `{ provider: "email", email }` → `202`, body `{ "status": "accepted" }`.
 
 **The address is typed by the parent and proved by the click, never by this field.** The
 credential is created **inactive** and a link is sent; opening it through
@@ -251,8 +251,16 @@ the inbox that receives the link is the only one that can activate it.
 
 **It must never be defaulted from `users.email`.** The production account is on a
 `privaterelay.appleid.com` address, and Apple can stop forwarding a relay at any time without
-telling anybody; a magic link to a dead relay is a key that looks alive. `202` rather than
-`200` because the credential exists and is not yet usable.
+telling anybody; a magic link to a dead relay is a key that looks alive. **Always `202`, and the body says nothing about the address** — an address already on a
+*different* account is answered identically to a fresh one, with nothing written and nothing
+sent. It used to answer `409 credential_in_use`, which told any caller whether a given address
+signs in to Dogear; the route is authenticated, but anyone who can create a free account is a
+caller. `POST /auth/email/start` already refuses that question unconditionally, so answering it
+here was an inconsistency as much as a leak. Read `GET /me/credentials` for the result.
+
+**Rate limited per calling account**, unlike every other authenticated route. This one mails an
+address the account does not own and has not proved anything about, so without a limit it is a
+way to mail a stranger repeatedly from our sending domain.
 
 **`DELETE /me/credentials/{id}`** → the credential, `200`.
 

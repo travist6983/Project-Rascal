@@ -85,15 +85,18 @@ async def user_for_credential(
         return user
 
     user = User(email=email, display_name=display_name)
-    session.add(user)
-    await session.flush()
-    session.add(Credential(user_id=user.id, provider=provider, subject_id=subject_id))
     try:
-        # A savepoint, so losing the race leaves the surrounding transaction usable. Two
-        # first-ever sign-ins for one subject both miss the SELECT above and both insert;
-        # `uq_credentials_provider_subject_id` is what serializes them, and without this the
-        # loser surfaced as a 500 rather than as the sign-in it actually is.
+        # **The user and the credential go in together, inside one savepoint.** Flushing the
+        # user first put its INSERT outside the rollback: `ROLLBACK TO SAVEPOINT` only undoes
+        # what came after, so the loser of the race discarded its credential, kept its user,
+        # and committed a `users` row with no credentials, no children and no way to sign in —
+        # an orphan nobody would ever notice, accumulating one per double-submitted first
+        # sign-in. Two first-ever sign-ins for one subject both miss the SELECT above and both
+        # insert; `uq_credentials_provider_subject_id` is what serialises them.
         async with session.begin_nested():
+            session.add(user)
+            await session.flush()
+            session.add(Credential(user_id=user.id, provider=provider, subject_id=subject_id))
             await session.flush()
     except IntegrityError:
         winner = await find_credential(session, provider, subject_id)
