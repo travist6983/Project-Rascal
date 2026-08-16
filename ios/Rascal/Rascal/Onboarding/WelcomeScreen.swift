@@ -13,6 +13,10 @@ struct WelcomeScreen: View {
     /// because nothing has reached the server yet.
     @State private var authorizationNotice: String?
 
+    /// Nil when the build has no `GOOGLE_CLIENT_ID`, which hides the button rather than
+    /// offering one that fails at the browser. Read once — it cannot change at runtime.
+    private let google = GoogleOAuthConfig()
+
     var body: some View {
         ZStack {
             Gradients.wash
@@ -76,6 +80,17 @@ struct WelcomeScreen: View {
             .frame(height: 52)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .disabled(session.isWorking)
+
+            // **Secondary, and visually second — a rule rather than a layout choice.**
+            // `ios/CLAUDE.md` records it: Apple stays primary. It is also hidden entirely when
+            // the build carries no client id, because a button that cannot work is worse than
+            // no button, and this app shipped without one for a while.
+            if let google {
+                OnboardingSecondaryButton(title: "Continue with Google") {
+                    Task { await session.signInWithGoogle(using: GoogleSignInFlow(config: google)) }
+                }
+                .disabled(session.isWorking)
+            }
 
             if session.pendingExchange == nil, let notice = session.notice ?? authorizationNotice {
                 OnboardingNotice(message: notice)

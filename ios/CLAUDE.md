@@ -75,8 +75,28 @@ are decisions, not opening positions. If one seems wrong, raise it — do not ro
 ## Out of scope — stop if you find yourself building one
 
 An Android or web client, a design system package, offline media
-transcoding, analytics, a login screen for anything other than Sign in with Apple and
-`dev-login`.
+transcoding, analytics, ~~a login screen for anything other than Sign in with Apple and
+`dev-login`~~.
+
+**Google sign-in and magic-link email came off this list on Aug 16, 2026**, with phases 55 and
+58, and the server halves that make them possible shipped the same day as 54 and 57. The rules
+they are built around, which are the part worth carrying forward:
+
+- **Sign in with Apple stays primary and stays visually first.** Google is secondary and the
+  email path is not on the welcome screen at all — it is reached from Settings, by a parent who
+  is already signed in, because `POST /auth/email/start` deliberately cannot create an account.
+- **The client never links accounts by email address, because the server never does.** Two
+  credentials join one account only when somebody signed in to that account and asked, through
+  `POST /me/credentials`. A parent who signs in with Google after Apple gets a second, empty
+  archive — that is the design working, not a bug to paper over on the client.
+- **Rule 4 decides the mechanism and there was never a second option.** No SPM packages means
+  `ASWebAuthenticationSession` + PKCE rather than the GoogleSignIn SDK — more code, no
+  dependency, and no third-party privacy manifest to reconcile against an app whose whole
+  promise is that a child's record does not leave. This retires the "choose before building"
+  question the phase was written with.
+- **`Config.xcconfig` holds the client id**, per rule 5 — `GOOGLE_CLIENT_ID` and
+  `GOOGLE_REVERSED_CLIENT_ID`, the second being the OAuth callback's URL scheme. Neither is a
+  secret: an iOS OAuth client is a public client and Google issues no secret for one.
 
 **Multi-kid shipped in phase 31 (Aug 13, 2026)**, after coming off this list on Aug 12 by the
 owner's decision. The rule it was built around is the one `ChildSwitcherPill` states — *"One child

@@ -109,12 +109,30 @@
 				<string>childarchive</string>
 			</array>
 		</dict>
+		<!-- Google's OAuth callback. Unlike the deep-link scheme above, this one IS a $()
+		     reference: it is the reversed client id, so pointing the app at a different Google
+		     project has to change it, and a scheme that disagrees with GOOGLE_CLIENT_ID means
+		     the browser closes onto nothing and the app never hears back. -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.travisterry.childarchive.google-oauth</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+			</array>
+		</dict>
 	</array>
 
 	<!-- Read with Bundle.main.object(forInfoDictionaryKey:). Values come from Config.xcconfig,
 	     so no base URL and no UUID appears in Swift source. -->
 	<key>API_BASE_URL</key>
 	<string>$(API_BASE_URL)</string>
+	<key>GOOGLE_CLIENT_ID</key>
+	<string>$(GOOGLE_CLIENT_ID)</string>
+	<key>GOOGLE_REVERSED_CLIENT_ID</key>
+	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
 
 	<!-- **Debug only — these two are not in Info.plist, on purpose.** `AppConfig` reads them and
 	     `AppConfig` is #if DEBUG, along with the rest of the dev-login path, so a Release build

@@ -32,6 +32,20 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
     /// the body parsed and the field is the right type; the value is just not a name, and a
     /// client shows this one under the text field it came from.
     case invalidDisplayName
+    /// `POST /me/credentials` — that provider subject already belongs to a *different*
+    /// account. Never merged and never reassigned; two archives with one key between them is
+    /// not a state this product has an answer for.
+    case credentialInUse
+    /// `DELETE /me/credentials/{id}` — refusing to remove the only way into an account.
+    /// **Not an error state**: it is the server declining to let somebody lock themselves out
+    /// of their child's archive, and it is shown as a sentence rather than an alert.
+    case lastCredential
+    /// `POST /auth/email/start` — too many links to one address, or from one IP.
+    case rateLimited
+    /// `POST /auth/email/complete` — the magic link was already used, has expired, or belongs
+    /// to an address that has since been removed. **One code for all of them**, deliberately:
+    /// telling them apart would say whether a link ever existed.
+    case signInLinkInvalid
     case unknown(String)
 
     init(rawValue: String) {
@@ -47,6 +61,10 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case "conflict": self = .conflict
         case "internal_error": self = .internalError
         case "invalid_display_name": self = .invalidDisplayName
+        case "credential_in_use": self = .credentialInUse
+        case "last_credential": self = .lastCredential
+        case "rate_limited": self = .rateLimited
+        case "sign_in_link_invalid": self = .signInLinkInvalid
         default: self = .unknown(rawValue)
         }
     }
@@ -64,6 +82,10 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case .conflict: "conflict"
         case .internalError: "internal_error"
         case .invalidDisplayName: "invalid_display_name"
+        case .credentialInUse: "credential_in_use"
+        case .lastCredential: "last_credential"
+        case .rateLimited: "rate_limited"
+        case .signInLinkInvalid: "sign_in_link_invalid"
         case .unknown(let raw): raw
         }
     }
@@ -119,6 +141,16 @@ enum APIError: Error, Equatable {
                 message
             case .internalError:
                 "The server had trouble. Your work is saved on this phone."
+            case .lastCredential:
+                // No blame and nothing to dismiss. The app is looking after them.
+                "This is the only way to sign in to your archive right now. "
+                    + "Add another one first, and then this can come off."
+            case .credentialInUse:
+                "That already signs in to a different account."
+            case .rateLimited:
+                "That's a few links in a short time. Try again in a little while."
+            case .signInLinkInvalid:
+                "That sign-in link has already been used or has expired. Ask for a new one."
             default:
                 message
             }
