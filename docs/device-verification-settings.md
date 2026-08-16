@@ -195,6 +195,52 @@ the child rather than on configuration.
 - [ ] A child whose name begins with an accented letter or an emoji renders **one glyph** in the
       disc, not a box and not half a pair.
 
+### 8a. The stats strip — new Aug 16, 2026 (phase 44)
+
+Shipped after this checklist was written and had no boxes until now. It reads
+`412 entries · 1,204 photos · 3 sealed`, from `GET /children/{id}/stats`. **Three owner decisions
+are embedded in it and each one is only checkable on a device.**
+
+- [ ] 8a.1 The strip renders under the born-date line, with an **`Archive starts <date>`** line
+      above it when the archive has a first entry.
+- [ ] 8a.2 **The middle cell counts photographs, not media.** On a child with voice notes and
+      videos, the photo count must be **lower** than the total number of files. Count them if you
+      have to. Video and audio are deliberately not counted here and the timeline still shows
+      every one of them.
+- [ ] 8a.3 **Cold launch with Airplane Mode on.** The strip **does not render at all** — no strip,
+      no dashes, and above all **no zeros**. Nil is not zero: a strip reading `0 entries` about an
+      archive with four hundred is the worst thing this line can say.
+- [ ] 8a.4 Watch a cold launch **with** the network. The strip appears when the server answers.
+      It must not flash zeros first and then correct itself.
+- [ ] 8a.5 On a child with **no entries at all**, the strip and the archive-start line are both
+      **absent** — an empty archive shows nothing rather than three zeros.
+- [ ] 8a.6 On an archive with more than a thousand of anything, the number is **grouped**
+      (`1,204`, not `1204`).
+- [ ] 8a.7 On a child with exactly **one** entry, one photo, one sealed letter, the words are
+      singular — `1 entry · 1 photo · 1 sealed`.
+
+### 8b. Adding a child — new Aug 16, 2026 (phase 44)
+
+Multi-kid shipped Aug 13 and its **only** entry point is here, deliberately: the switcher's
+chevron does not exist until there are two children, which is precisely the account that needs to
+add one. Nothing in this file covered it.
+
+- [ ] 8b.1 On a **single-child account**, the `Children` section shows one `Add a child` row. There
+      is no list of children beside it — the switcher is the list.
+- [ ] 8b.2 Add a second child. The sheet is a plain create, **not** the full setup flow — it must
+      not ask again about notifications, which this account already answered.
+- [ ] 8b.3 A successful add **switches to the new child**, and the hero, the timeline and Today all
+      show the new one.
+- [ ] 8b.4 **The switcher chevron now exists.** It did not before there was a second child.
+- [ ] 8b.5 Switch back to the first child and open the timeline. **You see that child's entries and
+      not the sibling's.** This is the check that matters most in this section — every child-bound
+      object captures its child at init, so a switch that half-applied would show one child's
+      entries under the other's name.
+- [ ] 8b.6 With two children, complete something for child A, then switch to B. B's Today is B's,
+      and nothing from A appears on it.
+- [ ] 8b.7 Sign out with two children on the device, then sign back in. Nothing from either child
+      survives the sign-out, and the switch state does not resurrect a child that was erased.
+
 ## 9. Accessibility on glass — Dynamic Type and VoiceOver
 
 Dynamic Type XXL was generated on a simulator (`docs/reports/phase-13-settings-v2/`) and nothing
