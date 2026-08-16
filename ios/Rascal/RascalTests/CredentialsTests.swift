@@ -16,8 +16,12 @@ struct CredentialsTests {
 
     @Test("a well-formed sign-in link yields its token")
     func linkParses() throws {
+        // The host is stated explicitly because this test is about *parsing*. Left to the
+        // default it would read `API_BASE_URL`, which in a test build is localhost — so this
+        // would exercise the host check rather than the thing it is named for. The host policy
+        // itself is covered in `AuthHardeningTests`.
         let url = URL(string: "https://rascal-api.fly.dev/signin?token=abc123")!
-        #expect(SignInLink.parse(url) == SignInLink(token: "abc123"))
+        #expect(SignInLink.parse(url, apiHost: "rascal-api.fly.dev") == SignInLink(token: "abc123"))
     }
 
     @Test("only the one claimed path is a sign-in link")
@@ -26,7 +30,10 @@ struct CredentialsTests {
         // intercept /health, presigned media URLs, and anything a browser client ever serves.
         for path in ["/health", "/v1/entries", "/", "/signin/extra"] {
             let url = URL(string: "https://rascal-api.fly.dev\(path)?token=abc")!
-            #expect(SignInLink.parse(url) == nil, "\(path) must not parse as a sign-in link")
+            #expect(
+                SignInLink.parse(url, apiHost: "rascal-api.fly.dev") == nil,
+                "\(path) must not parse as a sign-in link"
+            )
         }
     }
 
@@ -44,7 +51,7 @@ struct CredentialsTests {
         // parent can do nothing about, from a tap that looked legitimate.
         for query in ["", "?token=", "?other=abc"] {
             let url = URL(string: "https://rascal-api.fly.dev/signin\(query)")!
-            #expect(SignInLink.parse(url) == nil)
+            #expect(SignInLink.parse(url, apiHost: "rascal-api.fly.dev") == nil)
         }
     }
 

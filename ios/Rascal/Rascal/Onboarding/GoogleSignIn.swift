@@ -82,7 +82,17 @@ nonisolated struct PKCEChallenge: Equatable, Sendable {
     /// and 256 bits of entropy.
     init() {
         var bytes = [UInt8](repeating: 0, count: 32)
-        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        // **Checked rather than discarded.** On failure the buffer stays all zeroes, which
+        // would produce an identical verifier and an identical `state` on every device — a
+        // PKCE exchange with no secret in it and a CSRF token that never varies. The fallback
+        // is two UUIDs, which are not a CSPRNG but are unpredictable enough to be worth far
+        // more than a known constant.
+        if status != errSecSuccess {
+            let fallback = UUID().uuidString + UUID().uuidString
+            self.init(verifier: Data(fallback.utf8).base64URLEncodedString())
+            return
+        }
         self.init(verifier: Data(bytes).base64URLEncodedString())
     }
 }
@@ -150,11 +160,18 @@ nonisolated protocol GoogleAuthorizing: Sendable {
 
 nonisolated struct LiveGoogleAuthorizer: GoogleAuthorizing {
     func authorize(url: URL, callbackScheme: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
+        // **The session is held for the length of the flow, deliberately.**
+        // `ASWebAuthenticationSession` is not retained by the system once `start()` returns;
+        // as a bare local it could deallocate immediately, and the symptom is not a crash but
+        // a browser sheet that never calls back — leaving `isWorking` true and every sign-in
+        // button disabled until the app is relaunched.
+        let holder = SessionHolder()
+        return try await withCheckedThrowingContinuation { continuation in
             let session = ASWebAuthenticationSession(
                 url: url,
                 callbackURLScheme: callbackScheme
             ) { callback, error in
+                defer { holder.session = nil }
                 if let error {
                     let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
                     continuation.resume(throwing: cancelled ? GoogleSignInError.cancelled : .transport)
@@ -172,10 +189,26 @@ nonisolated struct LiveGoogleAuthorizer: GoogleAuthorizing {
             // Google's cookie jar.
             session.prefersEphemeralWebBrowserSession = false
             session.presentationContextProvider = PresentationAnchor.shared
+            holder.session = session
             if !session.start() {
+                holder.session = nil
                 continuation.resume(throwing: GoogleSignInError.transport)
             }
         }
+    }
+}
+
+/// Keeps the in-flight session alive until its completion handler runs.
+private nonisolated final class SessionHolder: @unchecked Sendable {
+    // The module defaults to main-actor isolation and this is written from the framework's
+    // nonisolated completion handler, so the type is explicitly nonisolated. A lock rather
+    // than bare mutation because those two contexts are genuinely different threads.
+    private let lock = NSLock()
+    private var stored: ASWebAuthenticationSession?
+
+    var session: ASWebAuthenticationSession? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }
 

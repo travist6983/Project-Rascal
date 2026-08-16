@@ -368,8 +368,31 @@ final class OnboardingSession {
         notice = nil
         defer { isWorking = false }
 
+        // Captured before the exchange, because the exchange replaces the stored token pair.
+        let signedInAs = account.user?.id
+
         do {
             let session = try await account.api.completeEmailSignIn(token: token)
+
+            // **A magic link must never silently move an active session to another account.**
+            //
+            // Without this check the app has a login-CSRF hole with an unusually bad payoff:
+            // anyone who mails a parent a link to *their* account swaps the parent's session,
+            // and every entry written afterwards — photographs, a letter to their child —
+            // lands in the attacker's archive, with nothing on screen suggesting anything
+            // changed. It is a data-exfiltration bug wearing a sign-in bug's clothes.
+            //
+            // Verifying an address added from Settings is the legitimate same-account case and
+            // is unaffected. A *different* account signs out rather than swapping: the link's
+            // token is already spent, and leaving somebody signed in to an archive that is not
+            // theirs is the one outcome worth refusing outright.
+            if let signedInAs, signedInAs != session.user.id {
+                await signOut()
+                notice = "That sign-in link was for a different account, so you've been "
+                    + "signed out. Sign in again to get back to your archive."
+                return
+            }
+
             account.apply(user: session.user)
             notifications.apply(user: session.user)
             await resolveChild()

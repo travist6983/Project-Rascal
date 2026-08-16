@@ -15,6 +15,16 @@ import Foundation
 nonisolated struct SignInLink: Equatable, Sendable {
     let token: String
 
+    /// The API host, from `Config.xcconfig` via Info.plist per rule 5. Nil when unreadable,
+    /// which makes the host check inert rather than making every link fail closed in a build
+    /// that simply has no configuration.
+    static var configuredHost: String? {
+        guard let base = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
+              let host = URLComponents(string: base)?.host
+        else { return nil }
+        return host
+    }
+
     /// The one path the app claims. Deliberately narrow: claiming `*` on the API host would make
     /// the app intercept `/health`, presigned media URLs and anything a browser client ever
     /// serves there.
@@ -23,9 +33,14 @@ nonisolated struct SignInLink: Equatable, Sendable {
     /// Parse a URL the system handed the app. Returns nil for anything that is not a sign-in
     /// link, including a claimed path with no token — an empty token would produce a request the
     /// server can only answer with `401`, and a failure the parent cannot act on.
-    static func parse(_ url: URL) -> SignInLink? {
+    static func parse(_ url: URL, apiHost: String? = Self.configuredHost) -> SignInLink? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.scheme == "https",
+              // **The host is checked here as well as in the entitlement.** iOS only hands the
+              // app links for domains it claims, so this is belt-and-braces — but the same
+              // parser is reachable from anywhere in the process, and a token posted to our
+              // `/auth/email/complete` should only ever have come from our own host.
+              apiHost == nil || components.host?.lowercased() == apiHost?.lowercased(),
               components.path == path,
               let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
               !token.isEmpty
