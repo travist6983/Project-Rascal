@@ -1176,6 +1176,25 @@ hazard entirely. The hit rate on photos straight from an iPhone camera is unknow
 low, so it is worth a measurement before it is worth a phase. It is a different feature from the
 one the roadmap describes, so it is the owner's call.
 
+**One thing to fix on the way in, whenever this unblocks.** The pull path already clobbers
+captions, and it has since before there was anything to clobber. `Media.applyServerSummary`
+(`Media.swift:210`) writes `caption = summary.caption ?? caption` **outside** the
+`!hasUnpushedTranscript` guard directly above it, and `SyncEngine.hasUnpushedChanges(_ media:)`
+(`SyncEngine.swift:660`) tests transcripts and upload state and nothing else. It is the Aug 9
+transcript defect, pre-installed on the caption field.
+
+**It is inert today and that is not luck** — `Media.caption` has exactly one writer in the whole
+app and it is that same server-fold line, and `RascalAPI.writeDerived` sends the transcript alone,
+saying so in a comment at `RascalAPI.swift:267`. Nothing produces a caption, so nothing can be
+overwritten. **It stops being inert the moment this phase writes the first one.**
+
+The fix is not separable from the phase. A guard needs a caption sync state to read, and that
+state is the same SwiftData migration over every media row that the phase needs anyway — which is
+why it was never worth doing alone. Whoever builds the writer extends `hasUnpushedChanges(_ media:)`
+and moves the caption line inside a guard **in the same commit**, and mirrors it in
+`differs(_:from:)` at `SyncEngine.swift:633`, whose doc comment promises it matches
+`applyServerSummary` exactly. Owner's call, Aug 15; carried here by phase 41 on Aug 16.
+
 ---
 
 ## §10 — Monetization needs App Store Connect before any of it can be built (Aug 15, 2026)
