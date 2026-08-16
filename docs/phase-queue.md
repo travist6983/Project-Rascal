@@ -10,12 +10,12 @@ exact failure `roadmap-status.md` has now made six revisions running.
 Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 41**, so a
-genuinely new phase takes **42** — 36–39 are monetization's forward items, 40 is the correction
-that settled the numbering, and 41 retired the caption clobber into 33. **This line disagreed with
-`roadmap-status.md` for a day** and a preflight gate caught it: the queue still said 36 was free
-after the roadmap had taken 36–39. The roadmap is the source and this line follows it — measure it
-there rather than trusting this one.
+you can do, and follow-ups the work itself turned up. **The highest number used is 42**, so a
+genuinely new phase takes **43** — 36–39 are monetization's forward items, 40 settled the
+numbering, 41 retired the caption clobber into 33, and 42 iceboxed guardian invites. **This line
+disagreed with `roadmap-status.md` for a day** and a preflight gate caught it: the queue still said
+36 was free after the roadmap had taken 36–39. The roadmap is the source and this line follows it —
+measure it there rather than trusting this one.
 
 ---
 
@@ -109,14 +109,6 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
-- **Per-entry visibility — designed Aug 14, built with 30.** All three questions are answered in
-  `docs/decisions.md` and the column is specified in `docs/data-model.md`: per-entry with a
-  per-kind default, a viewer sees everything not marked private, and a seal is a separate axis.
-  **Nothing is built and nothing should be** until a route can create a `viewer` row — the
-  migration and the `child_access("viewer")` filter belong to 30, which is where they have a
-  consumer.
-- **30 — Guardian invites + viewer role.** No route can create a `viewer` row today, so it is
-  enforced code nothing can enter. Needs the visibility design above first.
 - **Check Tinybeans Group's ASX announcements quarterly (ticker TNY).** It is the only competitor whose product roadmap is legally required to be public, and the Qeepsake acquisition release announced an AI-prompt, voice-and-video, transcription-searchable journaling roadmap — which is this product's feature set. Whether that ships is the single most decision-relevant external fact available, and it arrives on a schedule rather than needing to be dug for.
 - **Re-measure `mission`'s pool health.** Phase 25 took the untagged photo pool from 20 to 40, so
   the relaxation date in `mission-library.md` is stale by arithmetic. One call to
@@ -132,17 +124,17 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   **It also inherits the caption clobber** — a queue line of its own until Aug 16, now on 33's row
   and in §9, where the three call sites and the reason it cannot be fixed early are written out.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
-- **34 — Membership billing / costs. Partly decided Aug 15, and two questions are still open.**
-  Settled in `decisions.md`: a subscription with a free tier, one price for the whole family,
-  StoreKit/IAP, unit economics measured before any price is set, and a lapse that runs 90 days of
-  grace — missions and questions still work, no new media — then a recoverable year in cold
-  storage, then deletion. **Still open, and both block building it:** (1) whether a family can
-  *export* during that cold year without paying — my recommendation is yes, since `decisions.md`
-  already holds that "an export you cannot read is not a backup", and this is the moment a backup
-  matters most; (2) what the free tier caps — the recommendation is **media storage**, because it
-  is the real cost driver and because it is the same line the grace period already draws, leaving
-  prompts and text entries uncapped so the daily habit is never what stops.
-  **Nothing should be built until those two are answered** — both change the schema.
+- **34 — Membership billing / costs. Fully decided; it is D1–D6 and phases 36–39 now.** ~~Two
+  questions still open.~~ **Both were answered the same day this line was written, and the line
+  never caught up** — corrected by 42 on Aug 16. (1) *Export during the cold year without paying*
+  is **yes**: D2 says the export is "always free and complete", and D3a puts a one-click free
+  export link inside every deletion warning. (2) *What the free tier caps* is **media**, exactly
+  the shape the open question recommended: D2 caps photos at 100 lifetime and leaves every prompt,
+  all text and all `did_it` entries uncapped. Its "then deletion" summary is also superseded — D3
+  deletes **media only, never text**, on two computed clocks. **Nothing here blocks anything.** The
+  real gate is `blocked.md` §10 and it is an account action: Small Business Program enrollment and
+  the subscription products in App Store Connect, both yours. §10 also records that **38 needs no
+  Apple account at all.**
 - **auth — credential linking.** Do this before Google sign-in, or Google mints second,
   disconnected `users` rows.
 - **auth — `aud` allowlist.** One line at `services/apple.py:89` once `config.py:70` parses a list.
@@ -150,6 +142,34 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 - **auth — Apple revocation, server-to-server.** Client half shipped and works; no route exists, so
   revoking while the app is closed leaves the session alive until the refresh token expires.
 - **auth — Google sign-in.** Zero code. Gated on credential linking.
+
+## Iceboxed
+
+**Not rejected and not scheduled.** The section below is for things the owner has decided against
+doing *for now*, which is a different answer from the one "Deliberately not doing" records — those
+are settled no's. Anything here can come back without relitigating it, and the note says what it
+would cost to restart.
+
+- **30 — Guardian invites and the `viewer` role, and per-entry visibility with it.** Owner's call,
+  Aug 16, 2026: *not for a while.* **Nothing has to be unwound**, which is why this is cheap to
+  park — `visibility` is specified in `data-model.md` and was never migrated, so there is no column
+  on `entries`, no filter in `deps.py` and no dead code anywhere. The design is not lost either:
+  the three answers are settled in `decisions.md` and the column is specified down to its default,
+  so restarting is a build against a finished spec rather than a fresh design. **The `viewer` role
+  in the schema stays** — it has been in `guardians.role` since `0001` and is enforced by
+  `child_access`; what does not exist is any route that can create one, which is exactly the state
+  this has always been in. Nothing regresses by leaving it there.
+- **Per-entry visibility — the build, not the design.** Iced with 30 above, because it has no other
+  consumer. `decisions.md` is unchanged and stays authoritative for when it returns: per-entry with
+  a per-kind default, a viewer sees everything not marked private, a seal is a separate axis.
+  **The reason it was designed before being scheduled still holds** — a visibility model retrofitted
+  onto an archive that already has guardians is a migration over user content, so having it settled
+  in advance is worth more now than it was when nothing was iceboxed.
+
+**36 is deliberately still in the build queue**, and the distinction is worth stating because the
+two phases overlap. 30 was *grandparents as read-only viewers*. 36 is a **second parent** becoming
+a full guardian, which is what D4's "one price for the whole household" is sold on — a different
+need with a different consumer. If that should ice too, say so and it moves here in a line.
 
 ## Deliberately not doing
 
