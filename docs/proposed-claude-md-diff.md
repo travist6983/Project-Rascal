@@ -25,12 +25,21 @@ search, thumbnail or transcode pipelines,
 LLM prompt generation, the guardian invite flow, the admin prompt review queue, a web
 frontend, multi-kid UI concerns, observability beyond structured logging.
 
-**Rate limiting is out of scope behind a bearer token, and required in front of one.** A
-signed-in parent hammering their own archive is a support conversation, not an attack. An
-unauthenticated endpoint is a different thing: `POST /auth/email/start` sends mail to an
-address a stranger chose, and the only place that can be limited is here — an edge limiter
-cannot see the address, because it is inside the request body. In-app and Postgres-backed;
-there is more than one Fly machine, so an in-memory counter is per-process theatre.
+**Rate limiting is out of scope for routes that only touch the caller's own data, and
+required for any route that can reach somebody else.** A signed-in parent hammering their
+own archive is a support conversation, not an attack.
+
+Two routes qualify, and the second is the reason this is not simply "unauthenticated
+endpoints". `POST /auth/email/start` is unauthenticated and mails an address a stranger
+chose. `POST /me/credentials/email` is *authenticated* and mails an address the account does
+not own and has not proved anything about — so without a limit, anyone who can create a free
+account can use it, and our sending reputation, to mail a stranger repeatedly.
+
+The limit lives in the app rather than at the edge because an edge limiter cannot see the
+address: it is inside the request body. It is Postgres-backed because there is more than one
+Fly machine, so an in-memory counter is per-process theatre. And the client address comes
+from `Fly-Client-IP` rather than the socket peer, which behind the proxy is the same value
+for every request on the internet.
 ```
 
 ## Why the distinction rather than deleting the line
