@@ -8,7 +8,9 @@ stays short. If a line stops being true, delete it — a queue that carries fini
 exact failure `roadmap-status.md` has now made six revisions running.
 
 Synced with `roadmap-status.md` at **Aug 16, 2026 (second pass)**. **The highest number used is
-58**, so a genuinely new phase takes **59** — and the auth bundle took 51–58.
+59**, so a genuinely new phase takes **60** — the auth bundle took 51–58 and the
+universal-link surface took 59. All of it merged on Aug 16, 2026 (PRs #99, #100, #101) and is
+live in production.
 
 > **This header has now been wrong twice in two days, and the second time was worse.** It said
 > *"the highest number used is 46, so a genuinely new phase takes 47"* while line 121 of this
@@ -169,22 +171,23 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   real gate is `blocked.md` §10 and it is an account action: Small Business Program enrollment and
   the subscription products in App Store Connect, both yours. §10 also records that **38 needs no
   Apple account at all.**
-- **auth — the API half is done: 51, 52, 53, 54, 56, 57.** The `aud` allowlist, credential
-  linking, Apple's server-to-server notifications, Google's verifier, the mailer and magic-link
-  sign-in all shipped Aug 16, 2026. **Two things are left and neither is a coding decision.**
-- **55 — Google sign-in on the phone. Blocked on you**, and it is an account action rather than
-  a build: there is no Google Cloud project, so `GOOGLE_CLIENT_IDS` has no value and a button
-  built against a client id that does not exist cannot work. `blocked.md` §12 has the steps.
-  The library-vs-no-library decision is already made and recorded there —
-  `ASWebAuthenticationSession` + PKCE, no SPM dependency.
-- **58 — the magic link on the phone.** Not blocked on a decision. The Settings credentials
-  list, universal-link handling, and the copy rules. **The universal link needs a deploy, not a
-  decision**: an `applinks` entitlement on the app and an `apple-app-site-association` served
-  from the API host.
-- **Run `blocked.md` §11 — Apple's `sub` across a revoke.** Phase 53 is built and its central
-  assumption has never been observed. **If the `sub` changes, the design is wrong rather than
-  buggy**, and that is worth knowing before anything tells a parent that removing the app is
-  reversible.
+- ~~**auth — the whole bundle.**~~ **Shipped and merged Aug 16, 2026: 51, 52, 53, 54, 55, 56,
+  57, 58, 59.** Both lanes, deployed, and verified against production rather than against the
+  deploy's green tick — routes answer, migrations are at `0013`, the association file serves
+  with the right `appID`, `GOOGLE_CLIENT_IDS` took, and dev-login still 404s.
+- **Run `blocked.md` §11 — Apple's `sub` across a revoke. Still the sharpest thing on this
+  list.** Phase 53 is live and its central assumption has never once been observed: that
+  Apple's `sub` survives a revoke-and-reauthorize cycle. **All nineteen of its tests pass
+  whether or not it holds**, so nothing in CI can tell you. If it changes, the recoverability
+  design is wrong rather than buggy — and that is worth knowing before anything tells a parent
+  that removing the app is reversible.
+- **Nothing in the auth bundle has run on a phone**, and it cannot until there is a TestFlight
+  build: `ios.yml` has no archive, signing or upload step, and the only identity on the build
+  machine is `Apple Development`. Google sign-in has never been attempted against real Google,
+  no magic link has ever been tapped, and no Dynamic Type XXL screenshots exist for either
+  screen. **Merged and invisible** is the honest description.
+- **No real email has ever been sent.** `MAIL_PROVIDER` is `console` everywhere; Postmark has
+  never been called, so the magic link is proven as logic and unproven as mail.
 
 ## Iceboxed
 

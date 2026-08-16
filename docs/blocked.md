@@ -1556,7 +1556,28 @@ real Apple ID, which is the same reason the twelve device-verification checklist
 
 ---
 
-## §12 — Google sign-in has no client id, so phase 55 cannot be built (Aug 16, 2026)
+## ~~§12 — Google sign-in has no client id, so phase 55 cannot be built~~ — RESOLVED Aug 16, 2026
+
+**Closed the same day it was written.** The owner created the Google Cloud project and the iOS
+OAuth client; `GOOGLE_CLIENT_IDS` is set on Fly and applied on the phase-54 deploy. The client
+id is wired into `.env`, `.env.example` and both xcconfigs, and phase 55 shipped against it.
+
+**Verified in production by the check this section prescribed**, which is the useful part:
+`POST /v1/auth/google` with a junk token answers `401 unauthenticated` — *"Google identity
+token is malformed"* — rather than `422 … GOOGLE_CLIENT_IDS is unset`. The message no longer
+names the setting, which is how you know the setting took.
+
+- [x] Project created
+- [x] Consent screen configured, `openid email profile` only
+- [x] iOS OAuth client id created
+- [x] `GOOGLE_CLIENT_IDS` set on Fly
+- [x] `POST /v1/auth/google` returns `401` rather than `422`
+
+**What is still unverified, and it is not a credential problem:** no Google sign-in has ever
+been attempted against real Google from a real device, because there is no TestFlight build
+path. The original section is kept below for the reasoning and the steps.
+
+### The original entry
 
 **The server half shipped as phase 54 and works. The phone half cannot be started**, and the
 reason is an account action rather than a design question.

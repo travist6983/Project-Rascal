@@ -2904,3 +2904,77 @@ reads correctly in isolation.
 **Break-tested five ways**, including the one the plan named: removing the never-creates-a-user
 guard, making tokens replayable, letting a sign-in link reactivate a removed address, activating
 an address without a click, and dropping the per-email limiter.
+
+* * *
+
+## Aug 16, 2026 — the pre-merge security review of phases 51–59
+
+**Six reviewers over three PRs, 18 findings, 14 fixed, two of them critical.** Recorded here
+because the findings are more instructive than the fixes, and because two of them are mistakes
+worth not repeating rather than bugs worth forgetting.
+
+**The two criticals were both silent, and both were mine.**
+
+*Remove did not mean removed.* An `email` credential is created inactive while its verification
+link sits in an inbox, and `revoke_credential` returned early on "already revoked" — so removing
+a pending address was a no-op that left the link live. A parent who mistyped an address, noticed,
+and removed it was still handing whoever holds that inbox a working session on their child's
+archive. **The early return was written as a kindness** — "the state the caller asked for is the
+state that holds" — and it was the hole.
+
+*The per-IP rate limit was one bucket for the internet.* It keyed on `request.client.host`, which
+behind Fly's proxy is the proxy. Twenty requests an hour from anywhere would have locked every
+parent out of magic-link sign-in: **the protection as the denial of service**. The fix reads
+`Fly-Client-IP` and deliberately does *not* trust `X-Forwarded-For`, which a caller can forge to
+mint a fresh bucket per request — the opposite failure, and the quieter one.
+
+**The most valuable single outcome was a break-test exposing a decorative test.** Pooling Apple's
+and Google's audience lists — the exact bug the separation exists to prevent — passed all 24
+Google tests. The cross-provider test dies on the *signature*, because the two stubs use
+different keys, so the audience check is never reached. It asserted the right outcome for the
+wrong reason and would have gone on doing so forever. There is now a test that signs with
+Google's key and puts Apple's audience in `aud`, where only the audience check can reject it.
+**A test that passes for the wrong reason is worse than no test, because it is counted.**
+
+**A design inconsistency turned out to be the tell for a leak.** `POST /me/credentials/email`
+answered `409 credential_in_use` when an address belonged to another account — an enumeration
+oracle reachable by anyone who can create a free account. What made it obvious was not the
+threat model but the inconsistency: `POST /auth/email/start` already refuses that exact question
+about that exact address with an unconditional `202`. Two endpoints, one question, two answers.
+**Where two endpoints disagree about how much to say, the quieter one is usually the considered
+position and the louder one is usually an oversight.**
+
+**Three findings were about concurrency and all three had the same shape** — check-then-act. The
+rate limiter counted before inserting; `revoke_credential` counted live credentials before
+writing; `user_for_credential` flushed the user outside the savepoint. Each is correct against
+serialised traffic and wrong against exactly the burst it exists to handle. The fixes are the
+same shape too: do the write first and let the constraint arbitrate, or re-test the population
+in the `WHERE`.
+
+**One fix introduced a bug that was caught before shipping**, and it is recorded because the
+near-miss is the lesson. Making the rate-limit sweep global — correct, since a bucket nobody
+queries again keeps its rows forever — initially pruned everything older than *the current
+call's* window. No limiter with a longer window exists today, so it was latent; it would have
+started deleting live rows the day one did. It prunes against a fixed `MAX_RETENTION` now.
+
+**Two assertions were changed, which is the one place in this work that happened.** Both encoded
+the `409` contract that the oracle fix deliberately removed. They were rewritten to assert the
+property that replaced it — a conflicting add and a fresh add are indistinguishable in status
+and body, and the conflicting one writes no row and sends no link — rather than relaxed to pass.
+**The distinction that makes it legitimate is that the behaviour changed first, for a stated
+reason, and the test was rewritten to pin the new behaviour.**
+
+**The client copy got worse on purpose.** The credentials sheet could previously say "that
+address already signs in to a different account"; repeating the server's answer would have put
+the leak straight back on screen. It says the same sentence in every case now. A parent who
+mistypes into a colleague's address sees a link that never arrives, which the footer states
+outright — a real cost, accepted, because the alternative told a stranger something about
+somebody else's account.
+
+**Verification honesty about the review itself.** The six reviewers ran on Opus 5; the
+independent verification pass did not run, because the workflow hit a spend limit with 21
+verification agents still queued. Every finding acted on was therefore confirmed by hand against
+the code rather than by a second model. Four lower-severity findings were fixed on that basis in
+a follow-up commit. **The subagents had also silently defaulted to a smaller model on the first
+attempt** — caught by the owner, not by me, after I asserted they would inherit the session
+model without checking. Assert nothing about what a tool resolved; read it back.
