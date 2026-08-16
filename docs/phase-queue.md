@@ -7,14 +7,15 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 15, 2026**. Everything in scope has shipped: 24, 25, 27,
+Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 40**, so a
-genuinely new phase takes **41** — 36–39 are monetization's forward items and 40 is the correction
-that settled this. **This line disagreed with `roadmap-status.md` for a day** and a preflight gate
-caught it: the queue still said 36 was free after the roadmap had taken 36–39. The roadmap is the
-source and this line follows it — measure it there rather than trusting this one.
+you can do, and follow-ups the work itself turned up. **The highest number used is 41**, so a
+genuinely new phase takes **42** — 36–39 are monetization's forward items, 40 is the correction
+that settled the numbering, and 41 retired the caption clobber into 33. **This line disagreed with
+`roadmap-status.md` for a day** and a preflight gate caught it: the queue still said 36 was free
+after the roadmap had taken 36–39. The roadmap is the source and this line follows it — measure it
+there rather than trusting this one.
 
 ---
 
@@ -108,13 +109,6 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
-- **The caption clobber is latent, and stays that way until 33.** `Media.applyServerResponse`
-  writes `caption = summary.caption ?? caption` *outside* the `!hasUnpushedTranscript` guard, and
-  `SyncEngine.hasUnpushedChanges` knows only about transcripts — the Aug 9 transcript defect,
-  pre-installed on this field. **Decided Aug 15: leave it.** Nothing on the device writes a
-  caption, so there is nothing for a server response to overwrite, and the real fix needs the
-  caption state ladder — which is a SwiftData migration on every media row for a feature that may
-  never ship. It lands with 33, not before.
 - **Per-entry visibility — designed Aug 14, built with 30.** All three questions are answered in
   `docs/decisions.md` and the column is specified in `docs/data-model.md`: per-entry with a
   per-kind default, a viewer sees everything not marked private, and a seal is a separate axis.
@@ -135,6 +129,8 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   because they diverge, which is the stronger argument. **Do not land the seam ahead of the API**:
   its state ladder is a SwiftData migration on every media row for a feature that may never ship,
   and a Settings row that permanently reads "0 waiting" is the furniture this app refuses.
+  **It also inherits the caption clobber** — a queue line of its own until Aug 16, now on 33's row
+  and in §9, where the three call sites and the reason it cannot be fixed early are written out.
 - **32 — Year One book.** Nothing started. All five of its own problems are untouched.
 - **34 — Membership billing / costs. Partly decided Aug 15, and two questions are still open.**
   Settled in `decisions.md`: a subscription with a free tier, one price for the whole family,

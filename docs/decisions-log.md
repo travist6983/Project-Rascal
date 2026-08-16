@@ -2301,3 +2301,47 @@ entire markup ours to set. Price derives from page count and is computed server-
 checkout, because that number becomes money. And the annual book is curated rather than exhaustive:
 ten photos a day for a year is 3,650 photos, no book holds that, so the export flow needs a
 selection step — which bounds the price and makes a better object than a complete one would be.
+
+## Aug 16, 2026 — Phase 41: the caption clobber, retired into 33
+
+**This closes a queue line rather than fixing a defect.** The Aug 15 decision above — *"the caption
+clobber stays until 33"* — was the owner's and it stands unchanged. What was left was that
+`phase-queue.md` went on carrying it as an open build item, which is precisely the failure that
+file's own header names: *"a queue that carries finished work"*. A decision to defer something is a
+finished piece of work. The line is gone and the defect now lives on 33's roadmap row and in
+`blocked.md` §9.
+
+**The line named a method that does not exist, and that is the part worth recording.** It said
+`Media.applyServerResponse`. There is no such method. `applyServerResponse` is on `Entry`, where it
+folds an entry write's acknowledgement and never touches a caption; the caption write is
+`Media.applyServerSummary`, at `Media.swift:210`. **A wrong symbol in a deferred-defect note is
+worse than a vague one** — it survives being re-read, sends whoever finally acts on it into the
+wrong file, and a deferral is by definition read later by someone who was not there. Corrected
+everywhere it appears, with line numbers, on the theory that a note nobody can act on was not
+really written down.
+
+**The "it is inert" premise was re-verified against the tree rather than carried forward on
+trust**, because that premise is the entire justification for deferring. It holds: `Media.caption`
+has exactly one writer in the whole application and it is that same server-fold line, and
+`RascalAPI.writeDerived` sends the transcript alone and says at `RascalAPI.swift:267` that caption
+and tags are deliberately not sent. There is no producer, so there is nothing to overwrite.
+
+**Why it genuinely cannot be fixed early, stated once so it is not re-proposed.** A guard has to
+ask whether a local caption is unpushed, which requires a caption sync state on the row, which is a
+SwiftData migration over every media row — the same migration phase 33 needs regardless. Guarding
+now would add a schema change and a migration crash surface to protect a writer that does not
+exist. The fix is a two-line change *inside* a phase that has to happen anyway, not a phase of its
+own.
+
+**One thing the queue line did not say and §9 now does:** `SyncEngine.differs(_:from:)`
+(`SyncEngine.swift:633`) must be changed in the same commit. Its doc comment promises it *"mirrors
+`applyServerSummary` exactly"*, and it currently compares captions unguarded because the writer
+does. Fix one without the other and the sync dry-run report starts disagreeing with what the pull
+actually does — a divergence that reports phantom updates and is far harder to find than the
+original.
+
+**It was deliberately not added to `.claude/review-history/false-positives.json`.** That file's
+README draws the line exactly here: suppress a finding that was *wrong*, never one that was right
+and deferred, *"because suppressing it hides it from every future review, including the one before
+the release that ships it."* A future reviewer flagging `Media.swift:210` is the system working.
+The answer is that it is known, deferred and documented — not that it is a false positive.
