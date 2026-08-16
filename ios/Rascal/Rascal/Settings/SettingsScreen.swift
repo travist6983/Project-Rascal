@@ -86,6 +86,7 @@ struct SettingsScreen: View {
     @State private var syncStatus: SyncStatusModel?
     /// Pushes the diagnostics screen. See `diagnosticsScreen`.
     @State private var showingDiagnostics = false
+    @State private var showingCaptionProbe = false
 
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
@@ -101,6 +102,7 @@ struct SettingsScreen: View {
         NavigationStack {
             content
                 .navigationDestination(isPresented: $showingDiagnostics) { diagnosticsScreen }
+                .navigationDestination(isPresented: $showingCaptionProbe) { CaptionProbeScreen() }
                 .toolbar(.hidden, for: .navigationBar)
         }
     }
@@ -451,6 +453,13 @@ struct SettingsScreen: View {
                     SettingsDivider()
                     SettingsRow(label: "Sync diagnostics") { showingDiagnostics = true }
                 }
+                // **A measurement, not a feature, and it is here because it has to run on a real
+                // phone.** Phase 33's device half rests on whether photos already carry written
+                // descriptions, and nobody has counted. It cannot live behind `#if DEBUG` — the
+                // only place with a real camera roll is a TestFlight build, which is a release
+                // configuration. It goes when the number is known: see `CaptionProbe`.
+                SettingsDivider()
+                SettingsRow(label: "Photo caption check") { showingCaptionProbe = true }
             }
         }
     }
