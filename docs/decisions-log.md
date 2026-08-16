@@ -2345,3 +2345,58 @@ README draws the line exactly here: suppress a finding that was *wrong*, never o
 and deferred, *"because suppressing it hides it from every future review, including the one before
 the release that ships it."* A future reviewer flagging `Media.swift:210` is the system working.
 The answer is that it is known, deferred and documented — not that it is a false positive.
+
+## Aug 16, 2026 — Phase 42: guardian invites iceboxed, and 34's false blocker
+
+**Owner's call: guardian invites and the `viewer` role are not for a while.** Recorded as a
+deferral, not a rejection, and the difference is the whole reason this needed a phase rather than a
+line deletion. `phase-queue.md` had exactly two terminal states — the build queue, and *"Deliberately
+not doing"*, whose own header says **delete nothing here without a decision to go with it**. Filing
+a *not yet* under a heading that means *settled no* would have destroyed the distinction, and the
+next reader would have found grandparent invites sitting beside paper grain, which is rejected
+permanently and for unrelated reasons. So there is now an `Iceboxed` section, and it says what each
+item would cost to restart.
+
+**The icebox is free, and it is worth recording why.** `visibility` was specified in `data-model.md`
+and **never migrated** — no column on `entries`, no filter in `deps.py`, no dead code, nothing
+half-built to maintain or unwind. The `viewer` value stays in `guardians.role`, where it has been
+since `0001` and where `child_access` already enforces it; what has never existed is a route that
+can create one. That is precisely the state the project has always been in, so leaving it there
+regresses nothing.
+
+**The Aug 12 decision to design it before scheduling it is now paying off, which is not the
+outcome it was defended on.** It was argued as hazard avoidance — a visibility model retrofitted
+onto an archive that already has guardians is a migration over user content. It turns out to also
+be what makes the icebox cheap: the three answers are settled and the column is specified down to
+its default, so a restart is a build against a finished spec. **Had the work been deferred as
+undesigned, parking it would have parked the design too**, and the restart would have begun with
+the argument rather than the migration. Both `decisions.md` rows are kept and annotated rather than
+struck, for that reason.
+
+**36 was deliberately left in the build queue, and the overlap is now stated instead of latent.**
+30 and 36 both read as "guardian invites" and were written eleven days apart without being
+reconciled. They are not the same need: **30 was grandparents as read-only viewers; 36 is a second
+parent becoming a full guardian**, which is what D4's one-price-per-household is sold on. Icing 30
+does not touch D4. If 36 should ice too that is one line, but it was not assumed.
+
+### 34's blocker was false, and had been since the day it was written
+
+**The line said two open questions blocked the phase and that "nothing should be built until those
+two are answered". Both were answered in `decisions.md` on the same day, in the same PR.**
+
+- *Can a family export during the cold-storage year without paying?* **Yes.** D2: the export is
+  "always free and complete". D3a puts a one-click free export link inside every deletion warning —
+  which is the moment the question was actually about.
+- *What does the free tier cap?* **Media**, which is the exact shape the open question recommended.
+  D2 caps photos at 100 lifetime and leaves every prompt, all text and all `did_it` entries
+  uncapped, so the daily habit is never what stops.
+
+Its summary of the lapse — *"then deletion"* — was superseded the same day too: D3 deletes **media
+only and never text**, on two computed clocks.
+
+**A queue line that invents a blocker is worse than one that goes stale on a fact.** A stale fact
+gets corrected the next time somebody reads it; a false blocker stops the work and looks like
+diligence while doing it. This one recommended answers, got them hours later in a document it
+names as authoritative, and went on telling every future reader to stop. The real gate on 34 was
+never a decision — it is `blocked.md` §10, an account action, and §10 also records that **38 needs
+no Apple account at all**, which the queue never surfaced.

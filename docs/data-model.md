@@ -282,6 +282,14 @@ because the invite phase should not also be the phase that invents the model. Wr
 from the kind default from the day it lands; read paths filter on it when there is a role that
 needs filtering.
 
+**The column is not in the database, and after Aug 16, 2026 it will not be for a while.** Phase 30
+was iceboxed by the owner and this spec was iced with it, having no other consumer — so there is no
+migration, no column on `entries`, and no code reading or writing it. **This section is a
+specification, not a description of the schema**, which is the one way a reader could be misled by
+it; everything else in this file describes tables that exist. It stays here rather than moving to a
+scratch document because the reason it was written early is unchanged: retrofitting visibility onto
+an archive that already has guardians is a migration over user content.
+
 **`unlock_at_age`** — nullable, and impossible to retrofit cleanly at 500 entries. Letters written *to* him — the money letter, the who-you-are-right-now letter — set this. Everything else leaves it null.
 
 **`completion_mode` on prompts** — this is what keeps "never let go of a hug first" a legitimate mission. Any schema that requires media for completion loses half the product.
