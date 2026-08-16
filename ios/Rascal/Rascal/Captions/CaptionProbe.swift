@@ -20,7 +20,11 @@ import Photos
 /// comes back worth building on, the writer belongs in a phase with a caption state ladder, a
 /// provenance distinction and the clobber guard that comes with having a writer at all — see
 /// `docs/decisions.md`. If it comes back near zero, this file is deleted and 33 closes.
-enum CaptionProbe {
+/// `nonisolated` because the work happens off the main actor. The project builds with
+/// main-actor-by-default isolation, so without this every static member here — the ceilings,
+/// `caption(at:)`, and `Report`'s memberwise init — is `@MainActor`, and the detached task in
+/// `run()` cannot touch any of them. Same reason `ExtractedDetails` carries it.
+nonisolated enum CaptionProbe {
     /// What the probe found. Plain data, so the report view holds no PhotoKit objects.
     struct Report: Equatable, Sendable {
         /// Photos considered — on-device images, newest first, up to `sampleCeiling`.
@@ -159,7 +163,7 @@ enum CaptionProbe {
 /// resumed twice is a crash rather than a warning. PhotoKit has form here — the same guard exists
 /// in `BackfillScanner` for `requestImageDataAndOrientation`, which *does* call back twice when
 /// it serves a degraded image first.
-private final class ResumeOnce: @unchecked Sendable {
+private nonisolated final class ResumeOnce: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<URL?, Never>?
 

@@ -76,7 +76,10 @@ nonisolated struct ExtractedDetails: Equatable, Sendable {
     var isEmpty: Bool { writableTagNames.isEmpty }
 }
 
-private extension String {
+/// `nonisolated` for the same reason every type in this file carries it: main-actor-by-default
+/// isolation makes an unmarked extension member `@MainActor`, and `normalized()` — which is
+/// `nonisolated`, because `ExtractedDetails` is — then cannot call it. Three warnings, one word.
+private nonisolated extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
