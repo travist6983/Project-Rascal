@@ -90,9 +90,9 @@ struct SettingsScreen: View {
 
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
-    private enum Route: Identifiable {
-        case editChild, editProfile
-        var id: Int { self == .editChild ? 0 : 1 }
+    private enum Route: Identifiable, Hashable {
+        case editChild, editProfile, credentials
+        var id: Int { hashValue }
     }
 
     var body: some View {
@@ -200,6 +200,8 @@ struct SettingsScreen: View {
                         apply(updated)
                     }
                 }
+            case .credentials:
+                CredentialsSheet(model: CredentialsModel(api: session.api))
             case .editProfile:
                 EditProfileSheet(
                     model: EditProfileModel(
@@ -303,6 +305,12 @@ struct SettingsScreen: View {
                     label: "Email",
                     value: session.user?.email ?? EditProfileModel.absentEmail
                 )
+                SettingsDivider()
+                // The ways into this archive. Deliberately in "You" rather than under
+                // `Advanced`: adding a second sign-in method is the difference between an
+                // archive one lost Apple ID ends and one that survives it, which is not an
+                // advanced concern.
+                SettingsRow(label: "Signing in") { route = .credentials }
             }
         }
     }

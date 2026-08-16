@@ -303,6 +303,83 @@ final class OnboardingSession {
         }
     }
 
+    /// Sign in with Google.
+    ///
+    /// **Secondary to Apple by design, and separate from `exchange` on purpose.** There is no
+    /// held-payload retry here, because the thing that made one necessary for Apple does not
+    /// exist: Apple sends `fullName` exactly once per Apple ID ever, so a failed exchange loses
+    /// it forever and the only correct recovery is to resend the identical bytes. Google returns
+    /// its claims on every token, so a failure here is recovered by simply signing in again —
+    /// and a retry button that re-prompted Apple would have been the bug, not the feature.
+    ///
+    /// Cancelling is silent. Someone who closed the sheet said no, and the app does not argue.
+    func signInWithGoogle(using flow: GoogleSignInFlow) async {
+        guard !isWorking else { return }
+        isWorking = true
+        notice = nil
+        defer { isWorking = false }
+
+        do {
+            let exchange = try await flow.run()
+            let session = try await account.api.signInWithGoogle(exchange)
+            account.apply(user: session.user)
+            notifications.apply(user: session.user)
+            await resolveChild()
+        } catch GoogleSignInError.cancelled {
+            return
+        } catch let error as GoogleSignInError {
+            notice = Self.explainGoogle(error)
+        } catch let error as APIError {
+            notice = error.userMessage
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    /// Plain sentences, no blame, and never the raw error. Each one says what to do next.
+    private static func explainGoogle(_ error: GoogleSignInError) -> String {
+        switch error {
+        case .cancelled:
+            ""
+        case .notConfigured:
+            "Google sign-in isn't set up in this build."
+        case .stateMismatch:
+            // Genuinely suspicious rather than merely broken, so it does not invite a retry loop.
+            "That sign-in didn't come back the way it went out. Try again."
+        case .noAuthorizationCode, .noIdentityToken:
+            "Google didn't send back what we needed. Try again."
+        case .transport:
+            "Couldn't reach Google just now. Try again in a moment."
+        }
+    }
+
+    /// Finish a magic-link sign-in.
+    ///
+    /// **Reached with or without a session, and both are ordinary.** A parent signing in on a
+    /// new phone has none. A parent who just added the address from Settings has one, and this
+    /// is the click that verifies it — the server treats verifying a new address and signing in
+    /// with an old one as the same act, because both are proof of reading the inbox.
+    ///
+    /// A spent or expired link is a plain sentence saying to ask for another, never an error
+    /// screen: the link expiring after fifteen minutes is the design working.
+    func completeEmailSignIn(token: String) async {
+        guard !isWorking else { return }
+        isWorking = true
+        notice = nil
+        defer { isWorking = false }
+
+        do {
+            let session = try await account.api.completeEmailSignIn(token: token)
+            account.apply(user: session.user)
+            notifications.apply(user: session.user)
+            await resolveChild()
+        } catch let error as APIError {
+            notice = error.userMessage
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
     /// Local development login. **Debug builds only.**
     ///
     /// Reachable from the welcome screen because Sign in with Apple needs an Apple Developer
@@ -750,6 +827,15 @@ struct OnboardingGate: View {
             .task { await session.refreshChildren() }
         }
         .onOpenURL { url in
+            // **A magic link is checked first, and it is a different kind of URL.** The widget's
+            // is a custom scheme that only ever arrives at an app already signed in; this one is
+            // an `https://` universal link whose whole job is to *get* somebody signed in, so it
+            // has to be handled even when there is no session — which is exactly the state the
+            // widget path assumes it is never in.
+            if let link = SignInLink.parse(url) {
+                Task { await session.completeEmailSignIn(token: link.token) }
+                return
+            }
             pendingLink = WidgetDeepLink.parse(url)
         }
         // A tapped notification arrives through the delegate rather than as a URL, so it lands in

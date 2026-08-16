@@ -17,6 +17,14 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<!-- Universal links for the magic link. The app claims exactly one path on this host,
+	     /signin, and the API serves the matching apple-app-site-association from
+	     /.well-known/. Both halves have to agree and nothing checks them at build time — if
+	     either is wrong the link opens Safari with no error reported anywhere. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:rascal-api.fly.dev</string>
+	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.travisterry.childarchive</string>

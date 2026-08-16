@@ -63,3 +63,18 @@ INFOPLIST_FILE[config=Debug] = Info-Debug.plist
 // Apple does not already know. A target setting beats an xcconfig, so GENERATE_INFOPLIST_FILE
 // is turned off in project.pbxproj rather than here.
 GENERATE_INFOPLIST_FILE = NO
+
+// -- Google sign-in (phase 55) -------------------------------------------------------------
+
+// Not a secret: an iOS OAuth client is a *public* client — Google issues no client secret for
+// it, which is exactly why the flow is PKCE — and this string ships inside every copy of the
+// app. It is here rather than hardcoded for the same reason API_HOST is: pointing the app at a
+// different Google project is a config change, never a code change.
+GOOGLE_CLIENT_ID = 22574619282-vs702oo01a8vne7tsbc6h3ilk6a0sje6.apps.googleusercontent.com
+
+// The OAuth callback comes back on the *reversed* client id as a custom URL scheme, so this
+// has to be registered in Info.plist's CFBundleURLSchemes. It is derived from the value above
+// and must be kept in step with it — Google's own downloaded plist lists both for this reason.
+// No "//" appears in either value, so neither trips the xcconfig comment parser the API_SCHEME
+// note above describes.
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.22574619282-vs702oo01a8vne7tsbc6h3ilk6a0sje6

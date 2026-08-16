@@ -347,6 +347,45 @@ actor APIClient {
         return session
     }
 
+    /// `POST /v1/auth/google` — exchange a Google `id_token` for a session.
+    ///
+    /// **This never links to an existing account, and that is the server's rule rather than an
+    /// omission here.** Nothing on either side matches a credential by email address, so a
+    /// parent who has been signing in with Apple and then signs in with Google lands in a
+    /// second, empty archive. Joining the two is `POST /me/credentials`, from inside a session
+    /// they are already holding — deliberate, explicit, and never inferred from a string.
+    ///
+    /// `display_name` is omitted rather than nulled, the same rule `signInWithApple` follows.
+    @discardableResult
+    func signInWithGoogle(_ exchange: GoogleExchange) async throws -> SessionResponse {
+        let session: SessionResponse = try await send(
+            .post, "v1/auth/google",
+            body: GoogleSignInRequest(
+                identityToken: exchange.identityToken,
+                displayName: exchange.displayName
+            ),
+            authenticated: false
+        )
+        tokens.save(TokenPair(accessToken: session.accessToken, refreshToken: session.refreshToken))
+        return session
+    }
+
+    /// `POST /v1/auth/email/complete` — turn a magic-link token into a session.
+    ///
+    /// Unauthenticated, because this is how a parent gets *in*. The same call also **verifies**
+    /// a newly added address: the server treats proving you can read an inbox and signing in
+    /// with it as the same act, so one endpoint serves both and the client needs no branch.
+    @discardableResult
+    func completeEmailSignIn(token: String) async throws -> SessionResponse {
+        let session: SessionResponse = try await send(
+            .post, "v1/auth/email/complete",
+            body: EmailSignInCompleteRequest(token: token),
+            authenticated: false
+        )
+        tokens.save(TokenPair(accessToken: session.accessToken, refreshToken: session.refreshToken))
+        return session
+    }
+
     func hasSession() -> Bool { tokens.load() != nil }
 
     func signOut() { tokens.clear() }
