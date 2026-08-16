@@ -259,8 +259,12 @@ is what the table above counts; the extra two either side are the seasonal promp
 to reach. Roughly doubles the runway before a repeat.
 **It stayed the right call rather than a tuning change**: nothing about cooldown or rotation
 moved. `estimated_days_until_first_repeat` is a projection
-from pool size, not a promise — theme rotation can relax a single pick earlier without the
-slot being exhausted.
+from pool size **and the rate the slot is observed to be served**, not a promise — theme rotation
+can relax a single pick earlier without the slot being exhausted. **Phase 50 corrected what it
+divides by**: it used to assume the nominal cadence, and for `mission` — nominally daily, actually
+served zero times a day — that produced a countdown to a repeat that could not happen. A slot
+nobody serves now reports `estimate_basis: not_observed` and no number, which is the answer any
+re-measurement of the relaxation date has to start from.
 
 `weekly` draws from the ten weekly prompts on Saturday; `monthly` draws from the four
 measurement and camera-roll prompts on the 1st; `letter` draws from the eight letters on the
