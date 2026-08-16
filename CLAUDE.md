@@ -83,3 +83,12 @@ frontend, multi-kid UI concerns, rate limiting, observability beyond structured 
 `cp .env.example .env && make up && make migrate && make seed && make test`. Judgment calls
 go in `docs/decisions-log.md`, one line each. Anything blocked on a credential goes in
 `docs/blocked.md`.
+
+**Every discrete unit of work gets a phase number, including docs-only work.** Numbers come from
+`docs/roadmap-status.md` and are **read from the file, never inferred** — not from memory, not by
+adding one to the highest integer in sight, and not from whatever a prompt happens to say.
+
+**A phase number is an identifier, not a position in a queue.** A lower number does not run first,
+and phases are executed in whatever order makes sense at the time. Nothing is renumbered or
+reordered to make the sequence read as an execution order. The existing collisions at 3, 11, 19 and
+20 stay exactly as they are.
