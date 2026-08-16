@@ -10,9 +10,10 @@ exact failure `roadmap-status.md` has now made six revisions running.
 Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 42**, so a
-genuinely new phase takes **43** — 36–39 are monetization's forward items, 40 settled the
-numbering, 41 retired the caption clobber into 33, and 42 iceboxed guardian invites. **This line
+you can do, and follow-ups the work itself turned up. **The highest number used is 43**, so a
+genuinely new phase takes **44** — 36–39 are monetization's forward items, 40 settled the
+numbering, 41 retired the caption clobber into 33, 42 iceboxed guardian invites, and 43 scoped
+the export by date. **This line
 disagreed with `roadmap-status.md` for a day** and a preflight gate caught it: the queue still said
 36 was free after the roadmap had taken 36–39. The roadmap is the source and this line follows it —
 measure it there rather than trusting this one.
@@ -123,7 +124,10 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   and a Settings row that permanently reads "0 waiting" is the furniture this app refuses.
   **It also inherits the caption clobber** — a queue line of its own until Aug 16, now on 33's row
   and in §9, where the three call sites and the reason it cannot be fixed early are written out.
-- **32 — Year One book.** Nothing started. All five of its own problems are untouched.
+- **32 — Year One book.** Year scoping closed with 43 on Aug 16; `GET /export` takes `from` and
+  `to`. **The other four problems are one problem** — print layout, PDF generation, QR
+  substitution and the playback surface all need a web client this API has never had. That is
+  the gate, and scoping did not move it.
 - **34 — Membership billing / costs. Fully decided; it is D1–D6 and phases 36–39 now.** ~~Two
   questions still open.~~ **Both were answered the same day this line was written, and the line
   never caught up** — corrected by 42 on Aug 16. (1) *Export during the cold year without paying*

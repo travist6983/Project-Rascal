@@ -49,6 +49,30 @@ def today_in(timezone: str, *, now: dt.datetime | None = None) -> dt.date:
     return local_date(now or dt.datetime.now(tz=dt.UTC), timezone)
 
 
+def local_day_window(
+    start: dt.date, end: dt.date, timezone: str
+) -> tuple[dt.datetime, dt.datetime]:
+    """UTC bounds for an inclusive range of calendar days in `timezone`, half-open.
+
+    Returns `[begins, ends)` — `begins` is local midnight on `start`, `ends` is local midnight
+    on the day *after* `end`. Half-open rather than `<=` on a computed end-of-day, because
+    23:59:59.999999 is a value an entry can legitimately have and a closed range drops it.
+
+    **Both bounds are instants, so the comparison stays sargable** and uses the existing
+    `(child_id, occurred_at desc)` index. Converting the column instead — `date(occurred_at
+    at time zone ...)` — is the version that reads naturally and cannot use an index.
+
+    DST is handled by the conversion rather than by arithmetic: local midnight is resolved in
+    the zone first and *then* mapped to UTC, so a range spanning a transition is 23 or 25
+    hours on that day and still lands exactly on the two midnights a person would name. Adding
+    a day to the UTC instant instead would be an hour off for half the year.
+    """
+    here = zone(timezone)
+    begins = dt.datetime.combine(start, dt.time.min, tzinfo=here)
+    ends = dt.datetime.combine(end + dt.timedelta(days=1), dt.time.min, tzinfo=here)
+    return begins.astimezone(dt.UTC), ends.astimezone(dt.UTC)
+
+
 def age_in_months(birthdate: dt.date, on: dt.date) -> int:
     """Completed months between a birthdate and a date. Never negative.
 

@@ -2400,3 +2400,48 @@ diligence while doing it. This one recommended answers, got them hours later in 
 names as authoritative, and went on telling every future reader to stop. The real gate on 34 was
 never a decision — it is `blocked.md` §10, an account action, and §10 also records that **38 needs
 no Apple account at all**, which the queue never surfaced.
+
+## Aug 16, 2026 — Phase 43: the export takes a date range
+
+**The endpoint took no parameters at all, so the archive was whole-or-nothing.** `from` and `to`
+are inclusive, either may stand alone, and omitting both is the previous behaviour exactly — every
+caller that predates this is untouched, including the iOS client, which was not edited and did not
+need to be.
+
+**The difficulty is the timezone, not the filter, and the filter is the part that looks like the
+work.** An entry logged at 8pm on Dec 31 in Detroit is stored as Jan 1 UTC. A range built from
+naive UTC dates files it in the following year — and for an annual book that is a mistake nobody
+catches until it is printed. The bounds are therefore half-open UTC instants derived from local
+midnights, which also keeps the predicate sargable on `(child_id, occurred_at desc)`; converting
+the column instead reads better and cannot use an index. The helper went into `services/dates.py`
+next to the one definition of "today", rather than into the export, because it is a statement about
+what a day *is* and this repo has exactly one of those.
+
+**The test that matters is a boundary test, and it was checked by breaking the code.** Two New
+Year's Eve entries, each stored on Jan 1 UTC and each belonging to the year before. Replacing the
+zone-aware window with a naive UTC one makes the 2025 export return the 2024 entry — verified by
+doing it, not by reasoning about it. A boundary test that passes against both implementations tests
+nothing, and this one was worth proving rather than assuming.
+
+**The real correctness work is the manifest, not the query.** A scoped zip and a whole one are
+otherwise identical in shape, and the viewer's masthead computes its year range from the entries
+that are present — so a one-year export renders as the complete archive of a child who has lived
+one year. Three things now prevent that: `manifest.scope` records what the zip is a copy of, the
+first line of `manifest.notes` is replaced (the complete export's *"contains every entry"* sentence
+is **false** in a partial archive and could not simply be kept alongside a new one), and the viewer
+banners it. **The gap before March has to read as a gap in the download, not a gap in the
+childhood** — that is the whole reason this feature needed more than a `WHERE` clause.
+
+**`scope` is absent from every archive exported before today, and absent means whole.** The viewer
+tests `complete === false` rather than `!complete` on purpose: `undefined` is falsy, so the loose
+version would stamp PARTIAL across every archive already downloaded. That is the one bug available
+here that rewrites history rather than the present, and it has a test naming it.
+
+**Scoping chooses days, never rows.** Soft-deleted entries inside the range come out exactly as
+they do from a whole export. Narrowing *which rows* on the scoped path only would have made the two
+paths disagree about what a copy of the archive is.
+
+**What this does not do.** It closes one of phase 32's five problems. The other four — print layout,
+PDF generation, QR substitution for A/V, and the playback surface those QRs resolve to — are all
+the same problem wearing four hats: a web client this API has never had. 32's gate did not move,
+and the queue now says so rather than implying progress.

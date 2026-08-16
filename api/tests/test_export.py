@@ -199,13 +199,23 @@ async def _archive(session: AsyncSession) -> dict:
     }
 
 
-async def _download(client: AsyncClient, world: dict):
+async def _download(client: AsyncClient, world: dict, **params: str):
     response = await client.get(
-        f"/v1/children/{world['child'].id}/export", headers=auth_headers(world["user"])
+        f"/v1/children/{world['child'].id}/export",
+        headers=auth_headers(world["user"]),
+        params=params or None,
     )
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
     return response
+
+
+def _entries_in(response) -> list[dict]:
+    return json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("entries.json"))
+
+
+def _manifest_in(response) -> dict:
+    return json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
 
 
 async def test_the_export_contains_every_entry_including_the_deleted_one(
@@ -470,3 +480,265 @@ async def test_a_failed_build_does_not_leave_a_half_written_zip_behind(
             f"/v1/children/{world['child'].id}/export", headers=auth_headers(world["user"])
         )
     assert _staged() == before
+
+
+# --- Date scoping (phase 43) ------------------------------------------------------------
+#
+# The archive's seven entries fall on 2026-01-09, 02-14, 03-02, 04-21, 05-30, 06-14 and
+# 07-04, all in `America/Detroit`. None of them sits near a day boundary, which is why the
+# boundary tests below add their own.
+
+
+async def _new_years_eve(session: AsyncSession, world: dict) -> None:
+    """Two entries whose Detroit calendar day is not their UTC one.
+
+    Both are late-evening New Year's Eve entries, which in Detroit are stored as the 1st of
+    January in UTC. They are the whole reason the boundary is resolved in the family's zone:
+    a naive UTC range files each of them in the wrong year, and for a book printed once a
+    year that is a mistake nobody catches until it is on paper.
+    """
+    for key, occurred_at in (
+        # 9pm, Dec 31 2024, Detroit (UTC-5).
+        ("nye_2024", dt.datetime(2025, 1, 1, 2, 0, tzinfo=dt.UTC)),
+        # 9pm, Dec 31 2025, Detroit (UTC-5).
+        ("nye_2025", dt.datetime(2026, 1, 1, 2, 0, tzinfo=dt.UTC)),
+    ):
+        session.add(
+            Entry(
+                id=uuid.uuid4(),
+                child_id=world["child"].id,
+                author_id=world["user"].id,
+                occurred_at=occurred_at,
+                child_age_months=50,
+                entry_type="text",
+                body=f"New Year's Eve, written at {key}.",
+            )
+        )
+    await session.commit()
+
+
+async def test_an_unscoped_export_still_says_it_is_the_whole_archive(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """The default did not move. Every caller that predates scoping gets what it always got."""
+    world = await _archive(session)
+    manifest = _manifest_in(await _download(client, world))
+
+    assert manifest["scope"] == {
+        "complete": True,
+        "from": None,
+        "to": None,
+        "timezone": "America/Detroit",
+    }
+    assert manifest["notes"][0] == "entries.json contains every entry, including soft-deleted ones."
+    assert not any("PARTIAL" in note for note in manifest["notes"])
+
+
+async def test_a_scoped_export_contains_only_those_days(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    world = await _archive(session)
+    response = await _download(client, world, **{"from": "2026-02-01", "to": "2026-04-30"})
+
+    occurred = sorted(record["occurred_at"][:10] for record in _entries_in(response))
+    assert occurred == ["2026-02-14", "2026-03-02", "2026-04-21"]
+    # The summary headers describe the export, not the archive.
+    assert response.headers["x-rascal-export-entries"] == "3"
+
+
+async def test_both_bounds_are_inclusive(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """A range named for the days its entries fall on must contain them.
+
+    Half-open is an implementation detail of the SQL; a parent asking for Feb 14 to Mar 2
+    means both of those days, and an off-by-one here silently drops the first and last day
+    of every book.
+    """
+    world = await _archive(session)
+    response = await _download(client, world, **{"from": "2026-02-14", "to": "2026-03-02"})
+
+    occurred = sorted(record["occurred_at"][:10] for record in _entries_in(response))
+    assert occurred == ["2026-02-14", "2026-03-02"]
+
+
+async def test_the_boundary_is_the_familys_midnight_and_not_utc(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """The test that fails if the range is built from naive UTC dates.
+
+    A 9pm Dec 31 entry in Detroit is stored as Jan 1 UTC. It belongs to the year that had
+    just ended, which is the year the parent was living in when they wrote it.
+    """
+    world = await _archive(session)
+    await _new_years_eve(session, world)
+
+    # 2025 holds exactly one entry, and both of this range's edges are the discriminating case.
+    year_2025 = _entries_in(
+        await _download(client, world, **{"from": "2025-01-01", "to": "2025-12-31"})
+    )
+    assert len(year_2025) == 1
+    # Written on Dec 31 2025 in Detroit — inside 2025, despite a Jan 1 2026 UTC timestamp.
+    # A naive UTC upper bound stops at 2026-01-01T00:00Z and drops it.
+    assert "nye_2025" in year_2025[0]["body"]
+    # Written on Dec 31 2024 in Detroit — outside 2025, despite a Jan 1 2025 UTC timestamp.
+    # A naive UTC lower bound starts at 2025-01-01T00:00Z and lets it in.
+    assert "nye_2024" not in year_2025[0]["body"]
+
+    # And the year it does belong to has it.
+    year_2024 = _entries_in(
+        await _download(client, world, **{"from": "2024-01-01", "to": "2024-12-31"})
+    )
+    assert len(year_2024) == 1
+    assert "nye_2024" in year_2024[0]["body"]
+
+    # 2026 is the seven ordinary entries and neither New Year's Eve.
+    year_2026 = _entries_in(
+        await _download(client, world, **{"from": "2026-01-01", "to": "2026-12-31"})
+    )
+    assert len(year_2026) == 7
+    assert not any("New Year's Eve" in (record["body"] or "") for record in year_2026)
+
+
+async def test_either_bound_may_stand_alone(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    world = await _archive(session)
+
+    since = _entries_in(await _download(client, world, **{"from": "2026-05-01"}))
+    assert sorted(record["occurred_at"][:10] for record in since) == [
+        "2026-05-30",
+        "2026-06-14",
+        "2026-07-04",
+    ]
+
+    until = _entries_in(await _download(client, world, **{"to": "2026-02-28"}))
+    assert sorted(record["occurred_at"][:10] for record in until) == ["2026-01-09", "2026-02-14"]
+
+
+async def test_a_scoped_manifest_refuses_to_claim_it_is_whole(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """The one failure this whole feature could cause, pinned.
+
+    A partial archive that reads like a complete one turns a download into a lie about
+    somebody's childhood — the gap before March looks like a gap in the child's life.
+    """
+    world = await _archive(session)
+    manifest = _manifest_in(
+        await _download(client, world, **{"from": "2026-03-01", "to": "2026-05-31"})
+    )
+
+    assert manifest["scope"] == {
+        "complete": False,
+        "from": "2026-03-01",
+        "to": "2026-05-31",
+        "timezone": "America/Detroit",
+    }
+    assert "PARTIAL ARCHIVE" in manifest["notes"][0]
+    assert "2026-03-01" in manifest["notes"][0] and "2026-05-31" in manifest["notes"][0]
+    assert "America/Detroit" in manifest["notes"][0]
+    # The sentence the complete export leads with must not survive into a partial one.
+    assert manifest["notes"][0] != "entries.json contains every entry, including soft-deleted ones."
+    assert any("complete archive" in note for note in manifest["notes"])
+
+
+async def test_a_deleted_entry_inside_the_range_still_comes_out(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Scoping answers *which days*, never *which rows on those days*."""
+    world = await _archive(session)
+    response = await _download(client, world, **{"from": "2026-07-01", "to": "2026-07-31"})
+
+    entries = _entries_in(response)
+    assert len(entries) == 1
+    assert entries[0]["is_deleted"] is True
+    assert _manifest_in(response)["counts"]["deleted_entries"] == 1
+
+
+async def test_media_outside_the_range_is_not_in_the_zip(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Bytes follow their entry. The archive's three media rows are in March, April and May."""
+    world = await _archive(session)
+    response = await _download(client, world, **{"from": "2026-03-01", "to": "2026-03-31"})
+
+    names = set(zipfile.ZipFile(io.BytesIO(response.content)).namelist())
+    assert any(name.startswith("media/2026/03/") for name in names)
+    assert not any(name.startswith("media/2026/04/") for name in names)
+    assert not any(name.startswith("media/2026/05/") for name in names)
+    assert _manifest_in(response)["counts"]["media"] == 1
+
+
+async def test_a_range_that_matches_nothing_is_an_empty_archive_not_an_error(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """A year before the child existed is a legitimate question with an empty answer."""
+    world = await _archive(session)
+    response = await _download(client, world, **{"from": "2019-01-01", "to": "2019-12-31"})
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert json.loads(archive.read("entries.json")) == []
+    # Still a readable archive: the viewer and the manifest are always there.
+    assert "index.html" in archive.namelist()
+    assert _manifest_in(response)["scope"]["complete"] is False
+
+
+async def test_a_scoped_download_is_named_for_its_range(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Two exports taken the same afternoon must not collide on one filename."""
+    world = await _archive(session)
+
+    both = await _download(client, world, **{"from": "2026-01-01", "to": "2026-12-31"})
+    assert "dogear-miles-20260101-20261231.zip" in both.headers["content-disposition"]
+
+    since = await _download(client, world, **{"from": "2026-05-01"})
+    assert "dogear-miles-20260501-end.zip" in since.headers["content-disposition"]
+
+    until = await _download(client, world, **{"to": "2026-05-01"})
+    assert "dogear-miles-start-20260501.zip" in until.headers["content-disposition"]
+
+
+async def test_a_backwards_range_is_rejected_before_anything_is_built(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    world = await _archive(session)
+    response = await client.get(
+        f"/v1/children/{world['child'].id}/export",
+        headers=auth_headers(world["user"]),
+        params={"from": "2026-12-31", "to": "2026-01-01"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == "from"
+
+
+async def test_a_date_that_is_not_a_date_is_rejected(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    world = await _archive(session)
+    response = await client.get(
+        f"/v1/children/{world['child'].id}/export",
+        headers=auth_headers(world["user"]),
+        params={"from": "last-christmas"},
+    )
+
+    assert response.status_code == 422, response.text
+
+
+async def test_scoping_does_not_widen_who_may_export(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """A viewer is refused the same way whether or not a range is asked for."""
+    world = await _archive(session)
+    onlooker = await make_user(session)
+    await grant(session, onlooker, world["child"], "viewer")
+    await session.commit()
+
+    response = await client.get(
+        f"/v1/children/{world['child'].id}/export",
+        headers=auth_headers(onlooker),
+        params={"from": "2026-01-01", "to": "2026-12-31"},
+    )
+    assert response.status_code == 403, response.text
