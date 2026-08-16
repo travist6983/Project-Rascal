@@ -8,7 +8,10 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 11, 2026** — and this was the review where most of the file stopped being
+Last reviewed: **Aug 16, 2026.** The Aug 11 pass is described below and its findings stand; what
+Aug 16 changed is recorded in the paragraphs immediately after it.
+
+Previously reviewed: **Aug 11, 2026** — and this was the review where most of the file stopped being
 true. Apple enrollment (§1), Fly (§3), object storage (§2) and Actions billing (§0) were already
 struck. What this pass found is that **every Lane A gap the iOS lane had recorded here has since
 been built** — the seal's setness, `children.pronouns`, the avatar presign pair, `prompt_body` on
@@ -20,11 +23,20 @@ in each section.
 and set as Fly secrets, the notification job has its scheduled machine, and a real notification
 was delivered to a locked phone and deep-linked on tap. Details and the evidence are in §1a.
 
-**What is genuinely left on this list is one thing**, and it is not a credential: the
-multipart-over-cellular upload that has still never been performed (§2). Plus the
-device-verification checklists, which are **unrun rather than blocked** — though
-`docs/device-verification-push.md` §0–§3 are now largely ticked — and Phase 16, which is gated
-on one of them.
+**Aug 16, 2026 review — nothing in this file is blocked on a credential any more.** §0, §1, §2,
+§2b and §3 are closed. §10 looked like a blocker and is not: its blocking decision was the price,
+and D1 settled that on Aug 15, so what remains there is an **errand with steps**.
+
+**One thing is blocked on a platform and cannot be engineered around: §9**, on-device photo
+captioning. The grep that proves it lives in the section and is the thing to re-run when a new SDK
+lands. Do not soften it and do not re-derive it from memory.
+
+**Everything else on this list is unrecorded rather than blocked**, and that is a different
+problem with a different fix. The device-verification checklists describe work that in at least one
+case **has already been done in the world and was never written down**. Phase 16 is the example:
+`SpeechAnalyzer` has produced a real, accurate transcription on a real device, and the checklist
+that gates the phase still opens with *"Nothing in this feature has ever run."* The gate is shut on
+evidence that exists. See the Phase 16 section — it is the sharpest thing in this file.
 
 > **This paragraph said "two things" for about an hour, and the second one had already been
 > fixed.** It named the `sandbox`/`production` description bug in `schemas/device.py` and
@@ -653,10 +665,53 @@ browser-enforced, and `URLSession` reads the header regardless. The ETag above a
 any CORS rule existed. CORS is set anyway (`ExposeHeaders: ["ETag"]`, verified by reading it
 back) for the web client the architecture reserves.
 
-**Still worth doing by hand:** a real multipart upload of a video over cellular. Tigris
-supports the multipart API but parity has not been proven, and `chunk_bytes` comes back `null`
-on the single-PUT path — the client must read the field and tolerate null rather than
-hardcoding 8MB.
+### The cellular half is done. The multipart half is a smaller question than it looked.
+
+**Owner, Aug 16, 2026:** Wi-Fi off, a large video uploaded from a real device over cellular, and it
+succeeded. That proves the upload path survives a real cellular network, which is what this line
+used to ask for.
+
+**A successful upload is not, in general, evidence of a multipart upload.** If the split were
+decided purely on size and the number were unknown, the two would be indistinguishable from
+outside. That was the reason to be careful here — and reading the rule changes the answer.
+
+**2a — the threshold, found (read-only, Aug 16).** The decision is **server-side, not in the iOS
+path**, which is worth stating because this section implied otherwise. `api/src/rascal/services/media.py:51-53`:
+
+```python
+def wants_multipart(kind: MediaKind, size: int, settings: Settings) -> bool:
+    """Video always assumes multipart; everything else crosses over at the threshold."""
+    return kind == "video" or size > settings.multipart_threshold_bytes
+```
+
+`api/src/rascal/config.py:82-83` — `multipart_threshold_bytes = 15 * 1024 * 1024` (**15 MB**) and
+`multipart_chunk_bytes = 8 * 1024 * 1024` (**8 MB**).
+
+**Two ways this differs from "video only, on a size threshold", and both are recorded rather than
+changed.** Video is multipart **unconditionally** — `kind == "video"` short-circuits, so a
+two-second clip well under 15 MB still takes the multipart path. And the threshold is **not
+video-only**: any object over 15 MB qualifies, so a 48MP HEIC or a ProRAW frame takes multipart
+too. Whether that is the intended shape is the owner's call; **no code was touched.**
+
+**What that means for the cellular test.** Because video short-circuits, a video upload takes the
+multipart path at any size — so the Aug 16 upload exercised multipart rather than merely coexisting
+with it, and `chunk_bytes` came back **8 MB rather than null** (`services/media.py:101` is the
+single-PUT branch that nulls it; `:128` is the multipart branch that sets it). **This is inference
+from the code, not an observation of that run** — nobody read the response body — and it holds only
+if the client sent `kind: video` and the upload ran through to `upload_status: complete`.
+
+**2b — prove `chunk_bytes` server-side. Specified here, not built.** The client is documented as
+needing to read `chunk_bytes` and tolerate null rather than hardcoding 8MB. Add a check to
+`scripts/verify_deployment.py` that presigns a multipart upload against the deployed API, PUTs two
+parts, completes it, and asserts (i) `chunk_bytes` is non-null and (ii) the completed object's size
+matches the bytes sent.
+
+**`CompleteMultipartUpload` is where S3-compatible services most often diverge from AWS, and it
+fails *after* the data has been spent.** That is the argument for proving it against the deployed
+API on demand rather than discovering it on a phone, on cellular, with a parent's video.
+
+This tail is no longer "worth doing by hand". It is **one grep, now done, plus one specified
+engineering task.**
 
 ## 2b. ~~The production media bucket does not exist yet~~ — IT EXISTS, AND THE UNRECOVERABLE HALF IS DONE. Verified Aug 11, 2026
 
@@ -679,16 +734,48 @@ described. So the configuration is exactly what this section asked for, on all t
 window in which a mis-set production bucket could have quietly lost a photo is closed**, and it
 closed before any real media went in.
 
-**Two smaller things this check turned up, neither urgent, both now written down:**
+### Two Tigris items, promoted out of prose. Neither blocks anything.
 
-- **`Delete Protection` is `No`** on all three buckets. Soft delete protects *objects*; delete
-  protection protects the *bucket*. It is a different failure — one `tigris buckets delete` on the
-  wrong name — and 30-day retention on objects inside a bucket that no longer exists is not
-  obviously a rescue. Worth turning on for `rascal-media-prod` and `rascal-backups`.
-- **`rascal-media-prod` has no CORS rules at all**, where `rascal-media-dev` has one. This is
-  correct today and is the note below, inverted: the dev bucket's `AllowedOrigins: ["*"]` is the
-  thing to tighten, and the prod bucket simply needs a real origin added the day a browser first
-  loads a photo. Nothing about the native client cares either way.
+**7a — Delete Protection: wanted on prod and backups, and the flag is deprecated.**
+`Delete Protection` reads `No` on all three buckets. Soft delete protects *objects*; delete
+protection protects the *bucket* from one `tigris buckets delete` on the wrong name, and 30-day
+retention on objects inside a bucket that no longer exists is not obviously a rescue. Owner,
+Aug 16: turn it on for **`rascal-media-prod` and `rascal-backups`**, and **not** on
+`rascal-media-dev`.
+
+**The CLI does not straightforwardly support what that asks for, and this was checked rather than
+guessed.** `tigris buckets set --help`, run Aug 16, 2026, lists:
+
+```
+--enable-delete-protection [value]   (deprecated) Enable delete protection Use
+                                     --soft-delete instead.
+```
+
+It is the **only** delete-protection flag in `tigris buckets set`, it is marked deprecated, and the
+CLI's own advice is to use `--soft-delete` — which is **already enabled with 30-day retention on
+both of the buckets in question.** So either the control has been folded into soft delete and the
+`No` in the bucket listing above is now vestigial, or it still exists and is reachable only through
+a deprecated flag or the dashboard.
+
+**Do not run either of these until that is settled** — the second uses a flag its own tool says not
+to use:
+
+```bash
+# <verify> — deprecated per `tigris buckets set --help`, Aug 16 2026.
+tigris buckets set rascal-media-prod --enable-delete-protection true
+tigris buckets set rascal-backups    --enable-delete-protection true
+```
+
+The question to answer first is whether `Delete Protection: No` alongside `Soft Delete: Enabled`
+still means anything on a current Tigris bucket. That is a dashboard or support question, not a
+CLI one.
+
+**7b — `rascal-media-dev` CORS `AllowedOrigins: ["*"]`: left as-is, and now it has an owner.**
+Harmless while the only client is native: CORS is browser-enforced and `URLSession` ignores it
+entirely. **This belongs to the web client phase** rather than sitting here as a loose note — the
+entire risk is that nothing prompts it on the day a browser first loads a photo, and a note nobody
+owns is exactly how that day arrives unprepared. `rascal-media-prod` has no CORS rules at all,
+which is correct today and needs a real origin added by that same phase.
 
 The original entry follows, because the reasoning is why the bucket was set up correctly, and
 because the `access-keys assign` warning still catches people.
@@ -826,6 +913,21 @@ All four batches are `question`, which is what `--thinnest` asked for and not a 
 kinds. The activity, photo, video, and audio sides of those themes are still as thin as they
 were; generating for them is another run with `--kind`.
 
+**Status, Aug 16, 2026: the 79 candidates are still unreviewed, and the owner is reviewing them
+tonight.** A second run with `--kind` — activity, photo, video and audio against the same four thin
+themes — is wanted, and is **queued deliberately behind the review rather than beside it.**
+
+**The reason is worth stating, because the efficient-looking order is the wrong one.** The review is
+the only thing that calibrates the generator. If fifteen `outdoors` questions get cut for the same
+reason, that reason belongs in `generate_prompts.py`'s filters or in `mission-library.md`'s
+rejection rules **before** the next batch exists. Generating first means reading the same flaw twice
+and paying for it twice.
+
+**The pool arithmetic that makes this worth doing at all:** 113 seeded prompts, with repeats
+beginning around day 31. Adding 79 questions pushes that out — but only for questions. The
+activity, photo, video and audio sides of those four themes stay exactly as thin as they are today,
+which is what the `--kind` run is for.
+
 **These are unreviewed.** Every candidate below passed the automated filters, and each file
 says so in its own header: the filters are a spam trap, not an editor. They catch the four
 rejection rules where the rule is textually detectable and nothing else. **79 prompts still
@@ -906,6 +1008,10 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   to be fetched to be read at roughly 70MB a minute. **What it needs:** the audio path
   confirmed on a device via `docs/device-verification-transcription.md`. After that it is one
   clause in `TranscriptionQueue.isTranscribable` plus a rule about not doing it on cellular.
+  **Aug 16, 2026: that prerequisite is now a runnable action rather than an unrun one.** The
+  transcriber has produced real, accurate output on a real device — see the Phase 16 section — so
+  what stands between this and being buildable is somebody running the checklist and writing the
+  results down, not a question about whether the transcriber works.
 - **Backfilling transcripts on a phone that never sees Wi-Fi.** Fetching a recording this device
   does not hold refuses expensive and constrained networks on purpose — a backlog run is hundreds
   of files and nobody consented to that on cellular. The consequence is that those rows never
@@ -928,7 +1034,12 @@ These were left out on purpose. Each is a small piece of work if you decide othe
 
 ## Resolved since the last review
 
-Everything below was on this list on Aug 3 and is now closed.
+**Everything in the bulleted list immediately below** was on this list on Aug 3 and is now
+closed. **That sentence used to say “everything below” without qualification, and it had quietly
+stopped being true** — three `##` sections further down are not closed: Phase 16 (unrecorded, and
+runnable tonight), §9 (the one genuine platform block) and §10 (an errand). A reader skimming
+headings after this line would have read all three as resolved, which is the exact defect this
+file records against itself twice. Scoped to its list, Aug 16, 2026.
 
 - The `monthly` slot serving letters alongside measurements — letters have their own slot on
   the 15th.
@@ -961,6 +1072,80 @@ test.**
 
 **Still unstarted, and not blocked:** onboarding does not ask for pronouns (tracked by
 `docs/decisions.md` item 10) and the avatar is still device-only (§iOS Onboarding).
+
+---
+
+## ~~Phase 22 — Entry Detail v2: two design questions that are not the agent's to answer~~ — RESOLVED, all three, confirmed by the owner Aug 16, 2026
+
+Owner, Aug 16: *"22 is long done and perfect in all of these."* The phase merged as **PR #54** —
+`docs/roadmap-status.md:219`, *"Entry Detail v2 … Full-bleed media, the cream sheet, per-shape
+backdrops | #54 | ✅ merged"*. Moved here rather than struck in place, per this file's standing
+habit: **a struck section is not a moved section.**
+
+**The three outcomes:**
+
+1. **Full-bleed media on Entry Detail: YES**, and scoped to exactly one screen. Entry Detail is the
+   one place media may bleed to the edge. **The timeline never does** — the rejection in
+   `docs/decisions.md` is untouched and stays untouched. Already recorded in
+   `docs/design-system.md` at *"The one screen where they do bleed is Entry Detail — settled
+   Aug 11, 2026, phase 22"*, and now carried into `docs/decisions.md` as a settled row so the next
+   importer cannot re-derive the argument from first principles.
+2. **Frosted glass: resolved toward the design project's `readme.md`** — opaque `surface`, hairline,
+   resting shadow, **no blur**. Frosted-glass panels are not part of this brand. The export
+   contradicted its own README and the README won.
+3. **`KindBadge` contrast (~3.3–3.7:1, below AA): accepted as-is**, per the owner. This is an
+   **accepted exception, not an open item.** `#5566D6` on `#E9EBFB` is the pairing to measure first
+   in any *new* surface — the exception covers the component as it stands, not the pattern
+   everywhere.
+
+The original entry follows, because the reasoning is why the screen is shaped the way it is.
+
+---
+
+### The original entry, Aug 11, 2026
+
+Not blocked on a credential. Blocked on a **design decision**, which is why the phase stopped with
+an inventory rather than a screen. Full analysis: `docs/entry-detail-inventory.md`.
+
+#### 1. Is full-bleed media allowed on Entry Detail? ~~**Blocking.**~~ **Answered: yes, this screen only.**
+
+The whole grammar of the import is *"Media fills the screen. Everything else lives in a cream sheet
+resting on top of it."* Against that:
+
+- `docs/design-system.md`, Layout: *"Photos sit inset with padding and rounded corners; **they
+  rarely bleed to the screen edge**."*
+- `docs/decisions.md`, Rejected — do not revisit: *"Full-bleed edge-to-edge photo **timeline** as
+  the primary view."*
+- `docs/decisions.md`, Settled: *"Timeline is a scannable date-grouped card list… **Not a full-bleed
+  story feed.**"*
+
+**Both rejections name the timeline, not the detail screen, and "rarely" is not "never."** So it is
+not a literal conflict — Entry Detail is plausibly the rare case, and it is the one screen whose
+entire job is looking at one artifact. But it is one step from a twice-rejected direction, on the
+screen the phase brief calls *"in 2040, this is the product."*
+
+**What is needed: yes or no.** Everything else in the import is downstream of it — the sheet, the
+scrim, where the prompt and transcript live, and whether the metadata compresses to one line.
+
+#### 2. Frosted glass — the export contradicts its own design system. **Answered: the README wins.**
+
+Every sheet is `background: rgba(253,250,244,.88); backdrop-filter: blur(26px) saturate(1.25)`,
+while the design project's own `readme.md` states: *"Transparency & blur — used in exactly two
+places… **Frosted-glass panels are not part of this brand.**"*
+
+Resolved toward the README (opaque `surface`, hairline, resting shadow, no blur) — but recorded
+because it changes how the sheet reads over a photo and is coupled to question 1.
+
+#### Carried forward at the time — both now closed
+
+- ~~**Paper grain.**~~ **CLOSED Aug 11, 2026.** Settled as rejected and written into
+  `docs/decisions.md` in the words the exports actually use (`feTurbulence`, "paper grain"), because
+  the existing "screen-print texture" line is what three importers in a row read past. The exports
+  will keep carrying it; that is a property of their design system, not a new argument.
+- ~~**`KindBadge` contrast** (~3.3–3.7:1, below AA).~~ **CLOSED Aug 16, 2026 — accepted as-is by
+  the owner**, as a recorded exception rather than a defect to fix. The import does not reuse the
+  component, but its chips are the same shape of pairing — `#5566D6` on `#E9EBFB` is the one to
+  measure first in any new surface.
 
 ---
 
@@ -1013,24 +1198,43 @@ it is recorded here rather than fixed across lanes.
 
 ---
 
-## Phase 16 (video audio tracks) — gated on the transcription device checklist (Aug 10 2026)
+## Phase 16 (video audio tracks) — **not blocked. Unrecorded.** (rewritten Aug 16, 2026)
 
-**Not started. No code was written.**
+**Nothing stands in front of this phase.** No credential, no platform gap, no design question. It
+is unstarted, and the only thing holding it is a document that disagrees with the world.
 
-`docs/device-verification-transcription.md` records **0 of 45** checkboxes ticked and no results,
-dates, or device names. Its own first line reads "Nothing in this feature has ever run."
+**The transcriber works, and it has been seen working.** Owner, Aug 16, 2026: `SpeechAnalyzer` has
+produced a real transcription on a real device, on a build from that day, and the output was
+accurate enough to capture his son's actual pronunciation of words. That is precisely the question
+`docs/device-verification-transcription.md` §0 — per-recording word accuracy — exists to answer.
 
-Phase 16's preflight #1 makes that a hard stop, and the reasoning holds: `SpeechAnalyzer` needs
-iOS 26, `isAvailable` is false on every simulator, and no transcription has ever been produced by
-this app. Building video transcription on an unverified transcriber stacks two unknowns in one
-branch — if the output is poor, nothing distinguishes a bad extraction from a model that cannot
-read a four-year-old.
+**So the blocker is the file, not the feature.** The checklist still records **0 of 45** and still
+opens with *"Nothing in this feature has ever run."* Phase 16's preflight #1 reads that document
+rather than the world, so it hard-stops — **correctly, given what the document says.** The gate is
+doing its job on stale input.
 
-Its own prerequisite is also unrun: the audio checklist from PR #22 needs a real microphone.
+**The single action:** run `docs/device-verification-transcription.md` on the current build and
+record results, dates and device names. Start with §0, which is now largely **retrospective** — it
+is writing down something that has already happened. Run the PR #22 audio checklist in the same
+sitting; it is the stated prerequisite and it needs the same quiet room and the same device.
 
-**To unblock:** run the PR #22 audio checklist, then the transcription checklist on a signed build
-on iOS 26+, and record the results — especially §0, the per-recording word accuracy against three
-ordinary voice notes.
+**Nobody but the owner may tick those boxes.** This section was written by an agent that has not
+run the checklist, cannot run it, and must not record a result it did not observe. The whole value
+of that file is that a ticked box means somebody watched it happen.
+
+> **This is the file's recurring failure mode wearing a new face, and it is worth naming.** Every
+> previous instance was a *claim copied forward without a grep* — something asserted as true that
+> had stopped being true. This one runs the other way: **a verified real-world result was never
+> copied *into* the document**, and a gate stayed shut on evidence that already existed. The
+> standing rule — *a shipped-status claim carries the command that proves it* — only defends
+> against the first kind. The second needs the opposite habit: when something is proven in the
+> world, write it down where the gate will read it, in the same sitting.
+
+The original reasoning, which was sound on the day and is why the gate exists at all: building video
+transcription on an unverified transcriber stacks two unknowns in one branch, and if the output were
+poor nothing would distinguish a bad extraction from a model that cannot read a four-year-old. That
+argument has not been refuted — **it has been satisfied**, and the checklist is where that gets
+recorded.
 
 ---
 
@@ -1075,52 +1279,6 @@ clobber a `user` row, so no new merge logic is required. A dedicated
 `PATCH /v1/entries/{id}/derived` mirroring the media one is the narrower alternative.
 
 Full detail, including the exact source lines: `docs/phases/phase-17-BLOCKED.md`.
-
----
-
-## Phase 22 — Entry Detail v2: two design questions that are not the agent's to answer (Aug 11, 2026)
-
-Not blocked on a credential. Blocked on a **design decision**, which is why the phase stopped with
-an inventory rather than a screen. Full analysis: `docs/entry-detail-inventory.md`.
-
-### 1. Is full-bleed media allowed on Entry Detail? **Blocking.**
-
-The whole grammar of the import is *"Media fills the screen. Everything else lives in a cream sheet
-resting on top of it."* Against that:
-
-- `docs/design-system.md`, Layout: *"Photos sit inset with padding and rounded corners; **they
-  rarely bleed to the screen edge**."*
-- `docs/decisions.md`, Rejected — do not revisit: *"Full-bleed edge-to-edge photo **timeline** as
-  the primary view."*
-- `docs/decisions.md`, Settled: *"Timeline is a scannable date-grouped card list… **Not a full-bleed
-  story feed.**"*
-
-**Both rejections name the timeline, not the detail screen, and "rarely" is not "never."** So it is
-not a literal conflict — Entry Detail is plausibly the rare case, and it is the one screen whose
-entire job is looking at one artifact. But it is one step from a twice-rejected direction, on the
-screen the phase brief calls *"in 2040, this is the product."*
-
-**What is needed: yes or no.** Everything else in the import is downstream of it — the sheet, the
-scrim, where the prompt and transcript live, and whether the metadata compresses to one line.
-
-### 2. Frosted glass — the export contradicts its own design system
-
-Every sheet is `background: rgba(253,250,244,.88); backdrop-filter: blur(26px) saturate(1.25)`,
-while the design project's own `readme.md` states: *"Transparency & blur — used in exactly two
-places… **Frosted-glass panels are not part of this brand.**"*
-
-Resolved toward the README (opaque `surface`, hairline, resting shadow, no blur) — but recorded
-because it changes how the sheet reads over a photo and is coupled to question 1.
-
-### Still open, carried forward rather than resolved
-
-- ~~**Paper grain.**~~ **CLOSED Aug 11, 2026.** Settled as rejected and written into
-  `docs/decisions.md` in the words the exports actually use (`feTurbulence`, "paper grain"), because
-  the existing "screen-print texture" line is what three importers in a row read past. The exports
-  will keep carrying it; that is a property of their design system, not a new argument.
-- **`KindBadge` contrast** (~3.3–3.7:1, below AA). Untouched, per the brief. The import does not
-  reuse the component, but its chips are the same shape of pairing — `#5566D6` on `#E9EBFB` is the
-  one to measure first in any new surface.
 
 ---
 
@@ -1192,9 +1350,28 @@ in question — only the population is.** The header confirms what it reads:
 **The owner's call was: measure first.** `CaptionProbe` and its Settings row ship as a
 **diagnostic, not a feature** — it walks the newest 500 on-device photos, counts how many carry
 that field, and reports a rate plus a few examples. It writes nothing, uploads nothing, persists
-nothing, and never pulls an iCloud original. Run it with
-`docs/device-verification-captions.md`; it needs a real camera roll, so it needs a TestFlight
-build, which is still the standing blocker.
+nothing, and never pulls an iCloud original.
+
+**Aug 16, 2026: the measurement is runnable now, and is no longer waiting on a build.** This
+section previously said it needed a TestFlight build. The owner has a current device build from
+Aug 16 carrying `CaptionProbe` and its Settings row, so the only remaining input is a real camera
+roll and an evening. Run it with `docs/device-verification-captions.md`.
+
+### The decision rule, set before the number is known
+
+This section already warns that a disappointing result can be quietly reinterpreted later as a
+reason to build anyway. **The defence against that is a threshold agreed in advance**, so here it
+is, as the owner's rule, Aug 16, 2026:
+
+| Measured rate | Outcome |
+|---|---|
+| **Under 20%** | Delete `CaptionProbe` and `CaptionProbeScreen`. **Close phase 33.** A caption writer costs a SwiftData migration over every media row plus the clobber guard; four photos in five with an empty field does not justify it, and an inconsistently populated caption makes a search result unexplainable — the parent cannot tell why one photo matched and its neighbour did not. |
+| **20–50%** | Keep the probe as recorded evidence. **Do not build the writer.** Revisit only if an SDK ships real on-device captioning. |
+| **Over 50%** | The writer earns a phase — and it lands with the clobber guard in `Media.applyServerSummary` and `SyncEngine.differs(_:from:)` **in the same commit**, exactly as this section already specifies below. |
+
+**A rate is only as good as the library it was measured against.** One phone is one data point, and
+a photographer's roll and a parent's roll are not the same population; if the number lands near a
+boundary, run it on a second phone before applying the rule.
 
 **Two things deliberately did not ship with it, and both would have been premature:**
 
@@ -1231,7 +1408,7 @@ and moves the caption line inside a guard **in the same commit**, and mirrors it
 
 ---
 
-## §10 — Monetization needs App Store Connect before any of it can be built (Aug 15, 2026)
+## §10 — Monetization: a prerequisite **errand**, not a blocker (reclassified Aug 16, 2026)
 
 Phase 37 (entitlement and StoreKit) cannot be written against nothing. Two account actions come
 first, and both are yours — this file's original terms exactly: a credential or an account only you
@@ -1249,6 +1426,53 @@ job, two tables and three channels, and it can be built and tested before a sing
 39 is a research task. And the print partner (D6) needs an account only once one is chosen, which
 D6 explicitly does not do.
 
-**This is recorded rather than acted on**: creating products and choosing price tiers were named out
-of scope for the phase that wrote this, and doing either from here would be picking a price.
+~~**This is recorded rather than acted on**: creating products and choosing price tiers were named
+out of scope for the phase that wrote this, and doing either from here would be picking a price.~~
+
+### That last line went stale the day it was written
+
+**D1 settled the price on Aug 15** — $59.99/year or $5.99/month, annual exactly two months free,
+annual preselected, a 14-day trial, and a permanent free tier. Creating these products no longer
+requires a decision from anybody. What is left is data entry.
+
+**This section blocks nothing currently in the queue.** Phase 37 sits downstream of the P0
+behavioural gate — seven days of unforced use — which has nothing to do with money. Building
+StoreKit before that gate passes is building a checkout for a shop that may not open.
+
+**One part is time-sensitive anyway, and it is not the products.** Small Business Program
+enrollment is reviewed by Apple, and the 15% rate applies from the start of the **next fiscal month
+after approval**. Left until launch week it costs 30% for a month. The form is worth filing early
+even though the products are not.
+
+### The product identifiers, chosen Aug 16 and permanent once created
+
+```
+Subscription group:  Dogear Membership
+Annual:              com.travisterry.childarchive.subscription.annual
+Monthly:             com.travisterry.childarchive.subscription.monthly
+```
+
+**One group containing both durations**, so they are mutually exclusive and StoreKit treats
+monthly → annual as a *plan change* rather than two live subscriptions. The `.subscription.`
+segment keeps the namespace clear for a future non-renewing product — the printed book, per D6.
+**App Store product identifiers cannot be renamed after creation**, which is why these were chosen
+at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
+
+### The errand, in order. Each step gates the next.
+
+1. **App Store Connect → Agreements, Tax, and Banking.** The Paid Applications agreement must be
+   **active**: complete the banking details and the tax forms. Nothing else on this list is
+   possible until it shows active.
+2. **Enrol in the App Store Small Business Program.** Requires step 1. Note the fiscal-month lag
+   above — this is the one worth doing now.
+3. **Create the subscription group** `Dogear Membership`.
+4. **Create the two products** with the identifiers above, at **$5.99/month** and **$59.99/year**.
+5. **Set the annual as the preselected option**, and configure the **14-day free trial** as an
+   introductory offer, per D1.
+6. **Record the App Store Server Notifications V2 endpoint URL.** D5 holds that the server writes
+   the entitlement and every gate reads the server, so this URL is what phase 37 is built against.
+
+**Apple's exact menu wording is not verified here.** These steps name destinations rather than
+click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
+is worse than a described destination. Nobody on this branch has an App Store Connect session.
 
