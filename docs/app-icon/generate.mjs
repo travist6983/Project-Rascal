@@ -1,5 +1,27 @@
 // RASCAL app icon explorations.
 //
+// ────────────────────────────────────────────────────────────────────────────
+// THIS FILE DID NOT PRODUCE THE SHIPPED ICON, AND CANNOT.
+//
+// The icon is `rascal-icon-fan.svg`, decided Aug 16, 2026. The fan is a different geometry
+// model from the stack below — five cards placed by `translate`+`rotate` about their own
+// centres, rather than absolute rects growing downward — and it was authored after this
+// script was last run. The two `LAYERS`-derived SVGs beside it have also been edited since.
+//
+// So running this unguarded used to be destructive in a way nothing announced: it rewrote
+// `rascal-icon-tinted.svg` and `rascal-icon-tonal.svg` over their newer committed versions,
+// and it regenerated `index.html` from `VARIANTS` — which lists `scattered`, not `fan` —
+// **deleting the contact sheet's only reference to the icon that ships.** The fan SVG itself
+// survived, orphaned, which is what made the damage quiet.
+//
+// It is kept because it is the record of how tinted and tonal were derived, and it is now
+// guarded: it refuses to write without `--overwrite-explorations`. Past that flag it still
+// does the full original thing, index.html included — the flag is the whole warning, and
+// `git checkout -- docs/app-icon/` is the way back.
+//
+// To rebuild the shipped PNG from the SVG, the script you want is `render-appicon.mjs`.
+// ────────────────────────────────────────────────────────────────────────────
+//
 // The stacked-layer silhouette comes from the reference Travis shared. What each
 // layer *contains* is lifted from Entry Detail (docs/entry-detail/…dc.html) — the
 // motif that identifies a kind on its own screen, at icon scale:
@@ -292,6 +314,32 @@ ${VARIANTS.map((v) => `
 </section>`).join('')}
 `;
 
+/* ── the guard ───────────────────────────────────────────────────────── */
+// Named for what it costs rather than for what it does, so that typing it is a decision.
+
+if (!process.argv.includes('--overwrite-explorations')) {
+  console.error(
+    [
+      'Refusing to write. This script predates the shipped icon and would overwrite newer work:',
+      '',
+      '  rascal-icon-tinted.svg   committed version is newer than this generator',
+      '  rascal-icon-tonal.svg    committed version is newer than this generator',
+      "  index.html               regenerated from VARIANTS, which has no 'fan' —",
+      "                           this drops the contact sheet's only link to the shipped icon",
+      '',
+      'The shipped icon is rascal-icon-fan.svg and nothing here can reproduce it.',
+      'To rebuild the PNG the app actually uses:  node docs/app-icon/render-appicon.mjs',
+      '',
+      'If you genuinely want the explorations regenerated as they were:',
+      '  node docs/app-icon/generate.mjs --overwrite-explorations',
+    ].join('\n')
+  );
+  process.exit(1);
+}
+
 for (const v of VARIANTS) writeFileSync(join(OUT, `rascal-icon-${v.id}.svg`), v.svg);
 writeFileSync(join(OUT, 'index.html'), sheet());
-console.log(`wrote ${VARIANTS.length} icons + index.html`);
+console.log(
+  `wrote ${VARIANTS.length} icons + index.html — the contact sheet no longer mentions the fan. ` +
+    'Restore it with: git checkout -- docs/app-icon/'
+);

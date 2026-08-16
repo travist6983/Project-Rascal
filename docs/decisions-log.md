@@ -2599,3 +2599,54 @@ pre-agreed consequence gets reinterpreted as a reason to build anyway.
 **It cannot be run yet.** It needs a real camera roll, which needs a TestFlight build, which is
 still the standing blocker on everything. `docs/device-verification-captions.md` is nine boxes and
 the twelfth checklist — 460 now, still nine ticked.
+
+* * *
+## Aug 16, 2026 — Phase 47: the app icon
+
+**The owner settled it by naming a file** — `docs/app-icon/rascal-icon-fan.svg`, the third of the
+three explorations, *"this is it for sure no matter what name we land on."* The caveat turns out to
+be the substantive part: **the mark carries no word**, so it was decidable before the name was and
+would not have moved after it. It was listed under the Dogear rename in two places and it was never
+really a rename item.
+
+**The whole shipping change is one PNG.** `AppIcon-1024.png` — 1024², no alpha, sRGB — replacing a
+placeholder that was a rounded square with a dot in it. There is deliberately no 60pt or 76pt asset
+to keep in step: `actool` derives every home-screen size from the single 1024, which was verified by
+compiling the catalogue and reading `AppIcon60x60@2x.png` back out rather than trusting it. The
+catalogue compiles with no notice or warning, and `Contents.json` did not need a line changed.
+
+**The icon was a build product with no build, and that is the part worth keeping.** The PNG had been
+produced by hand at some point and nothing recorded how, so the next edit to the SVG would have been
+a fresh guess at parameters that matter. `render-appicon.mjs` is now the step: headless Chrome at
+2048, halved to 1024. **Chrome specifically, and supersampled specifically** — this art puts
+`feDropShadow` on five separate `clip-path` groups, and the lighter rasterisers either drop the
+filter or resolve the clip in the wrong user space, both of which collapse the fan into a single
+card silently and only at render time; and at 1024 native, Chrome fringes the 4pt scrubber track.
+The script asserts the two things App Store Connect rejects on upload and nothing earlier mentions
+— the dimensions and **the absence of an alpha channel**. It reproduces the committed PNG byte for
+byte, which is what makes it a check rather than a convenience.
+
+**`generate.mjs` next door was a live trap, and it caught this session before the session caught
+it.** Running it — as its own header instructs — rewrote `rascal-icon-tinted.svg` and
+`rascal-icon-tonal.svg` over newer committed versions, and regenerated `index.html` from a `VARIANTS`
+list containing `scattered` and no `fan`, **deleting the contact sheet's only reference to the icon
+that ships**. The fan SVG itself survived, orphaned, which is exactly what made the damage quiet: no
+error, no missing file, just a page that no longer mentions the winner. It cannot produce the fan
+under any flag — the fan is a different geometry model, five cards placed by `translate`+`rotate`
+about their own centres rather than absolute rects growing downward — so it was **not** rewritten to
+try. It is kept as the record of how tinted and tonal were derived, and it now refuses to write
+without `--overwrite-explorations`, printing what it would clobber and pointing at
+`render-appicon.mjs` instead. Past that flag it still does the original thing in full, index.html
+included; the flag is the whole warning.
+
+**Two things deliberately did not ship.** **iOS 18 dark and tinted icon variants** — the appiconset
+carries only the universal slot, which is valid, and the system derives both. Adding real ones is a
+design decision about what this mark looks like desaturated, not a mechanical fill-in, and nobody
+has taken it. And **the `docs/` prose still says RASCAL throughout**, including this page's own
+heading, which is the rename's own standing decision not to sweep cosmetic prose and bury real
+diffs under mechanical ones.
+
+**Recorded because it cost real confusion:** `docs/app-icon/index.html` was the only artefact that
+correctly described the current state, and `generate.mjs` — the file that looks authoritative,
+carries the instructions, and is newer on disk — was the one that lied. Where those two disagree,
+the committed SVGs and the contact sheet are right.

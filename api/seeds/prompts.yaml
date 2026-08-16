@@ -1097,7 +1097,7 @@
 - kind: activity
   cadence: daily
   completion_mode: did_it
-  body: Use {their} baby nickname out loud today, while {they_do} still answer to it.
+  body: Use {their} oldest nickname out loud today, while {they_do} still answer to it.
   theme: their-words
   min_age_months: 24
   max_age_months: 120

@@ -114,10 +114,12 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
-- **Rename to `Dogear` — code is done, three things left and all three are yours.** Shipped
+- **Rename to `Dogear` — code is done, ~~three things left~~ two, and both are yours.** Shipped
   Aug 12: display name on the app, widget and share extension (verified out of the built bundles,
   not just the source), the onboarding wordmark, 13 in-app copy strings, the export viewer's
-  titles and the download filename. **Left: the app icon** (a design asset), **the App Store
+  titles and the download filename. ~~**Left: the app icon** (a design asset)~~ — **the icon
+  shipped Aug 16 as phase 47**, and it was never really a rename item: the mark carries no word,
+  so it was decidable before the name and would not have changed after it. **Left: the App Store
   Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
   mechanical lines. Ship a build for any of it to reach the phone.
