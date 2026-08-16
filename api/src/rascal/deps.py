@@ -27,6 +27,7 @@ from rascal.db import get_session
 from rascal.errors import ErrorCode, RascalError, not_authorized, not_found
 from rascal.models import Assignment, Child, Entry, Guardian, Media, User
 from rascal.services.apple import AppleVerifier
+from rascal.services.google import GoogleVerifier
 from rascal.services.tokens import decode_access_token
 
 # auto_error=False so a missing header comes back in the standard error shape rather than
@@ -38,7 +39,13 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
 # One verifier per process, so the JWKS cache is shared across every login.
+#
+# Both hold the `Settings` they were built with and are never rebuilt, so a settings change
+# needs a process restart to take effect. That is true of every setting in this service —
+# `get_settings` is `lru_cache`d — but it is worth naming here because these two are the ones
+# a deploy changes most often.
 _apple_verifier: AppleVerifier | None = None
+_google_verifier: GoogleVerifier | None = None
 
 
 def get_apple_verifier(settings: SettingsDep) -> AppleVerifier:
@@ -46,6 +53,13 @@ def get_apple_verifier(settings: SettingsDep) -> AppleVerifier:
     if _apple_verifier is None:
         _apple_verifier = AppleVerifier(settings)
     return _apple_verifier
+
+
+def get_google_verifier(settings: SettingsDep) -> GoogleVerifier:
+    global _google_verifier
+    if _google_verifier is None:
+        _google_verifier = GoogleVerifier(settings)
+    return _google_verifier
 
 
 async def current_user(

@@ -96,8 +96,13 @@ async def issue_token_pair(
     return TokenPair(access_token=access, refresh_token=refresh, expires_in=expires_in)
 
 
-async def _revoke_chain(session: AsyncSession, user_id: uuid.UUID) -> None:
-    """Revoke every live refresh token for a user. Called when a revoked token reappears."""
+async def revoke_all_refresh_tokens(session: AsyncSession, user_id: uuid.UUID) -> None:
+    """Revoke every live refresh token for a user.
+
+    Two callers, and they are the same act for different reasons: a revoked token reappearing
+    is a race or a theft, and Apple telling us a parent withdrew consent is a session that
+    should not outlive the credential behind it.
+    """
     await session.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
@@ -120,7 +125,7 @@ async def rotate_refresh_token(
         raise RascalError(ErrorCode.UNAUTHENTICATED, "Invalid refresh token.")
 
     if stored.revoked_at is not None:
-        await _revoke_chain(session, stored.user_id)
+        await revoke_all_refresh_tokens(session, stored.user_id)
         # Committed here rather than left to the request: the response is an error, and the
         # request-scoped session rolls back on an exception. The revocation has to survive.
         await session.commit()

@@ -4,7 +4,8 @@ Plain JSON over HTTPS. No client-specific serialization anywhere in the wire for
 
 Base: `/v1`. Auth: bearer token. All timestamps ISO 8601 UTC. All IDs UUID.
 
-Last updated: **Aug 9, 2026** — build-ready.
+Last updated: **Aug 16, 2026** — phases 51–57 (the auth bundle: `aud` allowlist, credential
+linking, Apple server-to-server notifications, Google sign-in, the mailer, magic-link sign-in).
 
 ---
 
@@ -40,6 +41,51 @@ again is a 401 with code `refresh_token_reused`.
 
 **`POST /auth/logout`** — revokes the presented refresh token.
 
+**`POST /auth/google`**
+Body: `{ identity_token, display_name? }` → the same `SessionResponse` as `/auth/apple`.
+
+Google's JWKS, cached with a TTL and the same one-refetch-on-unknown-`kid` rule Apple has.
+`iss` may be **either** `accounts.google.com` or `https://accounts.google.com` — Google
+publishes both and both are seen. `aud` is checked against **`GOOGLE_CLIENT_IDS`**, a separate
+comma-separated setting and never `APPLE_BUNDLE_ID`: they are different namespaces that happen
+to share a claim name, and pooling them would let an Apple token for a Google client id verify.
+**`email_verified` must be true** — an unverified address is a claim about an inbox nobody has
+proved they can read, and `POST /auth/email/start` turns an address into a key.
+
+`GOOGLE_CLIENT_IDS` unset is the state the repository ships in, because no Google project
+exists yet. Unset makes this route `422` with a message naming the setting, rather than
+rejecting every real token for no stated reason.
+
+**`POST /auth/email/start`**
+Body: `{ email }` → **always `202`**, body `{ "status": "accepted" }`.
+
+**It never creates a user.** It matches an existing, *verified* `email` credential or it does
+nothing at all. Email is a second key to a door you already own, added deliberately from
+Settings while signed in through `POST /me/credentials/email` — there is no public signup on
+this path. Without that rule, a parent who signed in with Apple and later typed their address
+here would be handed a second, empty archive, with a working session and no signal that their
+real one still exists somewhere they can no longer reach.
+
+**The `202` is unconditional and identical either way** — same status, same body — so this is
+not an account-enumeration oracle.
+
+**Rate limited, per-email and per-IP, independently.** Five per address per hour and twenty per
+IP per hour by default. Per-email is the one that matters: the abuse is spamming links at one
+address, and an edge limiter cannot see the address because it is inside this body. Over the
+limit is `429` `rate_limited`. A refusal does not itself count against the window.
+
+**`POST /auth/email/complete`**
+Body: `{ token }` → the same `SessionResponse` as `/auth/apple`.
+
+Single use, fifteen minutes. Unknown, already consumed, expired, or a sign-in link for an
+address that has since been removed are **all one answer** — `401` `sign_in_link_invalid` —
+because telling them apart would say whether a link ever existed. Stamps `last_sign_in_at`.
+
+A link sent by `POST /me/credentials/email` also **verifies** the address, which is what turns
+a newly added credential from inactive into a way in. A link sent by `/auth/email/start` never
+does: it cannot re-activate an address the parent removed, or Remove would be a suggestion
+rather than an action.
+
 **`POST /auth/dev-login`** — **development only.** Registered only when
 `ENVIRONMENT == "local"`. Creates or returns a fixture user plus a token pair, so the iOS
 client and curl can hit the API before Apple Developer enrollment clears.
@@ -70,9 +116,18 @@ Returns `200` with the same `SessionResponse` shape as `/auth/apple`:
 
 Three things a client must not get wrong:
 
-- **The credential row is `provider = "password"`, `subject_id = <email>`** — not `apple`.
-  The fixture account is a password credential that no password can currently satisfy, so
-  swapping to Sign in with Apple later produces a *different* user, not the same one.
+- **The credential row is `provider = "email"`, `subject_id = <email>`** — not `apple`.
+  ~~`provider = "password"`~~ — moved by phase 52, and the migration took the existing rows
+  with it. The fixture now rehearses the production credential shape instead of squatting
+  beside it: this is the same row a magic link writes. Swapping to Sign in with Apple later
+  still produces a *different* user, not the same one.
+- **The address must be on a local fixture domain**, `rascal.local` by default
+  (`DEV_LOGIN_EMAIL_DOMAINS`). Anything else is `422` with `field: "email"`. The route being
+  absent from a production build is the first lock; this is the second, and it closes a
+  different hole — a *local* API pointed at a *real* database, during a restore drill or a
+  production debugging session, handing back an `is_admin` session for somebody's actual
+  account because a developer typed their own address. `ENVIRONMENT` can be right while the
+  database is not. The address is lowercased before the domain is compared.
 - **It is idempotent by email.** The same `email` returns the same `users` row; a different
   one creates a second account. It also force-sets `is_admin = true` on every call, so the
   fixture account can seed the prompt library without a second privileged login.
@@ -90,7 +145,15 @@ the path is absent from the app and from `/openapi.json`, and any call returns `
 
 Access tokens live 15 minutes (`expires_in: 900`). Refresh tokens live 30 days.
 
-Later: `POST /auth/password` and `POST /auth/google` slot in with no schema change. That's the point.
+**No sign-in route ever links to an existing account.** Each finds or creates the user behind
+its own `(provider, subject_id)`, and **nothing anywhere matches on email address** — two people
+share addresses, an Apple relay address is not a Google one, and an archive of a childhood is not
+a thing to hand over on a string comparison. A parent who signs in with Apple and then with
+Google has two accounts until they explicitly join them from inside a session. That is
+`POST /me/credentials`.
+
+Google arrived in phase 54 with **no schema change** — a route and a verifier. That is the point
+of the credential row.
 
 ---
 
@@ -136,6 +199,75 @@ Why it exists: Apple sends a display name exactly once, at first authorization, 
 relay email is unreliable enough that `users.email` is nullable. `display_name` is the only
 human-readable identity in the product, so an account that cannot fix it is labelled with
 whatever Apple sent that one time, forever.
+
+### Sign-in methods on this account
+
+**Linking is explicit and nothing here matches on email.** A credential joins an account
+because somebody signed in to that account and asked for it.
+
+**`GET /me/credentials`** → a list, oldest first.
+
+```json
+[
+  {
+    "id": "uuid",
+    "provider": "apple",
+    "subject_hint": "••••cdef",
+    "created_at": "2026-08-16T00:00:00Z",
+    "revoked_at": null
+  }
+]
+```
+
+- **`subject_id` is never returned.** `subject_hint` is masked by shape rather than truncated,
+  because what a parent needs from it is *which of these two is which*: an address keeps its
+  domain and the first letter of its local part (`t••••@example.com`), an opaque provider
+  subject keeps its last four characters.
+- **Revoked credentials are included**, with `revoked_at` set. A parent who turned one off and
+  wants it back needs to see that it is off, not find it missing. An `email` credential that
+  has been added but not yet verified also reads as revoked — it is not a way in yet.
+
+**`POST /me/credentials`**
+Body: `{ provider, identity_token, display_name? }` → the credential, `200`.
+
+`provider` is `apple` or `google`. It is **narrower than the column's CHECK on purpose**: the
+schema permits a provider only once something can verify it. Verification is exactly what that
+provider's sign-in route does, then the credential is attached to the **current** account — the
+one behind the bearer token, never one resolved from an email address.
+
+- A subject already bound to **this** account → `200`, idempotent no-op.
+- A subject bound to a **different** account → `409` `credential_in_use`, **and nothing is
+  written**. Credentials are never reassigned and accounts are never merged.
+- Several credentials per provider are allowed. Two Apple IDs on one account is a real
+  household, not a mistake.
+
+**`POST /me/credentials/email`**
+Body: `{ provider: "email", email }` → the credential, `202`.
+
+**The address is typed by the parent and proved by the click, never by this field.** The
+credential is created **inactive** and a link is sent; opening it through
+`POST /auth/email/complete` is what turns it into a way in. A typo therefore costs nothing —
+the inbox that receives the link is the only one that can activate it.
+
+**It must never be defaulted from `users.email`.** The production account is on a
+`privaterelay.appleid.com` address, and Apple can stop forwarding a relay at any time without
+telling anybody; a magic link to a dead relay is a key that looks alive. `202` rather than
+`200` because the credential exists and is not yet usable.
+
+**`DELETE /me/credentials/{id}`** → the credential, `200`.
+
+A **soft** revocation: the row stays, `revoked_at` is set, and it keeps its claim on its
+provider subject — so signing in with it again clears the revocation and lands on the **same**
+account. That is what makes removal recoverable rather than terminal.
+
+- **Refuses to revoke the last live credential** → `409` `last_credential`. Removing the only
+  way into an account would lock a parent out of the archive permanently, and that must not be
+  reachable through an API call. A client shows this as a plain sentence, not an error state.
+- Revoking an already-revoked credential is a `200` no-op.
+- A credential on another account is `404`, not `403` — naming somebody else's credential id
+  should not confirm that it exists.
+
+---
 
 #### The notification preference
 
@@ -893,7 +1025,11 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `invalid_display_name` | 400 |
 | `assignment_expired` | 409 |
 | `upload_incomplete` | 409 |
+| `credential_in_use` | 409 |
+| `last_credential` | 409 |
 | `conflict` | 409 |
+| `rate_limited` | 429 |
+| `sign_in_link_invalid` | 401 |
 | `internal_error` | 500 |
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
@@ -928,6 +1064,40 @@ last_sign_in_at + 12 months)`, and both clocks move. A client may display it and
 **The device never decides whether a household is subscribed.** A StoreKit transaction on the phone
 is a receipt, not an entitlement, in exactly the way an Apple identity token is a credential and not
 the identity model. Every gate reads the server, for the same reason the server owns what day it is.
+
+### Sign in with Apple server-to-server notifications
+
+**`POST /webhooks/apple-signin`**
+Body: `{ payload }`, where `payload` is a JWT signed by Apple → `202`, `{ "status": "..." }`.
+
+Unauthenticated in the bearer sense and **authenticated by signature** — the same shape as the
+App Store hook below, and designed beside it for that reason. The payload is verified against
+Apple's JWKS with the same cached fetcher `POST /auth/apple` uses. **The signature is the only
+thing standing between a stranger and revoking somebody's session**, so an unverifiable payload
+is `401` rather than logged and accepted.
+
+Two claim-set differences from an identity token, both of which reject every real notification
+if you get them wrong: `sub` is **not** a top-level claim (it lives inside `events`), and there
+is no `exp`. And `events` is a JSON **string**, not an object — decoding twice is mandatory.
+`event_time` is in **milliseconds**.
+
+| Event | Behaviour |
+|---|---|
+| `consent-revoked` | Set `credentials.revoked_at`; revoke every refresh token for that user. **Never touches `users` or the archive.** Recoverable by signing in again. |
+| `account-delete` | **Identical to `consent-revoked`.** The Apple ID was deleted; the archive was not. See `docs/decisions.md` — this is a decision, and "fixing" the duplication would delete somebody's archive on a third party's say-so. |
+| `email-disabled` | `users.email_deliverable = false`. |
+| `email-enabled` | `users.email_deliverable = true`. |
+
+**Always `202` once the signature verifies**, including for an event type or a subject this
+service does not know. Apple retries anything that is not 2xx, so a 4xx is a promise to handle
+something later; and a `404` for an unknown subject would tell an unauthenticated caller which
+Apple IDs have accounts here.
+
+`email_deliverable` is a **safety interlock, not bookkeeping**, and it is not a third consent
+lane: `marketing_consent` and `transactional_consent` record what a parent chose, this records
+whether the channel physically works. A private relay can be switched off silently — no bounce,
+no error — and D3's hard stop is that deletion may not fire without a notice confirmed
+delivered. Nothing reads it yet; phase 38 does.
 
 ### App Store Server Notifications V2
 

@@ -1,17 +1,28 @@
 """Auth endpoints.
 
-`POST /auth/password` and `POST /auth/google` slot in here later against the same
-`credentials` table with no schema change. That is the point of the credential row.
+Apple and Google both land in the same `credentials` table with no schema change, which is the
+point of the credential row — adding Google was a route and a verifier, not a migration.
+
+**No sign-in route here ever links to an existing account.** Each one finds or creates the user
+behind its own `(provider, subject_id)`, and nothing matches on email. Joining two credentials
+is `POST /me/credentials`, which requires being signed in to the account you are joining them
+to — see `docs/decisions-log.md`, phase 52.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+import datetime as dt
 
-from rascal.deps import SessionDep, SettingsDep, get_apple_verifier
+from fastapi import APIRouter, Depends, Request, status
+
+from rascal.deps import SessionDep, SettingsDep, get_apple_verifier, get_google_verifier
+from rascal.errors import validation_failed
 from rascal.schemas.auth import (
     AppleSignInRequest,
     DevLoginRequest,
+    EmailSignInCompleteRequest,
+    EmailSignInStartRequest,
+    GoogleSignInRequest,
     LogoutRequest,
     RefreshRequest,
     SessionResponse,
@@ -20,6 +31,10 @@ from rascal.schemas.auth import (
 from rascal.schemas.common import UserOut
 from rascal.services.apple import AppleVerifier
 from rascal.services.auth import touch_last_sign_in, user_for_credential
+from rascal.services.email_sign_in import complete_sign_in, start_sign_in
+from rascal.services.google import GoogleVerifier
+from rascal.services.mail import send
+from rascal.services.rate_limit import check_and_record, email_bucket, ip_bucket
 from rascal.services.tokens import (
     issue_token_pair,
     revoke_refresh_token,
@@ -50,6 +65,142 @@ async def sign_in_with_apple(
         # Apple sends the display name exactly once, at first authorization.
         display_name=payload.display_name,
     )
+    tokens = await issue_token_pair(session, user.id, settings)
+    await touch_last_sign_in(session, user.id)
+    return SessionResponse(
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        expires_in=tokens.expires_in,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post(
+    "/google",
+    response_model=SessionResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Exchange a Google credential for a session",
+    description=(
+        "The same shape as `POST /auth/apple`, against a `google` row in the same "
+        "`credentials` table — which is the point of the credential row, and why this needed "
+        "no schema change.\n\n"
+        "`aud` is checked against `GOOGLE_CLIENT_IDS`, never Apple's audiences: they are "
+        "different namespaces that share a claim name. `iss` may be either "
+        "`accounts.google.com` or `https://accounts.google.com`, both of which Google "
+        "publishes as correct. **`email_verified` must be true** — an unverified address is a "
+        "claim about an inbox nobody has proved they can read.\n\n"
+        "**This never links to an existing account.** A parent who already signed in with "
+        "Apple and then signs in with Google gets a second, separate account. Joining them is "
+        "`POST /me/credentials`, from inside the session they already have — linking is "
+        "explicit and nothing anywhere matches on email address."
+    ),
+)
+async def sign_in_with_google(
+    payload: GoogleSignInRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+    verifier: GoogleVerifier = Depends(get_google_verifier),
+) -> SessionResponse:
+    identity = await verifier.verify(payload.identity_token)
+    user = await user_for_credential(
+        session,
+        "google",
+        identity.subject_id,
+        email=identity.email,
+        # Google returns the name on every token rather than once, but gap-fill is still
+        # first-non-null-wins: `PATCH /me` is the only thing that changes a name once set.
+        display_name=payload.display_name,
+    )
+    tokens = await issue_token_pair(session, user.id, settings)
+    await touch_last_sign_in(session, user.id)
+    return SessionResponse(
+        access_token=tokens.access_token,
+        refresh_token=tokens.refresh_token,
+        expires_in=tokens.expires_in,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post(
+    "/email/start",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send a sign-in link to an address that already has a credential",
+    description=(
+        "**Always `202`, whether or not the address matched anything.** Any other answer would "
+        "make this an account-enumeration oracle, and the whole point of the restriction below "
+        "is that there is nothing to enumerate.\n\n"
+        "**This never creates a user.** It matches an existing, *verified* `email` credential "
+        "or it does nothing. Email is a second key to a door you already own, added "
+        "deliberately from Settings while signed in — there is no public signup on this path. "
+        "Without that rule, an Apple parent who typed their address here would be handed a "
+        "second, empty archive with no way to tell that was what happened.\n\n"
+        "Rate limited per-email and per-IP, independently. Per-email is the one that matters: "
+        "the abuse is spamming links at one address, and an edge limiter cannot see the "
+        "address because it is inside this body."
+    ),
+)
+async def start_email_sign_in(
+    payload: EmailSignInStartRequest,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> dict[str, str]:
+    window = dt.timedelta(seconds=settings.email_sign_in_window_seconds)
+    # Both limiters, independently, and per-email first: it is the one protecting a person
+    # rather than the service.
+    await check_and_record(
+        session,
+        email_bucket(payload.email),
+        limit=settings.email_sign_in_per_email_limit,
+        window=window,
+    )
+    client_host = request.client.host if request.client else "unknown"
+    await check_and_record(
+        session,
+        ip_bucket(client_host),
+        limit=settings.email_sign_in_per_ip_limit,
+        window=window,
+    )
+
+    match = await start_sign_in(session, payload.email)
+    if match is not None:
+        address, raw = match
+        link = f"{settings.email_sign_in_link_base}?token={raw}"
+        await send(
+            settings,
+            to=address,
+            subject="Your Dogear sign-in link",
+            text=(
+                "Here is your link to sign in to Dogear.\n\n"
+                f"{link}\n\n"
+                "It works once, and for fifteen minutes. If you did not ask for it, nothing "
+                "has happened to your account and you can ignore this."
+            ),
+        )
+    # The same body either way. A client cannot tell, and neither can anybody else.
+    return {"status": "accepted"}
+
+
+@router.post(
+    "/email/complete",
+    response_model=SessionResponse,
+    summary="Exchange a sign-in link token for a session",
+    description=(
+        "Single use and fifteen minutes. A token that is unknown, already consumed, expired, "
+        "or belongs to a revoked credential is `401 sign_in_link_invalid` — **one answer for "
+        "all four**, because telling them apart would say whether a link ever existed.\n\n"
+        "A successful click also **verifies** the address: an `email` credential added through "
+        "`POST /me/credentials` starts inactive and this is what activates it. Verifying a new "
+        "address and signing in with an old one are the same act — proving you can read the "
+        "inbox."
+    ),
+)
+async def complete_email_sign_in(
+    payload: EmailSignInCompleteRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+) -> SessionResponse:
+    user = await complete_sign_in(session, payload.token)
     tokens = await issue_token_pair(session, user.id, settings)
     await touch_last_sign_in(session, user.id)
     return SessionResponse(
@@ -113,11 +264,28 @@ async def dev_login(
     session: SessionDep,
     settings: SettingsDep,
 ) -> SessionResponse:
+    email = payload.email.strip().lower()
+    _, _, domain = email.rpartition("@")
+    if domain not in settings.dev_login_email_domains:
+        # **The second lock, and it closes a different hole from the first.** The route is
+        # already absent from a production build. What this stops is a local API pointed at a
+        # real database — a restore drill, a production debugging session — handing back an
+        # `is_admin` session for somebody's actual account because a developer typed their own
+        # address into it. `ENVIRONMENT` can be right while the database is not.
+        raise validation_failed(
+            "dev-login only issues sessions for the local fixture domains "
+            f"({', '.join(settings.dev_login_email_domains)}).",
+            field="email",
+        )
+
+    # `email` rather than `password`, as of phase 52. The fixture now rehearses the production
+    # credential shape instead of squatting beside it: this is the same row phase 57's magic
+    # link writes, so the local path exercises the real one rather than a lookalike.
     user = await user_for_credential(
         session,
-        "password",
-        payload.email,
-        email=payload.email,
+        "email",
+        email,
+        email=email,
         display_name=payload.display_name,
     )
     # The fixture account owns the local library too, or seeding a prompt by hand while

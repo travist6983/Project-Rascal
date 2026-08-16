@@ -23,6 +23,8 @@ from rascal.routers import (
     prompts,
     sync,
     today,
+    webhooks,
+    wellknown,
 )
 
 # docs/api-contract.md: everything lives under /v1 except GET /health.
@@ -39,7 +41,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         summary="A private archive of a childhood, built one prompt at a time.",
         description=(
             "Plain JSON over HTTPS. Bearer auth. All timestamps ISO 8601 UTC, all IDs UUID.\n\n"
-            "Every route lives under `/v1` except `GET /health`."
+            "Every route lives under `/v1` except `GET /health` and the universal-link pair, "
+            "`/.well-known/apple-app-site-association` and `/signin`."
         ),
     )
 
@@ -67,6 +70,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(moments.router, prefix=API_PREFIX)
     app.include_router(sync.router, prefix=API_PREFIX)
     app.include_router(prompts.router, prefix=API_PREFIX)
+    app.include_router(webhooks.router, prefix=API_PREFIX)
+    # No prefix: Apple fetches the association file from the root of the domain and will not
+    # follow a redirect to find it, so `/v1` is not available to these two.
+    app.include_router(wellknown.router)
 
     if settings.is_local:
         # dev-login and the debug routes must not exist in a production build. There is a

@@ -10,8 +10,24 @@ from __future__ import annotations
 import datetime as dt
 from typing import Final, Literal
 
-CredentialProvider = Literal["apple", "google", "password"]
-CREDENTIAL_PROVIDERS: Final = ("apple", "google", "password")
+# `password` is kept permitted and is dead as of phase 52: the dev fixture moved to `email`
+# and its rows were migrated. It stays in the CHECK because removing a value from a CHECK is
+# a migration that can only fail — on any row somebody has not migrated — for no benefit, and
+# because rule 2 means the set is meant to grow rather than be curated.
+CredentialProvider = Literal["apple", "google", "password", "email"]
+CREDENTIAL_PROVIDERS: Final = ("apple", "google", "password", "email")
+
+#: Providers a client may attach through `POST /me/credentials`.
+#:
+#: Narrower than the CHECK on purpose. The column permits a value the moment the schema does;
+#: a route may only accept one once something can *verify* it. `google` arrives with phase 54
+#: and `email` with phase 57, each widening this tuple beside the verifier that earns it.
+ATTACHABLE_PROVIDERS: Final = ("apple", "google")
+
+#: What a magic-link token is for. Only `verify` may activate a credential — see
+#: `services/email_sign_in.py`.
+SignInTokenPurpose = Literal["verify", "sign_in"]
+SIGN_IN_TOKEN_PURPOSES: Final = ("verify", "sign_in")
 
 GuardianRole = Literal["parent", "viewer"]
 GUARDIAN_ROLES: Final = ("parent", "viewer")

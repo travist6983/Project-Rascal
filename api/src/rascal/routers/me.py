@@ -12,13 +12,33 @@ their own name has no way to be recognised in the app at all.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, status
 
-from rascal.deps import CurrentUser, SessionDep
+from rascal.deps import (
+    CurrentUser,
+    SessionDep,
+    SettingsDep,
+    get_apple_verifier,
+    get_google_verifier,
+)
 from rascal.errors import ErrorCode, RascalError, validation_failed
+from rascal.models import Credential
+from rascal.schemas.auth import EmailCredentialCreate
 from rascal.schemas.common import UserOut
+from rascal.schemas.credential import CredentialCreate, CredentialOut
 from rascal.schemas.user import MeUpdate
+from rascal.services.apple import AppleVerifier
+from rascal.services.auth import (
+    attach_credential,
+    credentials_for_user,
+    revoke_credential,
+    subject_hint,
+)
+from rascal.services.email_sign_in import attach_email_credential
+from rascal.services.google import GoogleVerifier
+from rascal.services.mail import send
 
 router = APIRouter(prefix="/me", tags=["users"])
 
@@ -120,3 +140,146 @@ async def update_me(payload: MeUpdate, session: SessionDep, user: CurrentUser) -
     # the database until it is read back.
     await session.refresh(user)
     return UserOut.model_validate(user)
+
+
+# --- The sign-in methods on this account (phase 52) ---------------------------------------
+#
+# Linking is explicit and nothing here matches on email. Two people can share an address, one
+# person's Apple relay address is not their Google address, and an archive of somebody's
+# childhood is not a thing to hand over on a string comparison. A credential joins an account
+# because somebody signed in to that account and asked for it.
+
+
+def _rendered(credential: Credential) -> CredentialOut:
+    return CredentialOut(
+        id=credential.id,
+        provider=credential.provider,
+        subject_hint=subject_hint(credential.provider, credential.subject_id),
+        created_at=credential.created_at,
+        revoked_at=credential.revoked_at,
+    )
+
+
+@router.get(
+    "/credentials",
+    response_model=list[CredentialOut],
+    summary="The sign-in methods on the caller's account",
+    description=(
+        "Every credential on the account behind the bearer token, oldest first, **including "
+        "revoked ones** — a parent who turned one off and wants it back needs to see that it "
+        "is off rather than find it missing. `revoked_at` is null for a live credential.\n\n"
+        "`subject_id` is never returned. `subject_hint` is a masked form carrying just enough "
+        "to tell two credentials of the same provider apart."
+    ),
+)
+async def list_my_credentials(session: SessionDep, user: CurrentUser) -> list[CredentialOut]:
+    rows = await credentials_for_user(session, user.id)
+    return [_rendered(row) for row in rows]
+
+
+@router.post(
+    "/credentials",
+    response_model=CredentialOut,
+    status_code=status.HTTP_200_OK,
+    summary="Add a sign-in method to the caller's account",
+    description=(
+        "Verifies the provider token exactly as that provider's sign-in route does, then "
+        "attaches it to the **current** account — the one behind the bearer token, never one "
+        "resolved from an email address.\n\n"
+        "Attaching a subject already bound to this account is an idempotent `200`. Attaching "
+        "one bound to a *different* account is `409 credential_in_use`, and nothing is "
+        "written: credentials are never reassigned and accounts are never merged. Several "
+        "credentials per provider are allowed.\n\n"
+        "`200` rather than `201` on both paths, because the caller cannot tell them apart and "
+        "should not have to."
+    ),
+)
+async def add_my_credential(
+    payload: CredentialCreate,
+    session: SessionDep,
+    user: CurrentUser,
+    apple: AppleVerifier = Depends(get_apple_verifier),
+    google: GoogleVerifier = Depends(get_google_verifier),
+) -> CredentialOut:
+    # The literal on `CredentialCreate.provider` is what rejects anything else, so this is an
+    # exhaustive match rather than a branch with a hole in it. Both verifiers are injected
+    # because FastAPI resolves dependencies before the handler runs — building one lazily
+    # inside a branch would mean two ways to construct a verifier.
+    verifier = apple if payload.provider == "apple" else google
+    identity = await verifier.verify(payload.identity_token)
+    credential = await attach_credential(
+        session,
+        user,
+        payload.provider,
+        identity.subject_id,
+        email=identity.email,
+        display_name=payload.display_name,
+    )
+    await session.flush()
+    return _rendered(credential)
+
+
+@router.post(
+    "/credentials/email",
+    response_model=CredentialOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Add an email address as a sign-in method",
+    description=(
+        "**The address is typed by the parent and proved by the click, never by this field.** "
+        "The credential is created *inactive* — `revoked_at` set — and a link is sent; opening "
+        "it through `POST /auth/email/complete` is what turns it into a way in. A typo "
+        "therefore costs nothing, because the inbox that receives the link is the only one "
+        "that can activate it.\n\n"
+        "**It must never be defaulted from `users.email` by a client.** The production account "
+        "is on a `privaterelay.appleid.com` address, and Apple can stop forwarding a relay at "
+        "any time without telling anybody — a magic link to a dead relay is a key that looks "
+        "alive.\n\n"
+        "`202` rather than `200`: the credential exists but is not yet usable, and the thing "
+        "that finishes the job has not happened. An address already on a *different* account "
+        "is `409 credential_in_use`. One already on this account gets a fresh link, so an "
+        "expired verification is retryable without a second row."
+    ),
+)
+async def add_my_email_credential(
+    payload: EmailCredentialCreate,
+    session: SessionDep,
+    settings: SettingsDep,
+    user: CurrentUser,
+) -> CredentialOut:
+    credential, raw = await attach_email_credential(session, user, payload.email)
+    link = f"{settings.email_sign_in_link_base}?token={raw}"
+    await send(
+        settings,
+        to=credential.subject_id,
+        subject="Confirm this address for Dogear",
+        text=(
+            "Open this link to add this address as a way to sign in to Dogear.\n\n"
+            f"{link}\n\n"
+            "It works once, and for fifteen minutes. Until you open it, this address cannot "
+            "be used to sign in. If you did not ask for this, you can ignore it."
+        ),
+    )
+    await session.flush()
+    return _rendered(credential)
+
+
+@router.delete(
+    "/credentials/{credential_id}",
+    response_model=CredentialOut,
+    summary="Remove a sign-in method from the caller's account",
+    description=(
+        "A soft revocation: the row stays, `revoked_at` is set, and the credential keeps its "
+        "claim on its provider subject — so signing in with it again reactivates it and lands "
+        "on the same account.\n\n"
+        "**Refuses to revoke the last live credential**, with `409 last_credential`. Removing "
+        "the only way into an account would lock a parent out of the archive permanently, and "
+        "that must not be reachable through an API call. Revoking an already-revoked "
+        "credential is a no-op `200`."
+    ),
+)
+async def remove_my_credential(
+    credential_id: uuid.UUID, session: SessionDep, user: CurrentUser
+) -> CredentialOut:
+    credential = await revoke_credential(session, user, credential_id)
+    await session.flush()
+    return _rendered(credential)

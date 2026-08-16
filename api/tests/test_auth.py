@@ -1,11 +1,13 @@
 """Sign in with Apple, token rotation, and the local-only dev login.
 
-Apple's JWKS is stubbed with a locally generated RSA keypair. No test touches the network.
+Apple's JWKS is stubbed with a locally generated RSA keypair — `apple_stub`, wrapped by the
+fixtures in `conftest.py`. No test touches the network.
+
+`/me/credentials` and the revocation state live in `test_credentials.py`.
 """
 
 from __future__ import annotations
 
-import base64
 import datetime as dt
 import uuid
 
@@ -15,86 +17,16 @@ import sqlalchemy as sa
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rascal.config import get_settings
+from apple_stub import KEY_ID, apple_token
+from rascal.config import Settings, get_settings
 from rascal.deps import get_apple_verifier
 from rascal.main import create_app
 from rascal.models import Credential, RefreshToken, User
 from rascal.services.apple import AppleVerifier
 from rascal.services.tokens import hash_refresh_token
-
-KEY_ID = "rascal-test-key"
-
-
-def _b64(value: int) -> str:
-    raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
-
-
-@pytest.fixture(scope="session")
-def apple_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
-    """A local RSA key plus the JWKS document Apple would have served for it."""
-    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    numbers = private.public_key().public_numbers()
-    jwks = {
-        "keys": [
-            {
-                "kty": "RSA",
-                "kid": KEY_ID,
-                "use": "sig",
-                "alg": "RS256",
-                "n": _b64(numbers.n),
-                "e": _b64(numbers.e),
-            }
-        ]
-    }
-    return private, jwks
-
-
-@pytest.fixture
-def apple_app(app: FastAPI, apple_keypair) -> FastAPI:
-    """The real app, with Apple's JWKS fetch replaced by the local document."""
-    _, jwks = apple_keypair
-
-    async def _fetch() -> dict:
-        return jwks
-
-    verifier = AppleVerifier(get_settings(), fetch=_fetch)
-    app.dependency_overrides[get_apple_verifier] = lambda: verifier
-    return app
-
-
-@pytest.fixture
-async def apple_client(apple_app: FastAPI) -> AsyncClient:
-    transport = ASGITransport(app=apple_app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-
-def apple_token(
-    apple_keypair,
-    *,
-    subject: str = "001.abcdef",
-    audience: str | None = None,
-    issuer: str = "https://appleid.apple.com",
-    email: str | None = "relay@privaterelay.appleid.com",
-    expires_in: int = 600,
-    kid: str = KEY_ID,
-) -> str:
-    private, _ = apple_keypair
-    now = dt.datetime.now(tz=dt.UTC)
-    claims = {
-        "iss": issuer,
-        "aud": audience or get_settings().apple_bundle_id,
-        "sub": subject,
-        "iat": int(now.timestamp()),
-        "exp": int((now + dt.timedelta(seconds=expires_in)).timestamp()),
-        "email": email,
-        "email_verified": "true",
-    }
-    return jwt.encode(claims, private, algorithm="RS256", headers={"kid": kid})
-
 
 # --- Sign in with Apple ------------------------------------------------------------------
 
@@ -187,7 +119,7 @@ async def test_a_token_signed_by_the_wrong_key_is_rejected(
     forged = jwt.encode(
         {
             "iss": "https://appleid.apple.com",
-            "aud": get_settings().apple_bundle_id,
+            "aud": get_settings().apple_bundle_id[0],
             "sub": "001.forged",
             "exp": int((now + dt.timedelta(minutes=10)).timestamp()),
         },
@@ -379,6 +311,63 @@ async def test_dev_login_is_not_registered_outside_local(engine) -> None:
     )
 
 
+# --- dev-login's second lock, and its new credential shape (phase 52) ---------------------
+#
+# The route being absent from a production build is the first lock and it is unchanged. The
+# hole it does not close is a *local* API pointed at a *real* database — a restore drill, a
+# production debugging session — where typing your own address would hand back an `is_admin`
+# session for the live account. `ENVIRONMENT` can be right while the database is not.
+
+
+async def test_dev_login_writes_an_email_credential_not_a_password_one(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The fixture rehearses the production credential shape instead of squatting beside it."""
+    response = await client.post("/v1/auth/dev-login", json={})
+    assert response.status_code == 200
+
+    credential = await session.scalar(sa.select(Credential))
+    assert credential.provider == "email"
+    assert credential.subject_id == "dev@rascal.local"
+    assert credential.revoked_at is None
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "travisjterry@gmail.com",
+        "parent@example.com",
+        "someone@privaterelay.appleid.com",
+        # The nearest miss, and the one an allowlist has to actually catch.
+        "someone@rascal.local.example.com",
+    ],
+)
+async def test_dev_login_refuses_an_address_outside_the_local_domains(
+    client: AsyncClient, session: AsyncSession, email: str
+) -> None:
+    response = await client.post("/v1/auth/dev-login", json={"email": email})
+    assert response.status_code == 422
+    assert response.json()["error"]["field"] == "email"
+
+    # And it is a refusal rather than a half-completed sign-in.
+    assert await session.scalar(sa.select(sa.func.count()).select_from(User)) == 0
+    assert await session.scalar(sa.select(sa.func.count()).select_from(Credential)) == 0
+
+
+async def test_dev_login_normalises_the_address_before_it_checks_the_domain(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A domain is case-insensitive, so a guard that is not would be a hole rather than a check."""
+    response = await client.post("/v1/auth/dev-login", json={"email": "  Dev@Rascal.Local  "})
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "dev@rascal.local"
+
+    # The same fixture account as the default call, not a second one beside it.
+    again = await client.post("/v1/auth/dev-login", json={})
+    assert again.json()["user"]["id"] == response.json()["user"]["id"]
+    assert await session.scalar(sa.select(sa.func.count()).select_from(User)) == 1
+
+
 # --- The activity clock, and the two consent lanes (phase 49) -----------------------------
 #
 # `last_sign_in_at` feeds D3's second deletion clock, `last_sign_in_at + 12 months`. Nothing
@@ -512,3 +501,117 @@ async def test_the_consent_lanes_are_not_settable_through_the_api(
     assert user.transactional_consent is True
     assert user.marketing_consent is True
     assert response.status_code in {200, 422}
+
+
+# --- The `aud` allowlist, and the APNs topic beside it (phase 51) -------------------------
+#
+# One Apple credential can be issued to more than one audience: the iOS app is one, and a
+# browser client signing in through a Services ID is a second. `aud` is the only claim that
+# distinguishes them, so the check is an allowlist rather than an equality.
+#
+# `resolved_apns_topic` used to fall back to the same field, which is the trap this phase
+# exists to close: the moment `APPLE_BUNDLE_ID` holds two values, "the topic is the bundle id"
+# stops being a sentence with one meaning.
+
+
+def _settings_with(**overrides: object) -> Settings:
+    """A `Settings` built through the validators, not around them.
+
+    `model_copy` is the usual trick in this file and is wrong here: it assigns fields without
+    revalidating, so it cannot observe a rule that only a constructor enforces.
+    """
+    return Settings(**{**get_settings().model_dump(), **overrides})  # type: ignore[arg-type]
+
+
+def _apple_app_with(settings: Settings, apple_keypair) -> FastAPI:
+    _, jwks = apple_keypair
+
+    async def _fetch() -> dict:
+        return jwks
+
+    application = create_app(settings)
+    application.dependency_overrides[get_apple_verifier] = lambda: AppleVerifier(
+        settings, fetch=_fetch
+    )
+    return application
+
+
+def _client_for(application: FastAPI) -> AsyncClient:
+    return AsyncClient(transport=ASGITransport(app=application), base_url="http://test")
+
+
+async def test_a_single_audience_still_verifies_a_token(
+    apple_client: AsyncClient, apple_keypair
+) -> None:
+    """The production path, pinned. One value behaves exactly as it did before the list."""
+    settings = get_settings()
+    assert settings.apple_bundle_id == ["com.travisterry.childarchive"]
+
+    response = await apple_client.post(
+        "/v1/auth/apple",
+        json={"identity_token": apple_token(apple_keypair, audience=settings.apple_bundle_id[0])},
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("audience", ["com.travisterry.childarchive", "com.travisterry.web"])
+async def test_two_audiences_are_both_accepted(engine, apple_keypair, audience: str) -> None:
+    settings = _settings_with(
+        apple_bundle_id="com.travisterry.childarchive, com.travisterry.web",
+        apns_topic="com.travisterry.childarchive",
+    )
+    assert settings.apple_bundle_id == ["com.travisterry.childarchive", "com.travisterry.web"]
+
+    async with _client_for(_apple_app_with(settings, apple_keypair)) as client:
+        response = await client.post(
+            "/v1/auth/apple",
+            json={"identity_token": apple_token(apple_keypair, audience=audience)},
+        )
+    assert response.status_code == 200
+
+
+async def test_an_audience_on_neither_list_entry_is_rejected(engine, apple_keypair) -> None:
+    """The allowlist is still a list of *allowed* values, not a list that lets anything in."""
+    settings = _settings_with(
+        apple_bundle_id="com.travisterry.childarchive, com.travisterry.web",
+        apns_topic="com.travisterry.childarchive",
+    )
+    async with _client_for(_apple_app_with(settings, apple_keypair)) as client:
+        response = await client.post(
+            "/v1/auth/apple",
+            json={"identity_token": apple_token(apple_keypair, audience="com.someone.else")},
+        )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthenticated"
+
+
+def test_two_audiences_without_an_apns_topic_refuse_to_start() -> None:
+    """A misconfiguration that would otherwise surface as every push silently rejected."""
+    with pytest.raises(ValidationError) as raised:
+        _settings_with(
+            apple_bundle_id="com.travisterry.childarchive, com.travisterry.web",
+            apns_topic=None,
+        )
+    assert "APNS_TOPIC" in str(raised.value)
+
+
+def test_one_audience_without_an_apns_topic_still_falls_back_to_it() -> None:
+    """The fallback is only ambiguous with more than one audience, so it stays for one."""
+    settings = _settings_with(apple_bundle_id="com.travisterry.childarchive", apns_topic=None)
+    assert settings.resolved_apns_topic == "com.travisterry.childarchive"
+
+
+def test_the_audience_list_is_stripped_and_compacted() -> None:
+    settings = _settings_with(
+        apple_bundle_id=" com.travisterry.childarchive ,, com.travisterry.web , ",
+        apns_topic="com.travisterry.childarchive",
+    )
+    assert settings.apple_bundle_id == ["com.travisterry.childarchive", "com.travisterry.web"]
+
+
+@pytest.mark.parametrize("value", ["", "   ", ",", " , , "])
+def test_an_empty_audience_list_refuses_to_start(value: str) -> None:
+    """`audience=[]` would reject every token Apple has ever signed, at the first sign-in."""
+    with pytest.raises(ValidationError) as raised:
+        _settings_with(apple_bundle_id=value, apns_topic="com.travisterry.childarchive")
+    assert "at least one audience" in str(raised.value)

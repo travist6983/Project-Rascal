@@ -2650,3 +2650,257 @@ diffs under mechanical ones.
 correctly described the current state, and `generate.mjs` — the file that looks authoritative,
 carries the instructions, and is newer on disk — was the one that lied. Where those two disagree,
 the committed SVGs and the contact sheet are right.
+
+* * *
+
+## Aug 16, 2026 — Phase 51: the `aud` allowlist, and unbundling the APNs topic from it
+
+**`APPLE_BUNDLE_ID` is a list now and keeps its name.** Renaming it would mean rotating a Fly
+secret on a live app to buy nothing. It parses comma-separated, strips whitespace and drops
+empty entries; one value is still one value, which is what production sets and what every
+existing test exercises.
+
+**`services/apple.py` needed no code change, and that is the design working rather than a
+shortcut.** The `aud` check already passed `settings.apple_bundle_id` straight to PyJWT, and
+PyJWT's `audience=` takes `str | Iterable[str]` with any-match semantics. Changing the type of
+the setting changed the behaviour of the check. Only the docstring moved, to stop calling it an
+equality.
+
+**`NoDecode` on the annotation is load-bearing.** pydantic-settings JSON-decodes complex types
+read from the environment, and `com.travisterry.childarchive` is not JSON. Without it the app
+does not start at all — which is a loud failure, but a confusing one.
+
+**The trap was `resolved_apns_topic`, and the setting it needed already existed.** The plan
+called for adding `APNS_TOPIC`; it had been there since phase 14 (`config.py:102`). What was
+missing was the rule about when it becomes mandatory. Two audiences with no topic now **fails
+at startup** rather than silently taking `[0]`: guessing would be right today and wrong the day
+somebody reorders a comma-separated secret, and the only symptom of getting it wrong is that no
+push is ever delivered — `DeviceTokenNotForTopic`, from Apple, into a log nobody reads.
+
+**An empty audience list also refuses to start.** `jwt.decode(audience=[])` rejects every token
+Apple has ever signed, and `resolved_apns_topic` would have nothing to return. A blank or
+comma-only value is a half-filled `.env` or an unset CI secret, and failing at construction is
+the only reading of it that is ever useful.
+
+**Break-tested three ways**: collapsing the allowlist to its first entry, removing the APNs
+startup guard, and removing the empty-list guard each fail the tests written for them.
+
+* * *
+
+## Aug 16, 2026 — Phase 52: credential linking, revocation, and dev-login's second lock
+
+**The unique constraint on `(provider, subject_id)` deliberately did not change**, and this is
+the decision the whole phase rests on. A revoked credential keeps holding its namespace, so a
+later sign-in with the same subject matches *that row* and therefore that user. Putting
+`revoked_at` in the key — or hard-deleting on revoke — would let the next sign-in mint a second
+user and leave the archive behind the first one unreachable. That is the only failure in this
+table the person it happens to cannot undo, and it is silent: they would see a working app with
+an empty archive.
+
+**Three service rules, now stated rather than accidental.**
+
+1. **Lookup finds revoked rows.** `find_credential` filters on `(provider, subject_id)` and
+   nothing else, and `user_for_credential` clears `revoked_at` on a successful sign-in. The
+   filter that looks obviously correct — `revoked_at IS NULL` — is the bug.
+2. **Gap-fill is first-non-null-wins.** A second credential fills `users.email` and
+   `users.display_name` only where they are null, and never overwrites. The guard is
+   `column IS NULL and the incoming value is truthy`, so an empty string from a provider does
+   not count as an answer. The parent changes their name through `PATCH /me` and nowhere else.
+3. **`users.email` stays unwritable through the API**, per the contract, and linking does not
+   become a back door to it.
+
+**No email matching anywhere.** A credential joins an account because somebody signed in to
+that account and asked for it. Two people share addresses, and an Apple relay address is not
+the same string as a Google one — an archive of a childhood is not a thing to hand over on a
+string comparison.
+
+**`credentials` gets `updated_at` and a trigger, and it is the odd one out.** `refresh_tokens`
+and `idempotency_keys` still have neither, and `CLAUDE.md` rule 5 has evidently been read as
+covering synced user data rather than auth rows. It earns one here because a revocation is a
+change to a row that is otherwise write-once, and a change nothing can observe is a change
+nobody can act on. Backfilled to `created_at` rather than `now()`, so existing rows do not
+claim this migration edited them.
+
+**`password` stays in the CHECK after the data migration moves every row off it.** Removing a
+value from a CHECK is a migration that can only fail — on a row somebody did not migrate — in
+exchange for nothing.
+
+**The production claim was measured, not asserted.** The plan said the `password` → `email`
+migration touches the dev fixture only. Read from `rascal-api` before writing the migration:
+one `users` row, one `credentials` row, `provider = 'apple'`, zero `password` rows. True. The
+statement is still written unconditionally, because a migration that is correct only on the
+database somebody happened to look at is not a migration.
+
+**`subject_hint` masks by shape rather than by truncation.** What a parent needs from that
+string is *which of these two is which*. An address keeps its domain and the first letter of
+its local part; an opaque provider subject keeps its last four characters. A raw `subject_id`
+never leaves the service.
+
+**`DELETE /me/credentials/{id}` on somebody else's id is 404, not 403.** Every other route here
+leaks existence deliberately and says so; this one is about a different account, so it does not.
+
+**`POST /me/credentials` takes `Literal["apple"]` rather than the column's full provider set.**
+The schema permits a value only once something can verify it — `google` with phase 54, `email`
+with phase 57. Asking for one early is a 422 naming the field, rather than a route that accepts
+an unverifiable claim.
+
+**A pre-existing race was fixed rather than inherited.** `user_for_credential` did a SELECT then
+an INSERT with only the unique constraint between them, and the loser of two concurrent
+first-ever sign-ins raised an uncaught `IntegrityError` — a 500 for what is actually a
+successful sign-in. Both it and `attach_credential` now insert inside a savepoint and resolve
+the constraint violation into the right answer.
+
+**dev-login's domain guard closes a different hole from its local-only gating.** The route is
+already absent from a production build. What this stops is a *local* API pointed at a *real*
+database — a restore drill, a production debugging session — handing back an `is_admin` session
+for somebody's actual account because a developer typed their own address. `ENVIRONMENT` can be
+right while the database is not. The address is lowercased before the domain is compared,
+because a case-sensitive domain check is a hole rather than a check.
+
+**Two test changes that are adjacent to a rule this build is not allowed to break**, both named
+here so they can be checked rather than trusted. `test_acceptance.py` signed in as
+`travis@example.com`, which the domain guard now refuses: the **input** moved to
+`travis@rascal.local` and the assertion is untouched. `test_error_codes_are_the_documented_ones`
+pins the `ErrorCode` enum as a literal set, and the two new codes were added to it *and* to the
+contract's table — that test exists to make adding a code deliberate, and it did its job.
+
+**Break-tested five ways**, and the first is the one that matters: filtering revoked rows out of
+the lookup, allowing the last credential to be revoked, reassigning a bound subject instead of
+refusing it, removing the dev-login domain guard, and making gap-fill overwrite. Each fails the
+test written for it.
+
+* * *
+
+## Aug 16, 2026 — Phase 53: Apple's notifications, and one decision that will look like a bug
+
+**`account-delete` and `consent-revoked` do exactly the same thing.** Apple is telling us an
+Apple ID was deleted, not that a childhood should be. It has no standing to ask for that, and
+the parent most likely consolidated Apple IDs and has no idea a notification was sent. Both
+events set `credentials.revoked_at` and revoke every refresh token, and neither touches `users`,
+`children`, `entries` or `media`. **Written into `decisions.md` rather than left as a code
+comment, because the identical handling will read as a copy-paste mistake** — and "fixing" it
+would delete somebody's archive on a third party's say-so.
+
+**Three claim-set traps, each of which rejects every real notification if missed.** `sub` is not
+a top-level claim — it lives inside `events`, so requiring it fails everything. There is no
+`exp`, so requiring that fails everything too. And **`events` is a JSON string, not an object**,
+which looks like an error in Apple's documentation and is not. `event_time` is in
+**milliseconds**; read as seconds it lands in the year 56000 and every comparison against it is
+nonsense.
+
+**The route answers `202` for an unknown subject and an unhandled event type.** Apple retries
+anything that is not 2xx, so a 4xx is a promise to handle something later. A `404` for an
+unknown subject would also tell an unauthenticated caller which Apple IDs have accounts here.
+
+**Revoking has to kill the sessions too.** Without it, revoking while the app is closed leaves
+the phone signed in until the refresh token expires — up to thirty days of a session the parent
+believes they ended. `_revoke_chain` was made public as `revoke_all_refresh_tokens` rather than
+reached into.
+
+**`email_deliverable` is a third column and not a third consent lane.** Phase 49's two lanes
+record what the parent *chose*; this records whether the channel physically *works*, which Apple
+tells us and the parent does not.
+
+**Break-tested five ways**, and the first is the one that matters: skipping the signature check,
+deleting the account on `account-delete`, leaving sessions alive, reading `event_time` as
+seconds, and letting an email event revoke.
+
+**This phase may not be marked complete.** `blocked.md` §11 is the device run, and the assumption
+it tests — that Apple's `sub` survives a revoke-and-reauthorize cycle — has never been observed
+here. Every one of the nineteen tests would still pass if it were false.
+
+* * *
+
+## Aug 16, 2026 — Phase 54: Google, and a break-test that caught a decorative test
+
+**The JWKS machinery was extracted and shared rather than copied.** `services/oidc.py` holds the
+cache, the one-refetch-on-unknown-`kid` rule and the decode; `apple.py` and `google.py` hold what
+is actually different. Two hand-maintained copies of a signature check drift, and **the drift is
+silent** — the copy that did not get the fix keeps returning 200s. The refactor is safe because
+Apple's 76 tests passed through it unchanged, which is the only evidence worth having.
+
+**Google's `iss` is an allowlist because Google publishes two spellings** of its own issuer and
+both are seen. Apple's is a single string. The shared decoder checks `iss` itself rather than
+handing it to PyJWT, whose `issuer=` takes one value.
+
+**`GOOGLE_CLIENT_IDS` is separate from `APPLE_BUNDLE_ID` from day one.** `aud` is a claim name
+the two providers share over entirely unrelated namespaces.
+
+**Unset is a real state and it answers differently.** No Google project exists, so the default is
+empty — and empty makes the route `422` naming the setting, rather than `audience=[]` rejecting
+every real token as "could not be verified", which is true and useless.
+
+**The break-test discipline earned its keep here.** Pooling the two audience lists — the exact
+bug the separation exists to prevent — **passed all 24 tests**. The cross-provider test was
+decorative: the stubs use different keys, so an Apple token offered to Google dies on the
+signature and the audience check is never reached. A second test now signs with **Google's** key
+and puts **Apple's** audience in `aud`, so the audience check is the only thing that can reject
+it. That test fails under the pooled-list bug and passes now.
+
+* * *
+
+## Aug 16, 2026 — Phase 56: the mailer, and why it is its own phase
+
+**Building it inside either consumer would have shaped it around that one.** Phase 38's lifecycle
+notices and phase 57's magic link both need a mailer; whichever went first would have produced a
+lifecycle-notice sender that the second had to work around. So: `send(to, subject, text, html)`,
+raises on failure, and **knows nothing about consent, deliverability or credentials** — there is
+a test that greps the file to keep it that way, because a comment saying so would rot.
+
+**`console` as the default is a safety property, not a convenience.** It never opens a socket, so
+a local run cannot send real mail to a real parent — and the eventual content of these messages is
+"your child's archive is scheduled for deletion". The test asserts it by replacing `httpx.AsyncClient`
+with something that raises, which catches a future provider that reaches for the network while
+still printing something plausible.
+
+**One retry, never on a 4xx.** The failures a retry recovers are a dropped connection and a single
+5xx. A 4xx says the message is malformed and will say it again more slowly. A backoff ladder inside
+a request handler is worse than a caller that learns quickly that the send failed.
+
+**No recipient in the log line.** An address in a log is the address leaving the system by a path
+nobody audited; the message id is what an investigation actually needs.
+
+* * *
+
+## Aug 16, 2026 — Phase 57: magic links, and the token that may not put a key back
+
+**`POST /auth/email/start` never creates a user, and that one restriction is the whole design.**
+It kills the orphan-account trap (an Apple parent typing their address into the email field and
+getting a second, empty archive), account enumeration as a signup surface, and every argument
+about self-serve password reset, at once. Email is a second key to a door you already own.
+
+**An address is proved by the click, never by the field it was typed into.** `POST
+/me/credentials/email` creates the credential **inactive** and mails a link. A typo therefore
+costs nothing — the inbox that receives the link is the only one that can activate it.
+
+**A token carries a `purpose`, and that column was added because a test was weak.** The first
+version cleared `revoked_at` on any successful click, which meant an outstanding sign-in link
+could reactivate an address the parent had deliberately removed — **Remove would have been a
+suggestion rather than an action**. The test written for it had an `in {200, 401}` assertion,
+which is the shape of a test that has stopped asserting anything. Only a `verify` token may
+activate a credential now, and re-adding a removed address is the deliberate path back.
+
+**`revoked_at` is reused for "added but not yet verified" rather than adding a second column.**
+The meaning a client needs is identical — *this is not a way in* — and a second state that renders
+the same way is furniture.
+
+**Rate limiting is in Postgres and the reason is deployment, not preference.** There is more than
+one Fly machine, so an in-process counter is per-process theatre: N times looser than it reads,
+resetting on every deploy, and passing every test. **Per-email is the limit that matters** — the
+abuse is spamming links at one address, and an edge limiter cannot see the address because it is
+inside the request body, which is exactly why this lives in the app and not at Cloudflare. A
+refusal does not record an attempt, so being refused cannot extend your own lockout.
+
+**A fixed window, not a sliding one.** It permits a burst across a boundary — up to twice the
+limit in an instant — and against "how many emails can one address be sent in an hour" that is a
+rounding error rather than a hole.
+
+**One mistake worth recording, because the suite caught it and a narrower run would not have.**
+A scripted edit added the `purpose` column to `RefreshToken` instead of `EmailSignInToken` — the
+two models share an identical two-line signature, and the pattern matched the first one. Every
+sign-in in the service broke: **79 failures**, immediately, from a change that lints clean and
+reads correctly in isolation.
+
+**Break-tested five ways**, including the one the plan named: removing the never-creates-a-user
+guard, making tokens replayable, letting a sign-in link reactivate a removed address, activating
+an address without a click, and dropping the per-email limiter.
