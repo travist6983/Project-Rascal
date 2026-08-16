@@ -19,10 +19,18 @@
   .dark { margin-top:34px; padding:26px 30px; border-radius:20px; background:#23253C;
           display:flex; gap:26px; align-items:flex-end; }
   .dark figcaption { color:#7C7994; }
+  .chosen { border-left:3px solid #C05A2B; padding-left:24px; margin-left:-27px; }
+  .tag { display:inline-block; margin-left:10px; padding:3px 10px; border-radius:11px;
+         background:#C05A2B; color:#FDFAF4; font:600 11px/1.4 ui-monospace,Menlo,monospace;
+         letter-spacing:.06em; text-transform:uppercase; vertical-align:6px; }
 </style>
 <h1>RASCAL — app icon</h1>
 <p class="lede">Three readings of the stacked-layer silhouette. The layers are the five entry kinds,
-and each one carries the motif that identifies it on its own Entry Detail screen.</p>
+and each one carries the motif that identifies it on its own Entry Detail screen.
+<strong>Fan is the one, decided Aug 16, 2026</strong> — and the decision is name-independent, because
+nothing in the mark is a word. <code>rascal-icon-fan.svg</code> is the source of truth; the PNG in
+<code>AppIcon.appiconset</code> is rendered from it by <code>render-appicon.mjs</code> and is not
+edited by hand.</p>
 
   <section class="v">
     <header>
@@ -48,10 +56,13 @@ and each one carries the motif that identifies it on its own Entry Detail screen
       </div>
     </div>
   </section>
-  <section class="v">
+  <section class="v chosen">
     <header>
-      <h2>Fan</h2>
+      <h2>Fan<span class="tag">shipped</span></h2>
       <p>Same five motifs, different silhouette — a hand of entries rather than a stack. Each card is legible down its outer edge, so the motif sits high.</p>
+      <p><strong>This is the app icon.</strong> It survives the mask down to 40pt — the front card's
+      cream sheet and the terracotta ground stay separable when the four behind it have collapsed into
+      a single fanned edge, which is the size where the other two readings stop being five of anything.</p>
     </header>
     <div class="row">
       <figure class="big"><img src="rascal-icon-fan.svg" alt="Fan"><figcaption>1024</figcaption></figure>

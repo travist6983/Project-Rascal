@@ -1176,6 +1176,40 @@ hazard entirely. The hit rate on photos straight from an iPhone camera is unknow
 low, so it is worth a measurement before it is worth a phase. It is a different feature from the
 one the roadmap describes, so it is the owner's call.
 
+### Re-verified Aug 16, 2026, and the measurement now exists (phase 46)
+
+**The grep above was re-run and the block is unchanged.** Same SDK — iPhoneOS26.4, Xcode 26.4.1.
+`Transcript.Segment` is still exactly `case text` and `case structure`, and the interface grep for
+`CGImage|CVPixelBuffer|UIImage|CIImage` still returns **0**. Nothing about the platform half of
+this section has moved.
+
+**`MAImageCaptioning` was verified to work rather than assumed to.** `CaptionProbeTests` writes a
+caption into a real JPEG with `MAImageCaptioningSetCaption` and reads it back through the same
+`MAImageCaptioningCopyCaption` call the probe uses. The round trip passes, so **the reader is not
+in question — only the population is.** The header confirms what it reads:
+*"This checks for XMP metadata field: `Iptc4xmpExt:AOContentDescription`."*
+
+**The owner's call was: measure first.** `CaptionProbe` and its Settings row ship as a
+**diagnostic, not a feature** — it walks the newest 500 on-device photos, counts how many carry
+that field, and reports a rate plus a few examples. It writes nothing, uploads nothing, persists
+nothing, and never pulls an iCloud original. Run it with
+`docs/device-verification-captions.md`; it needs a real camera roll, so it needs a TestFlight
+build, which is still the standing blocker.
+
+**Two things deliberately did not ship with it, and both would have been premature:**
+
+- **No caption writer, and therefore no caption state ladder.** The ladder is a SwiftData
+  migration on every media row, and committing to it before the number is known is exactly the
+  mistake this section warned against.
+- **No clobber guard.** `Media.applyServerSummary` and `SyncEngine.differs(_:from:)` both handle
+  `caption` unguarded, so **they agree with each other and there is no live defect**. A guard now
+  would guard a writer that does not exist. The clobber's deferral, recorded by phase 41, now
+  points at this measurement rather than at a phase that may never land.
+
+**If the number comes back near zero, the honest outcome is that `CaptionProbe` and
+`CaptionProbeScreen` are deleted and 33 closes.** That is a real possible result of this work and
+it is written down here so it is not quietly reinterpreted later as a reason to build anyway.
+
 **One thing to fix on the way in, whenever this unblocks.** The pull path already clobbers
 captions, and it has since before there was anything to clobber. `Media.applyServerSummary`
 (`Media.swift:210`) writes `caption = summary.caption ?? caption` **outside** the

@@ -2540,3 +2540,62 @@ about itself.
 **Still nothing ticked.** 451 boxes, 9 of them, all from Aug 12. Two phases in one day grew the
 denominator by 42 and moved the numerator by none, and that remains the honest direction: the
 backlog is now closer to describing the app, which is a precondition for running it.
+
+## Aug 16, 2026 — Phase 46: measure before building 33
+
+**The ask was "finish 33". The honest answer is that 33 cannot be finished, and the useful answer
+is that the decision behind it has never been measured.** Both are now written down.
+
+**The block was re-verified rather than trusted, which is the whole discipline §9 was written to
+enforce.** Same SDK — iPhoneOS26.4, Xcode 26.4.1. `Transcript.Segment` is still exactly `case text`
+and `case structure`. The interface grep for `CGImage|CVPixelBuffer|UIImage|CIImage` still returns
+0. Two days is not long enough for a platform to move, and checking anyway costs thirty seconds
+against the alternative of building a phase on a remembered fact.
+
+**What ships is a measurement, not a feature, and the distinction is load-bearing.**
+`MAImageCaptioningCopyCaption` reads the XMP field `Iptc4xmpExt:AOContentDescription` — **a
+description a human already wrote**, not a model's guess. That is the property that makes it worth
+considering at all: `blocked.md` §9 rejects `Vision`'s label-stitching because *"a permanent
+plausible lie about somebody's child is worse than an empty field"*, and a human-authored sentence
+cannot be that lie. But the entire case rests on a number nobody has ever counted: what fraction of
+a real camera roll carries that field. `CaptionProbe` counts it and stops.
+
+**The reader was proven rather than assumed.** The suite writes a caption into a real JPEG with
+`MAImageCaptioningSetCaption` and reads it back through the same call the probe uses. It round
+trips. **So the API is not in question — only the population is**, and that is a much better place
+for the uncertainty to sit than in a "does this even work" that a device evening would have had to
+answer alongside everything else.
+
+### Three things deliberately did not ship, and each was available
+
+- **No caption writer, and therefore no state ladder.** The ladder is a SwiftData migration on
+  every media row. Committing to it before the number is known is precisely the mistake §9 and the
+  queue have both warned about since Aug 14.
+- **No clobber guard, and this reverses a line in the plan I proposed.** I offered "measure first,
+  *plus the caption clobber guard*" and then checked: `Media.applyServerSummary` writes `caption`
+  unguarded and `SyncEngine.differs(_:from:)` compares it unguarded, so **the two agree and there
+  is no live defect.** A guard would guard a writer that does not exist — the exact thing phase 41
+  decided against. The deferral now points at this measurement rather than at a phase that may
+  never land, which is a better place for it to wait.
+- **No column for provenance.** The decision is settled — a caption from file metadata is not model
+  output, so it needs a source distinction on `entry_tags.source`'s precedent — but `data-model.md`
+  is deliberately unchanged. **This is where it differs from per-entry visibility**, which *was*
+  specified before being built: that had a closed design and a known consumer, and this has neither
+  until the measurement answers. Specifying a migration for a feature that may be deleted next week
+  is the cost this project keeps refusing to pay.
+
+**The probe is furniture with a scheduled removal, and that is stated in the code.** It sits under
+the sync card rather than on the Settings page, for the same reason the sync diagnostics do — a tool
+about an unshipped feature must not read as part of ordinary use. It could not go behind
+`#if DEBUG`, because the only phone with a real camera roll runs a release build; that constraint
+is why a diagnostic ships to production at all, and it is worth naming so the next reader does not
+"fix" it.
+
+**A near-zero result deletes `CaptionProbe` and `CaptionProbeScreen` and closes 33.** That is a
+real possible outcome of this phase and it is written into the code, `blocked.md`, the roadmap and
+the checklist — in four places on purpose, because a measurement whose disappointing result has no
+pre-agreed consequence gets reinterpreted as a reason to build anyway.
+
+**It cannot be run yet.** It needs a real camera roll, which needs a TestFlight build, which is
+still the standing blocker on everything. `docs/device-verification-captions.md` is nine boxes and
+the twelfth checklist — 460 now, still nine ticked.

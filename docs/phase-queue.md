@@ -10,11 +10,11 @@ exact failure `roadmap-status.md` has now made six revisions running.
 Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 45**, so a
-genuinely new phase takes **46** — 36–39 are monetization's forward items, 40 settled the
+you can do, and follow-ups the work itself turned up. **The highest number used is 46**, so a
+genuinely new phase takes **47** — 36–39 are monetization's forward items, 40 settled the
 numbering, 41 retired the caption clobber into 33, 42 iceboxed guardian invites, 43 scoped the
-export by date, 44 reconciled the verification backlog, and 45 gave multi-kid device coverage.
-**This line
+export by date, 44 reconciled the verification backlog, 45 gave multi-kid device coverage, and 46
+shipped the caption probe. **This line
 disagreed with `roadmap-status.md` for a day** and a preflight gate caught it: the queue still said
 36 was free after the roadmap had taken 36–39. The roadmap is the source and this line follows it —
 measure it there rather than trusting this one.
@@ -79,7 +79,7 @@ iOS build, and it is the one nobody here can do.
 - Run a **restore drill**. The machinery is tested; the act has never been performed. Use the
   pinned Postgres 16 binaries — a 17 client writes a dump 16 will not take back.
 
-## Verification backlog — 451 boxes, and the only instrument that reads what tests cannot
+## Verification backlog — 460 boxes, and the only instrument that reads what tests cannot
 
 Run in this order. Details and the "why here" for each are in `roadmap-status.md`.
 
@@ -100,6 +100,8 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 - `device-verification-extraction.md` — 22. Needs Apple Intelligence hardware. **§4a is new.**
 - `device-verification-entry-detail.md` — 36. **Header fixed and the v2 checks added by 44** — two
   boxes asked about a navigation bar v2 removed, and §7 is new. Runnable as written now.
+- `device-verification-captions.md` — 9. **Needs a real camera roll, and its answer decides
+  phase 33.** Measures how many photos already carry a written description; near-zero closes 33.
 - `device-verification-personalization.md` — 25. Same hardware gate as extraction.
 - `device-verification-moments.md` — 44.
 - `device-verification-push.md` — 32. §0–§3 mostly ticked Aug 12. Left: force-quit delivery, the
@@ -123,8 +125,13 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 - **Re-measure `mission`'s pool health.** Phase 25 took the untagged photo pool from 20 to 40, so
   the relaxation date in `mission-library.md` is stale by arithmetic. One call to
   `GET /children/{id}/pool-health` replaces a projection this file must not invent.
-- **33 — Photo captioning, device half. Blocked on the platform — see `docs/blocked.md` §9.** The
-  server half is complete and the device half cannot be written: the on-device model's whole input
+- **33 — Photo captioning. Blocked on the platform, and now waiting on a measurement rather than
+  on Apple — see `docs/blocked.md` §9.** Re-verified Aug 16: the block is unchanged. **Phase 46
+  shipped the measurement instead of the feature** — `MAImageCaptioning` reads a description a
+  human already wrote into a photo's metadata, and nobody has counted how many real photos have
+  one. Run `device-verification-captions.md` on a phone with a real camera roll; **near-zero
+  deletes the probe and closes this phase**, and anything better gets it a real one. The server
+  half is complete and the *generating* half cannot be written: the on-device model's whole input
   vocabulary is `Transcript.Segment`, which is text or structure, so there is no pixels-to-prose
   call to make. **The stated reason here was half wrong** — `SpeechTranscribing` takes a file URL
   and *returns* text, so the two seams never shared an input to widen. It is a third protocol
@@ -133,6 +140,9 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   and a Settings row that permanently reads "0 waiting" is the furniture this app refuses.
   **It also inherits the caption clobber** — a queue line of its own until Aug 16, now on 33's row
   and in §9, where the three call sites and the reason it cannot be fixed early are written out.
+  **46 deliberately did not guard it**: `applyServerSummary` and `differs(_:from:)` agree today, so
+  there is no live defect, and a guard would guard a writer that does not exist. The deferral now
+  points at the measurement rather than at a phase that may never land.
 - **32 — Year One book.** Year scoping closed with 43 on Aug 16; `GET /export` takes `from` and
   `to`. **The other four problems are one problem** — print layout, PDF generation, QR
   substitution and the playback surface all need a web client this API has never had. That is
