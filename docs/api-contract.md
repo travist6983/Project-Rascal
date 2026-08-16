@@ -319,7 +319,11 @@ Body: `{ email, role }` → creates an invite. P2.
 
 **`GET /children/{id}/export`** — parent only → `application/zip`.
 
-The whole archive, in a format that outlives this API:
+Query: `from`, `to` — both optional `YYYY-MM-DD`, both **inclusive**, either may be sent
+alone. Omit both for the whole archive, which is what every caller before this got and still
+gets. `from` after `to` is `422` with `field: "from"`.
+
+The archive, in a format that outlives this API:
 
 ```
 manifest.json            format version, child, counts, media that could not be fetched
@@ -345,7 +349,29 @@ manifest.js              manifest.json's bytes as `window.RASCAL_MANIFEST = …;
 - A media row whose bytes are not in S3 keeps its metadata, gets a null `path`, and is
   listed in `manifest.missing_media`. One dead upload does not fail the export.
 - Response headers `x-rascal-export-entries`, `-media`, `-missing-media` summarise the run;
-  `content-length` is exact, so a client can show real progress.
+  `content-length` is exact, so a client can show real progress. They describe **the export**,
+  so a scoped one reports its own counts and not the archive's.
+- **`from` and `to` are calendar days in the child's `family_timezone`, not UTC**, and the
+  server resolves the boundary. An entry logged at 8pm on Dec 31 in Detroit is stored as Jan 1
+  UTC and belongs to December — a range built from naive UTC dates files it in the next year,
+  which for a book printed once a year is a mistake nobody catches until it is on paper. This
+  is the same rule as "the server owns what day it is".
+- **Selection is by `occurred_at`, never `created_at`.** A photo taken in December and
+  uploaded in January is December's. Backdating is a first-class flow and this is where it
+  shows.
+- **Scoping chooses days, never rows.** Soft-deleted entries inside the range come out exactly
+  as they do from a whole-archive export.
+- `manifest.scope` is `{ complete, from, to, timezone }` and is **the record of what this zip
+  is a copy of**. `complete: true` has `from` and `to` null. When it is false,
+  `manifest.notes` leads with a partial-archive warning naming the range and the zone instead
+  of the usual "contains every entry" line, and the viewer shows a banner saying the same.
+  **A partial archive must never be mistakable for a whole one** — the gap before March has to
+  read as a gap in the download, not a gap in the childhood. `scope` is absent from every
+  archive exported before this existed, and **absent means whole**: a reader must not infer
+  partial from a missing key.
+- A scoped download is named for its range — `dogear-<child>-20260101-20261231.zip`, with
+  `start` or `end` standing in for an open bound — so two exports taken the same afternoon do
+  not collide. The complete export's name is unchanged.
 
 The zip is assembled on disk and streamed back, so memory is bounded regardless of size.
 

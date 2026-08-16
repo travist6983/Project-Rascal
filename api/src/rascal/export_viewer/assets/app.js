@@ -102,6 +102,31 @@
   var child = manifest.child || {};
   var childName = child.name ? String(child.name) : "the archive";
 
+  // A date-scoped export has to announce itself, and this is the only place a person will
+  // look. The masthead's year range is computed from the entries that are *here*, so a
+  // one-year export shows "2026" and reads exactly like a complete archive of a child who
+  // has only lived one year. Without this line the gap before March is indistinguishable
+  // from a gap in the childhood.
+  //
+  // `scope` is absent from every archive exported before phase 43, and absent means whole —
+  // which is what those archives are. Never infer partial from a missing key.
+  var scope = manifest.scope;
+  if (scope && scope.complete === false) {
+    var span;
+    if (scope.from && scope.to) {
+      span = "from " + scope.from + " to " + scope.to;
+    } else if (scope.from) {
+      span = "from " + scope.from + " onward";
+    } else {
+      span = "up to " + scope.to;
+    }
+    warnings.push(
+      "This is part of " + childName + "'s archive, not all of it — entries " + span +
+        (scope.timezone ? ", by the day each one happened in " + scope.timezone : "") +
+        ". The rest is not in this folder. Export without a date range to get everything."
+    );
+  }
+
   // ---------------------------------------------------------------------------------
   // Prompt pronoun tokens.
   //

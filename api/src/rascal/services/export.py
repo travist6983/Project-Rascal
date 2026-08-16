@@ -56,6 +56,7 @@ from sqlalchemy.orm import selectinload
 from rascal.config import Settings
 from rascal.models import Assignment, Child, Entry, EntryTag, Media, Prompt
 from rascal.services import s3
+from rascal.services.dates import local_day_window
 
 log = logging.getLogger("rascal.export")
 
@@ -83,6 +84,41 @@ class ExportStats:
 
 
 @dataclass(frozen=True)
+class ExportScope:
+    """Which calendar days to export, as an inclusive range in the child's `family_timezone`.
+
+    Both bounds are optional and either may stand alone: `from` with no `to` is "everything
+    since", `to` with no `from` is "everything up to". Neither is the whole archive, which is
+    what every caller before this got and still gets by sending nothing.
+
+    **Days, not instants, and resolved in the family's zone** — the client names a date and the
+    server decides which moment that is, the same rule that governs what "today" means. An
+    entry logged at 8pm on Dec 31 in Detroit is stored as Jan 1 UTC; a range built from naive
+    UTC dates would file it in the wrong year, which for a book printed once a year is a
+    mistake nobody catches until it is on paper.
+    """
+
+    date_from: dt.date | None = None
+    date_to: dt.date | None = None
+
+    @property
+    def is_complete(self) -> bool:
+        return self.date_from is None and self.date_to is None
+
+    def as_json(self, timezone: str) -> dict:
+        """What `manifest.json` records, so a partial archive can never claim to be whole."""
+        return {
+            "complete": self.is_complete,
+            "from": _iso(self.date_from),
+            "to": _iso(self.date_to),
+            "timezone": timezone,
+        }
+
+
+COMPLETE = ExportScope()
+
+
+@dataclass(frozen=True)
 class _MediaFetch:
     """One object to pull down, and where it lands inside the zip."""
 
@@ -99,10 +135,38 @@ class _Plan:
     entries: list[dict]
     fetches: list[_MediaFetch]
     deleted_entries: int
+    scope: dict
 
 
 def _iso(value: dt.datetime | dt.date | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _scope_notes(scope: dict) -> list[str]:
+    """The first line of `manifest.notes`, which has to tell the truth about what is here.
+
+    The complete export says it holds every entry, and that sentence has been in every archive
+    since the format existed. **A scoped export may not say it** — someone opening this zip in
+    2040 has only the manifest to tell them whether the gap before March is a gap in the child's
+    life or a gap in the download, and getting that wrong is the one failure this file exists to
+    prevent. The dates are spelled out with their zone for the same reason.
+    """
+    if scope["complete"]:
+        return ["entries.json contains every entry, including soft-deleted ones."]
+
+    if scope["from"] and scope["to"]:
+        span = f"from {scope['from']} to {scope['to']} inclusive"
+    elif scope["from"]:
+        span = f"from {scope['from']} onward"
+    else:
+        span = f"up to and including {scope['to']}"
+    return [
+        f"THIS IS A PARTIAL ARCHIVE. It contains entries {span}, "
+        f"by the date each one happened in {scope['timezone']}.",
+        "Entries outside that range exist and are not in this file. Export without a date "
+        "range to get the complete archive.",
+        "Within the range, entries.json contains every entry, including soft-deleted ones.",
+    ]
 
 
 def _media_path(entry: Entry, media: Media) -> str:
@@ -172,9 +236,22 @@ def _entry_json(entry: Entry, prompt: Prompt | None) -> dict:
     }
 
 
-async def _load_everything(session: AsyncSession, child: Child) -> list[Entry]:
-    """Every entry this child has, deleted ones included, oldest first."""
-    rows = await session.execute(
+async def _load_everything(
+    session: AsyncSession, child: Child, scope: ExportScope = COMPLETE
+) -> list[Entry]:
+    """Every entry this child has in `scope`, deleted ones included, oldest first.
+
+    **Soft-deleted rows stay in, exactly as they do for the whole archive.** Scoping answers
+    *which days*, never *which rows on those days* — an export that dropped deletions would
+    stop being a copy, and doing that silently on the scoped path only would be worse than
+    doing it everywhere.
+
+    The bounds are half-open UTC instants derived from local days, so the predicate stays
+    sargable on `(child_id, occurred_at desc)`. Filtering on `occurred_at` rather than
+    `created_at` is the whole point: a photo taken in December and uploaded in January belongs
+    to December's book. Backdating is a first-class flow here and this is where it shows.
+    """
+    statement = (
         select(Entry)
         .where(Entry.child_id == child.id)
         .options(
@@ -183,6 +260,17 @@ async def _load_everything(session: AsyncSession, child: Child) -> list[Entry]:
         )
         .order_by(Entry.occurred_at.asc(), Entry.id.asc())
     )
+    # Each bound is derived from its own date, so an absent one is simply not applied. A
+    # single-day window supplies both edges: the lower is that day's local midnight, the upper
+    # is the next day's, which is the exclusive end this needs.
+    if scope.date_from is not None:
+        begins, _ = local_day_window(scope.date_from, scope.date_from, child.family_timezone)
+        statement = statement.where(Entry.occurred_at >= begins)
+    if scope.date_to is not None:
+        _, ends = local_day_window(scope.date_to, scope.date_to, child.family_timezone)
+        statement = statement.where(Entry.occurred_at < ends)
+
+    rows = await session.execute(statement)
     return list(rows.scalars().all())
 
 
@@ -199,9 +287,13 @@ async def _prompts_for(session: AsyncSession, entries: Sequence[Entry]) -> dict[
     return dict(rows.all())
 
 
-async def plan_export(session: AsyncSession, child: Child) -> _Plan:
-    """Read the whole archive out of Postgres and flatten it to plain data."""
-    entries = await _load_everything(session, child)
+async def plan_export(session: AsyncSession, child: Child, scope: ExportScope = COMPLETE) -> _Plan:
+    """Read the archive out of Postgres and flatten it to plain data.
+
+    `scope` narrows which days are read; it defaults to the whole archive, so every caller
+    that predates scoping behaves exactly as it did.
+    """
+    entries = await _load_everything(session, child, scope)
     prompts = await _prompts_for(session, entries)
 
     records = [_entry_json(entry, prompts.get(entry.assignment_id)) for entry in entries]
@@ -225,6 +317,7 @@ async def plan_export(session: AsyncSession, child: Child) -> _Plan:
         entries=records,
         fetches=fetches,
         deleted_entries=sum(1 for entry in entries if entry.deleted_at is not None),
+        scope=scope.as_json(child.family_timezone),
     )
 
 
@@ -324,6 +417,10 @@ def write_export(plan: _Plan, settings: Settings, destination: Path) -> ExportSt
                 "format_version": EXPORT_FORMAT_VERSION,
                 "generated_at": dt.datetime.now(tz=dt.UTC).isoformat(),
                 "child": plan.child,
+                # What this archive is a copy *of*. Without it a one-year export and a whole
+                # archive are byte-indistinguishable in shape, and the smaller one reads as an
+                # archive with years missing rather than as the slice somebody asked for.
+                "scope": plan.scope,
                 "counts": {
                     "entries": stats.entries,
                     "deleted_entries": stats.deleted_entries,
@@ -332,7 +429,7 @@ def write_export(plan: _Plan, settings: Settings, destination: Path) -> ExportSt
                 },
                 "missing_media": stats.missing_media,
                 "notes": [
-                    "entries.json contains every entry, including soft-deleted ones.",
+                    *_scope_notes(plan.scope),
                     "A soft-deleted entry has is_deleted true and a deleted_at timestamp.",
                     "Sealed letters are exported in the clear; unlock_at_age is retained.",
                     "media paths are relative to the root of this archive.",
@@ -358,10 +455,14 @@ def write_export(plan: _Plan, settings: Settings, destination: Path) -> ExportSt
 
 
 async def build_export(
-    session: AsyncSession, child: Child, settings: Settings, destination: Path
+    session: AsyncSession,
+    child: Child,
+    settings: Settings,
+    destination: Path,
+    scope: ExportScope = COMPLETE,
 ) -> ExportStats:
     """Read the archive, then write the zip off the event loop. Returns what went into it."""
-    plan = await plan_export(session, child)
+    plan = await plan_export(session, child, scope)
     # The read is done and the plan is plain data by construction — no ORM object crosses into
     # the thread — so end the transaction before the S3 work starts. Pulling a gigabyte archive
     # object by object takes minutes, and holding the request's transaction across it parks one
@@ -376,6 +477,8 @@ async def build_export(
             "exported_entries": stats.entries,
             "exported_media": stats.media,
             "absent_media": len(stats.missing_media),
+            "scope_from": _iso(scope.date_from),
+            "scope_to": _iso(scope.date_to),
         },
     )
     return stats
@@ -398,8 +501,16 @@ def staging_path(child_id: uuid.UUID) -> Path:
     return Path(name)
 
 
-def filename_for(child: Child, now: dt.datetime | None = None) -> str:
+def filename_for(
+    child: Child, now: dt.datetime | None = None, scope: ExportScope = COMPLETE
+) -> str:
     """`dogear-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder.
+
+    A scoped export is named for its range instead of the day it was made —
+    `dogear-mia-20260101-20261231.zip` — because two downloads taken the same afternoon would
+    otherwise collide on the same name and the second would land as `(1)`. An open-ended
+    bound reads `start` or `end` rather than being left blank, so the range is never ambiguous
+    about which side is missing. The complete export's name is unchanged.
 
     Renamed from `rascal-` on Aug 12, 2026 with the product. **Nothing reads this string** — it is
     a `Content-Disposition` suggestion, not an identifier — so archives downloaded under the old
@@ -413,7 +524,12 @@ def filename_for(child: Child, now: dt.datetime | None = None) -> str:
     here; the archive is not. A child whose name transliterates to nothing gets `child`, and
     the real name is in `manifest.json` in full.
     """
-    stamp = (now or dt.datetime.now(tz=dt.UTC)).strftime("%Y%m%d")
+    if scope.is_complete:
+        stamp = (now or dt.datetime.now(tz=dt.UTC)).strftime("%Y%m%d")
+    else:
+        first = scope.date_from.strftime("%Y%m%d") if scope.date_from else "start"
+        last = scope.date_to.strftime("%Y%m%d") if scope.date_to else "end"
+        stamp = f"{first}-{last}"
     ascii_only = (ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower())
     slug = "".join(ascii_only).strip("-")
     return f"dogear-{slug or 'child'}-{stamp}.zip"

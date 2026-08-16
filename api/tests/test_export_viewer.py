@@ -315,3 +315,28 @@ def test_every_place_the_viewer_shows_a_prompt_renders_its_tokens() -> None:
     # kind of line is the bug this is looking for.
     assert len(guards) + len(rendered) == len(lines), lines
     assert len(rendered) == 3, rendered
+
+
+def test_the_viewer_announces_a_partial_archive() -> None:
+    """A scoped export must say so on the page, not only in `manifest.json`.
+
+    The masthead's year range is computed from the entries that are present, so a one-year
+    export renders "2026" and reads exactly like the complete archive of a child who has
+    lived one year. Somebody opening this in 2040 has no other way to tell the gap before
+    March from a gap in the childhood.
+    """
+    code = _code()["assets/app.js"]
+    assert "manifest.scope" in code
+    assert "not all of it" in code
+
+
+def test_the_viewer_treats_a_missing_scope_as_a_whole_archive() -> None:
+    """Every archive exported before phase 43 has no `scope` key, and all of them are whole.
+
+    The check must be `complete === false` rather than a falsy test: `undefined` is falsy,
+    so `!scope.complete` would stamp PARTIAL across every archive exported before scoping
+    existed — the one bug in this feature that rewrites history rather than the present.
+    """
+    code = _code()["assets/app.js"]
+    assert "scope.complete === false" in code
+    assert "!scope.complete" not in code
