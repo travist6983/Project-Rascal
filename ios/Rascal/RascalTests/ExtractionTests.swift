@@ -40,16 +40,17 @@ final class StubExtractor: EntryExtracting, @unchecked Sendable {
     }
 
     func availability() async -> ExtractionAvailability {
-        lock.lock(); defer { lock.unlock() }
-        return _availability
+        lock.withLock { _availability }
     }
 
     func extract(from body: String) async throws -> ExtractedDetails {
-        lock.lock()
-        _bodiesSeen.append(body)
-        let shouldThrow = _shouldThrow
-        let result = _result
-        lock.unlock()
+        // The throw happens *after* the lock is released, which is why the state comes out as a
+        // tuple rather than the body throwing inside the closure. Unchanged from the paired
+        // lock/unlock this replaces — `withLock` is the async-safe spelling of the same scope.
+        let (shouldThrow, result) = lock.withLock {
+            _bodiesSeen.append(body)
+            return (_shouldThrow, _result)
+        }
         if shouldThrow { throw APIError.transport("model failed") }
         return result
     }

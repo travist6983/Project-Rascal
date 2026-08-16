@@ -50,18 +50,18 @@ final class StubAuthorizer: NotificationAuthorizing, @unchecked Sendable {
     }
 
     func status() async -> NotificationAuthorizationStatus {
-        lock.lock(); defer { lock.unlock() }
-        return _status
+        lock.withLock { _status }
     }
 
     @discardableResult
     func requestAuthorization() async -> NotificationAuthorizationStatus {
-        lock.lock()
-        _promptCount += 1
-        _status = _answer
-        let forbidden = _promptsForbidden
-        let answer = _answer
-        lock.unlock()
+        // `Issue.record` runs outside the lock, exactly as it did before: recording a failure
+        // while holding it would put Swift Testing's machinery inside this critical section.
+        let (forbidden, answer) = lock.withLock {
+            _promptCount += 1
+            _status = _answer
+            return (_promptsForbidden, _answer)
+        }
         if forbidden {
             Issue.record("The system permission prompt fired on a path that must never fire it.")
         }
@@ -69,8 +69,7 @@ final class StubAuthorizer: NotificationAuthorizing, @unchecked Sendable {
     }
 
     func registerForRemoteNotifications() async {
-        lock.lock(); defer { lock.unlock() }
-        _registerCount += 1
+        lock.withLock { _registerCount += 1 }
     }
 }
 
@@ -91,21 +90,18 @@ final class StubPushBackend: PushBackend, @unchecked Sendable {
     }
 
     func register() async {
-        lock.lock(); defer { lock.unlock() }
-        _events.append("register")
+        lock.withLock { _events.append("register") }
     }
 
     func revoke() async {
-        lock.lock(); defer { lock.unlock() }
-        _events.append("revoke")
+        lock.withLock { _events.append("revoke") }
     }
 
     func updatePreference(enabled: Bool?, time: NotifyTime?) async throws -> UserResponse {
-        lock.lock()
-        _events.append("patch(enabled: \(enabled.map(String.init) ?? "-"), time: \(time?.wire ?? "-"))")
-        let shouldFail = _failWrites
-        let current = _user
-        lock.unlock()
+        let (shouldFail, current) = lock.withLock {
+            _events.append("patch(enabled: \(enabled.map(String.init) ?? "-"), time: \(time?.wire ?? "-"))")
+            return (_failWrites, _user)
+        }
         if shouldFail { throw APIError.transport("offline") }
         let updated = UserResponse(
             id: current.id,
@@ -116,7 +112,7 @@ final class StubPushBackend: PushBackend, @unchecked Sendable {
             notifyEnabled: enabled ?? current.notifyEnabled,
             notifyLocalTime: time ?? current.notifyLocalTime
         )
-        lock.lock(); _user = updated; lock.unlock()
+        lock.withLock { _user = updated }
         return updated
     }
 }
