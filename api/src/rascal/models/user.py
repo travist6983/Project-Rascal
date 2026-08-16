@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Index, Text, Time, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, Time, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -55,6 +55,41 @@ class User(Base):
         Time(timezone=False),
         server_default=text(f"'{DEFAULT_NOTIFY_LOCAL_TIME.isoformat()}'"),
     )
+
+    # **The activity clock, and it is here rather than on the entitlement because it cannot be
+    # backfilled.** D3 computes deletion eligibility as
+    # `max(lapsed_at + 24 months, last_sign_in_at + 12 months)`, and `data-model.md` specifies
+    # the family-level value as "most recent sign-in by **any** guardian" — which is a `MAX`
+    # over exactly this column. Recording it per user is therefore strictly more information
+    # than the entitlement row needs, and the entitlement's copy is a denormalisation of it.
+    #
+    # **A lapse date can be derived later; this cannot.** Nobody can reconstruct when a parent
+    # last opened the app from any other row, so every day this column does not exist is a day
+    # of the record that is gone. That is why it lands before the table it was specified on —
+    # the household entity belongs to phase 37 and is blocked on an account action.
+    #
+    # Null means "never observed", which is not the same as "long ago": a user created before
+    # this column existed has no history, and treating null as ancient would make the oldest
+    # accounts the first deleted. Every read must handle it explicitly.
+    last_sign_in_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # **Two lanes, never one flag** — per D3a, and the reason is a request nobody has made yet.
+    # Untangling a single "emails" boolean into consent-for-marketing and consent-for-required-
+    # notices, under a GDPR or CCPA request, after both meanings have been written into it, is
+    # the failure this shape exists to avoid. It costs one extra column now.
+    #
+    # Win-back only, and it must have a working unsubscribe. Defaults on, which is the soft
+    # opt-in D3a describes — at most three emails in six months, to a household that already
+    # had an account.
+    marketing_consent: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+    # Deletion warnings, and **deliberately not settable through the API.** D3's hard stop is
+    # that deletion may not fire unless a notice was confirmed delivered; a user who could
+    # switch this off would silence the warning and leave the timer running, which converts a
+    # safety interlock into a way to lose an archive quietly. It is a column so the two lanes
+    # are separable in the record, not so it can be toggled.
+    transactional_consent: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
     created_at: Mapped[created]
     updated_at: Mapped[updated]

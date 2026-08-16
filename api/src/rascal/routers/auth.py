@@ -19,7 +19,7 @@ from rascal.schemas.auth import (
 )
 from rascal.schemas.common import UserOut
 from rascal.services.apple import AppleVerifier
-from rascal.services.auth import user_for_credential
+from rascal.services.auth import touch_last_sign_in, user_for_credential
 from rascal.services.tokens import (
     issue_token_pair,
     revoke_refresh_token,
@@ -51,6 +51,7 @@ async def sign_in_with_apple(
         display_name=payload.display_name,
     )
     tokens = await issue_token_pair(session, user.id, settings)
+    await touch_last_sign_in(session, user.id)
     return SessionResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
@@ -73,7 +74,12 @@ async def refresh(
     session: SessionDep,
     settings: SettingsDep,
 ) -> TokenPairResponse:
-    _, tokens = await rotate_refresh_token(session, payload.refresh_token, settings)
+    user, tokens = await rotate_refresh_token(session, payload.refresh_token, settings)
+    # **A refresh is activity, and counting only `/auth/apple` would delete active families.**
+    # An app in daily use rotates its token and never performs a fresh sign-in again, so the
+    # most engaged households would look dormant against D3's twelve-month inactivity clock.
+    # See `touch_last_sign_in`.
+    await touch_last_sign_in(session, user.id)
     return TokenPairResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
@@ -120,6 +126,7 @@ async def dev_login(
         user.is_admin = True
         await session.flush()
     tokens = await issue_token_pair(session, user.id, settings)
+    await touch_last_sign_in(session, user.id)
     return SessionResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
