@@ -331,7 +331,10 @@ async def list_prompt_suppressions(
         "Computed on every call, never cached — an admin-grade read, not a hot path.\n\n"
         "**It reports and nothing else.** The scheduler decides; a health check that quietly "
         "reshaped selection would make the number it returns a description of itself.\n\n"
-        "`estimated_days_until_first_repeat` is an estimate and the name says so."
+        "`estimated_days_until_first_repeat` is an estimate and the name says so — and it is "
+        "derived from the rate this slot is **observed** to be served, never from the "
+        "cadence it is nominally on. A null carries `estimate_basis` to say which kind "
+        "of null it is."
     ),
 )
 async def child_pool_health(

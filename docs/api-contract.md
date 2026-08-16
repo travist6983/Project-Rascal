@@ -689,12 +689,26 @@ Timeline header follows when it says *"412 so far"*.
 
 **`GET /children/{id}/pool-health`**
 Per slot and per kind: `eligible`, `suppressed`, `served_within_cooldown`, `available_now`,
-`estimated_days_until_first_repeat`, `relaxation_active`, `relaxation_step`.
+`estimated_days_until_first_repeat`, `served_in_window`, `observation_window_days`,
+`nominal_interval_days`, `estimate_basis`, `relaxation_active`, `relaxation_step`.
 
 Computed on every call, never cached — an admin-grade read, not a hot path. **It reports and
-nothing else**; the scheduler decides. `estimated_days_until_first_repeat` is an estimate and the
-name says so: it is `available_now` divided by the serve interval, and it is null when the pool is
-already dry rather than counting down to zero.
+nothing else**; the scheduler decides.
+
+**The estimate divides by the rate the slot is *observed* to be served, never by the cadence it is
+nominally on** — corrected in phase 50, because the two had diverged in production. `mission` is
+nominally daily and was being served zero times a day, so the old arithmetic counted down to a
+first repeat that could not arrive. `served_in_window` is the observed count over
+`observation_window_days` (28), and `nominal_interval_days` travels beside it so the gap between
+intended and actual is legible in the response rather than inferred.
+
+**A null estimate has two meanings and `estimate_basis` says which.** `pool_empty` — nothing is
+available, and a projection of zero would read as a countdown to something that has already
+happened. `not_observed` — the slot was not served once in the window, so there is no rate to
+project from. **`not_observed` is not good news**: the pool cannot run dry because nothing is
+drawing from it, which usually means something upstream stopped. `observed_rate` is a real
+projection. Every assignment counts toward the rate, including dismissed and expired ones — they
+consumed a prompt for that day and put it inside the cooldown.
 
 ---
 

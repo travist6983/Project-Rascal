@@ -57,18 +57,85 @@ async def test_counts_are_correct_against_a_known_fixture(session: AsyncSession)
     assert {available_one.id, available_two.id}  # named for readability
 
 
-async def test_the_estimate_is_available_count_times_the_serve_interval(
+async def test_the_estimate_divides_by_the_observed_rate_not_the_nominal_one(
     session: AsyncSession,
 ) -> None:
+    """**The correction.** This used to assert `available * SERVE_INTERVAL_DAYS[slot]`, which
+    reads the cadence a slot is *supposed* to run at. Production has served `mission` zero times
+    a day while that constant said one, so the report counted down to a repeat that could not
+    arrive. The rate now comes from assignments that actually exist.
+    """
+    _user, child = await _world(session)
+    for index in range(6):
+        await make_prompt(session, kind="question", body=f"Q{index}.")
+    # Served on fourteen of the last twenty-eight days: half a prompt a day.
+    for day in range(1, 29, 2):
+        served = await make_prompt(session, kind="question", body=f"Served {day}.")
+        await make_assignment(
+            session, child, served, slot="question", assigned_on=TODAY - dt.timedelta(days=day)
+        )
+
+    row = _question(await pool_health(session, child, as_of=TODAY))
+
+    assert row.served_in_window == 14
+    assert row.observation_window_days == 28
+    assert row.nominal_interval_days == 1
+    assert row.estimate_basis == "observed_rate"
+    # Six available at half a day each — twice what the nominal daily rate would have claimed.
+    assert row.estimated_days_until_first_repeat == row.available_now * 2
+
+
+async def test_a_slot_nobody_serves_reports_unmeasured_rather_than_a_countdown(
+    session: AsyncSession,
+) -> None:
+    """**The production defect this phase exists for.** `mission` reads
+    `served_within_cooldown=0` and `relaxation_active=False` because nothing draws from it. The
+    old arithmetic answered "twenty days until the first repeat", which is a confident number
+    about an event that cannot happen. Null plus a basis is the honest answer.
+
+    It must not read as good news either: a healthy pool nobody is serving is usually a defect
+    upstream, and the report says both halves and lets the reader join them.
+    """
     _user, child = await _world(session)
     for index in range(3):
         await make_prompt(session, kind="question", body=f"Q{index}.")
 
     row = _question(await pool_health(session, child, as_of=TODAY))
 
-    # Daily slot, three available.
     assert row.available_now == 3
-    assert row.estimated_days_until_first_repeat == 3
+    assert row.served_in_window == 0
+    assert row.estimated_days_until_first_repeat is None
+    assert row.estimate_basis == "not_observed"
+    # The nominal cadence still travels, so the gap is legible rather than inferred.
+    assert row.nominal_interval_days == 1
+
+
+async def test_a_weekly_slots_rate_survives_being_smaller_than_one_a_day(
+    session: AsyncSession,
+) -> None:
+    """A fractional rate rounded before dividing would put a weekly slot out by a factor of
+    seven. The division stays fractional and only the answer is an integer.
+    """
+    _user, child = await _world(session)
+    for index in range(10):
+        await make_prompt(session, kind="question", body=f"Q{index}.")
+    # Four serves in twenty-eight days is one a week.
+    for week in range(4):
+        served = await make_prompt(session, kind="question", body=f"Weekly {week}.")
+        await make_assignment(
+            session,
+            child,
+            served,
+            slot="question",
+            assigned_on=TODAY - dt.timedelta(days=week * 7 + 1),
+        )
+
+    row = _question(await pool_health(session, child, as_of=TODAY))
+
+    assert row.served_in_window == 4
+    assert row.estimate_basis == "observed_rate"
+    # Ten available at one a week is seventy days, not ten.
+    assert row.estimated_days_until_first_repeat == 70
 
 
 async def test_a_dry_pool_reports_null_rather_than_a_countdown_to_zero(
@@ -84,6 +151,9 @@ async def test_a_dry_pool_reports_null_rather_than_a_countdown_to_zero(
 
     assert row.available_now == 0
     assert row.estimated_days_until_first_repeat is None
+    # A dry pool and an unserved slot are different nulls, and the basis is what tells them
+    # apart. This one was served — the pool emptied, it did not go untouched.
+    assert row.estimate_basis == "pool_empty"
     assert row.relaxation_active
     assert row.relaxation_step == RELAXATION_COOLDOWN_90
 

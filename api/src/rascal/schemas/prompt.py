@@ -92,9 +92,30 @@ class SlotHealthOut(ApiModel):
     )
     estimated_days_until_first_repeat: int | None = Field(
         description="**An estimate, not a fact.** `available_now` divided by how often this "
-        "slot is served. Assumes nothing more is suppressed and the age window does not "
-        "widen, both of which will happen. Null when the pool is already dry — a projection "
-        "of zero would read as a countdown to something that has already occurred."
+        "slot is *observed* to be served, not by the cadence it is nominally on. Assumes "
+        "nothing more is suppressed and the age window does not widen, both of which will "
+        "happen. **Null has two meanings and `estimate_basis` says which** — the pool is dry, "
+        "or the slot has not been served at all in the window and there is no rate to project "
+        "from."
+    )
+    served_in_window: int = Field(
+        description="How many times this slot was actually filled in the last "
+        "`observation_window_days`. Every assignment counts, including dismissed and expired "
+        "ones: they consumed a prompt for the day and put it inside the cooldown."
+    )
+    observation_window_days: int = Field(
+        description="The window `served_in_window` was counted over, so the rate is "
+        "reproducible from this response alone."
+    )
+    nominal_interval_days: int = Field(
+        description="What this slot is *supposed* to be served at, in days. Reported beside "
+        "`served_in_window` so the gap between intended and actual is visible. A daily slot "
+        "reading `served_in_window: 0` is the shape of a scheduler defect."
+    )
+    estimate_basis: str = Field(
+        description="Why the estimate is what it is: `observed_rate`, `pool_empty`, or "
+        "`not_observed`. **`not_observed` is not good news** — the pool cannot run dry "
+        "because nothing is drawing from it, which usually means something upstream stopped."
     )
     relaxation_active: bool
     relaxation_step: str = Field(
