@@ -61,6 +61,18 @@ Extraction runs once per entry, by design — see `docs/decisions.md`.
       once-only rule exists to guarantee.
 - [ ] Edit an entry's body afterwards. Its tags do **not** change — that is the accepted cost.
 
+## 4a. Two children — new Aug 16, 2026 (phase 45)
+
+The extraction queue was one of the six unscoped reads. It is device-wide work that must still
+carry each row to its own child.
+
+- [ ] 4a.1 With two children on the device, run extraction with **A** selected. Tags land on A's
+      entries and **no tag is written to any of B's**.
+- [ ] 4a.2 Switch to B and run it. B's queue is B's — entries A already had extracted are not
+      re-queued under B.
+- [ ] 4a.3 Check that an entry belonging to B never appears in a queue count shown while A is
+      selected.
+
 ## 5. Battery and thermals
 
 - [ ] Write several entries in a row. The phone does not get warm.

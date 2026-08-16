@@ -151,6 +151,25 @@ The expiry chip used to anchor on the *device's* day while `expires_on` is compu
 
 ---
 
+## 8. Two children — new Aug 16, 2026 (phase 45)
+
+Multi-kid shipped Aug 13 and **nothing in this file covered it.** Today's board merge was one of
+six local reads that were unscoped before that phase: one store holds every child's rows, so a
+merge that does not filter shows a sibling's answers on this child's board.
+
+**Setup:** two children on the account, and at least one completed entry for each.
+
+- [ ] 8.1 With child A selected, open Today. **Every completed card is A's.** Nothing B answered
+      appears, in any slot.
+- [ ] 8.2 Switch to B via the pill. The board rebuilds as B's — prompts, completions and the
+      caught-up state all belong to B.
+- [ ] 8.3 Complete something for B, then switch back to A. **A's board is unchanged** and does not
+      show B's new entry.
+- [ ] 8.4 Switch children and immediately pull to refresh. The refresh belongs to the child now on
+      screen — the previous child's request must not land on this board.
+- [ ] 8.5 On a **one-child** account the switcher chevron is absent. One child and a chevron is a
+      control that lies.
+
 ## What to write down even if everything ticks
 
 1. **Whether the swipe is discoverable at all.** Nothing in the app teaches it. If you had not
