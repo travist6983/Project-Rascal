@@ -2445,3 +2445,50 @@ paths disagree about what a copy of the archive is.
 PDF generation, QR substitution for A/V, and the playback surface those QRs resolve to — are all
 the same problem wearing four hats: a web client this API has never had. 32's gate did not move,
 and the queue now says so rather than implying progress.
+
+## Aug 16, 2026 — Phase 44: the verification backlog, reconciled with what shipped
+
+**The backlog is the project's stated front line and it had gone stale against the app.** Eleven
+checklists, 409 boxes, nine ticked — and three of those files described screens that no longer
+exist in the form they describe. Running them as written would have produced *false* results,
+which is worse than not running them: a tester who fails a correct build learns nothing, and a
+tester who ticks a box for a feature the checklist never mentions learns less.
+
+**Every finding was checked against the Swift, not against a design document.** That distinction
+did work in both directions and is the reason this was worth doing from a keyboard rather than
+from a phone.
+
+- **Entry Detail asked twice about a navigation bar that v2 removed.** `EntryDetailScreen` has no
+  `navigationTitle` and no `toolbar` anywhere in it. §1.5 asked what the nav-bar title said; §3.1
+  asked whether it agreed with the metadata row. Both are re-aimed — §1.5 now asserts the *absence*
+  of a title strip and that no body text has been promoted into one, which is the seal assertion it
+  was really making, and §3.1 uses the timeline as its second opinion.
+- **The design export was not evidence, and one check survived because of it.** The inventory's Q3
+  records that the redesign drops **Open it** from the sealed card and replaces its copy with *"not
+  even for you"*. The shipped screen keeps the button, because `decisions.md` settled that a lock
+  the author cannot pick is a lock on the wrong person. **Had this reconciliation trusted the design
+  file, it would have deleted a correct check** and quietly removed coverage of the seal's most
+  important escape hatch.
+- **The share sheet checklist looked for "Rascal" in four places.** The share sheet renders
+  `CFBundleDisplayName`, which has been **Dogear** since Aug 12. Three other occurrences in the same
+  file are `RascalShare` and `Rascal.entitlements` — build-system identifiers no parent ever sees,
+  deliberately not renamed, and renaming them would cost a provisioning round trip for nothing. The
+  file now says which is which at the top, because the next person to grep for "Rascal" will
+  otherwise finish the job and break signing.
+- **Settings had no boxes for its two newest features.** The stats strip carries three owner
+  decisions and **each of them is only observable on a device**: the middle cell counts photographs
+  and not media, the strip does not render until the server answers because nil is not zero, and an
+  empty archive shows nothing rather than three zeros. Adding a child had no coverage at all,
+  despite being multi-kid's only entry point — and multi-kid was the change that re-scoped six local
+  reads, where a half-applied switch shows one child's entries under the other's name.
+
+**The count went 409 → 431 and the ticked count did not move.** A denominator that grows on a day
+nobody ran anything is the honest direction for this number, and it is worth saying plainly rather
+than letting the ratio look like a regression. Entry Detail's header also stopped lying: it claimed
+22 against 28 contained, which **this same status file had already identified and left standing**,
+and it now says 36.
+
+**What this phase did not do.** It did not tick anything. Nothing here is a substitute for an
+evening with a phone, and none of the eight new Entry Detail boxes or fourteen new Settings boxes
+has been run. The backlog is now accurate, which is a precondition for running it and not a
+substitute for it.

@@ -1,5 +1,12 @@
 # The share sheet — device verification
 
+> **Two names appear below and only one of them moved.** The app the share sheet shows is
+> **Dogear** — that is `CFBundleDisplayName`, and four boxes here still said "Rascal" until Aug 16,
+> 2026, which would have failed a correct build. The **target** is still `RascalShare` and the
+> entitlements file is still `Rascal.entitlements`: those are build-system identifiers, no parent
+> ever sees them, and renaming them would cost a provisioning round trip for nothing. Do not
+> "fix" them.
+
 **This checklist matters more than most, for a reason that is specific and not rhetorical.** A
 share extension is a *separate process the system starts, constrains, and kills*, and almost
 nothing about that is reproduced in a simulator. Five things this feature's correctness rests on
@@ -41,7 +48,7 @@ If this fails, stop. Everything below measures an extension with nowhere to writ
 
 - [ ] Build and run on the device. Let automatic signing register the App Group for `RascalShare`
       the first time; confirm no signing error appears for any of the three targets.
-- [ ] Open Photos, pick one photo, tap Share, and find **Rascal** in the row of apps. It may be
+- [ ] Open Photos, pick one photo, tap Share, and find **Dogear** in the row of apps. It may be
       behind **More** the first time — if so, pin it, and note that a parent will have to.
 - [ ] The sheet opens on the cream canvas with **Add to the archive**, a tile, a date and Save.
 - [ ] If it instead says *"This can't be saved right now"*: the container is missing. Check
@@ -103,9 +110,9 @@ is wider than "photos and videos from Photos".
 - [ ] **A GIF**, shared from Messages or Files. It will be archived as a **still JPEG of the first
       frame** — the app's existing HEIC→JPEG path does this and the share sheet inherits it. Confirm
       that is what happens and decide whether it is acceptable.
-- [ ] **A PDF** or a **web page** from Safari. Rascal must **not appear** in the share sheet at all.
+- [ ] **A PDF** or a **web page** from Safari. Dogear must **not appear** in the share sheet at all.
       If it does, the activation rule is not doing its job.
-- [ ] **A contact card** or a **text selection.** Same — Rascal must not be offered.
+- [ ] **A contact card** or a **text selection.** Same — Dogear must not be offered.
 
 ## 5. iCloud Photo Library, which the simulator has never had
 
@@ -133,7 +140,7 @@ is wider than "photos and videos from Photos".
       conversion is still running. Reopen. Exactly five media on exactly one entry — no second
       entry, no missing photo.
 - [ ] **Storage.** After a drain completes and the entry has synced, check that the share-inbox copy
-      is gone: Settings → General → iPhone Storage → Rascal. Sharing a 250MB video should not leave
+      is gone: Settings → General → iPhone Storage → Dogear. Sharing a 250MB video should not leave
       500MB behind once it has uploaded.
 
 ## 7. Cancelling, and the bytes it leaves

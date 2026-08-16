@@ -10,10 +10,10 @@ exact failure `roadmap-status.md` has now made six revisions running.
 Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
 28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
 the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 43**, so a
-genuinely new phase takes **44** — 36–39 are monetization's forward items, 40 settled the
-numbering, 41 retired the caption clobber into 33, 42 iceboxed guardian invites, and 43 scoped
-the export by date. **This line
+you can do, and follow-ups the work itself turned up. **The highest number used is 44**, so a
+genuinely new phase takes **45** — 36–39 are monetization's forward items, 40 settled the
+numbering, 41 retired the caption clobber into 33, 42 iceboxed guardian invites, 43 scoped the
+export by date, and 44 reconciled the verification backlog. **This line
 disagreed with `roadmap-status.md` for a day** and a preflight gate caught it: the queue still said
 36 was free after the roadmap had taken 36–39. The roadmap is the source and this line follows it —
 measure it there rather than trusting this one.
@@ -78,7 +78,7 @@ iOS build, and it is the one nobody here can do.
 - Run a **restore drill**. The machinery is tested; the act has never been performed. Use the
   pinned Postgres 16 binaries — a 17 client writes a dump 16 will not take back.
 
-## Verification backlog — 409 boxes, and the only instrument that reads what tests cannot
+## Verification backlog — 431 boxes, and the only instrument that reads what tests cannot
 
 Run in this order. Details and the "why here" for each are in `roadmap-status.md`.
 
@@ -86,12 +86,14 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
   hour, answers both at once, and do it before anything else.
 - `device-verification-share-extension.md` — 45 boxes. The only one with a number to write down.
 - `device-verification-today-v2.md` — 39. Swipe-to-skip has never been swiped.
-- `device-verification-settings.md` — 73. Longest; §0 is five minutes.
+- `device-verification-settings.md` — 87. Longest; §0 is five minutes. **§8a and §8b are new** —
+  the stats strip and adding a child both shipped after this list was written.
 - The audio list in PR #22 — needs iOS 26+ and a quiet room. Prerequisite for transcription.
 - `device-verification-transcription.md` — 45. The one whose answer could invalidate a design.
 - `device-verification-backfill.md` — 19. Needs a real camera roll.
 - `device-verification-extraction.md` — 19. Needs Apple Intelligence hardware.
-- `device-verification-entry-detail.md` — 28. Fix its header (says 22) and add the v2 checks first.
+- `device-verification-entry-detail.md` — 36. **Header fixed and the v2 checks added by 44** — two
+  boxes asked about a navigation bar v2 removed, and §7 is new. Runnable as written now.
 - `device-verification-personalization.md` — 25. Same hardware gate as extraction.
 - `device-verification-moments.md` — 44.
 - `device-verification-push.md` — §0–§3 mostly ticked Aug 12. Left: force-quit delivery, the
