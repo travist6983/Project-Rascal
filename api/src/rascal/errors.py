@@ -33,7 +33,20 @@ class ErrorCode(StrEnum):
     INVALID_DISPLAY_NAME = "invalid_display_name"
     ASSIGNMENT_EXPIRED = "assignment_expired"
     UPLOAD_INCOMPLETE = "upload_incomplete"
+    # This provider subject already belongs to a different account. Never merged and never
+    # reassigned — two archives with one credential between them is not a state this product
+    # has an answer for.
+    CREDENTIAL_IN_USE = "credential_in_use"
+    # Refusing to revoke the only way left into an account. Distinct from `conflict` because a
+    # client shows it as a sentence next to the button, not as an error.
+    LAST_CREDENTIAL = "last_credential"
     CONFLICT = "conflict"
+    # Unauthenticated endpoints only. See `services/rate_limit.py` and CLAUDE.md.
+    RATE_LIMITED = "rate_limited"
+    # A magic link that was already used, or has expired. Distinct from `unauthenticated`
+    # because a client shows it as "this link is no longer good, here is how to get another"
+    # rather than as a failed sign-in.
+    SIGN_IN_LINK_INVALID = "sign_in_link_invalid"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -49,7 +62,11 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.INVALID_DISPLAY_NAME: 400,
     ErrorCode.ASSIGNMENT_EXPIRED: 409,
     ErrorCode.UPLOAD_INCOMPLETE: 409,
+    ErrorCode.CREDENTIAL_IN_USE: 409,
+    ErrorCode.LAST_CREDENTIAL: 409,
     ErrorCode.CONFLICT: 409,
+    ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.SIGN_IN_LINK_INVALID: 401,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 

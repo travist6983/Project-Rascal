@@ -21,6 +21,7 @@ Alembic migration; if the code and this file disagree, the code is wrong.
 | `last_sign_in_at` | timestamptz | nullable. Written by every path that proves the app ran — Apple sign-in, dev-login, **and a token refresh** — throttled to a day. **Null means never observed, not long ago.** Feeds D3's inactivity clock; nothing reads it yet. See the lifecycle section below |
 | `marketing_consent` | boolean | default `true`. Win-back email only; needs a working unsubscribe when there is email to unsubscribe from |
 | `transactional_consent` | boolean | default `true`. Deletion warnings, which send regardless of the marketing lane. **Two fields and never one flag**, per D3a — and not settable through the API |
+| `email_deliverable` | boolean | default `true`. **Not a third consent lane** — the two above are what the parent *chose*, this is whether the channel physically *works*. A private relay can be switched off from Apple's Settings at any time and mail is then never forwarded again, with no bounce and no error; D3's hard stop is that deletion may not fire without a notice confirmed delivered, so without this the silence is indistinguishable from success. Written **only** by Apple's `email-disabled`/`email-enabled` notifications, never by a client. Read by phase 38 |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
@@ -29,11 +30,32 @@ Alembic migration; if the code and this file disagree, the code is wrong.
 |---|---|---|
 | `id` | uuid PK | |
 | `user_id` | uuid FK | |
-| `provider` | text | `apple` \| `google` \| `password` |
-| `subject_id` | text | provider's stable user identifier |
+| `provider` | text | `apple` \| `google` \| `password` \| `email`. `password` is **dead** as of phase 52 — the dev fixture moved to `email` and its rows migrated — and stays permitted because removing a value from a CHECK is a migration that can only fail, for nothing |
+| `subject_id` | text | provider's stable user identifier. For `email`, the lowercased address |
+| `revoked_at` | timestamptz | nullable. A **soft** revocation, never a delete. Set by `DELETE /me/credentials/{id}` and by Apple's `consent-revoked`; cleared by signing in with the same subject again. Also the "added but not yet verified" state for an `email` credential |
 | `created_at` | timestamptz | |
+| `updated_at` | timestamptz | maintained by the `set_updated_at()` trigger |
 
 Unique on `(provider, subject_id)`. Sign in with Apple is one row here — never the identity model itself.
+
+**The unique constraint deliberately ignores `revoked_at`, and this is the load-bearing
+decision in this table.** A revoked credential keeps holding its `(provider, subject_id)`, so a
+later sign-in with the same subject matches *that row* and therefore that user. Putting
+`revoked_at` in the key — or hard-deleting on revoke — would let the next sign-in mint a
+**second** user and leave the archive behind the first one unreachable. That is the only
+failure here the person it happens to cannot undo, and it is silent: they would see a working
+app with an empty archive. It follows that **the lookup must not filter `revoked_at`** either;
+the filter that looks obviously correct is the bug.
+
+**`updated_at` and its trigger make `credentials` the odd one out** among the auth tables —
+`refresh_tokens` and `idempotency_keys` have neither. It earns one because a revocation is a
+change to a row that is otherwise write-once, and `updated_at` is the cursor clients sync on: a
+revocation nothing can observe is a revocation nobody can act on.
+
+**Nothing anywhere matches a credential on email address.** Linking is explicit, through
+`POST /me/credentials` from inside a session. Two people share addresses, one person's Apple
+relay address is not their Google address, and an archive of a childhood is not a thing to hand
+over on a string comparison.
 
 ### `refresh_tokens`
 | Column | Type | Notes |
@@ -49,6 +71,34 @@ Index on `token_hash`. Access tokens are stateless JWTs with a 15-minute life; r
 tokens are opaque, server-side, and **rotate on every use** — presenting a refresh token
 revokes it and issues a new pair. A revoked token being presented again means either a
 race or a theft; treat it as a 401 and revoke the whole chain.
+
+### `email_sign_in_tokens`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `credential_id` | uuid FK | `ON DELETE CASCADE`. **Keyed on the credential, not the user** — the link belongs to the *address*, so revoking that credential invalidates every outstanding link to it with no second statement |
+| `token_hash` | text | SHA-256. The raw value exists in one email and never again — the same rule `refresh_tokens` follows, so a database dump is not a set of working keys |
+| `purpose` | text | `verify` \| `sign_in`. **Only `verify` may clear `credentials.revoked_at`** — a sign-in link that could reactivate an address the parent removed would make Remove a suggestion rather than an action |
+| `expires_at` | timestamptz | 15 minutes from issue |
+| `consumed_at` | timestamptz | nullable. A timestamp rather than a boolean, so a replay can be told apart from a link that was never opened |
+| `created_at` | timestamptz | |
+
+Unique index on `token_hash`, which is the only way a token is ever looked up.
+
+### `rate_limit_events`
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `bucket` | text | `email:<address>` or `ip:<addr>`. Generic on purpose: a third limiter later is a new prefix, not a new table |
+| `created_at` | timestamptz | |
+
+Index on `(bucket, created_at)`. A fixed window, counted on read, with each bucket's expired
+rows pruned by the same scan — so the table stays proportional to live traffic without a
+scheduled job.
+
+**In Postgres and not in memory, and that is not a preference.** There is more than one Fly
+machine, so an in-process counter is per-process theatre: the real limit would be N times
+looser than it reads and would reset on every deploy, while passing every test.
 
 The alternative — a long-lived JWT with no server-side record — can't be revoked when I
 lose a phone. This archive has my kid's face and voice in it. The extra table is worth it.

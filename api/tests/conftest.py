@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import (
@@ -24,6 +25,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+import apple_stub
+import google_stub
+
 API_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -31,6 +35,9 @@ os.environ.setdefault("ENVIRONMENT", "local")
 
 from rascal import db as db_module  # noqa: E402
 from rascal.config import get_database_settings, get_settings  # noqa: E402
+from rascal.deps import get_apple_verifier, get_google_verifier  # noqa: E402
+from rascal.services.apple import AppleVerifier  # noqa: E402
+from rascal.services.google import GoogleVerifier  # noqa: E402
 
 
 def _install_test_database_url() -> None:
@@ -160,5 +167,77 @@ async def app(engine: AsyncEngine) -> FastAPI:
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+# --- A local Apple ------------------------------------------------------------------------
+#
+# Here rather than in `test_auth.py` because three modules need them, and a fixture imported
+# into a module and then named as a parameter shadows itself. The signer that goes with these
+# is `apple_stub.apple_token`, which is a plain function and imports cleanly.
+
+
+@pytest.fixture(scope="session")
+def apple_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
+    """A local RSA key plus the JWKS document Apple would have served for it."""
+    return apple_stub.generate_keypair()
+
+
+@pytest.fixture
+def apple_app(app: FastAPI, apple_keypair) -> FastAPI:
+    """The real app, with Apple's JWKS fetch replaced by the local document."""
+    _, jwks = apple_keypair
+
+    async def _fetch() -> dict:
+        return jwks
+
+    verifier = AppleVerifier(get_settings(), fetch=_fetch)
+    app.dependency_overrides[get_apple_verifier] = lambda: verifier
+    return app
+
+
+@pytest.fixture
+async def apple_client(apple_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=apple_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+# --- A local Google -----------------------------------------------------------------------
+#
+# `GOOGLE_CLIENT_IDS` is unset in `.env.example` — no Google project exists yet — so these
+# fixtures build an app whose settings name the stub's client ids. That is the configured
+# state; `test_google_auth.py` covers the unconfigured one separately.
+
+
+@pytest.fixture(scope="session")
+def google_keypair() -> tuple[rsa.RSAPrivateKey, dict]:
+    return google_stub.generate_keypair()
+
+
+@pytest.fixture
+def google_settings():
+    return get_settings().model_copy(
+        update={"google_client_ids": [google_stub.CLIENT_ID, google_stub.SECOND_CLIENT_ID]}
+    )
+
+
+@pytest.fixture
+def google_app(app: FastAPI, google_keypair, google_settings) -> FastAPI:
+    """The real app, with Google's JWKS fetch replaced by the local document."""
+    _, jwks = google_keypair
+
+    async def _fetch() -> dict:
+        return jwks
+
+    verifier = GoogleVerifier(google_settings, fetch=_fetch)
+    app.dependency_overrides[get_google_verifier] = lambda: verifier
+    return app
+
+
+@pytest.fixture
+async def google_client(google_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=google_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

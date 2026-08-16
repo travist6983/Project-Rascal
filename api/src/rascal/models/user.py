@@ -13,6 +13,7 @@ from rascal.constants import (
     CREDENTIAL_PROVIDERS,
     DEFAULT_NOTIFY_LOCAL_TIME,
     CredentialProvider,
+    SignInTokenPurpose,
 )
 from rascal.models.base import (
     Base,
@@ -91,6 +92,15 @@ class User(Base):
     # are separable in the record, not so it can be toggled.
     transactional_consent: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
 
+    # **Not a third consent lane — the two above are what the parent chose, this is whether
+    # the channel physically works.** A Sign in with Apple private relay can be switched off
+    # from Settings at any time, and when it is, mail is simply never forwarded again: no
+    # bounce, no error, nothing. D3's hard stop is that deletion may not fire without a notice
+    # confirmed delivered, and without this column that silence is indistinguishable from
+    # success. Written only by Apple's `email-disabled`/`email-enabled` notifications; read by
+    # phase 38, which is what turns it into a refusal to delete.
+    email_deliverable: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
+
     created_at: Mapped[created]
     updated_at: Mapped[updated]
 
@@ -100,7 +110,14 @@ class User(Base):
 
 
 class Credential(Base):
-    """One row per identity provider. Adding password or Google auth adds rows, not columns."""
+    """One row per identity provider. Adding password or Google auth adds rows, not columns.
+
+    **The unique constraint deliberately ignores `revoked_at`.** A revoked credential keeps
+    holding its `(provider, subject_id)` namespace, so signing in again with the same subject
+    matches *this* row and therefore this user. Freeing the namespace on revocation would let
+    a later sign-in mint a second user and orphan the archive behind the first — which is the
+    one failure in this table that cannot be undone by the person it happens to.
+    """
 
     __tablename__ = "credentials"
     __table_args__ = (
@@ -112,9 +129,20 @@ class Credential(Base):
     user_id: Mapped[uuid_fk] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     provider: Mapped[CredentialProvider] = mapped_column(Text)
     subject_id: Mapped[str] = mapped_column(Text)
+    # A soft revocation, and never a delete. Set by `DELETE /me/credentials/{id}` and by
+    # Apple's `consent-revoked` notification; cleared by signing in with the same subject
+    # again, which is what makes revocation recoverable rather than terminal.
+    revoked_at: Mapped[optional_moment]
     created_at: Mapped[created]
+    # Added in phase 52 with `revoked_at`, because a revocation that does not move a cursor is
+    # a change no client can learn about. Written by the `set_updated_at()` trigger.
+    updated_at: Mapped[updated]
 
     user: Mapped[User] = relationship(back_populates="credentials")
+
+    @property
+    def is_active(self) -> bool:
+        return self.revoked_at is None
 
 
 class RefreshToken(Base):
@@ -136,6 +164,54 @@ class RefreshToken(Base):
 
     def is_live(self, now: dt.datetime) -> bool:
         return self.revoked_at is None and self.expires_at > now
+
+
+class EmailSignInToken(Base):
+    """One magic link. Single use, fifteen minutes, and only its hash is stored.
+
+    **Keyed on the credential rather than the user**, because the link belongs to the address
+    it was sent to. Revoking that credential invalidates every outstanding link to it with no
+    second statement, and a link for a revoked address is refused by a join that already
+    exists — which is what stops a removed sign-in method from being quietly reusable.
+    """
+
+    __tablename__ = "email_sign_in_tokens"
+    __table_args__ = (Index("ix_email_sign_in_tokens_token_hash", "token_hash", unique=True),)
+
+    id: Mapped[uuid_pk]
+    credential_id: Mapped[uuid_fk] = mapped_column(ForeignKey("credentials.id", ondelete="CASCADE"))
+    # SHA-256. The raw value exists in one email and never again — same rule as
+    # `refresh_tokens`, so a database dump is not a set of working keys.
+    token_hash: Mapped[str] = mapped_column(Text)
+    # **Only a `verify` token may clear `revoked_at`.** A `sign_in` link that could reactivate
+    # a credential the parent removed would make Remove a suggestion rather than an action.
+    purpose: Mapped[SignInTokenPurpose] = mapped_column(Text, server_default=text("'sign_in'"))
+    expires_at: Mapped[moment]
+    # A timestamp rather than a boolean, so a replay can be told apart from an unused link.
+    consumed_at: Mapped[optional_moment]
+    created_at: Mapped[created]
+
+    def is_live(self, now: dt.datetime) -> bool:
+        return self.consumed_at is None and self.expires_at > now
+
+
+class RateLimitEvent(Base):
+    """One recorded attempt, for the per-email and per-IP limits on `/auth/email/start`.
+
+    **In Postgres rather than in memory, and that is not a preference.** There is more than
+    one Fly machine, so an in-process counter is per-process theatre — the real limit would be
+    N times looser than it reads and would reset on every deploy.
+
+    `bucket` is `email:<address>` or `ip:<addr>`. Generic on purpose: a third limiter later is
+    a new prefix rather than a new table.
+    """
+
+    __tablename__ = "rate_limit_events"
+    __table_args__ = (Index("ix_rate_limit_events_bucket_created_at", "bucket", "created_at"),)
+
+    id: Mapped[uuid_pk]
+    bucket: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[created]
 
 
 class IdempotencyKey(Base):

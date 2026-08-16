@@ -76,6 +76,12 @@ def one_of(column: str, values: tuple[str, ...], *, name: str) -> CheckConstrain
 # schema it was written for, and starts creating triggers for tables that do not exist yet.
 TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "users",
+    # Phase 52. The odd one out in this list: `credentials` is auth infrastructure rather than
+    # synced user data, and its siblings `refresh_tokens` and `idempotency_keys` still carry
+    # neither `updated_at` nor a trigger. It earns one because a revocation is a change to a
+    # row that is otherwise write-once, and a change nothing can observe is a change nobody
+    # can act on.
+    "credentials",
     "children",
     "prompts",
     "assignments",

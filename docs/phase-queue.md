@@ -7,17 +7,26 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 16, 2026**. Everything in scope has shipped: 24, 25, 27,
-28, 31, 35, adding a child, the visibility design and Settings' hero strip, with **33 blocked on
-the platform**. What is left below is what you excluded (30, 32, 34, the auth bundle), what only
-you can do, and follow-ups the work itself turned up. **The highest number used is 46**, so a
-genuinely new phase takes **47** — 36–39 are monetization's forward items, 40 settled the
-numbering, 41 retired the caption clobber into 33, 42 iceboxed guardian invites, 43 scoped the
-export by date, 44 reconciled the verification backlog, 45 gave multi-kid device coverage, and 46
-shipped the caption probe. **This line
-disagreed with `roadmap-status.md` for a day** and a preflight gate caught it: the queue still said
-36 was free after the roadmap had taken 36–39. The roadmap is the source and this line follows it —
-measure it there rather than trusting this one.
+Synced with `roadmap-status.md` at **Aug 16, 2026 (second pass)**. **The highest number used is
+58**, so a genuinely new phase takes **59** — and the auth bundle took 51–58.
+
+> **This header has now been wrong twice in two days, and the second time was worse.** It said
+> *"the highest number used is 46, so a genuinely new phase takes 47"* while line 121 of this
+> same file, added by the **same commit**, said the icon shipped as phase 47 — a file made to
+> contradict itself six lines apart. Meanwhile **48, 49 and 50 had merged** and neither this
+> file nor `roadmap-status.md` recorded any of them. A preflight gate caught it before anything
+> was numbered; had it not, the auth bundle would have been numbered 47 and collided with three
+> merged phases. **Neither file was right. `main` was.** Both are corrected, and the rule that
+> works is the one `roadmap-status.md:231` already stated: *measure `main` rather than quoting a
+> status document's count.*
+
+Everything else in scope has shipped: 24, 25, 27, 28, 31, 35, adding a child, the visibility
+design and Settings' hero strip, with **33 blocked on the platform**. 36–39 are monetization's
+forward items, 40 settled the numbering, 41 retired the caption clobber into 33, 42 iceboxed
+guardian invites, 43 scoped the export by date, 44 reconciled the verification backlog, 45 gave
+multi-kid device coverage, 46 shipped the caption probe, 47 the app icon, 48 cleared the iOS
+concurrency warnings, 49 the activity clock and consent lanes, 50 pool-health's observed rate,
+and **51–57 the auth bundle's API half**.
 
 ---
 
@@ -160,13 +169,22 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   real gate is `blocked.md` §10 and it is an account action: Small Business Program enrollment and
   the subscription products in App Store Connect, both yours. §10 also records that **38 needs no
   Apple account at all.**
-- **auth — credential linking.** Do this before Google sign-in, or Google mints second,
-  disconnected `users` rows.
-- **auth — `aud` allowlist.** One line at `services/apple.py:89` once `config.py:70` parses a list.
-  Note `resolved_apns_topic` falls back to the same field.
-- **auth — Apple revocation, server-to-server.** Client half shipped and works; no route exists, so
-  revoking while the app is closed leaves the session alive until the refresh token expires.
-- **auth — Google sign-in.** Zero code. Gated on credential linking.
+- **auth — the API half is done: 51, 52, 53, 54, 56, 57.** The `aud` allowlist, credential
+  linking, Apple's server-to-server notifications, Google's verifier, the mailer and magic-link
+  sign-in all shipped Aug 16, 2026. **Two things are left and neither is a coding decision.**
+- **55 — Google sign-in on the phone. Blocked on you**, and it is an account action rather than
+  a build: there is no Google Cloud project, so `GOOGLE_CLIENT_IDS` has no value and a button
+  built against a client id that does not exist cannot work. `blocked.md` §12 has the steps.
+  The library-vs-no-library decision is already made and recorded there —
+  `ASWebAuthenticationSession` + PKCE, no SPM dependency.
+- **58 — the magic link on the phone.** Not blocked on a decision. The Settings credentials
+  list, universal-link handling, and the copy rules. **The universal link needs a deploy, not a
+  decision**: an `applinks` entitlement on the app and an `apple-app-site-association` served
+  from the API host.
+- **Run `blocked.md` §11 — Apple's `sub` across a revoke.** Phase 53 is built and its central
+  assumption has never been observed. **If the `sub` changes, the design is wrong rather than
+  buggy**, and that is worth knowing before anything tells a parent that removing the app is
+  reversible.
 
 ## Iceboxed
 

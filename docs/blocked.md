@@ -1476,3 +1476,127 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
 click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
 is worse than a described destination. Nobody on this branch has an App Store Connect session.
 
+
+---
+
+## §11 — Apple's `sub` has never been observed across a revoke and re-authorize (Aug 16, 2026)
+
+**Phase 53 is built and tested and may not be called complete on that.** The route, the four
+event behaviours, the signature verification and nineteen tests are on `main`. What has never
+happened is the thing the design rests on, and it needs your phone.
+
+**The assumption.** `credentials.subject_id` is Apple's `sub`, and the whole recoverability
+story — revoke, come back, land on the same archive — depends on that `sub` being **the same
+value** after a parent removes the app from their Apple ID and signs in again. Apple documents
+it as stable per Apple ID per developer team. It has never been observed here, not once, and
+no test can observe it: the suite signs its own tokens, so it can only prove that the code does
+the right thing *given* a stable `sub`.
+
+**If the `sub` changes, the design is wrong rather than buggy.** A returning parent would get a
+brand-new empty account, their archive would sit behind a `users` row nothing can reach, and
+every one of the nineteen passing tests would still pass. **Stop and say so rather than
+patching it** — the fix would be a redesign, and it would need to happen before anybody relies
+on revocation being recoverable.
+
+### The run
+
+- [ ] **1.** Sign in on the device. Record `users.id` and `credentials.subject_id`:
+  ```bash
+  fly ssh console -a rascal-api -C "python -c \"
+  import asyncio
+  from sqlalchemy import text
+  from rascal.db import get_sessionmaker
+  async def m():
+      async with get_sessionmaker()() as s:
+          for r in (await s.execute(text('''select c.id, c.user_id, c.provider, c.subject_id,
+              c.revoked_at from credentials c'''))).all():
+              print(r)
+  asyncio.run(m())\""
+  ```
+  `users.id` = ______________________  `subject_id` = ______________________
+
+- [ ] **2.** Settings → Apple ID → Sign-In & Security → Sign in with Apple → find Dogear →
+  **Stop Using Apple ID**.
+
+- [ ] **3.** Confirm the webhook arrived. **Read it from the logs, not from the app UI** — the
+  app cannot tell you whether the server heard anything.
+  ```bash
+  fly logs --app rascal-api | grep -i "apple credential revoked\|apple notification"
+  ```
+  What it printed: ______________________
+
+- [ ] **4.** Confirm `revoked_at` is set on the credential, and that every refresh token for
+  that user is revoked. Re-run the query from step 1, and:
+  ```bash
+  fly ssh console -a rascal-api -C "python -c \"
+  import asyncio
+  from sqlalchemy import text
+  from rascal.db import get_sessionmaker
+  async def m():
+      async with get_sessionmaker()() as s:
+          print((await s.execute(text('''select count(*) from refresh_tokens
+              where revoked_at is null'''))).scalar())
+  asyncio.run(m())\""
+  ```
+  Expect `0`. Got: ______
+
+- [ ] **5. Sign in again, and confirm you land on the same `users.id`.** **This is the box the
+  phase turns on.** Compare against what you wrote in step 1.
+  Same `users.id`? ______  Same `subject_id`? ______  `revoked_at` cleared? ______
+
+- [ ] **6.** Confirm the archive is still there — open the timeline and check the entry count
+  is what it was before step 2.
+
+**If step 5 shows a different `subject_id`**, stop. Do not adjust anything. Record what you saw
+here and raise it: the recoverability design needs rethinking, and until it is rethought,
+nothing should tell a parent that removing the app is reversible.
+
+**Not blocked on a credential.** This is on the list because it needs a physical device and a
+real Apple ID, which is the same reason the twelve device-verification checklists are.
+
+---
+
+## §12 — Google sign-in has no client id, so phase 55 cannot be built (Aug 16, 2026)
+
+**The server half shipped as phase 54 and works. The phone half cannot be started**, and the
+reason is an account action rather than a design question.
+
+**What is missing.** There is no Google Cloud project, so there is no OAuth client id, so
+`GOOGLE_CLIENT_IDS` has no value to hold. `POST /auth/google` answers `422` naming the setting —
+deliberately, so that an unconfigured server says *the setting is unset* rather than rejecting
+every real token as unverifiable. A sign-in button on the phone built against a client id that
+does not exist is a button that cannot work, and shipping one would be the same class of thing
+this project keeps refusing: furniture that permanently reads "0 waiting".
+
+**What it takes, and all of it is yours.**
+
+1. Create a project at `console.cloud.google.com`.
+2. Configure the OAuth consent screen. **External**, and it can stay in *Testing* — a private
+   family archive does not need verification, and Testing allows up to 100 named test users.
+   Scopes: `openid`, `email`, `profile` and **nothing else**. This is identity only; a Drive or
+   Workspace scope would be a different product.
+3. Create credentials → OAuth client ID → **iOS**, bundle id `com.travisterry.childarchive`.
+   That yields a client id of the shape `<numbers>-<hash>.apps.googleusercontent.com`.
+4. `fly secrets set --app rascal-api GOOGLE_CLIENT_IDS="<the client id>"`.
+
+Add a second value, comma-separated, if a web client ever needs one — the setting has been a
+list since the day it was added, for the same reason `APPLE_BUNDLE_ID` became one in phase 51.
+
+- [ ] Project created
+- [ ] Consent screen configured, `openid email profile` only
+- [ ] iOS OAuth client id created
+- [ ] `GOOGLE_CLIENT_IDS` set on Fly
+- [ ] `POST /v1/auth/google` with a junk token returns `401` rather than `422` — which is how you
+      know the setting took, because the message stops naming it
+
+**One decision the phase asked for is already made, so it does not block on you.**
+`ASWebAuthenticationSession` + PKCE, **not** the GoogleSignIn SDK. More code, no SPM dependency,
+and no third-party privacy manifest to reconcile against an app whose whole promise is that a
+child's record does not go anywhere. This is the one place in the queue where "boring" and "no
+dependency" disagree, and for a private child archive the dependency is the thing worth spending
+code to avoid. **Sign in with Apple stays the primary button and stays visually first**; Google
+is secondary.
+
+**Not urgent.** Google exists for a household that does not have an Apple device — which the
+only current household does. It gates **phase 36** (the guardian invite flow), because a second
+parent who cannot accept an invite has not been invited.

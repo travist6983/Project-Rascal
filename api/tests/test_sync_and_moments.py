@@ -430,6 +430,14 @@ async def test_error_codes_are_the_documented_ones() -> None:
         "invalid_display_name",
         "assignment_expired",
         "upload_incomplete",
+        # Phase 52, and both are in the contract's table beside the rest. This set is the
+        # thing that makes adding a code deliberate: it fails until somebody documents one,
+        # which is the only reason widening it here is the right move rather than the easy one.
+        "credential_in_use",
+        "last_credential",
+        # Phase 57. Both documented in the contract's table.
+        "rate_limited",
+        "sign_in_link_invalid",
         "conflict",
         "internal_error",
     }

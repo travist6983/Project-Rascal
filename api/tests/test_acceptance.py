@@ -31,8 +31,13 @@ async def test_the_whole_daily_loop_through_the_api(
     await seed_prompts(session)
 
     # 1. Auth, with no Apple Developer enrollment in sight.
+    #
+    # The address is on the fixture domain because phase 52 gave dev-login a domain guard:
+    # `example.com` is now refused, so that a local API accidentally pointed at a real
+    # database cannot hand back an admin session for somebody's actual account. The assertion
+    # below is unchanged; what moved is the input, which the new rule makes invalid.
     signed_in = await client.post(
-        "/v1/auth/dev-login", json={"email": "travis@example.com", "display_name": "Travis"}
+        "/v1/auth/dev-login", json={"email": "travis@rascal.local", "display_name": "Travis"}
     )
     assert signed_in.status_code == 200
     headers = {"Authorization": f"Bearer {signed_in.json()['access_token']}"}
