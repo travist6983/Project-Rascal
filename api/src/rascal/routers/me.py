@@ -12,10 +12,12 @@ their own name has no way to be recognised in the app at all.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 
+from rascal.config import Settings
 from rascal.deps import (
     CurrentUser,
     SessionDep,
@@ -39,6 +41,9 @@ from rascal.services.auth import (
 from rascal.services.email_sign_in import attach_email_credential
 from rascal.services.google import GoogleVerifier
 from rascal.services.mail import send
+from rascal.services.rate_limit import check_and_record
+
+log = logging.getLogger("rascal.me")
 
 router = APIRouter(prefix="/me", tags=["users"])
 
@@ -242,25 +247,52 @@ async def add_my_credential(
 )
 async def add_my_email_credential(
     payload: EmailCredentialCreate,
+    background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
     user: CurrentUser,
 ) -> CredentialOut:
-    credential, raw = await attach_email_credential(session, user, payload.email)
-    link = f"{settings.email_sign_in_link_base}?token={raw}"
-    await send(
-        settings,
-        to=credential.subject_id,
-        subject="Confirm this address for Dogear",
-        text=(
-            "Open this link to add this address as a way to sign in to Dogear.\n\n"
-            f"{link}\n\n"
-            "It works once, and for fifteen minutes. Until you open it, this address cannot "
-            "be used to sign in. If you did not ask for this, you can ignore it."
-        ),
+    # **Rate limited even though it is authenticated, which is the exception to the rule this
+    # service otherwise follows.** Everything behind a bearer token is normally the account's
+    # own business — but this route sends mail to an address the account does not own and has
+    # not proved anything about. Without a limit, anyone who can create a free account can use
+    # this to mail an arbitrary stranger repeatedly, with our sending reputation.
+    #
+    # Keyed on the *user* rather than the address: the address is the attacker's choice and a
+    # per-address bucket would be trivially sidestepped by varying it.
+    window = dt.timedelta(seconds=settings.email_sign_in_window_seconds)
+    await check_and_record(
+        session,
+        f"credential-add:{user.id}",
+        limit=settings.email_sign_in_per_email_limit,
+        window=window,
     )
+
+    credential, raw = await attach_email_credential(session, user, payload.email)
+    # Queued rather than awaited, for the same reason `POST /auth/email/start` queues: the
+    # response must not carry the mail provider's latency, and a provider outage must not
+    # become this route's status code.
+    background.add_task(_deliver_verification_link, settings, credential.subject_id, raw)
     await session.flush()
     return _rendered(credential)
+
+
+async def _deliver_verification_link(settings: Settings, address: str, raw_token: str) -> None:
+    link = f"{settings.email_sign_in_link_base}?token={raw_token}"
+    try:
+        await send(
+            settings,
+            to=address,
+            subject="Confirm this address for Dogear",
+            text=(
+                "Open this link to add this address as a way to sign in to Dogear.\n\n"
+                f"{link}\n\n"
+                "It works once, and for fifteen minutes. Until you open it, this address cannot "
+                "be used to sign in. If you did not ask for this, you can ignore it."
+            ),
+        )
+    except Exception:
+        log.warning("verification link could not be delivered", exc_info=True)
 
 
 @router.delete(

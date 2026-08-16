@@ -10,7 +10,7 @@ import datetime as dt
 import logging
 import uuid
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -195,24 +195,76 @@ async def revoke_credential(
         # about another account, so it does not.
         raise not_found("Credential")
 
+    # **Outstanding links die with the credential, and this must happen even on the no-op
+    # path.** An `email` credential is created *inactive* — `revoked_at` set — while its
+    # `verify` link is in somebody's inbox. Returning early on "already revoked" therefore made
+    # Remove a lie for exactly the case it matters most: a parent who mistypes an address,
+    # notices, and removes it would still be handing whoever holds that inbox a live link that
+    # activates the credential and returns a session on their archive. Spending the tokens is
+    # what makes Remove mean removed.
+    await _consume_outstanding_tokens(session, credential.id, now=now)
+
     if credential.revoked_at is not None:
+        await session.flush()
         return credential
 
-    live = [row for row in await credentials_for_user(session, user.id) if row.is_active]
-    if len(live) <= 1:
+    # **Guarded in SQL rather than by counting first.** Reading the live rows and then writing
+    # is a check-then-act: two concurrent deletes each see two live credentials, each decides
+    # it is not the last, and both succeed — leaving an account with no way in, which is the
+    # one outcome this function exists to prevent. The `WHERE` below re-tests the population at
+    # write time, so the loser of that race updates nothing.
+    moment = now or dt.datetime.now(tz=dt.UTC)
+    others_live = (
+        select(func.count())
+        .select_from(Credential)
+        .where(
+            Credential.user_id == user.id,
+            Credential.id != credential.id,
+            Credential.revoked_at.is_(None),
+        )
+        .scalar_subquery()
+    )
+    result = await session.execute(
+        update(Credential)
+        .where(
+            Credential.id == credential.id,
+            Credential.revoked_at.is_(None),
+            others_live > 0,
+        )
+        .values(revoked_at=moment)
+    )
+    if result.rowcount == 0:
         raise RascalError(
             ErrorCode.LAST_CREDENTIAL,
             "This is the only way left to sign in to this account, so it cannot be removed. "
             "Add another sign-in method first.",
         )
-
-    credential.revoked_at = now or dt.datetime.now(tz=dt.UTC)
-    await session.flush()
+    await session.refresh(credential)
     log.info(
         "credential revoked",
         extra={"user_id": str(user.id), "provider": credential.provider},
     )
     return credential
+
+
+async def _consume_outstanding_tokens(
+    session: AsyncSession, credential_id: uuid.UUID, *, now: dt.datetime | None = None
+) -> None:
+    """Spend every unconsumed sign-in link for a credential.
+
+    Imported lazily to keep the dependency one-way: `email_sign_in` already imports this
+    module, and a top-level import back would be a cycle.
+    """
+    from rascal.models import EmailSignInToken
+
+    await session.execute(
+        update(EmailSignInToken)
+        .where(
+            EmailSignInToken.credential_id == credential_id,
+            EmailSignInToken.consumed_at.is_(None),
+        )
+        .values(consumed_at=now or dt.datetime.now(tz=dt.UTC))
+    )
 
 
 def subject_hint(provider: CredentialProvider, subject_id: str) -> str:
@@ -228,8 +280,12 @@ def subject_hint(provider: CredentialProvider, subject_id: str) -> str:
         local, _, domain = subject_id.partition("@")
         head = local[0] if local else ""
         return f"{head}{'•' * max(len(local) - 1, 1)}@{domain}"
-    tail = subject_id[-4:]
-    return f"{'•' * 4}{tail}"
+    # **Masked even when short.** Returning the last four of a four-character subject returns
+    # the subject. Provider subjects are long in practice, so this is a guard against a future
+    # provider rather than today's — which is exactly when it is cheap to add.
+    if len(subject_id) <= 8:
+        return "•" * 8
+    return f"{'•' * 4}{subject_id[-4:]}"
 
 
 #: How stale the recorded activity has to be before a sign-in rewrites it.

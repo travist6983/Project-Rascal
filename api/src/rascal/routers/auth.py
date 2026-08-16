@@ -12,9 +12,11 @@ to — see `docs/decisions-log.md`, phase 52.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
+from rascal.config import Settings
 from rascal.deps import SessionDep, SettingsDep, get_apple_verifier, get_google_verifier
 from rascal.errors import validation_failed
 from rascal.schemas.auth import (
@@ -34,12 +36,19 @@ from rascal.services.auth import touch_last_sign_in, user_for_credential
 from rascal.services.email_sign_in import complete_sign_in, start_sign_in
 from rascal.services.google import GoogleVerifier
 from rascal.services.mail import send
-from rascal.services.rate_limit import check_and_record, email_bucket, ip_bucket
+from rascal.services.rate_limit import (
+    check_and_record,
+    client_address,
+    email_bucket,
+    ip_bucket,
+)
 from rascal.services.tokens import (
     issue_token_pair,
     revoke_refresh_token,
     rotate_refresh_token,
 )
+
+log = logging.getLogger("rascal.auth")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -142,6 +151,7 @@ async def sign_in_with_google(
 async def start_email_sign_in(
     payload: EmailSignInStartRequest,
     request: Request,
+    background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
 ) -> dict[str, str]:
@@ -154,7 +164,9 @@ async def start_email_sign_in(
         limit=settings.email_sign_in_per_email_limit,
         window=window,
     )
-    client_host = request.client.host if request.client else "unknown"
+    # Behind Fly's proxy the socket peer is the *proxy*, identical for every request on
+    # the planet — see `client_address`, where the whole argument lives.
+    client_host = client_address(request)
     await check_and_record(
         session,
         ip_bucket(client_host),
@@ -165,7 +177,32 @@ async def start_email_sign_in(
     match = await start_sign_in(session, payload.email)
     if match is not None:
         address, raw = match
-        link = f"{settings.email_sign_in_link_base}?token={raw}"
+        # **Queued, not awaited, and that is a security property rather than a performance
+        # one.** Sending inline made the always-202 response a *timing* oracle: a registered
+        # address paid a round trip to the mail provider and an unknown one returned
+        # immediately, so the difference — hundreds of milliseconds — answered the exact
+        # question the identical status code refuses to. It also meant a mail outage turned
+        # this into a 500 for known addresses and a 202 for unknown ones, which is a far
+        # louder oracle than the timing one.
+        #
+        # Running it after the response means every caller waits the same amount of time for
+        # the same body, whatever the address, and a provider failure is a logged failure to
+        # deliver rather than a signal.
+        background.add_task(_deliver_sign_in_link, settings, address, raw)
+    # The same body either way. A client cannot tell, and neither can anybody else.
+    return {"status": "accepted"}
+
+
+async def _deliver_sign_in_link(settings: Settings, address: str, raw_token: str) -> None:
+    """Send one magic link, after the response has gone out.
+
+    **Swallows its failure deliberately.** There is no caller left to tell, the parent has
+    already been told to check their email, and the alternative — letting it escape — would
+    put a traceback in the logs for something that is ordinary provider flakiness. What it must
+    never do is reach back and change the answer, because the answer is the same either way.
+    """
+    link = f"{settings.email_sign_in_link_base}?token={raw_token}"
+    try:
         await send(
             settings,
             to=address,
@@ -177,8 +214,10 @@ async def start_email_sign_in(
                 "has happened to your account and you can ignore this."
             ),
         )
-    # The same body either way. A client cannot tell, and neither can anybody else.
-    return {"status": "accepted"}
+    except Exception:
+        # No address in the log line — an address in a log is the address leaving the system
+        # by a path nobody audited.
+        log.warning("sign-in link could not be delivered", exc_info=True)
 
 
 @router.post(
