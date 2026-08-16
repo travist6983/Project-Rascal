@@ -141,7 +141,7 @@ No artifact required. These are behaviors, and they're half the reason this app 
 | Never let go of the hug first today. Let {them} be the one to pull away. | physical-affection | all |
 | Get on the floor for ten minutes. That's the whole mission. | physical-affection | 24–120 |
 | Carry {them} when asked, even though {they} can walk fine. | physical-affection | 24–96 |
-| Use {their} baby nickname out loud today, while {they_do} still answer to it. | their-words | 24–120 |
+| Use {their} oldest nickname out loud today, while {they_do} still answer to it. | their-words | 24–120 |
 | Let {them} help with something, even though it triples the time. | making-building | 30–144 |
 | Don't rush lights-out tonight. Stay an extra ten minutes. | sleep-routine | 24–144 |
 | Say yes to the next thing you'd normally say no to. | me-as-a-parent | all |
