@@ -55,6 +55,23 @@ for a parent with a kid, not the extreme one.
       working feature rather than an error.
 - [ ] Add more photos to the selection. Confirm the scan picks them up.
 
+## 3a. Two children — new Aug 16, 2026 (phase 45)
+
+**The worst failure mode in this file, and it is silent.** The month and day coverage read was
+unscoped before phase 31: a month the *sibling* wrote in counted as covered, so this child's empty
+months were never offered. A prompt that never appears is not a bug anyone can see, and nothing in
+the app would look wrong.
+
+**Setup:** two children, and a month where child A has entries and child B has none.
+
+- [ ] 3a.1 Select **B** and open the backfill offer. **That month is offered for B**, because B has
+      nothing in it — A's entries in the same month must not mark it covered.
+- [ ] 3a.2 Select **A** and check the same month. It is **not** offered, because A did write in it.
+- [ ] 3a.3 Write a backfilled entry for B in that month. It is now covered **for B only**; A's view
+      is unchanged.
+- [ ] 3a.4 Scan the month list for each child and write down any month that appears for one and not
+      the other, with the reason: _______________________________________________
+
 ## 4. The offer, and how it feels
 
 **This is a judgment, and it is the reason the no-guilt rule exists.**

@@ -2492,3 +2492,51 @@ and it now says 36.
 evening with a phone, and none of the eight new Entry Detail boxes or fourteen new Settings boxes
 has been run. The backlog is now accurate, which is a precondition for running it and not a
 substitute for it.
+
+## Aug 16, 2026 — Phase 45: multi-kid had no device coverage
+
+**Multi-kid shipped Aug 13. Nothing verified it on a phone, and phase 44 — a reconciliation of
+this exact backlog, run the same day — did not notice.** 44 asked "what changed under these
+checklists" and answered it for three files. It did not ask the complementary question: *what
+shipped that no checklist mentions at all?* Adding a child got boxes only because it happened to
+live on the Settings screen 44 was already editing. That is a reconciliation finding what it was
+looking at rather than what was missing, and it is worth writing down because the same blind spot
+is available to every future pass over these files.
+
+**Phase 31's own record was the map.** It names six local reads that were unscoped and are now
+child-filtered — *"Today's board merge, the widget snapshot, the backfill's month and day
+coverage, the notification re-offer, extraction's queue, and Settings' `?? children.first`"*. Five
+of the six had not one box between them. A phase that lists its own risky changes in prose and
+then ships without a checklist entry for any of them is a gap that only closes if somebody goes
+looking, and the prose was sitting in `roadmap-status.md` the whole time.
+
+**Every one of these fails silently, which is the argument for covering them at all.** A wrong
+child's data does not crash, does not error and does not look wrong — it looks like an archive.
+The reasoning in the code says it better than a checklist can, and each box was written against
+the specific read:
+
+- **The backfill's month coverage is the worst of them.** Unscoped, a month the *sibling* wrote in
+  counted as covered, so this child's empty months were never offered. The comment in `RootView`
+  puts it exactly: *"a prompt that never appears is not a bug anyone can see."* Nothing in the app
+  would look wrong, ever, and the loss is a month of a childhood nobody was invited to write down.
+- **The notification re-offer is spent once and never comes back**, so an unscoped count handed a
+  newly added second child an offer already used up by their sibling — on the one screen where the
+  parent is most likely to say yes. There is no second chance to observe this one.
+- **The widget snapshot reaches furthest.** It is filtered in memory rather than in the `@Query`,
+  because a `@Query` predicate is fixed at init and cannot capture the child. That is correct and
+  it is also exactly the shape a later refactor "tidies" back into the predicate. The file it
+  writes is what the Lock Screen renders, so a wrong-child snapshot is wrong on a surface nobody
+  opens the app to check.
+
+**Two table defects closed on the way, and the second one matters more than its size.** Row 10
+still carried Entry Detail at 28 after phase 44 had raised it to 36 — that phase updated the
+number in four places and missed the table. And **the widget's boxes had never been in the table's
+column at all**: row 1 points at its §1 as a pre-flight, which reads as though the file were
+accounted for. It was not. This is the same defect the file had already complained about for
+Moments, in the same table, and it survived the complaint. **The table now sums to 451, which is
+the first time adding it up has been a check that works** rather than a claim the prose makes
+about itself.
+
+**Still nothing ticked.** 451 boxes, 9 of them, all from Aug 12. Two phases in one day grew the
+denominator by 42 and moved the numerator by none, and that remains the honest direction: the
+backlog is now closer to describing the app, which is a precondition for running it.

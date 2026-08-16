@@ -140,6 +140,20 @@ delete the app, do not just sign out.
 - [ ] From that denied state, turn notifications on in iOS Settings, then foreground the app.
       A token registers and **nothing asks you anything**.
 
+## 6a. The re-offer, with two children — new Aug 16, 2026 (phase 45)
+
+**The re-offer is spent once and never comes back**, which is what makes this worth a box. The
+count behind it was unscoped before phase 31, so a newly added second child inherited an offer
+already used up by their sibling's archive — on the one screen where a parent is most likely to
+say yes.
+
+- [ ] 6a.1 On an account whose **first** child has entries, add a **second** child. The
+      notification offer for the second child behaves as a fresh one, not as already-spent.
+- [ ] 6a.2 If the offer is declined for one child, that decision does not silently apply to the
+      other in a way the parent never saw.
+- [ ] 6a.3 Write down exactly what appeared, for which child, and in what order:
+      _______________________________________________
+
 ## 7. Battery and volume
 
 - [ ] Over a week, exactly seven notifications arrive. Not eight, not one that repeats.

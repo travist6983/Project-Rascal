@@ -131,6 +131,25 @@ The one that cannot be seen in a simulator at all.
 - [ ] Lock the phone and hand it to someone else. Ask them what they can read. Nothing they say
       should be anything the parent wrote.
 
+## 8a. Two children — new Aug 16, 2026 (phase 45)
+
+The widget snapshot was one of the six reads phase 31 re-scoped, and it is the one with the
+longest reach: **the file it writes is what the Lock Screen renders**, so a wrong-child snapshot
+is wrong on a surface nobody opens the app to check.
+
+The rows are filtered in memory rather than in the `@Query` — a `@Query` predicate is fixed at
+init and cannot capture the child. That is a correct choice and it is also the kind a later
+refactor undoes without noticing.
+
+- [ ] 8a.1 With child A selected, confirm the widget shows **A's** mission. Read the name on it.
+- [ ] 8a.2 Switch to child B in the app, then background the app and look at the widget.
+      **It shows B's mission**, not A's, and not a mix.
+- [ ] 8a.3 Complete a mission for B. The widget reflects B. Switch to A — the widget goes back to
+      A's state, and A's completion state is not B's.
+- [ ] 8a.4 Check the **Lock Screen** widget as well as the Home Screen one. Both follow the switch.
+- [ ] 8a.5 Force-quit the app after switching, then look at the widget. The snapshot on disk is
+      the selected child's — it must not revert to whoever was selected at last launch.
+
 ## 9. Accessibility, out loud
 
 The suite asserts the strings. It cannot hear them.
