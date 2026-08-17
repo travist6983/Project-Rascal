@@ -7,16 +7,18 @@ guardian that is new.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 
 import sqlalchemy as sa
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from factories import grant, make_child, make_family, make_prompt, make_user
 from helpers import auth_headers
+from rascal.errors import ErrorCode, RascalError
 from rascal.models import Assignment, Guardian, GuardianInvite, User
-from rascal.services.guardians import hash_token
+from rascal.services.guardians import accept_invite, hash_token
 from rascal.services.scheduler import run_scheduler
 
 TUESDAY = dt.date(2026, 8, 18)  # future-date: explicit, pure
@@ -656,3 +658,59 @@ async def test_sync_does_not_hand_a_parent_the_other_parents_assignments(
     assert len(pulled[one.id]) == 3
     assert len(pulled[two.id]) == 3
     assert pulled[one.id].isdisjoint(pulled[two.id])
+
+
+# --- The cap under concurrency ------------------------------------------------------------
+
+
+async def test_two_simultaneous_accepts_cannot_both_join_one_household(
+    client: AsyncClient, session: AsyncSession, engine
+) -> None:
+    """**Genuinely concurrent, not two sequential calls.**
+
+    The cap is a read-then-write and nothing in the schema enforces it — "at most two rows in
+    `users` for one `family_id`" is not something a unique index can say. Without the row lock
+    in `accept_invite`, both transactions read one member, both pass the check, and the
+    household ends up with three adults on a one-household subscription.
+
+    Two invites, two invitees, two sessions, both accepts started before either commits.
+    """
+    inviter, _child = await _subscribed_parent(session)
+    a = await make_user(session, display_name="Anna")
+    b = await make_user(session, display_name="Ben")
+    await session.commit()
+
+    tokens = [
+        (
+            await client.post("/v1/families/me/invites", json={}, headers=auth_headers(inviter))
+        ).json()["token"]
+        for _ in range(2)
+    ]
+
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+
+    async def attempt(raw_token: str, joiner):
+        async with factory() as s:
+            invite = await s.scalar(
+                sa.select(GuardianInvite).where(GuardianInvite.token_hash == hash_token(raw_token))
+            )
+            joining = await s.get(User, joiner.id)
+            try:
+                await accept_invite(s, invite, joining)
+                await s.commit()
+                return "accepted"
+            except RascalError as exc:
+                await s.rollback()
+                return exc.code
+
+    outcomes = await asyncio.gather(
+        attempt(tokens[0], a), attempt(tokens[1], b), return_exceptions=True
+    )
+
+    assert "accepted" in outcomes, outcomes
+    assert ErrorCode.CONFLICT in outcomes, f"both accepts succeeded: {outcomes}"
+
+    members = await session.scalar(
+        sa.select(sa.func.count()).select_from(User).where(User.family_id == inviter.family_id)
+    )
+    assert members == 2
