@@ -201,6 +201,44 @@ relay email is unreliable enough that `users.email` is nullable. `display_name` 
 human-readable identity in the product, so an account that cannot fix it is labelled with
 whatever Apple sent that one time, forever.
 
+### Deleting the account
+
+Apple has required in-app account deletion for apps offering account creation since June 2022.
+Settled in `decisions.md` open item 14.
+
+**`POST /me/deletion`** → `202`
+
+```json
+{ "requested_at": "2026-08-17T23:00:00Z", "execute_after": "2026-08-24T23:00:00Z" }
+```
+
+`202` rather than `204`: **nothing has been deleted yet**, and saying otherwise is the one lie
+this endpoint cannot afford. The body carries the date so a client can say exactly when rather
+than paraphrasing a policy it would then have to keep in step.
+
+**Idempotent** — asking twice returns the first request rather than restarting the clock. Every
+refresh token is revoked, so this signs them out of every device immediately.
+
+**`DELETE /me/deletion`** → `204`. Idempotent; `204` whether or not there was one to cancel,
+because a `404` would alarm somebody who has already been reassured, about nothing.
+
+**Signing in cancels an outstanding request outright**, per D3's precedent — somebody who signs
+back in has changed their mind. That is why the immediate sign-out matters: after it, only a
+deliberate sign-in can reach the cancel.
+
+**What is deleted, seven days later:** the account always — credentials, devices, tokens, and the
+`guardians` rows that gave it access. **The archive only when no other guardian remains.** A
+shared archive is not one parent's to destroy, so children, entries and media survive as long as
+somebody else guards them; when the last guardian goes, the archive and its objects go too.
+
+**`entries.author_id` is nullable, and null means the author was erased.** A departing parent's
+entries survive when another guardian remains — they belong to the child — but the person is
+genuinely gone, so the attribution goes null rather than being reassigned to whoever is left.
+Null is *"written by somebody no longer here"*, which is true; a reassignment would be a false
+claim about who wrote a sentence.
+
+---
+
 ### Sign-in methods on this account
 
 **Linking is explicit and nothing here matches on email.** A credential joins an account

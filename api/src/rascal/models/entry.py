@@ -78,7 +78,15 @@ class Entry(Base):
     assignment_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("assignments.id", ondelete="SET NULL"), nullable=True
     )
-    author_id: Mapped[uuid_fk] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    # **Nullable since phase 66, and the null means the author was erased.** Item 14 settles
+    # that a departing parent's entries survive when another guardian remains, and item 13 that
+    # the attribution is kept — both cannot hold once the user row itself is gone, so the key
+    # gives rather than the entry. Null is *"written by somebody no longer here"*, which is
+    # true; reassigning to the remaining guardian would be a false claim about who wrote a
+    # sentence, in an archive whose whole worth is that it is accurate.
+    author_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     occurred_at: Mapped[moment]
     created_at: Mapped[created]
     # Computed at write from occurred_at minus birthdate, then stored. Correcting a birthdate

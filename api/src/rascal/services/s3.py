@@ -99,3 +99,41 @@ async def complete_multipart_upload(
         UploadId=upload_id,
         MultipartUpload={"Parts": parts},
     )
+
+
+async def delete_objects(keys: list[str], settings: Settings) -> int:
+    """Remove objects from the bucket. Returns how many were requested.
+
+    **The first code in this service that deletes a byte from storage**, and it arrives with
+    phase 66 because an erasure request cannot be honoured by forgetting the row and keeping
+    the photograph. `docs/investigations/account-deletion.md` found the absence; **phase 38
+    needs this too**, because D3 promises lapsed media is deleted and nothing could carry that
+    out either.
+
+    **`delete_objects` in batches of 1000, not `delete_object` in a loop.** A child's archive is
+    thousands of files, and one request per object is thousands of round trips inside a job
+    somebody is waiting on. 1000 is the API's own limit.
+
+    **Runs in a thread**, like the two multipart calls above, because it touches the network and
+    the event loop must not stop for it.
+
+    **A missing key is not an error.** S3 answers success for a delete of something that is not
+    there, and that is the behaviour this wants: a retried deletion, or a row whose upload never
+    completed, must not strand the whole request. The bucket's 30-day soft delete is a net under
+    all of this — **not** a licence to treat the call as reversible.
+    """
+    if not keys:
+        return 0
+
+    client = get_s3_client()
+    bucket = settings.s3_bucket
+
+    def _delete(batch: list[str]) -> None:
+        client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
+        )
+
+    for start in range(0, len(keys), 1000):
+        await asyncio.to_thread(_delete, keys[start : start + 1000])
+    return len(keys)

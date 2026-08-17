@@ -326,6 +326,18 @@ async def touch_last_sign_in(
     look like an edit to the account, and clients would refetch a record that had not changed.
     """
     moment = now or dt.datetime.now(tz=dt.UTC)
+
+    # **D3's rule, and item 14's: signing in cancels an outstanding deletion outright.** Hooked
+    # here rather than at each route because this is already the one function every path that
+    # proves the app ran on a device somebody has calls — the argument this docstring makes for
+    # the inactivity clock is the same set of paths. A new sign-in route cannot forget it.
+    #
+    # Safe here only because `request_deletion` revokes every refresh token: without that, a
+    # phone in a drawer rotating its token would cancel a deletion its owner still wanted.
+    from rascal.services.deletion import cancel_on_sign_in
+
+    await cancel_on_sign_in(session, user_id, now=moment)
+
     await session.execute(
         update(User)
         .where(

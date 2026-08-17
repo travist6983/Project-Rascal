@@ -28,9 +28,10 @@ from rascal.deps import (
 from rascal.errors import ErrorCode, RascalError, validation_failed
 from rascal.models import Credential
 from rascal.schemas.auth import EmailCredentialCreate
-from rascal.schemas.common import UserOut
+from rascal.schemas.common import ApiModel, UserOut
 from rascal.schemas.credential import CredentialCreate, CredentialOut
 from rascal.schemas.user import MeUpdate
+from rascal.services import deletion
 from rascal.services.apple import AppleVerifier
 from rascal.services.auth import (
     attach_credential,
@@ -324,3 +325,45 @@ async def remove_my_credential(
     credential = await revoke_credential(session, user, credential_id)
     await session.flush()
     return _rendered(credential)
+
+
+# --- Deleting the account ---------------------------------------------------------------------
+#
+# Apple has required in-app account deletion for apps offering account creation since June 2022,
+# and `docs/investigations/account-deletion.md` found this app had none. These two routes are
+# what makes the requirement satisfiable from a Settings screen rather than by emailing support.
+
+
+class DeletionOut(ApiModel):
+    """A pending request. `execute_after` is what the client counts down to."""
+
+    requested_at: dt.datetime
+    execute_after: dt.datetime
+
+
+@router.post("/deletion", response_model=DeletionOut, status_code=status.HTTP_202_ACCEPTED)
+async def request_account_deletion(session: SessionDep, user: CurrentUser) -> DeletionOut:
+    """Ask for the account to be deleted, seven days from now.
+
+    **`202`, not `204`:** nothing has been deleted yet, and saying otherwise would be the one
+    lie this endpoint cannot afford. The body carries the date so the client can say exactly
+    when, rather than paraphrasing a policy it would then have to keep in step.
+
+    **Idempotent.** Asking twice returns the first request rather than restarting the clock — a
+    second tap must not quietly buy another seven days.
+
+    Every refresh token is revoked, so this signs them out of every device immediately. Signing
+    back in cancels the request outright, per D3's precedent.
+    """
+    request = await deletion.request_deletion(session, user)
+    return DeletionOut(requested_at=request.requested_at, execute_after=request.execute_after)
+
+
+@router.delete("/deletion", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_account_deletion(session: SessionDep, user: CurrentUser) -> None:
+    """Change your mind. Idempotent — cancelling nothing is a success.
+
+    `204` whether or not there was one to cancel. A `404` here would tell somebody who has
+    already been reassured that something is wrong, and there is nothing they could do about it.
+    """
+    await deletion.cancel_deletion(session, user.id)

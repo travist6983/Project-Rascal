@@ -230,13 +230,44 @@ CREATE UNIQUE INDEX uq_assignments_shared ON assignments (child_id, assigned_on,
 
 **On `slot` values.** `mission` is **photo-only** as of migration `0008`, and `mission_b` takes the video, audio and activity kinds it used to share. The slot narrowed without being renamed, so **rows written before `0008` hold non-photo prompts in `mission` and are correct for the day they were served** — see `docs/decisions.md`. A slot name is an identifier for a position in the day, not a description of the kind that fills it.
 
+### `deletion_requests`
+A parent asking to be forgotten, and the seven days before it happens. Phase 66, per open item 14.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `user_id` | uuid FK | → users, `ON DELETE CASCADE` |
+| `requested_at` | timestamptz | |
+| `execute_after` | timestamptz | **Stored, not computed** — a request made under a seven-day policy runs on the terms it was made under, however the constant moves later |
+| `cancelled_at` | timestamptz | nullable |
+| `created_at` / `updated_at` | timestamptz | |
+
+**One pending request per user**, enforced by a partial unique index on `(user_id)` where
+`cancelled_at IS NULL`. A plain unique would forbid asking again after a cancellation, which is a
+state a parent can genuinely reach.
+
+**There is no `completed_at`, and its absence is the design.** A completed deletion has no row —
+it cascades away with the user — so a column recording completion could never hold a value.
+**Completion is the row being gone**, which is also the only record consistent with having been
+asked to forget somebody.
+
+**This is the one place in the service that hard-deletes user data**, a deliberate exception to
+the soft-delete rule. Soft deletes exist so a client can learn a row went away; there is no
+client left to tell, and a `deleted_at` on an erasure would be the service keeping exactly what
+it was asked to stop keeping.
+
+**What is deleted:** the account always; the archive **only when no other guardian remains**.
+When a second guardian stays, the children, entries and media are untouched and only the
+departing parent's `guardians` rows and credentials go — with `entries.author_id` set to null, on
+which see below.
+
 ### `entries`
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | client-generated UUID for offline creation |
 | `child_id` | uuid FK | |
 | `assignment_id` | uuid FK | **nullable — freeform entries are first-class** |
-| `author_id` | uuid FK | → users |
+| `author_id` | uuid FK | → users, **nullable since phase 66**, `ON DELETE SET NULL`. Null means the author was erased |
 | `occurred_at` | timestamptz | when it happened |
 | `created_at` | timestamptz | when it was logged. **Never conflate these.** |
 | `child_age_months` | int | computed at write from `occurred_at` − birthdate, then stored |
