@@ -41,6 +41,11 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
     /// of their child's archive, and it is shown as a sentence rather than an alert.
     case lastCredential
     /// `POST /auth/email/start` — too many links to one address, or from one IP.
+    /// `POST /families/me/invites` — the household is on the free tier. **Not a permission
+    /// error and not a failure**: per D4 the second guardian is the thing "one price for the
+    /// whole household" is sold on, so this is the upgrade surface arriving. A client shows it
+    /// as a door, never as a wall.
+    case subscriptionRequired
     case rateLimited
     /// `POST /auth/email/complete` — the magic link was already used, has expired, or belongs
     /// to an address that has since been removed. **One code for all of them**, deliberately:
@@ -63,6 +68,7 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case "invalid_display_name": self = .invalidDisplayName
         case "credential_in_use": self = .credentialInUse
         case "last_credential": self = .lastCredential
+        case "subscription_required": self = .subscriptionRequired
         case "rate_limited": self = .rateLimited
         case "sign_in_link_invalid": self = .signInLinkInvalid
         default: self = .unknown(rawValue)
@@ -84,6 +90,7 @@ nonisolated enum APIErrorCode: RawRepresentable, Decodable, Equatable, Sendable 
         case .invalidDisplayName: "invalid_display_name"
         case .credentialInUse: "credential_in_use"
         case .lastCredential: "last_credential"
+        case .subscriptionRequired: "subscription_required"
         case .rateLimited: "rate_limited"
         case .signInLinkInvalid: "sign_in_link_invalid"
         case .unknown(let raw): raw
