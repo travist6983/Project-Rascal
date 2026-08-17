@@ -736,6 +736,14 @@ struct OnboardingGate: View {
     /// and the tap does nothing. Since a widget is mostly tapped when the app is *not* already
     /// running, that was the normal path, not the edge one.
     @State private var pendingLink: WidgetDeepLink?
+    /// An invitation waiting to be dealt with. **Held across sign-in**, which is the whole
+    /// reason it lives on the gate rather than inside the screen: the person tapping the link
+    /// is usually signed out, and a token that lived inside a sheet would be gone the moment
+    /// they went to the welcome screen to get a session.
+    @State private var pendingInvite: InviteLink?
+    /// Set while they are away signing in, so the invitation is not re-presented over the
+    /// welcome screen it just handed them to.
+    @State private var inviteDeferred = false
 
     /// **Presented from the gate, not from Today.** The sheet's selection replaces the whole
     /// `RootView` subtree, so a sheet owned by a view inside that subtree would be destroying its
@@ -746,6 +754,30 @@ struct OnboardingGate: View {
     /// which replaces the whole `RootView` subtree — including the Settings screen the parent
     /// tapped from. A sheet owned down there would be tearing down its own presenter.
     @State private var isPresentingAddChild = false
+
+    /// Nil while they are away signing in, so the invitation does not reappear on top of the
+    /// welcome screen it just handed them to.
+    private var presentedInvite: Binding<InviteLink?> {
+        Binding(
+            get: { inviteDeferred ? nil : pendingInvite },
+            set: { newValue in
+                if newValue == nil, !inviteDeferred { pendingInvite = nil }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func inviteScreen(_ invite: InviteLink) -> some View {
+        InviteAcceptScreen(
+            model: InviteAcceptModel(api: session.account.api, token: invite.token),
+            isSignedIn: session.state != .signedOut,
+            onSignIn: { inviteDeferred = true },
+            onDone: {
+                pendingInvite = nil
+                inviteDeferred = false
+            }
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -849,6 +881,19 @@ struct OnboardingGate: View {
             // chevron behind this sheet.
             .task { await session.refreshChildren() }
         }
+        // Presented over whatever the gate is showing, because an invitation has to work in
+        // both session states. `inviteDeferred` is what lets them go and sign in without this
+        // reappearing on top of the welcome screen.
+        .fullScreenCover(item: presentedInvite) { invite in
+            inviteScreen(invite)
+        }
+        // They went to sign in and now have a session. Bring the invitation back — this is the
+        // "you'll come straight back here" the screen promised, and the reason the token is held
+        // on the gate rather than in the sheet.
+        .onChange(of: session.state) { _, state in
+            guard inviteDeferred, state != .signedOut, state != .loading else { return }
+            inviteDeferred = false
+        }
         .onOpenURL { url in
             // **A magic link is checked first, and it is a different kind of URL.** The widget's
             // is a custom scheme that only ever arrives at an app already signed in; this one is
@@ -857,6 +902,15 @@ struct OnboardingGate: View {
             // widget path assumes it is never in.
             if let link = SignInLink.parse(url) {
                 Task { await session.completeEmailSignIn(token: link.token) }
+                return
+            }
+            // **Checked before the widget's custom scheme and after the magic link**, in the
+            // order the URLs can actually arrive: a magic link and an invitation are both
+            // `https://` universal links that may reach a signed-out app, and the widget's only
+            // ever arrives at one already signed in.
+            if let invite = InviteLink.parse(url) {
+                pendingInvite = invite
+                inviteDeferred = false
                 return
             }
             pendingLink = WidgetDeepLink.parse(url)
