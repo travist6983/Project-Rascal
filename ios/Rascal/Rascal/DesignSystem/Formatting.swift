@@ -94,6 +94,15 @@ nonisolated enum DayHeaderText {
         date.formatted(.dateTime.day())
     }
 
+    /// "24 Aug 2026" — a specific day, spelled out.
+    ///
+    /// Used where a date is a **commitment** rather than a heading: the day an account will be
+    /// deleted, read back to the person who asked for it. Numeric-only would be ambiguous
+    /// across locales in exactly the sentence that can least afford it.
+    static func dayAndMonth(_ date: Date) -> String {
+        date.formatted(.dateTime.day().month(.abbreviated).year())
+    }
+
     static func monthAndYear(_ date: Date) -> String {
         date.formatted(.dateTime.month(.wide).year())
     }
