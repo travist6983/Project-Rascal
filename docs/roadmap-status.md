@@ -102,7 +102,7 @@ Of the two remaining P1 retention levers, **push notifications is the only one l
 **Two things ship switched off or unverified, and they are different kinds of unverified.**
 
 - `syncPullEnabled` still defaults to false and gates every write the pull performs. Verified against fixtures — including a 736-entry one — and **never against the real archive**. The morning sequence is unchanged: Settings → dry run → read the report → flip the flag → pull to refresh.
-- Transcription is **structurally verified and empirically unverified**. `SpeechAnalyzer` is iOS 26 and the app deploys to 18.6; `isAvailable` is false on every simulator and the model assets are a download no CI runner has. Everything below the protocol seam is asserted against a stub. **No real transcription has ever run**, so the one thing that matters most — how well it reads a four-year-old — is unknown rather than good. `docs/device-verification-transcription.md` is the way to find out.
+- Transcription is **structurally verified and empirically unverified**. `SpeechAnalyzer` is iOS 26 and the app deploys to 18.6; `isAvailable` is false on every simulator and the model assets are a download no CI runner has. Everything below the protocol seam is asserted against a stub. **No real transcription has ever run**, so the one thing that matters most — how well it reads a four-year-old — is unknown rather than good. `docs/Device-Verification/device-verification-transcription.md` is the way to find out.
 
 **The scope gap that no phase ever owned is closed.** Sealed letters can now be written as well as read — see "The sealed letter, whole" below. ~~What is left of it is a four-line server change.~~ **That server change landed on Aug 11** (`routers/entries.py:71`, `services/entries.py:431`), and so did the client deletion that followed it. What is left of the sealed letter is two *decisions* — writing one on a day that is not the 15th, and editing a seal after the fact — and neither is a server change.
 
@@ -353,9 +353,9 @@ Work that landed early, mostly as a side effect of doing P0 properly. Worth know
 | Prompt library to ~200 | ⚠️ 113 authored, **79 candidates generated and waiting on your read** |
 | Transcode policy (a P1 _risk_, not an item) | ✅ settled in P0 — 1080p H.264/AAC video, AAC/m4a audio, originals preserved |
 | Full export before you need it (a standing risk, "P2 at the latest") | ✅ shipped in P0 — zip with manifest, entries, and media |
-| Home Screen / Lock Screen widget | ✅ **built** — five families, five states, deep-linking into the composer. Reads a snapshot from a shared App Group container and never calls the API. **Never run by WidgetKit on a device**, which is where refresh budget and file protection are decided — `docs/device-verification-widget.md` |
-| Push notifications | ✅ **delivered, Aug 12, 2026.** ~~blocked on Apple enrollment~~, ~~built but never delivered~~ — the key is minted, the three Fly secrets are set, the job has its scheduled machine, and a real notification reached a locked phone and deep-linked on tap. `HTTP/2 200` from `api.push.apple.com`, `delivered_count = 1`. **The sandbox/production split is confirmed correct as a side effect** — a sandbox token on the production host would have been rejected. `docs/device-verification-push.md` §0–§3 partly ticked; §4–§7 unrun |
-| Share sheet target | ✅ **built** — images and videos only, one entry per share, `occurred_at` read from the file's capture metadata. The extension stages into the App Group container and never touches the network; the app drains it on launch and foreground. **Never launched by the system** — every screenshot is the real view rendered inside the app by a harness, because a share sheet cannot be opened from a CLI, and the memory ceiling a share extension actually runs under does not exist in a simulator. `docs/device-verification-share-extension.md` |
+| Home Screen / Lock Screen widget | ✅ **built** — five families, five states, deep-linking into the composer. Reads a snapshot from a shared App Group container and never calls the API. **Never run by WidgetKit on a device**, which is where refresh budget and file protection are decided — `docs/Device-Verification/device-verification-widget.md` |
+| Push notifications | ✅ **delivered, Aug 12, 2026.** ~~blocked on Apple enrollment~~, ~~built but never delivered~~ — the key is minted, the three Fly secrets are set, the job has its scheduled machine, and a real notification reached a locked phone and deep-linked on tap. `HTTP/2 200` from `api.push.apple.com`, `delivered_count = 1`. **The sandbox/production split is confirmed correct as a side effect** — a sandbox token on the production host would have been rejected. `docs/Device-Verification/device-verification-push.md` §0–§3 partly ticked; §4–§7 unrun |
+| Share sheet target | ✅ **built** — images and videos only, one entry per share, `occurred_at` read from the file's capture metadata. The extension stages into the App Group container and never touches the network; the app drains it on launch and foreground. **Never launched by the system** — every screenshot is the real view rendered inside the app by a harness, because a share sheet cannot be opened from a CLI, and the memory ceiling a share extension actually runs under does not exist in a simulator. `docs/Device-Verification/device-verification-share-extension.md` |
 | **A name** (open decision #1, needed by P1) | ✅ **`Dogear`, decided Aug 12, 2026.** ~~still `RASCAL`~~ — the placeholder is retired and this was the last open item in `decisions.md`. The bundle id was chosen name-neutral for exactly this, so it is a rename and not a migration; **none of the rename is done yet**, and the display name and the widget gallery are the two that a parent actually reads |
 
 * * *
@@ -633,7 +633,7 @@ endpoint deliberately does not fix anything.
 
 - ~~**A name.** Open decision #1~~ — **decided Aug 12, 2026: the app is `Dogear`.** A dogear is the corner you fold to come back to something, which is the product in one word: an archive is not a feed, and nothing in it is meant to be read once and scrolled past. **This closed the last open item in `docs/decisions.md`.** The rename itself is not started. It is a rename and not a migration — the bundle id and URL scheme were chosen name-neutral for exactly this day, so signing, the Apple registration and `APPLE_BUNDLE_ID` are untouched. What it does touch: the display name, the widget gallery (which groups by app name and is what made deferring expensive), the icon, the TestFlight listing, `Config.xcconfig`, the export viewer's title, `docs/` prose and the repo name.
   
-- ~~**P3 item 2, structured extraction**~~ — **built and merged** as #43, once #45 let a tag write say who decided it. The schema question it was deferred over got its answer: a tag arrives as `"beach"` or `{"name": "beach", "source": "device_ai"}`, `source` defaulting to `user`. The model behind the seam has still run zero times — `docs/device-verification-extraction.md`.
+- ~~**P3 item 2, structured extraction**~~ — **built and merged** as #43, once #45 let a tag write say who decided it. The schema question it was deferred over got its answer: a tag arrives as `"beach"` or `{"name": "beach", "source": "device_ai"}`, `source` defaulting to `user`. The model behind the seam has still run zero times — `docs/Device-Verification/device-verification-extraction.md`.
   
 - **Writing a letter on any day** — **decided Aug 11, 2026, design in progress in Claude Design, no code.** The seal control is complete but reachable only from a letter assignment, which exists only on the 15th; the decision is that the 15th is the reminder rather than the permission. iOS-lane end to end — the API already accepts it. See "The sealed letter, whole" above and `docs/decisions.md`. **Not a phase yet**: it is a decision waiting on a design, and it should not be numbered or started until that design exists.
 
@@ -718,8 +718,8 @@ git branch -r --no-merged origin/main       # 4, incl. that one
 # Twelve checklists, 460 boxes, 9 ticked — re-measured Aug 16 after phases 44, 45 and 46.
 # Use -ch and sum $1: with a single matching file `grep -c` prints no filename and the -F: form
 # silently sums nothing, which is how this block could have read 0 forever.
-grep -chE '^\s*-? *\[[ xX]\]' docs/device-verification-*.md | awk '{s+=$1} END {print s}'   # 460
-grep -chE '^\s*-? *\[[xX]\]'  docs/device-verification-*.md | awk '{s+=$1} END {print s}'   # 9
+grep -chE '^\s*-? *\[[ xX]\]' docs/Device-Verification/device-verification-*.md | awk '{s+=$1} END {print s}'   # 460
+grep -chE '^\s*-? *\[[xX]\]'  docs/Device-Verification/device-verification-*.md | awk '{s+=$1} END {print s}'   # 9
 
 # The API is deployed and dev-login is correctly absent from it.
 curl -s https://rascal-api.fly.dev/health                      # {"status":"ok","db":"ok"}
@@ -737,7 +737,7 @@ grep -n "sealed" api/src/rascal/routers/entries.py                    # the quer
 grep -n "pronouns" api/src/rascal/models/child.py                     # the column
 
 # Nine of 460, all in the push checklist. Per-file, so you can see which one moved.
-grep -cE '^\s*-? *\[[xX]\]' docs/device-verification-*.md
+grep -cE '^\s*-? *\[[xX]\]' docs/Device-Verification/device-verification-*.md
 
 # Push is delivered. The scheduler drift is the live one, and it now has two instances:
 # both non-grouped machines pin their own image while the `app` group moves on.

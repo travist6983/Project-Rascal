@@ -2597,7 +2597,7 @@ the checklist — in four places on purpose, because a measurement whose disappo
 pre-agreed consequence gets reinterpreted as a reason to build anyway.
 
 **It cannot be run yet.** It needs a real camera roll, which needs a TestFlight build, which is
-still the standing blocker on everything. `docs/device-verification-captions.md` is nine boxes and
+still the standing blocker on everything. `docs/Device-Verification/device-verification-captions.md` is nine boxes and
 the twelfth checklist — 460 now, still nine ticked.
 
 * * *
