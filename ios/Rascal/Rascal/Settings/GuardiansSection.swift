@@ -195,3 +195,85 @@ struct ShareLinkSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
+
+#if DEBUG
+private let _you = GuardianSummary(
+    userId: UUID(), displayName: "Travis", role: "parent",
+    grantedAt: .now.addingTimeInterval(-90 * 86_400), isYou: true
+)
+private let _them = GuardianSummary(
+    userId: UUID(), displayName: "Anna", role: "parent",
+    grantedAt: .now.addingTimeInterval(-2 * 86_400), isYou: false
+)
+private let _pending = InviteSummary(
+    id: UUID(), email: "anna@example.com", role: "parent",
+    expiresAt: .now.addingTimeInterval(7 * 86_400), createdAt: .now
+)
+
+private func _family(
+    tier: String, guardians: [GuardianSummary], invites: [InviteSummary] = []
+) -> FamilySummary {
+    FamilySummary(
+        familyId: UUID(), tier: tier, guardians: guardians, pendingInvites: invites
+    )
+}
+
+#Preview("Guardians — solo, free") {
+    GuardiansSection(model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))))
+        .padding(Layout.screenMargin)
+        .background(Color.canvas)
+}
+
+#Preview("Guardians — invitation outstanding") {
+    GuardiansSection(
+        model: GuardiansModel(
+            previewing: .ready(
+                _family(tier: "subscribed", guardians: [_you], invites: [_pending])
+            )
+        )
+    )
+    .padding(Layout.screenMargin)
+    .background(Color.canvas)
+}
+
+#Preview("Guardians — both parents") {
+    // The invite row is absent, not disabled: two adults *is* the household.
+    GuardiansSection(
+        model: GuardiansModel(
+            previewing: .ready(_family(tier: "subscribed", guardians: [_you, _them]))
+        )
+    )
+    .padding(Layout.screenMargin)
+    .background(Color.canvas)
+}
+
+#Preview("Guardians — load failed") {
+    GuardiansSection(model: GuardiansModel(previewing: .failed("No connection. Saved here, and it'll sync when you're back.")))
+        .padding(Layout.screenMargin)
+        .background(Color.canvas)
+}
+
+#Preview("Guardians — solo, free, AX XXL") {
+    ScrollView {
+        GuardiansSection(model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))))
+            .padding(Layout.screenMargin)
+    }
+    .background(Color.canvas)
+    .environment(\.dynamicTypeSize, .accessibility4)
+}
+
+#Preview("Guardians — outstanding, AX XXL") {
+    ScrollView {
+        GuardiansSection(
+            model: GuardiansModel(
+                previewing: .ready(
+                    _family(tier: "subscribed", guardians: [_you], invites: [_pending])
+                )
+            )
+        )
+        .padding(Layout.screenMargin)
+    }
+    .background(Color.canvas)
+    .environment(\.dynamicTypeSize, .accessibility4)
+}
+#endif

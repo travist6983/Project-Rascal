@@ -34,11 +34,29 @@ final class GuardiansModel {
 
     private let api: APIClient
     private let inviteBaseURL: URL?
+    /// True only for a preview-constructed model. Guards the load.
+    private var isPreview = false
 
     init(api: APIClient, inviteBaseURL: URL? = GuardiansModel.configuredBase) {
         self.api = api
         self.inviteBaseURL = inviteBaseURL
     }
+
+    #if DEBUG
+        /// A model parked in one phase, for previews. `DEBUG` only, and `load` is a no-op —
+        /// the section calls it from a `.task`, so without that the parked phase would be
+        /// replaced by whatever the machine's connectivity produced.
+        init(previewing phase: Phase, notice: String? = nil) {
+            self.api = APIClient(
+                baseURL: URL(string: "https://preview.invalid")!,
+                tokens: InMemoryTokenStore()
+            )
+            self.inviteBaseURL = nil
+            self.isPreview = true
+            self.phase = phase
+            self.notice = notice
+        }
+    #endif
 
     var family: FamilySummary? {
         if case .ready(let family) = phase { return family }
@@ -46,6 +64,7 @@ final class GuardiansModel {
     }
 
     func load() async {
+        if isPreview { return }
         if case .ready = phase {} else { phase = .loading }
         do {
             phase = .ready(try await api.family())
