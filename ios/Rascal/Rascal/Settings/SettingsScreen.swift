@@ -78,6 +78,9 @@ struct SettingsScreen: View {
     @State private var notice: String?
     @State private var route: Route?
     @State private var confirmingSignOut = false
+    /// Built on first appearance, like `export`: the screen's memberwise init is what
+    /// `RootView` calls, and a `@State` with no default would take it away.
+    @State private var guardians: GuardiansModel?
     @State private var outstanding = EntrySync.Outstanding()
     @State private var isRetrying = false
     /// What the last "Retry now" achieved. Nil until one has been pressed.
@@ -119,6 +122,9 @@ struct SettingsScreen: View {
                 archiveSection
                 childrenSection
                 accountSection
+                // Who shares this archive. In "You"'s neighbourhood rather than under
+                // `Advanced`: a second parent is the household, not a setting.
+                if let guardians { GuardiansSection(model: guardians) }
                 exportSection
                 syncSection
 
@@ -150,6 +156,7 @@ struct SettingsScreen: View {
             // The only moment nothing can be referencing a staged zip. See `purgeStale`.
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
+            if guardians == nil { guardians = GuardiansModel(api: session.api) }
             await loadChild()
             await loadStats()
         }
