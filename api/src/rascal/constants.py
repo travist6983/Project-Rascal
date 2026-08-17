@@ -32,6 +32,22 @@ SIGN_IN_TOKEN_PURPOSES: Final = ("verify", "sign_in")
 GuardianRole = Literal["parent", "viewer"]
 GUARDIAN_ROLES: Final = ("parent", "viewer")
 
+#: The roles an invite may actually issue today. `viewer` is phase 30 and iceboxed, so the
+#: column and the CHECK can hold it but nothing may create one — the narrower tuple is what
+#: the route validates against, so un-icing 30 is a one-line change here rather than a hunt.
+ISSUABLE_INVITE_ROLES: Final = ("parent",)
+
+#: Entitlement tiers, per D4. Family-level, never per-user and never per-child.
+Tier = Literal["free", "subscribed"]
+TIERS: Final = ("free", "subscribed")
+
+#: Two adults is the household. A third is not a pricing question, it is a different product
+#: — see `docs/decisions.md` D4 — so the invite route refuses rather than upselling.
+MAX_PARENTS_PER_FAMILY: Final = 2
+
+#: How long an invite link is good for.
+INVITE_EXPIRY_DAYS: Final = 7
+
 PromptKind = Literal["question", "photo", "video", "audio", "activity", "measurement", "letter"]
 PROMPT_KINDS: Final = (
     "question",
@@ -143,6 +159,12 @@ DEFAULT_EXPIRY_DAYS: Final = 14
 
 # The three that fire every day, plus the three that only fire on their own day.
 DAILY_SLOTS: Final = ("question", "mission", "mission_b")
+
+#: The other three. Since phase 36 this split is load-bearing rather than descriptive: daily
+#: slots are served **per guardian** and shared slots are one per child, and the two partial
+#: unique indexes on `assignments` are built from exactly these two tuples. Moving a slot
+#: between them is a migration, not an edit.
+SHARED_SLOTS: Final = ("weekly", "monthly", "letter")
 
 # --- Push notifications ------------------------------------------------------------------
 

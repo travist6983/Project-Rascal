@@ -124,6 +124,57 @@ lose a phone. This archive has my kid's face and voice in it. The extra table is
 
 PK on `(user_id, child_id)`.
 
+**This table is still the whole of authorization**, and phase 36 did not change that. `deps.require_child_access` reads `guardians` and only `guardians`, so accepting a household invite grants access by writing the rows that check already reads — there is no second code path and nothing to keep in sync. What phase 36 added is a way to *create* the second row (`POST /v1/invites/{token}/accept`), not a new way to be authorized.
+
+**Removing a guardian is not specified.** `revoked_at` makes the access half a column write, but what happens to the entries they wrote — `entries.completed_by` records which parent answered — is undecided. `docs/decisions.md` open item 13.
+
+### `families`
+The household. Deliberately almost empty: it is an identity, not a record.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `created_at` / `updated_at` | timestamptz | |
+
+`users.family_id` is **NOT NULL** — every user has a family, even a household of one. A nullable owner would mean every read of an entitlement needs a "what if there is not one" branch, and one of those branches eventually decides that missing means subscribed.
+
+A family does **not** own children. `guardians` says who may reach a child and remains the only authorization input; a family exists so that D4's "one price for the whole household" has something to hang on.
+
+### `entitlements`
+What a household is entitled to. **One row per family, keyed on the family** — per D4 entitlement is a family-level attribute, never per-user and never per-child, so there is no shape of this table that can hold two opinions about one household.
+
+| Column | Type | Notes |
+|---|---|---|
+| `family_id` | uuid PK FK | → families |
+| `tier` | text | `free` \| `subscribed`, `text` + named CHECK |
+| `payer_user_id` | uuid FK | nullable — a family can be `free` with nobody paying, and a lapsed family keeps the payer who lapsed so a win-back knows who to talk to |
+| `lapsed_at` | timestamptz | nullable; null while subscribed |
+| `updated_at` | timestamptz | |
+
+**Nothing in this codebase writes `tier`.** D5 reserves that for App Store Server Notifications V2, which is phase 37. Until then a family becomes `subscribed` only by the hand-run statement in `docs/runbook-deploy.md`. The absence of a writer is the design, not an oversight — the device never decides whether a household is subscribed, for the same reason it never decides what day it is.
+
+**`last_sign_in_at` is deliberately not on this table.** It is a denormalisation of `users.last_sign_in_at` that must never be written independently, and a column whose only correct value is a `MAX` over another table — before anything computes that `MAX` — is a column that drifts.
+
+### `guardian_invites`
+An offer to join a household, good for seven days.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `family_id` | uuid FK | the household being joined |
+| `invited_by_user_id` | uuid FK | |
+| `token_hash` | text | **SHA-256. The raw token is never stored** — the same rule `refresh_tokens` and `email_sign_in_tokens` follow |
+| `email` | text | nullable — an invite may be a bare link |
+| `role` | text | `parent` \| `viewer`, `text` + named CHECK. **Only `parent` is issuable**; `viewer` is phase 30 and iceboxed, and `constants.ISSUABLE_INVITE_ROLES` is what the route validates against |
+| `expires_at` | timestamptz | 7 days |
+| `accepted_at` / `accepted_by_user_id` | | nullable |
+| `revoked_at` | timestamptz | nullable |
+| `created_at` / `updated_at` | timestamptz | |
+
+Unique index on `token_hash`; index on `family_id`.
+
+`accepted_at` and `revoked_at` are timestamps rather than booleans for the same reason `consumed_at` is on the sign-in token: a replay can be told apart from a link that was never used, and *when* somebody joined a household is worth having.
+
 ### `prompts`
 The mission library. Content, not user data.
 
@@ -152,6 +203,7 @@ What the scheduler served on a given day.
 |---|---|---|
 | `id` | uuid PK | |
 | `child_id` | uuid FK | |
+| `user_id` | uuid FK | **NOT NULL for `question`, `mission`, `mission_b`; NULL for `weekly`, `monthly`, `letter`** — see below. Added by phase 36 |
 | `prompt_id` | uuid FK | nullable if `custom_body` set |
 | `custom_body` | text | nullable — parent-authored one-offs |
 | `slot` | text | `question` \| `mission` \| `mission_b` \| `weekly` \| `monthly` \| `letter` |
@@ -161,7 +213,20 @@ What the scheduler served on a given day.
 | `completed_by` | uuid FK | nullable, → users |
 | `created_at` / `updated_at` | timestamptz | |
 
-**Unique index on `(child_id, assigned_on, slot)`.** This is what makes the scheduler idempotent — reruns must be free.
+**Two partial unique indexes, and they are what make the scheduler idempotent — reruns must be free.** Phase 36 replaced the single `uq_assignments_child_id_assigned_on_slot` with:
+
+```sql
+CREATE UNIQUE INDEX uq_assignments_daily  ON assignments (child_id, user_id, assigned_on, slot)
+  WHERE slot IN ('question','mission','mission_b');
+CREATE UNIQUE INDEX uq_assignments_shared ON assignments (child_id, assigned_on, slot)
+  WHERE slot IN ('weekly','monthly','letter');
+```
+
+**Daily slots are served per guardian; shared slots are one per child.** Two parents each get their own `question`, `mission` and `mission_b`, and either of them completing a `weekly`, `monthly` or `letter` clears it for both. `ck_assignments_user_id_by_slot` enforces the two shapes, so a row written with the wrong one fails at the INSERT rather than becoming something nothing will read.
+
+**Why two partial indexes rather than one wider one, and this is the part that would silently break if somebody later "simplified" it:** Postgres treats NULLs as distinct in a unique index. A single `UNIQUE (child_id, user_id, assigned_on, slot)` would let the scheduler write an unlimited number of shared-slot rows for one child on one day — every one of them has a NULL `user_id`, and NULL never equals NULL. Idempotency would fail **silently**, on exactly the slots (weekly, monthly) nobody checks daily. The shared index therefore does not mention `user_id` at all, which keeps the old guarantee intact for the rows that kept the old shape.
+
+**Anything using `ON CONFLICT` against either index must repeat its `WHERE` clause.** Postgres will not infer a partial unique index from the column list alone; without the predicate the insert raises *"there is no unique or exclusion constraint matching the ON CONFLICT specification"*. `services/scheduler.py` carries both predicates for this reason.
 
 **On `slot` values.** `mission` is **photo-only** as of migration `0008`, and `mission_b` takes the video, audio and activity kinds it used to share. The slot narrowed without being renamed, so **rows written before `0008` hold non-photo prompts in `mission` and are correct for the day they were served** — see `docs/decisions.md`. A slot name is an identifier for a position in the day, not a description of the kind that fills it.
 

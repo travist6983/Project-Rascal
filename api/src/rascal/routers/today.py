@@ -68,7 +68,7 @@ async def today(
     if on == local_today:
         await ensure_day_filled(session, child, local_today)
 
-    today_items, waiting, done_today = await assignments_for(session, child, on)
+    today_items, waiting, done_today = await assignments_for(session, child, on, access.user.id)
 
     return TodayResponse(
         date=on,

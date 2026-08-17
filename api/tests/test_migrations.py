@@ -37,8 +37,12 @@ EXPECTED_TABLES = {
 }
 
 EXPECTED_INDEXES = {
-    # The scheduler's idempotency guarantee.
-    "uq_assignments_child_id_assigned_on_slot",
+    # The scheduler's idempotency guarantee, in two halves since phase 36: daily slots are
+    # per-guardian and carry `user_id`, shared slots are one per child and must not — a
+    # single wide index would let NULL `user_id` defeat uniqueness on the shared rows.
+    "ix_guardians_child_id",
+    "uq_assignments_daily",
+    "uq_assignments_shared",
     "ix_assignments_child_id_status_assigned_on",
     # Apple is one credential row among several providers.
     "uq_credentials_provider_subject_id",
@@ -232,17 +236,36 @@ def test_the_mission_b_slot_round_trips_with_rows_in_the_table(scratch_url: str)
                 "RETURNING id"
             )
         ).scalar_one()
+        # Since phase 36 a daily assignment names the guardian it was served to, so this
+        # needs a household to hang one on. The slot is still the only thing under test.
+        family_id = conn.execute(
+            sa.text("INSERT INTO families (id) VALUES (gen_random_uuid()) RETURNING id")
+        ).scalar_one()
+        user_id = conn.execute(
+            sa.text(
+                "INSERT INTO users (id, family_id, display_name) "
+                "VALUES (gen_random_uuid(), :family, 'Travis') RETURNING id"
+            ),
+            {"family": family_id},
+        ).scalar_one()
+        conn.execute(
+            sa.text(
+                "INSERT INTO guardians (user_id, child_id, role) VALUES (:user, :child, 'parent')"
+            ),
+            {"user": user_id, "child": child_id},
+        )
         # A parent-authored one-off, so this needs no prompt row: the table's CHECK is
         # satisfied by `custom_body`, and the slot is the only thing under test.
         for slot in ("mission", "mission_b"):
             conn.execute(
                 sa.text(
                     "INSERT INTO assignments "
-                    "(id, child_id, custom_body, slot, assigned_on, expires_on, status) VALUES "
-                    "(gen_random_uuid(), :child, 'x', :slot, CURRENT_DATE, "
+                    "(id, child_id, user_id, custom_body, slot, assigned_on, expires_on, "
+                    "status) VALUES "
+                    "(gen_random_uuid(), :child, :user, 'x', :slot, CURRENT_DATE, "
                     "CURRENT_DATE + 14, 'pending')"
                 ),
-                {"child": child_id, "slot": slot},
+                {"child": child_id, "user": user_id, "slot": slot},
             )
 
     with engine.connect() as conn:

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from factories import make_user
+from factories import make_family, make_user
 from helpers import auth_headers
 from rascal.models import User
 
@@ -234,8 +234,10 @@ async def test_a_null_display_name_reads_as_null_rather_than_failing(
     """Apple's relay addresses are unreliable and both columns are nullable because of it."""
     # Built directly rather than through `make_user`, which always names its user. Reshaping a
     # shared factory for one test is how the other twenty start carrying an optional they do
-    # not use.
-    user = User(display_name=None, email=None)
+    # not use. The household comes from the factory because `users.family_id` is NOT NULL
+    # since phase 36 — that is a column this test has no opinion about, unlike the two it does.
+    family = await make_family(session)
+    user = User(family_id=family.id, display_name=None, email=None)
     session.add(user)
     await session.commit()
 

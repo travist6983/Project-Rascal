@@ -37,6 +37,7 @@ from rascal.schemas.prompt import (
 from rascal.services import avatars
 from rascal.services import entries as entries_service
 from rascal.services.dates import age_in_months, today_in
+from rascal.services.guardians import family_members
 from rascal.services.pool_health import pool_health
 from rascal.services.stats import child_stats
 
@@ -71,11 +72,19 @@ async def list_children(session: SessionDep, user: CurrentUser) -> list[ChildWit
     "",
     response_model=ChildWithRole,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a child and make the caller its parent",
+    summary="Create a child and make every parent in the household its guardian",
 )
 async def create_child(
     payload: ChildCreate, session: SessionDep, user: CurrentUser
 ) -> ChildWithRole:
+    """**Every adult in the household becomes a guardian, not just the creator.**
+
+    Phase 36 made "one household, one set of children" a promise the product is sold on. A
+    child granted only to whoever happened to tap Add would be invisible to the other parent
+    — and invisibly so, because a child nobody told you about looks exactly like a child that
+    does not exist. The failure would appear days later as "why can't I see Nora", which is
+    the worst shape a sharing bug can have.
+    """
     child = Child(
         name=payload.name,
         birthdate=payload.birthdate,
@@ -84,7 +93,8 @@ async def create_child(
     )
     session.add(child)
     await session.flush()
-    session.add(Guardian(user_id=user.id, child_id=child.id, role="parent"))
+    for member in await family_members(session, user.family_id):
+        session.add(Guardian(user_id=member.id, child_id=child.id, role="parent"))
     await session.flush()
     await session.refresh(child)
     return ChildWithRole(
@@ -342,7 +352,7 @@ async def child_pool_health(
     access: Annotated[ChildAccess, Depends(child_access("viewer"))],
 ) -> PoolHealthOut:
     as_of = today_in(access.child.family_timezone)
-    slots = await pool_health(session, access.child, as_of=as_of)
+    slots = await pool_health(session, access.child, as_of=as_of, viewer_id=access.user.id)
     return PoolHealthOut(
         child_id=access.child.id,
         as_of=as_of,

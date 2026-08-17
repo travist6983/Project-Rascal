@@ -74,12 +74,16 @@ def _populate(url: str) -> dict:
     body = "He called it a 'hangaburger' again — the one sentence that has to survive."
 
     with engine.begin() as conn:
+        # `users.family_id` is NOT NULL since phase 36, so a seeded user needs a household.
+        family_id = conn.execute(
+            sa.text("INSERT INTO families (id) VALUES (gen_random_uuid()) RETURNING id")
+        ).scalar_one()
         conn.execute(
             sa.text(
-                "INSERT INTO users (id, email, display_name, is_admin) "
-                "VALUES (:id, :email, 'Travis', true)"
+                "INSERT INTO users (id, family_id, email, display_name, is_admin) "
+                "VALUES (:id, :family, :email, 'Travis', true)"
             ),
-            {"id": user_id, "email": "travis@example.com"},
+            {"id": user_id, "family": family_id, "email": "travis@example.com"},
         )
         conn.execute(
             sa.text(

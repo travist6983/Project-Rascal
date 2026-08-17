@@ -472,6 +472,36 @@ particular failure usually means.
 
 ---
 
+## 7a. Marking your own household subscribed — the one hand-run statement
+
+**Phase 36's invite gate is live code and every family defaults to `free`, so until you run
+this you cannot invite your wife into your own product.**
+
+```sql
+UPDATE entitlements SET tier = 'subscribed'
+WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
+```
+
+Run it against production (Neon), then check `GET /v1/families/me` reports `"tier":
+"subscribed"` before minting an invite.
+
+**A documented manual row rather than a config flag, deliberately.** A
+`DISABLE_ENTITLEMENT_GATE` env var would be dead code that never gets exercised — and it
+would mean the first person to actually hit the paywall is a paying customer rather than you.
+This way the gate is exercised the first time anybody uses it, which is now.
+
+**Nothing else writes `tier`.** D5 reserves that for App Store Server Notifications V2, which
+is phase 37 and is blocked on an owner account action. Until 37 ships, this statement is the
+only way a household becomes subscribed and the only way one becomes free again. If you later
+find a family on the wrong tier, this is the lever — there is no admin route and there is
+deliberately not going to be one before 37.
+
+**Sign in with Apple private relay caveat.** If you signed in with Apple and hid your email,
+`users.email` is a relay address rather than the one you type. Find yourself by
+`display_name` or by joining `credentials` instead of guessing the address.
+
+---
+
 ## 8. Then
 
 - Flip `FLY_DEPLOY_ENABLED` to `true` (GitHub → Settings → Secrets and variables → Actions →

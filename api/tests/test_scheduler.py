@@ -205,7 +205,7 @@ async def test_running_twice_for_the_same_date_creates_no_duplicates(
     session: AsyncSession,
 ) -> None:
     """The unique index on (child_id, assigned_on, slot) is what makes reruns free."""
-    await make_child(session)
+    await make_child(session, parent=await make_user(session))
     await _library(session)
     await session.commit()
 
@@ -225,8 +225,12 @@ async def test_running_twice_for_the_same_date_creates_no_duplicates(
 async def test_two_children_in_different_zones_get_different_dates_from_one_instant(
     session: AsyncSession,
 ) -> None:
-    auckland = await make_child(session, name="Kea", timezone="Pacific/Auckland")
-    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
+    auckland = await make_child(
+        session, name="Kea", timezone="Pacific/Auckland", parent=await make_user(session)
+    )
+    detroit = await make_child(
+        session, name="Miles", timezone="America/Detroit", parent=await make_user(session)
+    )
     await _library(session)
     await session.commit()
 
@@ -247,7 +251,7 @@ async def test_two_children_in_different_zones_get_different_dates_from_one_inst
 
 
 async def test_saturday_adds_the_weekly_slot(session: AsyncSession) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _library(session)
     await session.commit()
 
@@ -263,7 +267,7 @@ async def test_saturday_adds_the_weekly_slot(session: AsyncSession) -> None:
 
 
 async def test_the_first_of_the_month_adds_the_monthly_slot(session: AsyncSession) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _library(session)
     await session.commit()
 
@@ -279,7 +283,7 @@ async def test_the_first_of_the_month_adds_the_monthly_slot(session: AsyncSessio
 
 
 async def test_stale_pending_assignments_expire(session: AsyncSession) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     prompt = await make_prompt(session)
     lapsed = await make_assignment(
         session,
@@ -320,7 +324,7 @@ async def test_the_scheduler_avoids_repeating_a_theme_across_the_daily_three(
     second. Only `sleep` is fresh, so a scheduler that looked at neither, or at only the
     immediately preceding pick, would land somewhere this asserts against.
     """
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     # Slot 1, forced: "voice".
     await make_prompt(session, kind="question", theme="voice")
     # Slot 2, forced: "outdoors".
@@ -359,7 +363,7 @@ async def test_a_theme_collision_is_preferred_to_an_empty_slot(session: AsyncSes
     preference. This is the case the three-slot fixture above deliberately avoids, asserted
     here on its own so that relaxing is a decision rather than an accident.
     """
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await make_prompt(session, kind="question", theme="voice")
     await make_prompt(session, kind="photo", completion_mode="media", theme="outdoors")
     # The only thing mission_b can draw, and it collides with the question's theme.
@@ -388,7 +392,7 @@ async def test_a_theme_collision_is_preferred_to_an_empty_slot(session: AsyncSes
 async def test_the_cooldown_excludes_a_prompt_this_child_saw_recently(
     session: AsyncSession,
 ) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     recent = await make_prompt(session, kind="question", theme="a")
     fresh = await make_prompt(session, kind="question", theme="b")
     await make_assignment(
@@ -403,7 +407,7 @@ async def test_the_cooldown_excludes_a_prompt_this_child_saw_recently(
 async def test_a_slot_with_no_eligible_prompt_is_left_empty_not_faked(
     session: AsyncSession,
 ) -> None:
-    await make_child(session, birthdate=dt.date(2022, 6, 14))
+    await make_child(session, birthdate=dt.date(2022, 6, 14), parent=await make_user(session))
     # Nothing at all in the library.
     await session.commit()
 
@@ -417,8 +421,8 @@ async def test_a_slot_with_no_eligible_prompt_is_left_empty_not_faked(
 
 
 async def test_a_run_can_be_scoped_to_one_child(session: AsyncSession) -> None:
-    first = await make_child(session, name="One")
-    await make_child(session, name="Two")
+    first = await make_child(session, name="One", parent=await make_user(session))
+    await make_child(session, name="Two", parent=await make_user(session))
     await _library(session)
     await session.commit()
 
@@ -578,7 +582,7 @@ def test_a_saturday_that_is_also_the_fifteenth_is_the_five_item_day() -> None:
 
 async def test_the_monthly_slot_never_serves_a_letter(session: AsyncSession) -> None:
     """A letter competing with the measurement is how the money letter never gets written."""
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await make_prompt(
         session,
         kind="letter",
@@ -602,7 +606,7 @@ async def test_the_monthly_slot_never_serves_a_letter(session: AsyncSession) -> 
 
 
 async def test_the_letter_slot_only_serves_letters(session: AsyncSession) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await make_prompt(
         session,
         kind="letter",
@@ -628,7 +632,7 @@ async def test_the_letter_slot_only_serves_letters(session: AsyncSession) -> Non
 async def test_the_scheduler_fills_the_letter_slot_on_the_fifteenth(
     session: AsyncSession,
 ) -> None:
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _library(session)
     await make_prompt(
         session,
@@ -737,8 +741,12 @@ async def test_the_hourly_job_only_serves_children_for_whom_it_is_five_am(
     session: AsyncSession,
 ) -> None:
     """One daily UTC cron is 5am in exactly one timezone. Hourly plus a filter is 5am in all."""
-    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
-    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    detroit = await make_child(
+        session, name="Miles", timezone="America/Detroit", parent=await make_user(session)
+    )
+    await make_child(
+        session, name="Kea", timezone="Pacific/Auckland", parent=await make_user(session)
+    )
     await _library(session)
     await session.commit()
 
@@ -756,8 +764,12 @@ async def test_every_timezone_gets_its_own_five_am_across_a_day_of_firings(
     session: AsyncSession,
 ) -> None:
     """The point of the change: nobody's mission arrives at 9pm."""
-    detroit = await make_child(session, name="Miles", timezone="America/Detroit")
-    auckland = await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    detroit = await make_child(
+        session, name="Miles", timezone="America/Detroit", parent=await make_user(session)
+    )
+    auckland = await make_child(
+        session, name="Kea", timezone="Pacific/Auckland", parent=await make_user(session)
+    )
     await _library(session)
     await session.commit()
 
@@ -784,7 +796,9 @@ async def test_a_dst_shift_does_not_move_anyone_off_their_five_am(
     session: AsyncSession,
 ) -> None:
     """A fixed UTC hour drifts when the clocks change. A local-hour filter cannot."""
-    child = await make_child(session, name="Miles", timezone="America/Detroit")
+    child = await make_child(
+        session, name="Miles", timezone="America/Detroit", parent=await make_user(session)
+    )
     await _library(session)
     await session.commit()
 
@@ -814,7 +828,7 @@ async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
     session: AsyncSession,
 ) -> None:
     """A double-fire has to be free, because Fly's scheduler makes no exactly-once promise."""
-    await make_child(session, timezone="America/Detroit")
+    await make_child(session, timezone="America/Detroit", parent=await make_user(session))
     await _library(session)
     await session.commit()
 
@@ -830,8 +844,12 @@ async def test_an_hourly_run_is_idempotent_within_the_same_local_hour(
 
 async def test_without_the_filter_every_child_is_served(session: AsyncSession) -> None:
     """`--any-hour` and `--date` are deliberate manual runs; the wall clock stops mattering."""
-    await make_child(session, name="Miles", timezone="America/Detroit")
-    await make_child(session, name="Kea", timezone="Pacific/Auckland")
+    await make_child(
+        session, name="Miles", timezone="America/Detroit", parent=await make_user(session)
+    )
+    await make_child(
+        session, name="Kea", timezone="Pacific/Auckland", parent=await make_user(session)
+    )
     await _library(session)
     await session.commit()
 
@@ -945,7 +963,7 @@ async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
     session: AsyncSession,
 ) -> None:
     """Not a Saturday, not the 1st, not the 15th. Three, and one of each."""
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _every_daily_kind(session)
     await session.commit()
 
@@ -971,7 +989,7 @@ async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
 
 async def test_the_mission_slot_never_serves_a_non_photo_kind(session: AsyncSession) -> None:
     """200 draws against a pool that contains every kind it must not return."""
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _every_daily_kind(session)
     await session.commit()
 
@@ -988,7 +1006,7 @@ async def test_the_mission_b_slot_never_serves_a_photo_or_a_question(
     session: AsyncSession,
 ) -> None:
     """The same 200 draws, from the other side of the split."""
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await _every_daily_kind(session)
     await session.commit()
 
@@ -1014,7 +1032,7 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
     another kind. The other two slots are unaffected, because an exhausted slot must not take
     the day down with it.
     """
-    child = await make_child(session)
+    child = await make_child(session, parent=await make_user(session))
     await make_prompt(session, kind="question", theme="q")
     await make_prompt(session, kind="audio", completion_mode="media", theme="a")
     # Deliberately no daily photo prompt at all.
