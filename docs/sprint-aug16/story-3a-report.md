@@ -175,3 +175,22 @@ and the shared key still refusing a duplicate. A fourth covers the CHECK in both
   on, which it did not while 36 was unbuilt.
 - Phase 36's stated dependency — Google sign-in, so an invitee without an Apple device can accept —
   **is satisfied**: `services/google.py` shipped in the auth bundle.
+- **`CLAUDE.md:79` still lists the guardian invite flow as out of scope for the API lane.** That
+  line is stale in the same way its rate-limiting clause is — the ledger queues 36 as a live
+  API-lane phase and this PR builds it. It wants the same treatment as
+  `docs/proposed-claude-md-diff.md`: a proposal to the owner, not a silent edit by a phase. **Not
+  done here**, deliberately.
+
+## Carried forward from the halted version of this report
+
+That version is on `main` (PR #104) and this one replaces it. Two things in it were not findings
+about phase 36 and would otherwise be lost:
+
+- **`children`, `users`, `assignments` and `devices` carry no `deleted_at`**, against `CLAUDE.md`
+  rule 5. `data-model.md:257` documents at least one as deliberate — *"a system ledger rather than
+  user data"*. **Whether that reasoning covers all four was not verified**, and it is outside this
+  phase's scope. Recorded so it is not discovered later as though nobody had looked.
+- The four decisions this report now presents as **made** were presented there as **ratifications
+  to request**. Nothing about them changed except who moved first: the runbook's *no story merges
+  its own PR* means the diff is the ratification surface, and asking before building produced
+  nothing to ratify.

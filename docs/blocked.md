@@ -349,7 +349,7 @@ that `PATCH /me` and `POST /auth/apple` already return — a handful of lines in
 `api/src/rascal/routers/me.py`, using the `CurrentUser` dependency that is already there.
 
 Deliberately not built in this run: Lane B is the iOS lane, the endpoint is Lane A's to own, and
-the client degrades correctly without it. Item 6 of `docs/device-verification-settings.md` asks
+the client degrades correctly without it. Item 6 of `docs/Device-Verification/device-verification-settings.md` asks
 the human to judge how badly it reads on a real device.
 
 ### The archive export's progress bar needs a session delegate, not the async API
@@ -534,7 +534,7 @@ verified here. On a device, if the group is missing,
 `containerURL(forSecurityApplicationGroupIdentifier:)` returns nil, every read and write degrades
 to doing nothing by design, and **the widget shows its neutral state forever with no error
 anywhere.** That is a silent failure, not a crash, so it is the first section of
-`docs/device-verification-widget.md`. Xcode's automatic signing normally registers the group on
+`docs/Device-Verification/device-verification-widget.md`. Xcode's automatic signing normally registers the group on
 first device build; this is not blocked, it is just the one thing to confirm before concluding the
 snapshot pipeline is broken.
 
@@ -558,7 +558,7 @@ notification_sends: date 2026-08-12, device_count 1, delivered_count 1, slot mis
 ```
 
 The notification arrived on a locked phone and **tapping it deep-linked to the assignment**, which
-closes §3 of `docs/device-verification-push.md` — the section that could not be tested at all
+closes §3 of `docs/Device-Verification/device-verification-push.md` — the section that could not be tested at all
 because the simulator cannot tap a notification.
 
 **The sandbox/production split is confirmed correct, not merely untested.** That `200` came from
@@ -1006,7 +1006,7 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   can run a single real transcription, so a second input path would be unverifiable on top of
   an already unverified first one. It is also the expensive one, because a backlog video has
   to be fetched to be read at roughly 70MB a minute. **What it needs:** the audio path
-  confirmed on a device via `docs/device-verification-transcription.md`. After that it is one
+  confirmed on a device via `docs/Device-Verification/device-verification-transcription.md`. After that it is one
   clause in `TranscriptionQueue.isTranscribable` plus a rule about not doing it on cellular.
   **Aug 16, 2026: that prerequisite is now a runnable action rather than an unrun one.** The
   transcriber has produced real, accurate output on a real device — see the Phase 16 section — so
@@ -1167,7 +1167,7 @@ substitutes `production` when it archives for distribution, which is why a TestF
 registers a production token. See §1a.
 
 **What remains is not signing.** It is the APNs key and the scheduled machine in §1a, and
-`docs/device-verification-push.md` — which is no longer blocked on both open items, because both
+`docs/Device-Verification/device-verification-push.md` — which is no longer blocked on both open items, because both
 are closed. It is runnable as soon as the key exists.
 
 The original entry follows.
@@ -1184,7 +1184,7 @@ failing test.
 has not yet cleared. Unsigned simulator runs — which is how the suite runs,
 `CODE_SIGNING_ALLOWED=NO` — are unaffected, so nothing that works today stops working.
 
-**Also blocked on this.** `docs/device-verification-push.md` cannot be started at all: it needs
+**Also blocked on this.** `docs/Device-Verification/device-verification-push.md` cannot be started at all: it needs
 enrollment *and* a deployed API, because APNs pushes come from Apple to a server rather than from
 a local machine. It is the first checklist in the project gated on both.
 
@@ -1206,14 +1206,14 @@ is unstarted, and the only thing holding it is a document that disagrees with th
 **The transcriber works, and it has been seen working.** Owner, Aug 16, 2026: `SpeechAnalyzer` has
 produced a real transcription on a real device, on a build from that day, and the output was
 accurate enough to capture his son's actual pronunciation of words. That is precisely the question
-`docs/device-verification-transcription.md` §0 — per-recording word accuracy — exists to answer.
+`docs/Device-Verification/device-verification-transcription.md` §0 — per-recording word accuracy — exists to answer.
 
 **So the blocker is the file, not the feature.** The checklist still records **0 of 45** and still
 opens with *"Nothing in this feature has ever run."* Phase 16's preflight #1 reads that document
 rather than the world, so it hard-stops — **correctly, given what the document says.** The gate is
 doing its job on stale input.
 
-**The single action:** run `docs/device-verification-transcription.md` on the current build and
+**The single action:** run `docs/Device-Verification/device-verification-transcription.md` on the current build and
 record results, dates and device names. Start with §0, which is now largely **retrospective** — it
 is writing down something that has already happened. Run the PR #22 audio checklist in the same
 sitting; it is the stated prerequisite and it needs the same quiet room and the same device.
@@ -1250,7 +1250,7 @@ The reasoning that made this a hard gate held up and is worth keeping: writing m
 is unrecoverable, because the information needed to undo it is never stored.
 
 **Still true, and it is the next thing this feature needs:** the model behind the seam has run zero
-times. `docs/device-verification-extraction.md` records **0 of 19** checkboxes, and its own opening
+times. `docs/Device-Verification/device-verification-extraction.md` records **0 of 19** checkboxes, and its own opening
 says `SystemLanguageModel.default.availability` has never returned `.available` on anything here.
 That is a device checklist, not a blocker.
 
@@ -1355,7 +1355,7 @@ nothing, and never pulls an iCloud original.
 **Aug 16, 2026: the measurement is runnable now, and is no longer waiting on a build.** This
 section previously said it needed a TestFlight build. The owner has a current device build from
 Aug 16 carrying `CaptionProbe` and its Settings row, so the only remaining input is a real camera
-roll and an evening. Run it with `docs/device-verification-captions.md`.
+roll and an evening. Run it with `docs/Device-Verification/device-verification-captions.md`.
 
 ### The decision rule, set before the number is known
 
