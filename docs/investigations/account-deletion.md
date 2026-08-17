@@ -104,11 +104,24 @@ concluding this was already decided.**
 
 ---
 
-## The three questions this cannot answer for you
+## Answered Aug 17, 2026
 
-Everything above is a fact. These are product decisions, and they are the reason this is a spec
-rather than a pull request — the operation is irreversible over a child's archive, which is the
-one failure this project treats as unrecoverable.
+All three were settled by the owner the same day this was written, so the section below is kept
+as the reasoning rather than as an open list.
+
+| | Settled |
+|---|---|
+| **Two-guardian household** | **Account always; archive only when no other guardian remains.** As recommended. Answers open item 13 in the same breath, deliberately — two answers to one question eventually disagree |
+| **Grace period** | **7 days, signed out immediately, cancel on sign-in.** As recommended, and the cancel is D3's precedent rather than a new rule |
+| **The marketing sentence** | **Reworded, not kept — and this is the one the owner did not take the recommendation on.** The argument for keeping it was that it stays literally true. The owner's reading: literal truth is not the bar for a line whose whole job is to reassure, and somebody who has just deleted their account should not have to reconcile it. The exact wording belongs with whoever writes the copy |
+
+**The build is now a phase against a finished spec.** What it costs is unchanged and is below.
+
+## The reasoning behind those three
+
+Everything above is a fact. These were product decisions, and they were the reason this was a
+spec rather than a pull request — the operation is irreversible over a child's archive, which is
+the one failure this project treats as unrecoverable.
 
 **1. What does "delete my account" delete in a two-guardian household?**
 
