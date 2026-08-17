@@ -32,7 +32,7 @@ def _question(report):
 
 async def test_counts_are_correct_against_a_known_fixture(session: AsyncSession) -> None:
     """Five eligible questions: one suppressed, one served last week, one out of the age window."""
-    _user, child = await _world(session)
+    user, child = await _world(session)
 
     available_one = await make_prompt(session, kind="question", body="A.")
     available_two = await make_prompt(session, kind="question", body="B.")
@@ -47,7 +47,7 @@ async def test_counts_are_correct_against_a_known_fixture(session: AsyncSession)
     )
     await session.flush()
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     # The out-of-window one is not counted as eligible at all.
     assert row.eligible == 4
@@ -65,7 +65,7 @@ async def test_the_estimate_divides_by_the_observed_rate_not_the_nominal_one(
     a day while that constant said one, so the report counted down to a repeat that could not
     arrive. The rate now comes from assignments that actually exist.
     """
-    _user, child = await _world(session)
+    user, child = await _world(session)
     for index in range(6):
         await make_prompt(session, kind="question", body=f"Q{index}.")
     # Served on fourteen of the last twenty-eight days: half a prompt a day.
@@ -75,7 +75,7 @@ async def test_the_estimate_divides_by_the_observed_rate_not_the_nominal_one(
             session, child, served, slot="question", assigned_on=TODAY - dt.timedelta(days=day)
         )
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     assert row.served_in_window == 14
     assert row.observation_window_days == 28
@@ -96,11 +96,11 @@ async def test_a_slot_nobody_serves_reports_unmeasured_rather_than_a_countdown(
     It must not read as good news either: a healthy pool nobody is serving is usually a defect
     upstream, and the report says both halves and lets the reader join them.
     """
-    _user, child = await _world(session)
+    user, child = await _world(session)
     for index in range(3):
         await make_prompt(session, kind="question", body=f"Q{index}.")
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     assert row.available_now == 3
     assert row.served_in_window == 0
@@ -116,7 +116,7 @@ async def test_a_weekly_slots_rate_survives_being_smaller_than_one_a_day(
     """A fractional rate rounded before dividing would put a weekly slot out by a factor of
     seven. The division stays fractional and only the answer is an integer.
     """
-    _user, child = await _world(session)
+    user, child = await _world(session)
     for index in range(10):
         await make_prompt(session, kind="question", body=f"Q{index}.")
     # Four serves in twenty-eight days is one a week.
@@ -130,7 +130,7 @@ async def test_a_weekly_slots_rate_survives_being_smaller_than_one_a_day(
             assigned_on=TODAY - dt.timedelta(days=week * 7 + 1),
         )
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     assert row.served_in_window == 4
     assert row.estimate_basis == "observed_rate"
@@ -141,13 +141,13 @@ async def test_a_weekly_slots_rate_survives_being_smaller_than_one_a_day(
 async def test_a_dry_pool_reports_null_rather_than_a_countdown_to_zero(
     session: AsyncSession,
 ) -> None:
-    _user, child = await _world(session)
+    user, child = await _world(session)
     only = await make_prompt(session, kind="question", body="Served yesterday.")
     await make_assignment(
         session, child, only, slot="question", assigned_on=TODAY - dt.timedelta(days=1)
     )
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     assert row.available_now == 0
     assert row.estimated_days_until_first_repeat is None
@@ -159,11 +159,11 @@ async def test_a_dry_pool_reports_null_rather_than_a_countdown_to_zero(
 
 
 async def test_a_healthy_pool_reports_no_relaxation(session: AsyncSession) -> None:
-    _user, child = await _world(session)
+    user, child = await _world(session)
     for index in range(5):
         await make_prompt(session, kind="question", body=f"Q{index}.")
 
-    row = _question(await pool_health(session, child, as_of=TODAY))
+    row = _question(await pool_health(session, child, as_of=TODAY, viewer_id=user.id))
 
     assert row.relaxation_active is False
     assert row.relaxation_step == RELAXATION_NONE
@@ -171,13 +171,13 @@ async def test_a_healthy_pool_reports_no_relaxation(session: AsyncSession) -> No
 
 async def test_it_reports_and_does_not_fix(session: AsyncSession) -> None:
     """Reading pool health must not change what the scheduler would do next."""
-    _user, child = await _world(session)
+    user, child = await _world(session)
     prompt = await make_prompt(session, kind="question", body="Only one.")
     session.add(PromptSuppression(child_id=child.id, prompt_id=prompt.id))
     await session.flush()
 
-    before = await pool_health(session, child, as_of=TODAY)
-    after = await pool_health(session, child, as_of=TODAY)
+    before = await pool_health(session, child, as_of=TODAY, viewer_id=user.id)
+    after = await pool_health(session, child, as_of=TODAY, viewer_id=user.id)
 
     assert [row.__dict__ for row in before] == [row.__dict__ for row in after]
     # And the suppression is untouched by having been counted.

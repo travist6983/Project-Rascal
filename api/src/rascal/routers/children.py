@@ -352,7 +352,7 @@ async def child_pool_health(
     access: Annotated[ChildAccess, Depends(child_access("viewer"))],
 ) -> PoolHealthOut:
     as_of = today_in(access.child.family_timezone)
-    slots = await pool_health(session, access.child, as_of=as_of)
+    slots = await pool_health(session, access.child, as_of=as_of, viewer_id=access.user.id)
     return PoolHealthOut(
         child_id=access.child.id,
         as_of=as_of,

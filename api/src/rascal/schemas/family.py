@@ -17,7 +17,10 @@ class GuardianOut(ApiModel):
     # and skipped onboarding has never told us a name.
     display_name: str | None = None
     role: GuardianRole
-    granted_at: dt.datetime
+    #: **Nullable.** A household member with no guardian row — a household whose only child
+    #: was deleted, or a member mid-accept — has no grant date, and a fabricated one would be
+    #: a confident wrong timestamp on a screen.
+    granted_at: dt.datetime | None = None
     #: True for the caller, so a client can render "you" without comparing ids itself.
     is_you: bool = False
 

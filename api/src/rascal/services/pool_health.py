@@ -18,7 +18,7 @@ import datetime as dt
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import Slot
@@ -95,7 +95,9 @@ RELAXATION_AGE_WINDOW_DROPPED = "age_window_dropped"
 RELAXATION_EXHAUSTED = "pool_exhausted"
 
 
-async def pool_health(session: AsyncSession, child: Child, *, as_of: dt.date) -> list[SlotHealth]:
+async def pool_health(
+    session: AsyncSession, child: Child, *, as_of: dt.date, viewer_id: uuid.UUID
+) -> list[SlotHealth]:
     """One row per slot, per kind the slot draws from.
 
     The estimate is an **estimate** and the field name says so. It divides what is available
@@ -127,10 +129,18 @@ async def pool_health(session: AsyncSession, child: Child, *, as_of: dt.date) ->
     )
 
     horizon = as_of - dt.timedelta(days=COOLDOWN_DAYS)
+    # **Scoped to one guardian, because since phase 36 the scheduler's cooldown is.** This
+    # file's whole job is to report the pool the scheduler actually sees; a child-wide read
+    # would count both parents' daily rows and report a runway roughly half the real one for
+    # this parent, while the scheduler happily kept serving. `_history` in `scheduler.py` is
+    # the query this must mirror — shared rows (NULL `user_id`) went to the household and
+    # count for everybody.
     served_rows = (
         await session.execute(
             select(Assignment.prompt_id, Assignment.assigned_on).where(
-                Assignment.child_id == child.id, Assignment.assigned_on >= horizon
+                Assignment.child_id == child.id,
+                or_(Assignment.user_id == viewer_id, Assignment.user_id.is_(None)),
+                Assignment.assigned_on >= horizon,
             )
         )
     ).all()
@@ -154,6 +164,10 @@ async def pool_health(session: AsyncSession, child: Child, *, as_of: dt.date) ->
             select(Assignment.slot, func.count())
             .where(
                 Assignment.child_id == child.id,
+                # Same scoping as the cooldown read above. Unscoped, a two-parent household
+                # would report `question` as serving twice a day and halve the estimated
+                # runway — a smoke alarm that goes off because two people live in the house.
+                or_(Assignment.user_id == viewer_id, Assignment.user_id.is_(None)),
                 Assignment.assigned_on >= window_start,
                 Assignment.assigned_on <= as_of,
             )

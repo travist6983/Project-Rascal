@@ -89,12 +89,18 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
             # The earliest grant is when they joined the household in any meaningful sense.
             grants.setdefault(user_id, (role, granted_at))
 
+    # **A member with no guardian row reports `granted_at: null`, not a fabricated date.**
+    # It is a reachable state — a household whose only child was created before the second
+    # parent joined and then deleted, or a member mid-way through accepting — and inventing
+    # `member.created_at` there would put a confident wrong timestamp on a screen. `role`
+    # falls back to `parent` because membership *is* parenthood in this household model;
+    # the date is the part nothing knows.
     guardians = [
         GuardianOut(
             user_id=member.id,
             display_name=member.display_name,
-            role=grants.get(member.id, ("parent", member.created_at))[0],
-            granted_at=grants.get(member.id, ("parent", member.created_at))[1],
+            role=grants[member.id][0] if member.id in grants else "parent",
+            granted_at=grants[member.id][1] if member.id in grants else None,
             is_you=member.id == user.id,
         )
         for member in members

@@ -226,10 +226,40 @@ def upgrade() -> None:
         ondelete="CASCADE",
     )
 
+    # **The sole-guardian check, run by the migration rather than by whoever remembered to.**
+    # The backfill below attributes every daily row to `LIMIT 1` of its child's parents. That
+    # is exactly right while there is one and *unrecoverably wrong* the moment there are two:
+    # it would silently hand one parent's entire history to the other, and nothing afterwards
+    # could tell you it had happened.
+    #
+    # This was checked by hand against production before the revision was written. Checking it
+    # again here is not redundant — a hand-run query proves the state at the moment somebody
+    # ran it, and this proves it at the moment the migration actually writes.
+    op.execute(
+        """
+        DO $$
+        DECLARE shared integer;
+        BEGIN
+            SELECT count(*) INTO shared FROM (
+                SELECT child_id FROM guardians
+                WHERE revoked_at IS NULL AND role = 'parent'
+                GROUP BY child_id HAVING count(*) > 1
+            ) AS s;
+            IF shared > 0 THEN
+                RAISE EXCEPTION
+                    '0014: % child(ren) already have more than one active parent. The daily '
+                    'assignment backfill cannot attribute their history and this revision '
+                    'will not guess. Decide per child which parent each existing daily '
+                    'assignment belonged to, set assignments.user_id by hand, then re-run.',
+                    shared;
+            END IF;
+        END $$
+        """
+    )
+
     # Daily rows go to the sole active guardian of their child. `LIMIT 1` with an ORDER BY is
-    # deterministic rather than arbitrary, but it is only ever choosing from one row — the
-    # production check that proved that is in the story report, and the guard below is what
-    # refuses to proceed if it was ever false.
+    # deterministic rather than arbitrary, and the check above is what proves it is only ever
+    # choosing from one row.
     op.execute(
         f"""
         UPDATE assignments SET user_id = (

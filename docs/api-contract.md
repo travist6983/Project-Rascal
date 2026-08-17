@@ -561,6 +561,10 @@ nothing to forge.
 }
 ```
 
+`granted_at` is **nullable**: a household member with no guardian row — a household whose only
+child was deleted, or a member mid-accept — has no grant date, and inventing one would put a
+confident wrong timestamp on a screen.
+
 `pending_invites` lists only invites that are still acceptable — accepted, revoked and
 expired ones are history, and this is a screen about the household as it is now.
 
