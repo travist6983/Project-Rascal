@@ -170,12 +170,43 @@ class Settings(DatabaseSettings):
     # mail to a real person — which matters more here than in most services, because the
     # addresses this will eventually hold belong to parents and the messages are about
     # deleting their child's archive.
-    mail_provider: Literal["console", "postmark"] = "console"
+    mail_provider: Literal["console", "resend"] = "console"
     mail_api_key: str | None = None
     mail_from: str = "Dogear <hello@rascal.local>"
     # Unset means replies go to `mail_from`.
     mail_reply_to: str | None = None
     mail_timeout_seconds: float = 10.0
+
+    # --- Marketing: the signup endpoint, per D7, D8 and open item 12 -----------------------
+    #
+    # **Every value here is optional at import**, which is the rule `docs/runbook-deploy.md` §4
+    # states and the reason it exists: these are set by hand *after* a merge, and a
+    # required-at-import key means an unattended deploy crash-loops on a value nobody has typed
+    # yet. A missing value has to degrade to a refusal at the route, never to an import error.
+    #
+    # **`turnstile_secret_key` unset means the endpoint refuses**, and that is the whole design.
+    # `roadmap-status.md` names the opposite — skipping verification when the key is missing —
+    # as *the* defect to design against, because it is the one that leaves the health check
+    # green while a public write endpoint stands wide open. Turnstile is the entire protection
+    # here: there is no rate limit on this route, by the owner's call of Aug 16, 2026.
+    #
+    # Cloudflare publishes test keys that always pass, which is what a local run uses — a
+    # bypass for `ENVIRONMENT == "local"` would be a second way through the gate, and the
+    # second way is always the one that survives into production by accident.
+    turnstile_secret_key: str | None = None
+    turnstile_verify_url: str = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    turnstile_timeout_seconds: float = 10.0
+
+    # The Resend audience the signup forwards into. **There is no `subscribers` table** — the
+    # list is provider-held per open item 12(4), so this id is where a subscriber actually
+    # lives. Unset means the route refuses rather than accepting an address it cannot store.
+    resend_audience_id: str | None = None
+
+    # Browser origins allowed to call the subscribe route. **A list from the first commit**,
+    # because a scalar is a thing a second origin has to migrate off — and the marketing site
+    # will have a custom domain beside its github.io one. Never `*`, and applied to that route
+    # alone rather than globally: this is the first browser client this API has ever had.
+    marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
 
     # --- APNs ----------------------------------------------------------------------------
     #
@@ -234,6 +265,18 @@ class Settings(DatabaseSettings):
         if not audiences:
             raise ValueError("APPLE_BUNDLE_ID must name at least one audience.")
         return audiences
+
+    @field_validator("marketing_origins", mode="before")
+    @classmethod
+    def _split_marketing_origins(cls, value: object) -> list[str]:
+        """`MARKETING_ORIGINS=https://a, https://b` is two origins.
+
+        Empty is permitted and means the subscribe route allows no browser origin at all —
+        which is a refusal a deploy can see, rather than a wildcard nobody notices. **Never
+        expand an empty list to `*`**: that turns a half-filled `.env` into an API any page on
+        the internet may call from a browser.
+        """
+        return _split_csv(value)
 
     @field_validator("google_client_ids", "google_issuers", mode="before")
     @classmethod

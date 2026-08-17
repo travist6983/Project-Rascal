@@ -19,7 +19,7 @@ import pytest
 
 from rascal.config import get_settings
 from rascal.services import mail
-from rascal.services.mail import ConsoleProvider, MailDeliveryError, PostmarkProvider, send
+from rascal.services.mail import ConsoleProvider, MailDeliveryError, ResendProvider, send
 
 
 def _settings(**overrides):
@@ -31,8 +31,8 @@ def _transport(handler) -> httpx.MockTransport:
 
 
 @pytest.fixture
-def postmark_settings():
-    return _settings(mail_provider="postmark", mail_api_key="test-token")
+def resend_settings():
+    return _settings(mail_provider="resend", mail_api_key="test-token")
 
 
 # --- The console provider -------------------------------------------------------------------
@@ -40,7 +40,11 @@ def postmark_settings():
 
 async def test_the_console_provider_returns_an_id_and_prints_the_whole_message(capsys) -> None:
     message_id = await send(
-        _settings(), to="parent@rascal.local", subject="Your link", text="Tap this to sign in."
+        _settings(),
+        to="parent@rascal.local",
+        subject="Your link",
+        text="Tap this to sign in.",
+        stream="transactional",
     )
 
     assert message_id.startswith("console-")
@@ -64,7 +68,9 @@ async def test_the_console_provider_never_opens_a_socket(monkeypatch) -> None:
 
     monkeypatch.setattr(httpx, "AsyncClient", _explode)
 
-    message_id = await send(_settings(), to="parent@rascal.local", subject="s", text="t")
+    message_id = await send(
+        _settings(), to="parent@rascal.local", subject="s", text="t", stream="transactional"
+    )
     assert message_id.startswith("console-")
 
 
@@ -76,7 +82,14 @@ async def test_console_is_the_default(monkeypatch) -> None:
 
 
 async def test_an_html_alternative_is_carried(capsys) -> None:
-    await send(_settings(), to="p@rascal.local", subject="s", text="plain", html="<p>rich</p>")
+    await send(
+        _settings(),
+        to="p@rascal.local",
+        subject="s",
+        text="plain",
+        html="<p>rich</p>",
+        stream="transactional",
+    )
     printed = capsys.readouterr().out
     assert "plain" in printed
     assert "<p>rich</p>" in printed
@@ -88,10 +101,10 @@ async def test_an_html_alternative_is_carried(capsys) -> None:
 @pytest.mark.parametrize("recipient", ["", "not-an-address", "  "])
 async def test_a_missing_or_malformed_recipient_raises(recipient: str) -> None:
     with pytest.raises(MailDeliveryError):
-        await send(_settings(), to=recipient, subject="s", text="t")
+        await send(_settings(), to=recipient, subject="s", text="t", stream="transactional")
 
 
-async def test_failure_raises_rather_than_returning(postmark_settings, monkeypatch) -> None:
+async def test_failure_raises_rather_than_returning(resend_settings, monkeypatch) -> None:
     """A caller must not be able to ignore a failed send by forgetting to check a return."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -99,13 +112,15 @@ async def test_failure_raises_rather_than_returning(postmark_settings, monkeypat
 
     _install(monkeypatch, handler)
     with pytest.raises(MailDeliveryError):
-        await send(postmark_settings, to="p@example.com", subject="s", text="t")
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
 
 
-async def test_postmark_without_a_key_says_which_setting_is_missing(monkeypatch) -> None:
-    settings = _settings(mail_provider="postmark", mail_api_key=None)
+async def test_resend_without_a_key_says_which_setting_is_missing(monkeypatch) -> None:
+    settings = _settings(mail_provider="resend", mail_api_key=None)
     with pytest.raises(MailDeliveryError) as raised:
-        await send(settings, to="p@example.com", subject="s", text="t")
+        await send(settings, to="p@example.com", subject="s", text="t", stream="transactional")
     assert "MAIL_API_KEY" in str(raised.value)
 
 
@@ -123,17 +138,20 @@ def _install(monkeypatch, handler) -> None:
     monkeypatch.setattr(mail.httpx, "AsyncClient", _factory)
 
 
-async def test_a_successful_send_returns_the_providers_id(postmark_settings, monkeypatch) -> None:
+async def test_a_successful_send_returns_the_providers_id(resend_settings, monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"MessageID": "pm-123"})
+        return httpx.Response(200, json={"id": "re-123"})
 
     _install(monkeypatch, handler)
-    assert await send(postmark_settings, to="p@example.com", subject="s", text="t") == "pm-123"
+    assert (
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
+        == "re-123"
+    )
 
 
-async def test_a_5xx_is_retried_exactly_once_and_can_succeed(
-    postmark_settings, monkeypatch
-) -> None:
+async def test_a_5xx_is_retried_exactly_once_and_can_succeed(resend_settings, monkeypatch) -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -141,16 +159,19 @@ async def test_a_5xx_is_retried_exactly_once_and_can_succeed(
         calls += 1
         if calls == 1:
             return httpx.Response(503, json={})
-        return httpx.Response(200, json={"MessageID": "pm-after-retry"})
+        return httpx.Response(200, json={"id": "re-after-retry"})
 
     _install(monkeypatch, handler)
     assert (
-        await send(postmark_settings, to="p@example.com", subject="s", text="t") == "pm-after-retry"
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
+        == "re-after-retry"
     )
     assert calls == 2
 
 
-async def test_a_second_5xx_gives_up(postmark_settings, monkeypatch) -> None:
+async def test_a_second_5xx_gives_up(resend_settings, monkeypatch) -> None:
     """One retry, not a ladder. A handler holding a connection through three sleeps is worse
     than a caller that learns quickly that the send failed."""
     calls = 0
@@ -162,11 +183,13 @@ async def test_a_second_5xx_gives_up(postmark_settings, monkeypatch) -> None:
 
     _install(monkeypatch, handler)
     with pytest.raises(MailDeliveryError):
-        await send(postmark_settings, to="p@example.com", subject="s", text="t")
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
     assert calls == 2, "exactly one retry"
 
 
-async def test_a_4xx_is_never_retried(postmark_settings, monkeypatch) -> None:
+async def test_a_4xx_is_never_retried(resend_settings, monkeypatch) -> None:
     """The message is malformed. Sending it again produces the same answer more slowly."""
     calls = 0
 
@@ -177,11 +200,13 @@ async def test_a_4xx_is_never_retried(postmark_settings, monkeypatch) -> None:
 
     _install(monkeypatch, handler)
     with pytest.raises(MailDeliveryError):
-        await send(postmark_settings, to="p@example.com", subject="s", text="t")
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
     assert calls == 1
 
 
-async def test_a_transport_error_is_retried_once(postmark_settings, monkeypatch) -> None:
+async def test_a_transport_error_is_retried_once(resend_settings, monkeypatch) -> None:
     calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -191,13 +216,15 @@ async def test_a_transport_error_is_retried_once(postmark_settings, monkeypatch)
 
     _install(monkeypatch, handler)
     with pytest.raises(MailDeliveryError):
-        await send(postmark_settings, to="p@example.com", subject="s", text="t")
+        await send(
+            resend_settings, to="p@example.com", subject="s", text="t", stream="transactional"
+        )
     assert calls == 2
 
 
 async def test_the_from_and_reply_to_settings_reach_the_provider(monkeypatch) -> None:
     settings = _settings(
-        mail_provider="postmark",
+        mail_provider="resend",
         mail_api_key="k",
         mail_from="Dogear <hello@dogear.test>",
         mail_reply_to="replies@dogear.test",
@@ -208,13 +235,17 @@ async def test_the_from_and_reply_to_settings_reach_the_provider(monkeypatch) ->
         import json
 
         seen.update(json.loads(request.content))
-        return httpx.Response(200, json={"MessageID": "pm-1"})
+        return httpx.Response(200, json={"id": "re-1"})
 
     _install(monkeypatch, handler)
-    await send(settings, to="p@example.com", subject="s", text="t")
+    await send(settings, to="p@example.com", subject="s", text="t", stream="transactional")
 
-    assert seen["From"] == "Dogear <hello@dogear.test>"
-    assert seen["ReplyTo"] == "replies@dogear.test"
+    assert seen["from"] == "Dogear <hello@dogear.test>"
+    assert seen["reply_to"] == "replies@dogear.test"
+    # The lane travels with the message. Resend has no stream concept, so it rides as a header
+    # — and a bounce investigation that cannot tell a deletion warning from a newsletter is an
+    # investigation into the wrong problem.
+    assert seen["headers"]["X-Entity-Ref-Stream"] == "transactional"
 
 
 # --- What this file must not know about -----------------------------------------------------
@@ -248,4 +279,4 @@ def test_the_provider_registry_covers_every_configured_value() -> None:
 
     configured = set(get_args(Settings.model_fields["mail_provider"].annotation))
     assert configured == set(mail._PROVIDERS)
-    assert isinstance(mail._PROVIDERS["postmark"], PostmarkProvider)
+    assert isinstance(mail._PROVIDERS["resend"], ResendProvider)

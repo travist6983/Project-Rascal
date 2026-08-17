@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +23,7 @@ from rascal.routers import (
     media,
     moments,
     prompts,
+    subscribe,
     sync,
     today,
     webhooks,
@@ -46,6 +48,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "`/.well-known/apple-app-site-association` and `/signin`."
         ),
     )
+
+    # **CORS, and this is the first browser client this API has ever had.**
+    #
+    # Scoped three ways on purpose: to the marketing origins from config and **never `*`**, to
+    # the one path a browser calls, and to the two methods it needs. `docs/blocked.md:809`
+    # reserved CORS tightening for "when a web client exists" — it exists now, and it arrived
+    # through a marketing form rather than the web app that line was imagining.
+    #
+    # `allow_credentials` stays off. The subscribe route is unauthenticated and reads no cookie;
+    # turning it on would be the setting that makes `*` illegal and a real origin dangerous.
+    if settings.marketing_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.marketing_origins,
+            allow_methods=["POST", "OPTIONS"],
+            allow_headers=["Content-Type"],
+            allow_credentials=False,
+            max_age=600,
+        )
 
     register_error_handlers(app)
 
@@ -74,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sync.router, prefix=API_PREFIX)
     app.include_router(prompts.router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
+    app.include_router(subscribe.router, prefix=API_PREFIX)
     # No prefix: Apple fetches the association file from the root of the domain and will not
     # follow a redirect to find it, so `/v1` is not available to these two.
     app.include_router(wellknown.router)

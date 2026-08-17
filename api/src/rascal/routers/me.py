@@ -288,6 +288,9 @@ async def _deliver_verification_link(settings: Settings, address: str, raw_token
     try:
         await send(
             settings,
+            # Transactional for the same reason the sign-in link is: the account
+            # asked for it, and it reads no consent column — D3a.
+            stream="transactional",
             to=address,
             subject="Confirm this address for Dogear",
             text=(

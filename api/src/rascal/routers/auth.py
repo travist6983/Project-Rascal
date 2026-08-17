@@ -205,6 +205,9 @@ async def _deliver_sign_in_link(settings: Settings, address: str, raw_token: str
     try:
         await send(
             settings,
+            # A sign-in link is transactional: the account asked for it, and
+            # it reads no consent column — D3a.
+            stream="transactional",
             to=address,
             subject="Your Dogear sign-in link",
             text=(

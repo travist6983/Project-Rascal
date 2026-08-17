@@ -1129,7 +1129,49 @@ a `psycopg` message in a client alert is a leak, not a debugging aid.
 
 ---
 
-## Marketing signup — **UNBUILT**
+## Marketing signup
+
+**`POST /v1/subscribe`** — unauthenticated, and the first browser client this API has ever had.
+
+```json
+{ "email": "parent@example.com", "turnstile_token": "0.abc…", "source": "home" }
+```
+
+→ `202`
+
+```json
+{ "status": "ok" }
+```
+
+**The same body for every outcome that is not an outage.** New address, already subscribed,
+already unsubscribed — all `202` with `{"status":"ok"}`. Anything else turns the route into an
+oracle that tells any caller whether a given address is on the list, and anyone with a browser is
+a caller.
+
+`202` rather than `201`: **nothing is created here.** The list is Resend's per `decisions.md` open
+item 12(4) — there is no `subscribers` table — and the subscription is not real until they click
+Resend's confirmation. Double opt-in is the provider's, and this service never sees that
+transition.
+
+| Failure | |
+|---|---|
+| `422` `validation_failed`, `field: "turnstile_token"` | The token was absent, expired or already spent. **Absent is a rejection, never a skip** |
+| `422` `validation_failed`, `field: "email"` | Not the shape of an address |
+| `503` | Turnstile is unconfigured or unreachable, or the list is. **Never a silent success** |
+
+**Turnstile is the entire protection.** There is no rate limit on this route, by the owner's call
+of Aug 16, 2026 (open item 12(1)) — so a missing `TURNSTILE_SECRET_KEY` **refuses** rather than
+skipping the check. Skipping would leave the health check green while the endpoint stood open,
+which `roadmap-status.md` names as the defect this phase was written to design against. Cloudflare
+being unreachable is a `503` for the same reason: failing open would let an outage at their end
+silently open ours.
+
+**CORS is allowlisted to `MARKETING_ORIGINS`, never `*`**, and applied to this route's methods
+alone (`POST`, `OPTIONS`) with no credentials. An empty allowlist means no browser origin is
+permitted — a refusal a deploy can see — rather than a wildcard nobody notices.
+
+`source` names the page or campaign and reaches a log line only; the contact belongs to Resend.
+
 
 **This endpoint does not exist.** It is not implemented, routed, or callable; this records the
 shape phase 60 will build. The decisions are D7, D8 and D8a in `docs/decisions.md`, and open item
