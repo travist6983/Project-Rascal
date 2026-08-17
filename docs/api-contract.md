@@ -5,7 +5,8 @@ Plain JSON over HTTPS. No client-specific serialization anywhere in the wire for
 Base: `/v1`. Auth: bearer token. All timestamps ISO 8601 UTC. All IDs UUID.
 
 Last updated: **Aug 16, 2026** — phases 51–57 (the auth bundle: `aud` allowlist, credential
-linking, Apple server-to-server notifications, Google sign-in, the mailer, magic-link sign-in).
+linking, Apple server-to-server notifications, Google sign-in, the mailer, magic-link sign-in),
+plus the **unbuilt** `POST /v1/subscribe` specified for phase 60.
 
 ---
 
@@ -1042,6 +1043,58 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
 a `psycopg` message in a client alert is a leak, not a debugging aid.
+
+---
+
+## Marketing signup — **UNBUILT**
+
+**This endpoint does not exist.** It is not implemented, routed, or callable; this records the
+shape phase 60 will build. The decisions are D7, D8 and D8a in `docs/decisions.md`, and open item
+12 records what is deliberately still unanswered.
+
+**`POST /v1/subscribe`**
+Body: `{ email, turnstile_token }` → *would* answer **always `202`**, body
+`{ "status": "accepted" }`.
+
+**Unauthenticated — the only write endpoint outside `/auth` that would be.** That is a deliberate
+exception and the reason the rest of this section exists.
+
+**Turnstile is verified server-side, and a missing or failed token is a rejection rather than a
+warning.** `422` `validation_failed` with `field: "turnstile_token"`. A client-side widget alone
+protects nothing: the widget is JavaScript on a static page, and anybody can `curl` the endpoint
+without ever loading it. The check that counts is the server calling Cloudflare's verification API
+with `TURNSTILE_SECRET_KEY` and refusing on anything but success — **including on its own inability
+to reach Cloudflare.** Failing open here would be indistinguishable, in production, from having no
+protection at all, and by decision this endpoint carries no rate limit to fall back on.
+
+**The endpoint would forward to Resend and store nothing locally. That is a decision, not an
+omission.** There is no `subscribers` table, by design — see open item 12(4) and `data-model.md`.
+Resend owns double opt-in, suppression, unsubscribe and sending reputation. **The named trigger
+for changing this is the first moment a subscriber can also be a user**, which is post-launch;
+until then the endpoint is a thin forward and nothing here needs to know about `users`.
+
+**Double opt-in is Resend's, and it is a legal requirement across most of the addressable market
+rather than a nicety.** The `202` means *the confirmation request was accepted*, never *this
+address is subscribed*. Nothing is on the list until the recipient clicks.
+
+**The response must not reveal whether an address was already subscribed.** Same status, same
+body, every time — a known address, a new address, and a suppressed one are one answer. This is
+the same rule as `POST /auth/email/start`'s unconditional `202`, for the same reason: a public
+endpoint that answers "is this person on the list?" is an enumeration oracle, and it is the
+second-order version of the spam problem Turnstile is there to solve.
+
+**No rate limit**, by the owner's decision of Aug 16, 2026 — Turnstile is the whole gate. Recorded
+explicitly because the limiter phase 57 built for `/auth/email/start` is right there, and the next
+reader will otherwise assume its absence here was an oversight. If Turnstile proves insufficient,
+reusing that limiter is the fix and it is a small one.
+
+**CORS: allowlisted to the marketing origin only**, one entry, from `MARKETING_ORIGIN`. No CORS
+middleware is configured on this app today; this endpoint is what introduces it, and it must not
+be introduced as a wildcard.
+
+**Timing.** The endpoint and the page it serves may ship before the P0 behavioural gate. **No
+marketing email sends before that gate passes** — the send job is a separate, later phase, and
+nothing in this section authorizes one.
 
 ---
 

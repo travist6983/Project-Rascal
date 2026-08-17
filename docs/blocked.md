@@ -1556,7 +1556,28 @@ real Apple ID, which is the same reason the twelve device-verification checklist
 
 ---
 
-## §12 — Google sign-in has no client id, so phase 55 cannot be built (Aug 16, 2026)
+## ~~§12 — Google sign-in has no client id, so phase 55 cannot be built~~ — RESOLVED Aug 16, 2026
+
+**Closed the same day it was written.** The owner created the Google Cloud project and the iOS
+OAuth client; `GOOGLE_CLIENT_IDS` is set on Fly and applied on the phase-54 deploy. The client
+id is wired into `.env`, `.env.example` and both xcconfigs, and phase 55 shipped against it.
+
+**Verified in production by the check this section prescribed**, which is the useful part:
+`POST /v1/auth/google` with a junk token answers `401 unauthenticated` — *"Google identity
+token is malformed"* — rather than `422 … GOOGLE_CLIENT_IDS is unset`. The message no longer
+names the setting, which is how you know the setting took.
+
+- [x] Project created
+- [x] Consent screen configured, `openid email profile` only
+- [x] iOS OAuth client id created
+- [x] `GOOGLE_CLIENT_IDS` set on Fly
+- [x] `POST /v1/auth/google` returns `401` rather than `422`
+
+**What is still unverified, and it is not a credential problem:** no Google sign-in has ever
+been attempted against real Google from a real device, because there is no TestFlight build
+path. The original section is kept below for the reasoning and the steps.
+
+### The original entry
 
 **The server half shipped as phase 54 and works. The phone half cannot be started**, and the
 reason is an account action rather than a design question.
@@ -1600,3 +1621,67 @@ is secondary.
 **Not urgent.** Google exists for a household that does not have an Apple device — which the
 only current household does. It gates **phase 36** (the guardian invite flow), because a second
 parent who cannot accept an invite has not been invited.
+
+---
+
+## §13 — The marketing site and the email provider: an **errand**, not a blocker (Aug 16, 2026)
+
+D7, D8 and D8a settle where the landing page lives and who sends the mail. What they cannot settle
+is a domain purchase, three vendor accounts and a repository audit — this file's original terms
+exactly: a credential or an account only you have.
+
+**None of this blocks anything currently in the queue**, and it is filed here for the same reason
+§10 says it about StoreKit rather than as a warning. **The marketing send is downstream of the P0
+behavioural gate — seven days of unforced daily use — which has not started.** The page and the
+`POST /v1/subscribe` endpoint may be built before any of this exists; only the *marketing send*
+waits on it. (Transactional mail is a separate question and is not gated on P0 — phase 57's
+magic-link path already sends, or would if `MAIL_PROVIDER` were ever set.)
+Phase 60 is buildable today against a Turnstile test key and a Resend test key, and nothing about
+it needs a domain.
+
+### The errand, in order. Each step gates the next.
+
+1. **Clear the name, then buy the domain.** Three checks before money changes hands, none of which
+   exists anywhere in this repo today — **`decisions.md` open item 1 settled `Dogear` on Aug 12,
+   2026 and recorded no clearance work at all**, so treat this as the first pass rather than a
+   re-verification: the **social handle**, an **App Store search-collision check** for apps
+   shipping under a similar name, and a **trademark search** in the classes an app would fall in.
+   A name that fails any of these is cheaper to change now than after a domain, an App Store
+   listing and a sending reputation are attached to it.
+2. **Point DNS, then turn on the GitHub Pages custom domain and *Enforce HTTPS*.** Both settings
+   live on the `Rascal-Marketing` repository. **Enforce HTTPS is the one to verify by eye rather
+   than assume** — it cannot be enabled until the certificate is issued, so a domain pointed and
+   configured in one sitting will often leave it off, and the page then serves happily over plain
+   HTTP with nothing failing to draw attention to it. D7 already accepts that HSTS is unavailable
+   on this host; this checkbox is the only transport protection left, and it is the whole of it.
+3. **Create a free Cloudflare account and a Turnstile widget.** It yields a **site key** (public,
+   goes in the page) and a **secret key** (server-side, becomes `TURNSTILE_SECRET_KEY`). Turnstile
+   is host-independent, so this is unaffected by the site living on GitHub Pages. No paid plan and
+   no DNS migration is involved — Cloudflare is not the CDN here, only the widget's issuer.
+4. **Create the Resend account and authenticate a *sending subdomain*, never the apex**, then
+   publish **SPF, DKIM and DMARC** on it. Sending from the apex ties the deliverability of a
+   marketing send to every other use of the root domain, which is the failure a subdomain exists to
+   contain. Resend issues the API key, and **it is filed as `MAIL_API_KEY`, not `RESEND_API_KEY`** —
+   the setting is provider-agnostic because the port is (D8a), and `config.py` has carried that
+   name since phase 56. **There is no `RESEND_API_KEY` and nothing reads one.** The secrets table
+   in `runbook-deploy.md` is the authority on the name, and it records that phase 60 may rename it
+   at no cost if you would rather it said Resend.
+   - **The key currently in the local `.env` was pasted into a chat transcript and must be
+     rotated.** It is inert either way until phase 60 builds the Resend provider — nothing reads
+     it, and `MAIL_PROVIDER` remains `console` — but a key that has been through a transcript is
+     not a key, and rotating it costs one click.
+5. **Audit the `Rascal-Marketing` repository before it is public in earnest.** Three things, and
+   the first is the one with a wrong instinct attached: **read the git history for anything ever
+   committed and later deleted** — a deletion commit does not remove the object, and **a credential
+   found this way is rotated, not rewritten out of history.** Then set the commit author to the
+   GitHub **`noreply`** address, and check that no workflow runs with secrets on a pull request
+   from a fork.
+   - **`api/seeds/prompts.yaml` and `docs/mission-library.md` never enter that repository**, whole
+     or in generated slices, per D7. A prompt sampler on the page is a hand-picked handful, typed
+     in by hand. It is the one asset in this project a competitor would actually want, and a
+     generated slice is how it would leave.
+
+**Vendor menu wording is not verified here.** These steps name destinations rather than click
+paths, on purpose and for the same reason §10 does it: vendor navigation changes, and a stale menu
+path in a runbook is worse than a described destination. Nobody on this branch has a session with
+Cloudflare, Resend, or a registrar.
