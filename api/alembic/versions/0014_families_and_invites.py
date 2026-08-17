@@ -199,9 +199,7 @@ def upgrade() -> None:
     )
     # `viewer` is in the constraint because the column has to be able to hold it before
     # phase 30 can ever issue one. Nothing issues it today and the route refuses it.
-    op.create_check_constraint(
-        "role", "guardian_invites", "role IN ('parent', 'viewer')"
-    )
+    op.create_check_constraint("role", "guardian_invites", "role IN ('parent', 'viewer')")
     op.create_index(
         "ix_guardian_invites_token_hash", "guardian_invites", ["token_hash"], unique=True
     )
@@ -306,9 +304,7 @@ def upgrade() -> None:
 
     # Swap the guarantee. The old constraint cannot coexist with per-guardian daily rows: a
     # second guardian's `question` for the same child and day would violate it.
-    op.drop_constraint(
-        "uq_assignments_child_id_assigned_on_slot", "assignments", type_="unique"
-    )
+    op.drop_constraint("uq_assignments_child_id_assigned_on_slot", "assignments", type_="unique")
     op.create_index(
         "uq_assignments_daily",
         "assignments",
