@@ -13,7 +13,7 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import ForeignKey, Index, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from rascal.constants import GUARDIAN_ROLES, TIERS, GuardianRole, Tier
 from rascal.models.base import (
@@ -113,7 +113,11 @@ class GuardianInvite(Base):
     created_at: Mapped[created]
     updated_at: Mapped[updated]
 
-    inviter: Mapped[object] = relationship("User", foreign_keys=[invited_by_user_id], lazy="raise")
+    # **No `inviter` relationship on purpose.** There are three FKs to `users` on this table,
+    # so any relationship here needs an explicit `foreign_keys=`, and the one caller that
+    # wants the inviter's name (`GET /invites/{token}`) is unauthenticated and reads exactly
+    # one field. A `session.get(User, ...)` there is one query either way and cannot surprise
+    # anybody with a lazy load on an async session.
 
     def is_open(self, now: dt.datetime) -> bool:
         """Still acceptable: not revoked, not already accepted, not past its expiry."""
