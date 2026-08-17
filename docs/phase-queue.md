@@ -7,10 +7,11 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 16, 2026 (second pass)**. **The highest number used is
-59**, so a genuinely new phase takes **60** — the auth bundle took 51–58 and the
-universal-link surface took 59. All of it merged on Aug 16, 2026 (PRs #99, #100, #101) and is
-live in production.
+Synced with `roadmap-status.md` at **Aug 16, 2026 (third pass)**. **The highest number used is
+60**, so a genuinely new phase takes **61** — the auth bundle took 51–58, the
+universal-link surface took 59, and **60 was allocated Aug 16, 2026 to the marketing signup
+endpoint and the Resend swap** (specified, not built). 51–59 merged on Aug 16, 2026
+(PRs #99, #100, #101) and are live in production.
 
 > **This header has now been wrong twice in two days, and the second time was worse.** It said
 > *"the highest number used is 46, so a genuinely new phase takes 47"* while line 121 of this
@@ -188,6 +189,30 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   screen. **Merged and invisible** is the honest description.
 - **No real email has ever been sent.** `MAIL_PROVIDER` is `console` everywhere; Postmark has
   never been called, so the magic link is proven as logic and unproven as mail.
+- **60 — `POST /v1/subscribe`, and Resend replaces Postmark on both lanes.** API lane. Server-side
+  Turnstile verification that **fails closed**, CORS allowlisted to the marketing origin, a Resend
+  client, and the `stream` argument (`marketing | transactional`) added to the existing
+  `services/mail.py` port — **not a second port beside it.** Retires `PostmarkProvider` and
+  repoints `auth.py` and `me.py`; cheap only because `MAIL_PROVIDER` has never left `console`, so
+  there is no delivery history or warmed domain to carry. **No template beyond the minimum double
+  opt-in needs, no `subscribers` table, and no scheduled send.** Per D7, D8, D8a and open item 12.
+  **Timing: the endpoint may ship before the P0 behavioural gate; no marketing email sends before
+  it.** Stated that way deliberately — *"nothing sends"* is already false, because phase 57's
+  magic-link path sends and is not gated on P0.
+- **The marketing site itself — `Rascal-Marketing`, a different repository, so it takes no phase
+  number here.** GitHub Pages custom domain with **Enforce HTTPS**, CSP via `<meta http-equiv>`
+  (the header set is fixed on this host — an accepted exception, D7), the signup form, and the
+  Turnstile widget. **`prompts.yaml` and `mission-library.md` never enter that repo**, whole or
+  sliced. Owner actions it waits on are `blocked.md` §13. **Timing: the page and its form may ship
+  before the P0 gate; no marketing email sends before it.**
+- **60's port is a prerequisite for 38 (lifecycle notices), whose email channel cannot be built
+  without it.** Recorded as a dependency rather than a phase. **The webhook that writes the
+  `email` outcome into `lifecycle_notice_deliveries` belongs to 38 and gets no number of its own**
+  — `data-model.md` names the dependency and 38 inherits it. Note the trap recorded there:
+  `delivered` must mean the provider confirmed delivery, never that the send call returned without
+  raising, because D3 lets a deletion proceed once one channel reads `delivered`. **Timing: 38 is
+  itself downstream of the P0 gate, and its notices are transactional rather than marketing — the
+  constraint that binds it is D3's, not this one's.**
 
 ## Iceboxed
 
