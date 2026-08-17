@@ -97,12 +97,36 @@ async def invited_children(session: AsyncSession, inviter_id: uuid.UUID) -> list
 
 
 async def active_parent_count(session: AsyncSession, family_id: uuid.UUID) -> int:
-    """How many adults are in this household already."""
+    """How many adults are in this household already.
+
+    Callers that go on to *write* based on the answer must hold :func:`lock_household` first.
+    """
     return (
         await session.scalar(
             select(func.count()).select_from(User).where(User.family_id == family_id)
         )
     ) or 0
+
+
+async def lock_household(session: AsyncSession, family_id: uuid.UUID) -> None:
+    """Take a row lock on the family, so two accepts into it cannot both pass the cap.
+
+    **The cap is a read-then-write and nothing in the schema enforces it.** "At most two rows
+    in `users` for a given `family_id`" is not something a unique index can say, so without
+    this two invitees tapping their links in the same second both read one member, both pass,
+    and the household ends up with three adults — over a paywall, which is the direction that
+    matters commercially as well as correctness-wise.
+
+    A row lock rather than an advisory lock because the row already exists and is the natural
+    thing to serialise on: `pg_advisory_xact_lock` would need a hash of the UUID and would
+    collide across unrelated families for no benefit. Accepts into *different* households do
+    not contend, which is the whole reason to lock the family rather than the table.
+
+    `issue_invite` deliberately does **not** take it. Minting an invite is not the write that
+    breaks the cap; accepting is, and a courtesy check at issue time that is occasionally
+    stale costs nothing.
+    """
+    await session.execute(select(Family.id).where(Family.id == family_id).with_for_update())
 
 
 async def issue_invite(
@@ -208,6 +232,9 @@ async def accept_invite(
         await session.flush()
         return await invited_children(session, invite.invited_by_user_id)
 
+    # Serialise before counting. Everything from here to the flush is the read-then-write the
+    # cap depends on, and this is the only thing standing behind it.
+    await lock_household(session, invite.family_id)
     if await active_parent_count(session, invite.family_id) >= MAX_PARENTS_PER_FAMILY:
         raise RascalError(ErrorCode.CONFLICT, "This household already has two parents.")
 
