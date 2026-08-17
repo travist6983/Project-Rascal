@@ -95,4 +95,6 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "families",
     "entitlements",
     "guardian_invites",
+    # Phase 66.
+    "deletion_requests",
 )
