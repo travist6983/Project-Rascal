@@ -18,13 +18,19 @@ import random
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rascal.constants import DEFAULT_EXPIRY_DAYS, Slot
-from rascal.models import Assignment, Child, Prompt, PromptSuppression
+from rascal.constants import DAILY_SLOTS, DEFAULT_EXPIRY_DAYS, SHARED_SLOTS, Slot
+from rascal.models import Assignment, Child, Guardian, Prompt, PromptSuppression
 from rascal.services.dates import local_date, local_hour
+
+# The two partial unique indexes' predicates, spelled exactly as `models/assignment.py`
+# spells them. ON CONFLICT against a partial index has to repeat its WHERE clause, and if
+# these two strings ever drift from the index definitions the inference stops matching.
+_DAILY_PREDICATE = "slot IN (" + ", ".join(f"'{s}'" for s in DAILY_SLOTS) + ")"
+_SHARED_PREDICATE = "slot IN (" + ", ".join(f"'{s}'" for s in SHARED_SLOTS) + ")"
 
 log = logging.getLogger("rascal.scheduler")
 
@@ -182,10 +188,49 @@ async def _candidates(session: AsyncSession, spec: SlotSpec, child_id: uuid.UUID
     return list(rows.scalars().all())
 
 
+async def _active_parents(session: AsyncSession, child_id: uuid.UUID) -> list[uuid.UUID]:
+    """The guardians a daily slot is served to, oldest grant first.
+
+    **`parent` only.** A `viewer` reads what is there and is never served a prompt of their
+    own — phase 30 is iceboxed and this does not un-ice it, but the filter belongs here now
+    rather than as a surprise later.
+
+    Ordering is deterministic so two concurrent runs take the unique index's locks in the
+    same order and one waits rather than deadlocking, exactly as slot order already does.
+    """
+    rows = await session.execute(
+        select(Guardian.user_id)
+        .where(
+            Guardian.child_id == child_id,
+            Guardian.revoked_at.is_(None),
+            Guardian.role == "parent",
+        )
+        .order_by(Guardian.granted_at, Guardian.user_id)
+    )
+    return list(rows.scalars().all())
+
+
 async def _history(
-    session: AsyncSession, child_id: uuid.UUID, as_of_date: dt.date
+    session: AsyncSession,
+    child_id: uuid.UUID,
+    as_of_date: dt.date,
+    user_id: uuid.UUID | None = None,
 ) -> tuple[dict[uuid.UUID, int], set[str]]:
     """How long ago this child saw each prompt, and the themes from the last two days.
+
+    **`user_id` scopes it to one parent, and that is decision 1 of phase 36.** For a daily
+    pick the history is *that parent's* daily rows plus every shared row, because a weekly or
+    a letter was served to the household and both of them saw it. Two parents therefore have
+    their own runway through the pool and may be served the same prompt on different days —
+    which is the feature, not a collision.
+
+    For a shared pick `user_id` is None and the history is the child's, unchanged from before
+    phase 36. That keeps the weekly, monthly and letter slots behaving exactly as they did.
+
+    Cross-cadence rows are harmless in `served_recently` — `_candidates` filters by cadence,
+    so a daily prompt is never a candidate for a weekly slot — but they matter for
+    `recent_themes`, which is shared across cadences and is the reason the scoping is applied
+    to the whole query rather than to one of the two return values.
 
     The theme window includes `as_of_date` itself, so a slot picked seconds after another one
     does not land on the same theme.
@@ -195,14 +240,19 @@ async def _history(
     `_fill_slot` inserts each assignment before the next slot is selected, and this function
     re-reads the child's history per pick inside the same transaction — so the third pick sees
     the first two, exactly as the second saw the first. Nothing here counts slots, so nothing
-    here needed changing for a fourth.
+    here needed changing for a fourth, and nothing needed changing for a second guardian.
     """
     horizon = as_of_date - dt.timedelta(days=COOLDOWN_DAYS)
+    clauses = [Assignment.child_id == child_id, Assignment.assigned_on >= horizon]
+    if user_id is not None:
+        # This parent's own daily rows, plus every shared row — a weekly went to the
+        # household and both of them saw it.
+        clauses.append(or_(Assignment.user_id == user_id, Assignment.user_id.is_(None)))
     rows = (
         await session.execute(
             select(Assignment.prompt_id, Assignment.assigned_on, Prompt.theme)
             .join(Prompt, Prompt.id == Assignment.prompt_id)
-            .where(Assignment.child_id == child_id, Assignment.assigned_on >= horizon)
+            .where(*clauses)
         )
     ).all()
 
@@ -224,17 +274,21 @@ async def select_prompt(
     session: AsyncSession,
     *,
     rng: random.Random | None = None,
+    user_id: uuid.UUID | None = None,
 ) -> Prompt | None:
     """The signature `docs/data-model.md` describes: one child, one slot, one date.
 
     A thin wrapper that loads the pool and this child's history, then hands both to the pure
     :func:`choose_prompt`.
+
+    `user_id` names the guardian a daily slot is being picked for, and scopes the history to
+    them. It stays None for the shared slots, whose behaviour is unchanged.
     """
     from rascal.services.dates import age_in_months
 
     spec = SLOT_SPECS[slot]
     candidates = await _candidates(session, spec, child.id)
-    served, themes = await _history(session, child.id, as_of_date)
+    served, themes = await _history(session, child.id, as_of_date, user_id)
     return choose_prompt(
         candidates,
         age_months=age_in_months(child.birthdate, as_of_date),
@@ -289,46 +343,83 @@ async def _fill_slot(
     day: dt.date,
     rng: random.Random,
     run: SchedulerRun,
+    user_id: uuid.UUID | None = None,
 ) -> None:
+    """Fill one slot for one child — and, for a daily slot, for one guardian.
+
+    `user_id` is required for the three daily slots and must be None for the three shared
+    ones. `ck_assignments_user_id_by_slot` enforces that, so a caller that gets it wrong
+    fails loudly at the INSERT rather than writing a row nothing will ever read.
+    """
+    is_daily = slot in DAILY_SLOTS
+
     # Cheap pre-check so an already-filled slot does not burn a selection. The unique index
     # is still what guarantees correctness under a concurrent run.
-    already = await session.scalar(
-        select(Assignment.id).where(
-            Assignment.child_id == child.id,
-            Assignment.assigned_on == day,
-            Assignment.slot == slot,
-        )
-    )
+    clauses = [
+        Assignment.child_id == child.id,
+        Assignment.assigned_on == day,
+        Assignment.slot == slot,
+    ]
+    if is_daily:
+        clauses.append(Assignment.user_id == user_id)
+    already = await session.scalar(select(Assignment.id).where(*clauses))
     if already is not None:
         run.skipped_existing += 1
         return
 
-    prompt = await select_prompt(child, slot, day, session, rng=rng)
+    prompt = await select_prompt(child, slot, day, session, rng=rng, user_id=user_id)
     if prompt is None:
         # No fake data and no fallback prompt: an empty slot is honest, and the log line
         # says which child and which slot to go and fix.
         run.exhausted.append(f"{child.id}:{slot}")
         log.warning(
             "no eligible prompt",
-            extra={"child_id": str(child.id), "slot": slot, "assigned_on": day.isoformat()},
+            extra={
+                "child_id": str(child.id),
+                "slot": slot,
+                "assigned_on": day.isoformat(),
+                "user_id": str(user_id) if user_id else None,
+            },
         )
         return
+
+    # **Both arms must name their partial index's predicate.** Postgres will not infer a
+    # partial unique index from `index_elements` alone — without `index_where` this raises
+    # "no unique or exclusion constraint matching the ON CONFLICT specification", and with
+    # the *wrong* predicate it would silently match nothing. This is what keeps reruns free.
+    if is_daily:
+        conflict = {
+            "index_elements": [
+                Assignment.child_id,
+                Assignment.user_id,
+                Assignment.assigned_on,
+                Assignment.slot,
+            ],
+            "index_where": text(_DAILY_PREDICATE),
+        }
+    else:
+        conflict = {
+            "index_elements": [
+                Assignment.child_id,
+                Assignment.assigned_on,
+                Assignment.slot,
+            ],
+            "index_where": text(_SHARED_PREDICATE),
+        }
 
     result = await session.execute(
         insert(Assignment)
         .values(
             id=uuid.uuid4(),
             child_id=child.id,
+            user_id=user_id if is_daily else None,
             prompt_id=prompt.id,
             slot=slot,
             assigned_on=day,
             expires_on=day + dt.timedelta(days=DEFAULT_EXPIRY_DAYS),
             status="pending",
         )
-        # The unique index on (child_id, assigned_on, slot) is what makes reruns free.
-        .on_conflict_do_nothing(
-            index_elements=[Assignment.child_id, Assignment.assigned_on, Assignment.slot]
-        )
+        .on_conflict_do_nothing(**conflict)
         .returning(Assignment.id)
     )
     if result.scalar_one_or_none() is None:
@@ -337,14 +428,36 @@ async def _fill_slot(
         run.created += 1
 
 
-async def _filled_slots(session: AsyncSession, child_id: uuid.UUID, day: dt.date) -> set[str]:
-    """Which slots already have a row for this child on that day. One indexed lookup."""
+async def _filled_slots(
+    session: AsyncSession, child_id: uuid.UUID, day: dt.date
+) -> set[tuple[str, uuid.UUID | None]]:
+    """Which (slot, guardian) pairs already have a row for this child on that day.
+
+    One indexed lookup. Since phase 36 the key is a pair rather than a slot name, because
+    `question` filled for one parent says nothing about the other.
+    """
     rows = await session.execute(
-        select(Assignment.slot).where(
+        select(Assignment.slot, Assignment.user_id).where(
             Assignment.child_id == child_id, Assignment.assigned_on == day
         )
     )
-    return set(rows.scalars().all())
+    return {(slot, user_id) for slot, user_id in rows.all()}
+
+
+def _wanted_pairs(day: dt.date, parents: list[uuid.UUID]) -> list[tuple[Slot, uuid.UUID | None]]:
+    """Every (slot, guardian) this child should have on `day`.
+
+    A daily slot is owed once per parent; a shared slot once per child. With one parent this
+    produces exactly what the pre-phase-36 scheduler produced, which is what makes the change
+    invisible to a single-guardian household.
+    """
+    pairs: list[tuple[Slot, uuid.UUID | None]] = []
+    for slot in slots_for(day):
+        if slot in DAILY_SLOTS:
+            pairs.extend((slot, parent) for parent in parents)
+        else:
+            pairs.append((slot, None))
+    return pairs
 
 
 async def ensure_day_filled(
@@ -377,18 +490,19 @@ async def ensure_day_filled(
     variety before anyone noticed.
     """
     run = SchedulerRun(as_of=day)
-    wanted = slots_for(day)
+    parents = await _active_parents(session, child.id)
+    wanted = _wanted_pairs(day, parents)
     present = await _filled_slots(session, child.id, day)
-    missing = [slot for slot in wanted if slot not in present]
+    missing = [pair for pair in wanted if pair not in present]
     run.skipped_existing = len(wanted) - len(missing)
     if not missing:
         return run
 
     rng = random.Random(seed)
-    for slot in missing:
-        # Slot order is deterministic, so two concurrent readers take the unique index's
-        # locks in the same order and one simply waits rather than deadlocking.
-        await _fill_slot(session, child, slot, day, rng, run)
+    for slot, user_id in missing:
+        # Slot and guardian order are both deterministic, so two concurrent readers take the
+        # unique index's locks in the same order and one simply waits rather than deadlocking.
+        await _fill_slot(session, child, slot, day, rng, run, user_id)
     await session.flush()
 
     log.info(
@@ -446,8 +560,14 @@ async def run_scheduler(
         # tomorrow's mission at 9pm.
         day = as_of_date or local_date(instant, child.family_timezone)
         run.expired += await _expire_stale(session, child, day)
-        for slot in slots_for(day):
-            await _fill_slot(session, child, slot, day, rng, run)
+        parents = await _active_parents(session, child.id)
+        if not parents:
+            # A child with no active parent gets no daily prompts, because there is nobody to
+            # serve them to. Shared slots still fire — they belong to the child. Worth a line
+            # in the log rather than silence: it is either a revoked guardian or a data bug.
+            log.warning("child has no active parent", extra={"child_id": str(child.id)})
+        for slot, user_id in _wanted_pairs(day, parents):
+            await _fill_slot(session, child, slot, day, rng, run, user_id)
 
     await session.flush()
     log.info(

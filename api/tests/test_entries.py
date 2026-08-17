@@ -174,7 +174,12 @@ async def test_an_assignment_for_another_child_is_rejected(
     client: AsyncClient, session: AsyncSession
 ) -> None:
     user, child = await _world(session)
+    # The other child has a parent of their own. Since phase 36 a daily assignment names the
+    # guardian it was served to, so a child with no guardian cannot hold one — and no such
+    # child exists in production anyway, because `POST /children` grants its creator.
     other = await make_child(session, name="Someone else")
+    other_parent = await make_user(session, display_name="Someone else's parent")
+    await grant(session, other_parent, other)
     prompt = await make_prompt(session)
     assignment = await make_assignment(session, other, prompt)
     await session.commit()

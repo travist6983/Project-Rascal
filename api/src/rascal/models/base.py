@@ -91,4 +91,8 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "entry_tags",
     "devices",
     "prompt_suppressions",
+    # Phase 36. The household and its entitlement.
+    "families",
+    "entitlements",
+    "guardian_invites",
 )

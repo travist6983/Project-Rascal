@@ -537,6 +537,84 @@ stored: `index.html`, `assets/app.css` and `assets/app.js` are constant bytes co
 
 ---
 
+## Families and invites
+
+Phase 36. The household is the unit of entitlement, per D4 — one price, all guardians,
+unlimited children. **Authorization did not change:** an accepted invite writes `guardians`
+rows, which is what `require_child_access` already reads.
+
+**`GET /families/me`** → the caller's own household. No `{id}` in the path, so there is
+nothing to forge.
+
+```json
+{
+  "family_id": "…",
+  "tier": "free",
+  "guardians": [
+    { "user_id": "…", "display_name": "Travis", "role": "parent",
+      "granted_at": "2026-08-17T11:00:00Z", "is_you": true }
+  ],
+  "pending_invites": [
+    { "id": "…", "email": "anna@example.com", "role": "parent",
+      "expires_at": "2026-08-24T11:00:00Z", "created_at": "2026-08-17T11:00:00Z" }
+  ]
+}
+```
+
+`pending_invites` lists only invites that are still acceptable — accepted, revoked and
+expired ones are history, and this is a screen about the household as it is now.
+
+**`POST /families/me/invites`** → `201`
+Body: `{ "email": str | null, "role": "parent" }`. `email` is optional and is only recorded;
+**nothing in this phase sends it.** The client delivers the link however it likes.
+
+```json
+{ "id": "…", "email": "anna@example.com", "role": "parent",
+  "expires_at": "…", "created_at": "…", "token": "2jtAKk90R8tJ…" }
+```
+
+**`token` is returned once and is never recoverable.** Only its SHA-256 is stored, so a lost
+link is re-issued rather than looked up.
+
+Three refusals:
+
+| | |
+|---|---|
+| `402` `subscription_required` | The household is on the free tier. **Per D4 the second guardian is what the subscription is sold on**, so the invite surface is the upgrade surface. The message names what subscribing unlocks — it is a door, not a wall |
+| `409` `conflict` | The household already has two parents. Two adults is the household; a third is a different product, not a bigger bill |
+| `422` `validation_failed`, `field: "role"` | `viewer` was requested. Phase 30 is iceboxed; the column can hold the value, nothing may issue one |
+
+**`DELETE /families/me/invites/{invite_id}`** → `204`. Idempotent. An invite belonging to
+another household is `404`, not `403` — the caller has no business knowing it exists.
+
+**`GET /invites/{token}`** — **unauthenticated**, because you have to be able to see what a
+link is before you sign in to accept it.
+
+```json
+{ "invited_by": "Travis", "role": "parent", "expires_at": "…",
+  "children": ["Miles", "Nora"] }
+```
+
+Deliberately thin: who invited you, the role, when it expires, and the children's **first
+names**. Enough for the right person to recognise their own household, not enough to be
+worth harvesting. No ids, no birthdates, no email addresses. An unknown, expired, revoked or
+already-accepted token is a flat `404` rather than a `410` — the caller is a stranger at this
+point, and that a token once existed is more than they need to know.
+
+**`POST /invites/{token}/accept`** — authenticated, because it writes to the caller's own
+account. Sets `users.family_id` and creates a `parent` `guardians` row for **every child in
+the household**.
+
+```json
+{ "family_id": "…", "children": ["…", "…"] }
+```
+
+**Idempotent.** The same user accepting the same link twice succeeds twice and writes nothing
+the second time — a parent who taps a link, loses signal and taps again gets a household, not
+an error.
+
+---
+
 ## Today
 
 **`GET /children/{id}/today`**
@@ -1037,6 +1115,7 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `credential_in_use` | 409 |
 | `last_credential` | 409 |
 | `conflict` | 409 |
+| `subscription_required` | 402 |
 | `rate_limited` | 429 |
 | `sign_in_link_invalid` | 401 |
 | `internal_error` | 500 |

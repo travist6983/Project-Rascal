@@ -1,0 +1,479 @@
+"""The household, the invite, and per-parent daily assignment. Phase 36.
+
+The scheduler half is the part worth the most attention: `test_scheduler.py` covers the
+single-guardian behaviour that must not have changed, and the tests here cover the second
+guardian that is new.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+import sqlalchemy as sa
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from factories import grant, make_child, make_family, make_prompt, make_user
+from helpers import auth_headers
+from rascal.models import Assignment, Guardian, GuardianInvite, User
+from rascal.services.guardians import hash_token
+from rascal.services.scheduler import run_scheduler
+
+TUESDAY = dt.date(2026, 8, 18)  # future-date: explicit, pure
+SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
+
+
+async def _subscribed_parent(session: AsyncSession) -> tuple[User, object]:
+    family = await make_family(session, tier="subscribed")
+    user = await make_user(session, family=family)
+    child = await make_child(session, parent=user)
+    await session.commit()
+    return user, child
+
+
+# --- The entitlement gate ----------------------------------------------------------------
+
+
+async def test_a_free_household_cannot_invite_a_second_parent(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """402, not 403. They are allowed to do this; they have not bought it yet."""
+    user = await make_user(session)  # free by default
+    await session.commit()
+
+    response = await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+
+    assert response.status_code == 402
+    assert response.json()["error"]["code"] == "subscription_required"
+
+
+async def test_the_402_body_names_what_subscribing_unlocks(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A door rather than a wall — no scolding, no countdown, no red."""
+    user = await make_user(session)
+    await session.commit()
+
+    body = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["error"]["message"]
+
+    assert "Subscribing" in body
+    for forbidden in ("upgrade now", "expired", "locked", "denied", "!"):
+        assert forbidden not in body
+
+
+async def test_a_subscribed_household_can_invite(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, _ = await _subscribed_parent(session)
+
+    response = await client.post(
+        "/v1/families/me/invites",
+        json={"email": "Anna@Example.com"},
+        headers=auth_headers(user),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["token"]
+    # Recorded lowercased; nothing in this phase sends to it.
+    assert response.json()["email"] == "anna@example.com"
+
+
+async def test_the_raw_token_is_never_stored(client: AsyncClient, session: AsyncSession) -> None:
+    """Only the SHA-256. A database dump cannot hand somebody a key to an archive."""
+    user, _ = await _subscribed_parent(session)
+
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+
+    stored = await session.scalar(sa.select(GuardianInvite.token_hash))
+    assert stored != token
+    assert stored == hash_token(token)
+
+
+async def test_a_household_of_two_refuses_a_third(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family, display_name="Travis")
+    await make_user(session, family=family, display_name="Anna")
+    await session.commit()
+
+    response = await client.post("/v1/families/me/invites", json={}, headers=auth_headers(one))
+
+    assert response.status_code == 409
+    assert "two parents" in response.json()["error"]["message"]
+
+
+async def test_a_viewer_invite_is_refused_while_phase_30_is_iceboxed(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, _ = await _subscribed_parent(session)
+
+    response = await client.post(
+        "/v1/families/me/invites", json={"role": "viewer"}, headers=auth_headers(user)
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["field"] == "role"
+
+
+# --- Preview, accept, revoke -------------------------------------------------------------
+
+
+async def test_the_preview_is_unauthenticated_and_thin(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """You have to see what a link is before you can sign in to accept it."""
+    user, child = await _subscribed_parent(session)
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+
+    response = await client.get(f"/v1/invites/{token}")  # no Authorization header
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["invited_by"] == "Travis"
+    assert body["children"] == [child.name]
+    # First names and nothing else — no ids, no birthdates, no email addresses.
+    assert set(body) == {"invited_by", "role", "expires_at", "children"}
+
+
+async def test_an_unknown_token_is_a_flat_404(client: AsyncClient) -> None:
+    assert (await client.get("/v1/invites/not-a-real-token")).status_code == 404
+
+
+async def test_accepting_moves_the_user_and_grants_every_child(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, child = await _subscribed_parent(session)
+    second = await make_child(session, name="Nora", parent=user)
+    invitee = await make_user(session, display_name="Anna")
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+
+    response = await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+
+    assert response.status_code == 200
+    assert set(response.json()["children"]) == {str(child.id), str(second.id)}
+
+    await session.refresh(invitee)
+    assert invitee.family_id == user.family_id
+    granted = set(
+        (
+            await session.execute(
+                sa.select(Guardian.child_id).where(Guardian.user_id == invitee.id)
+            )
+        ).scalars()
+    )
+    assert granted == {child.id, second.id}
+
+
+async def test_accepting_twice_is_a_success_and_writes_nothing_the_second_time(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A parent who taps, loses signal and taps again gets a household, not an error."""
+    user, _ = await _subscribed_parent(session)
+    invitee = await make_user(session, display_name="Anna")
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+
+    first = await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+    second = await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    rows = await session.scalar(
+        sa.select(sa.func.count()).select_from(Guardian).where(Guardian.user_id == invitee.id)
+    )
+    assert rows == 1
+
+
+async def test_an_expired_invite_cannot_be_accepted(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, _ = await _subscribed_parent(session)
+    invitee = await make_user(session, display_name="Anna")
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+    await session.execute(
+        sa.update(GuardianInvite).values(
+            expires_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=1)
+        )
+    )
+    await session.commit()
+
+    assert (
+        await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+    ).status_code == 404
+    assert (await client.get(f"/v1/invites/{token}")).status_code == 404
+
+
+async def test_a_revoked_invite_cannot_be_accepted(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, _ = await _subscribed_parent(session)
+    invitee = await make_user(session, display_name="Anna")
+    await session.commit()
+    created = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()
+
+    revoked = await client.delete(
+        f"/v1/families/me/invites/{created['id']}", headers=auth_headers(user)
+    )
+    assert revoked.status_code == 204
+
+    assert (
+        await client.post(f"/v1/invites/{created['token']}/accept", headers=auth_headers(invitee))
+    ).status_code == 404
+
+
+async def test_a_stranger_cannot_revoke_someone_elses_invite(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user, _ = await _subscribed_parent(session)
+    stranger = await make_user(session, display_name="Nobody")
+    await session.commit()
+    created = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()
+
+    response = await client.delete(
+        f"/v1/families/me/invites/{created['id']}", headers=auth_headers(stranger)
+    )
+
+    assert response.status_code == 404
+
+
+# --- GET /families/me --------------------------------------------------------------------
+
+
+async def test_the_family_read_lists_both_guardians_and_marks_you(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family, display_name="Travis")
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    await session.commit()
+
+    body = (await client.get("/v1/families/me", headers=auth_headers(one))).json()
+
+    assert body["tier"] == "subscribed"
+    assert [g["display_name"] for g in body["guardians"]] == ["Travis", "Anna"]
+    assert [g["is_you"] for g in body["guardians"]] == [True, False]
+
+
+async def test_a_new_household_reads_as_free_with_one_guardian(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    user = await make_user(session)
+    await make_child(session, parent=user)
+    await session.commit()
+
+    body = (await client.get("/v1/families/me", headers=auth_headers(user))).json()
+
+    assert body["tier"] == "free"
+    assert len(body["guardians"]) == 1
+    assert body["pending_invites"] == []
+
+
+# --- The scheduler, per guardian ---------------------------------------------------------
+
+
+async def _pool(session: AsyncSession) -> None:
+    """Enough prompts that no slot has to fall back."""
+    for kind, cadence in (
+        ("question", "daily"),
+        ("photo", "daily"),
+        ("video", "daily"),
+        ("activity", "weekly"),
+    ):
+        for _ in range(6):
+            await make_prompt(session, kind=kind, cadence=cadence)
+
+
+async def test_each_guardian_gets_their_own_daily_three(session: AsyncSession) -> None:
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family, display_name="Travis")
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    await _pool(session)
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=TUESDAY, seed=7)
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            sa.select(Assignment.slot, Assignment.user_id).where(
+                Assignment.child_id == child.id, Assignment.assigned_on == TUESDAY
+            )
+        )
+    ).all()
+    assert len(rows) == 6  # three daily slots, two parents
+    for parent in (one, two):
+        assert {slot for slot, user_id in rows if user_id == parent.id} == {
+            "question",
+            "mission",
+            "mission_b",
+        }
+
+
+async def test_a_shared_slot_is_created_once_for_two_guardians(
+    session: AsyncSession,
+) -> None:
+    """The measurement mission must not fire twice a month because two people were served it."""
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family)
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    await _pool(session)
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=SATURDAY, seed=7)
+    await session.commit()
+
+    weekly = (
+        await session.execute(
+            sa.select(Assignment.user_id).where(
+                Assignment.child_id == child.id,
+                Assignment.assigned_on == SATURDAY,
+                Assignment.slot == "weekly",
+            )
+        )
+    ).all()
+    assert len(weekly) == 1
+    assert weekly[0][0] is None
+
+
+async def test_a_rerun_with_two_guardians_creates_nothing(session: AsyncSession) -> None:
+    """Idempotency, which is the property the index swap could have broken silently."""
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family)
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    await _pool(session)
+    await session.commit()
+
+    first = await run_scheduler(session, as_of_date=SATURDAY, seed=7)
+    await session.commit()
+    second = await run_scheduler(session, as_of_date=SATURDAY, seed=7)
+    await session.commit()
+
+    assert first.created > 0
+    assert second.created == 0
+    total = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(Assignment)
+        .where(Assignment.child_id == child.id, Assignment.assigned_on == SATURDAY)
+    )
+    assert total == first.created
+
+
+async def test_the_cooldown_is_scoped_per_parent(session: AsyncSession) -> None:
+    """Decision 1: two people answering the same question differently is the feature.
+
+    One prompt in the pool, already served to one parent well inside the cooldown. The other
+    parent must still be served it — a per-child cooldown would have left their slot empty.
+    """
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family)
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    only = await make_prompt(session, kind="question", cadence="daily")
+    session.add(
+        Assignment(
+            child_id=child.id,
+            user_id=one.id,
+            prompt_id=only.id,
+            slot="question",
+            assigned_on=TUESDAY - dt.timedelta(days=1),
+            expires_on=TUESDAY + dt.timedelta(days=13),
+        )
+    )
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=TUESDAY, child_id=child.id, seed=7)
+    await session.commit()
+
+    served = await session.scalar(
+        sa.select(Assignment.prompt_id).where(
+            Assignment.child_id == child.id,
+            Assignment.assigned_on == TUESDAY,
+            Assignment.slot == "question",
+            Assignment.user_id == two.id,
+        )
+    )
+    assert served == only.id
+
+
+async def test_a_child_with_no_active_parent_gets_no_daily_rows(
+    session: AsyncSession,
+) -> None:
+    """Honest rather than orphaned: there is nobody to serve a daily prompt to.
+
+    The shared slots still fire, because they belong to the child.
+    """
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    await session.execute(
+        sa.update(Guardian)
+        .where(Guardian.user_id == user.id)
+        .values(revoked_at=dt.datetime.now(tz=dt.UTC))
+    )
+    await _pool(session)
+    await session.commit()
+
+    await run_scheduler(session, as_of_date=SATURDAY, child_id=child.id, seed=7)
+    await session.commit()
+
+    slots = set(
+        (
+            await session.execute(
+                sa.select(Assignment.slot).where(
+                    Assignment.child_id == child.id, Assignment.assigned_on == SATURDAY
+                )
+            )
+        ).scalars()
+    )
+    assert slots == {"weekly"}
+
+
+async def test_the_invitee_can_read_the_childs_data_through_the_existing_check(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """P7: accepting grants access by writing the rows `require_child_access` already reads.
+
+    No new authorization path, which is why there is nothing new to keep in sync.
+    """
+    user, child = await _subscribed_parent(session)
+    invitee = await make_user(session, display_name="Anna")
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(user))
+    ).json()["token"]
+
+    path = f"/v1/children/{child.id}/stats"
+    before = await client.get(path, headers=auth_headers(invitee))
+    await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+    after = await client.get(path, headers=auth_headers(invitee))
+
+    assert before.status_code == 403
+    assert after.status_code == 200

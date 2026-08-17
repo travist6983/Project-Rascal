@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends
 from pydantic import Field
 from sqlalchemy import delete, select
 
-from rascal.constants import SLOTS
+from rascal.constants import DAILY_SLOTS, SLOTS
 from rascal.deps import (
     ChildAccess,
     CurrentUser,
@@ -203,6 +203,10 @@ async def reset_board(
         session.add(
             Assignment(
                 child_id=access.child_id,
+                # The caller is a guardian of this child — `child_access` proved it — so a
+                # board built for them is a board they own. Daily slots require an owner and
+                # shared slots must not have one, per `ck_assignments_user_id_by_slot`.
+                user_id=access.user.id if slot in DAILY_SLOTS else None,
                 prompt_id=prompt.id,
                 slot=slot,
                 assigned_on=day,

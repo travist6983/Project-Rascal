@@ -7,6 +7,7 @@ from rascal.models.base import TABLES_WITH_UPDATED_AT, Base
 from rascal.models.child import Child, Guardian
 from rascal.models.device import Device, NotificationSend
 from rascal.models.entry import Entry, EntryTag, Media, Tag
+from rascal.models.family import Entitlement, Family, GuardianInvite
 from rascal.models.prompt import Prompt, PromptSuppression
 from rascal.models.user import (
     Credential,
@@ -25,9 +26,12 @@ __all__ = [
     "Credential",
     "Device",
     "EmailSignInToken",
+    "Entitlement",
     "Entry",
     "EntryTag",
+    "Family",
     "Guardian",
+    "GuardianInvite",
     "IdempotencyKey",
     "Media",
     "NotificationSend",

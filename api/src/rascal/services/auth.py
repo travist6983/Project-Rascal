@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rascal.constants import CredentialProvider
 from rascal.errors import ErrorCode, RascalError, not_found
 from rascal.models import Credential, User
+from rascal.services.guardians import create_household
 
 log = logging.getLogger("rascal.auth")
 
@@ -94,6 +95,10 @@ async def user_for_credential(
         # sign-in. Two first-ever sign-ins for one subject both miss the SELECT above and both
         # insert; `uq_credentials_provider_subject_id` is what serialises them.
         async with session.begin_nested():
+            # A household of one, created with the user. `users.family_id` is NOT NULL, and
+            # it is inside this savepoint so the loser of a first-sign-in race discards its
+            # family along with its user rather than leaving an empty one behind.
+            user.family_id = (await create_household(session)).id
             session.add(user)
             await session.flush()
             session.add(Credential(user_id=user.id, provider=provider, subject_id=subject_id))

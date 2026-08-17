@@ -435,6 +435,10 @@ async def test_error_codes_are_the_documented_ones() -> None:
         # which is the only reason widening it here is the right move rather than the easy one.
         "credential_in_use",
         "last_credential",
+        # Phase 36. Documented in the contract's table as 402 — it is not a permission
+        # problem, so it is not `not_authorized`: the caller may add a second parent, they
+        # have simply not bought it yet, and the client shows it as a door.
+        "subscription_required",
         # Phase 57. Both documented in the contract's table.
         "rate_limited",
         "sign_in_link_invalid",

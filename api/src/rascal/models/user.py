@@ -33,6 +33,16 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid_pk]
+    # **The household this user belongs to.** NOT NULL since phase 36 — every user has a
+    # family, even a household of one, because a nullable owner means every read of an
+    # entitlement has to answer "and what if there isn't one" and one of those reads will
+    # eventually answer it wrong. Created with the user; see `services/guardians.py`.
+    #
+    # `ON DELETE RESTRICT`: deleting a family out from under a user is not a thing that
+    # should be possible by accident, and D3's deletion flow removes users first.
+    family_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("families.id", ondelete="RESTRICT"), index=True
+    )
     # Nullable on purpose: Apple relay addresses are unreliable and may never arrive.
     email: Mapped[str | None] = mapped_column(Text, nullable=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)

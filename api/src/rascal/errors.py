@@ -41,6 +41,10 @@ class ErrorCode(StrEnum):
     # client shows it as a sentence next to the button, not as an error.
     LAST_CREDENTIAL = "last_credential"
     CONFLICT = "conflict"
+    # The household is on the free tier and the action needs a subscription. Distinct from
+    # `not_authorized` because it is not a permission problem — the caller may do this, they
+    # simply have not bought it yet, and a client shows it as a door rather than a wall.
+    SUBSCRIPTION_REQUIRED = "subscription_required"
     # Unauthenticated endpoints only. See `services/rate_limit.py` and CLAUDE.md.
     RATE_LIMITED = "rate_limited"
     # A magic link that was already used, or has expired. Distinct from `unauthenticated`
@@ -65,6 +69,7 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.CREDENTIAL_IN_USE: 409,
     ErrorCode.LAST_CREDENTIAL: 409,
     ErrorCode.CONFLICT: 409,
+    ErrorCode.SUBSCRIPTION_REQUIRED: 402,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.SIGN_IN_LINK_INVALID: 401,
     ErrorCode.INTERNAL_ERROR: 500,
