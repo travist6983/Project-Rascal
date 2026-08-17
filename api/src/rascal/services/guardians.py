@@ -68,17 +68,28 @@ async def family_members(session: AsyncSession, family_id: uuid.UUID) -> list[Us
     return list(rows.scalars().all())
 
 
-async def family_children(session: AsyncSession, family_id: uuid.UUID) -> list[Child]:
-    """Every child any member of this household guards, without duplicates.
+async def invited_children(session: AsyncSession, inviter_id: uuid.UUID) -> list[Child]:
+    """The children an invite actually offers: the ones **the inviter** guards.
 
-    A child reached by both parents appears once. `DISTINCT` rather than a set comprehension
-    so the ordering is the database's and stays stable between calls.
+    **Scoped to the inviter rather than to the household, and the difference is not
+    theoretical.** An invitee may already have an archive of their own — they used the app
+    solo before being invited into a partner's household. Defining the household's children
+    as *"every child any member guards"* would silently absorb that person's existing child
+    into the household the moment they accepted, so a later reader of the household would see
+    a child the other parent has no guardian row for and never agreed to share.
+
+    Whether two existing archives should merge is a real product question and nobody has
+    answered it. Until somebody does, accepting an invite moves you **into** a household and
+    grants you its children; it does not contribute yours. `POST /children` grants every
+    member from then on, so from the first shared child onward the two definitions coincide.
+
+    `DISTINCT` rather than a set comprehension so the ordering is the database's and stays
+    stable between calls.
     """
     rows = await session.execute(
         select(Child)
         .join(Guardian, Guardian.child_id == Child.id)
-        .join(User, User.id == Guardian.user_id)
-        .where(User.family_id == family_id, Guardian.revoked_at.is_(None))
+        .where(Guardian.user_id == inviter_id, Guardian.revoked_at.is_(None))
         .distinct()
         .order_by(Child.birthdate, Child.id)
     )
@@ -185,7 +196,7 @@ async def accept_invite(
 
     if invite.accepted_at is not None and invite.accepted_by_user_id == user.id:
         # The second tap. Already done, and saying so as a success is the whole point.
-        return await family_children(session, invite.family_id)
+        return await invited_children(session, invite.invited_by_user_id)
 
     if not invite.is_open(now):
         raise not_found("Invite")
@@ -195,12 +206,12 @@ async def accept_invite(
         invite.accepted_at = now
         invite.accepted_by_user_id = user.id
         await session.flush()
-        return await family_children(session, invite.family_id)
+        return await invited_children(session, invite.invited_by_user_id)
 
     if await active_parent_count(session, invite.family_id) >= MAX_PARENTS_PER_FAMILY:
         raise RascalError(ErrorCode.CONFLICT, "This household already has two parents.")
 
-    children = await family_children(session, invite.family_id)
+    children = await invited_children(session, invite.invited_by_user_id)
 
     # The household the invitee is leaving. If they were its only member it becomes empty —
     # deliberately left in place rather than deleted, because `ON DELETE RESTRICT` on

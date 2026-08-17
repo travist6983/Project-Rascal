@@ -32,10 +32,10 @@ from rascal.schemas.family import (
 from rascal.services.guardians import (
     accept_invite,
     entitlement_for,
-    family_children,
     family_members,
     find_open_invite,
     hash_token,
+    invited_children,
     issue_invite,
     revoke_invite,
 )
@@ -148,7 +148,7 @@ async def preview_invite(token: Annotated[str, Path()], session: SessionDep) -> 
     """
     invite = await find_open_invite(session, token)
     inviter = await session.get(User, invite.invited_by_user_id)
-    children = await family_children(session, invite.family_id)
+    children = await invited_children(session, invite.invited_by_user_id)
     return InvitePreview(
         invited_by=inviter.display_name if inviter else None,
         role=invite.role,

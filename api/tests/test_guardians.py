@@ -272,8 +272,14 @@ async def test_the_family_read_lists_both_guardians_and_marks_you(
     body = (await client.get("/v1/families/me", headers=auth_headers(one))).json()
 
     assert body["tier"] == "subscribed"
-    assert [g["display_name"] for g in body["guardians"]] == ["Travis", "Anna"]
-    assert [g["is_you"] for g in body["guardians"]] == [True, False]
+    # By identity, not position. `family_members` orders by `created_at, id`, and two users
+    # created inside one transaction share a `created_at` — `now()` is the transaction
+    # timestamp — so the tiebreak is a random UUID. Deterministic, but not alphabetical.
+    by_id = {g["user_id"]: g for g in body["guardians"]}
+    assert set(by_id) == {str(one.id), str(two.id)}
+    assert by_id[str(one.id)]["display_name"] == "Travis"
+    assert by_id[str(one.id)]["is_you"] is True
+    assert by_id[str(two.id)]["is_you"] is False
 
 
 async def test_a_new_household_reads_as_free_with_one_guardian(
@@ -477,3 +483,85 @@ async def test_the_invitee_can_read_the_childs_data_through_the_existing_check(
 
     assert before.status_code == 403
     assert after.status_code == 200
+
+
+# --- What "one household, one set of children" actually has to mean ----------------------
+
+
+async def test_a_child_added_after_the_second_parent_joins_is_visible_to_both(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The promise the phase is sold on, and the way it would have broken quietly.
+
+    `POST /children` used to grant only its caller. A child added after the second parent
+    joined would have been invisible to them — and invisibly so, because a child nobody told
+    you about looks exactly like a child that does not exist.
+    """
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family, display_name="Travis")
+    two = await make_user(session, family=family, display_name="Anna")
+    await session.commit()
+
+    created = await client.post(
+        "/v1/children",
+        json={
+            "name": "Nora",
+            "birthdate": "2026-01-02",
+            "family_timezone": "America/Detroit",
+        },
+        headers=auth_headers(one),
+    )
+    assert created.status_code == 201
+    child_id = created.json()["id"]
+
+    seen = await client.get("/v1/children", headers=auth_headers(two))
+    assert [c["id"] for c in seen.json()] == [child_id]
+
+
+async def test_accepting_does_not_absorb_the_invitees_own_child(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """An invitee who already had an archive keeps it to themselves.
+
+    Whether two existing archives should merge is a real product question nobody has
+    answered. Until somebody does, accepting moves you *into* a household and grants you its
+    children; it does not hand yours over.
+    """
+    inviter, theirs = await _subscribed_parent(session)
+    invitee = await make_user(session, display_name="Anna")
+    mine = await make_child(session, name="Bob", parent=invitee)
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(inviter))
+    ).json()["token"]
+
+    accepted = await client.post(f"/v1/invites/{token}/accept", headers=auth_headers(invitee))
+
+    # The invitee gains the inviter's child and keeps their own.
+    assert accepted.json()["children"] == [str(theirs.id)]
+    invitee_sees = {
+        c["id"] for c in (await client.get("/v1/children", headers=auth_headers(invitee))).json()
+    }
+    assert invitee_sees == {str(theirs.id), str(mine.id)}
+    # The inviter gains nothing they were not offered.
+    inviter_sees = {
+        c["id"] for c in (await client.get("/v1/children", headers=auth_headers(inviter))).json()
+    }
+    assert inviter_sees == {str(theirs.id)}
+
+
+async def test_the_preview_lists_only_the_inviters_children(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The unauthenticated route must not disclose a name it was never offered."""
+    inviter, theirs = await _subscribed_parent(session)
+    outsider = await make_user(session, display_name="Someone")
+    await make_child(session, name="NotYours", parent=outsider)
+    await session.commit()
+    token = (
+        await client.post("/v1/families/me/invites", json={}, headers=auth_headers(inviter))
+    ).json()["token"]
+
+    body = (await client.get(f"/v1/invites/{token}")).json()
+
+    assert body["children"] == [theirs.name]
