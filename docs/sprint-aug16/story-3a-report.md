@@ -1,7 +1,7 @@
 # Story 3a — report
 
 **BUILT as phase 36.** Migration `0014_families_and_invites`, five routes, per-guardian daily
-assignment. 696 tests pass. PR open, not merged.
+assignment. 702 tests pass. PR open, not merged.
 
 **This supersedes an earlier version of this file that halted the story.** The halt was wrong,
 and the reason it was wrong is worth keeping: the runbook says *no story merges its own PR*, so
@@ -74,6 +74,32 @@ Documented rather than a config flag on purpose: a `DISABLE_ENTITLEMENT_GATE` va
 never gets exercised, and it means the first person to hit the paywall is a customer rather than
 you. Note the private-relay caveat in §7a if you signed in with Apple and hid your address.
 
+## What an adversarial review found, after I thought this was done
+
+Five reviewers attacked the diff. **The critical finding was mine to have caught and I did not:**
+the scheduler wrote per-guardian rows and **nothing read them that way.**
+
+| | Finding | Status |
+|---|---|---|
+| **critical** | `assignments_for` filtered on `child_id` alone, so a two-parent household's Today showed **six** daily items — three of them the other parent's, visible and completable by the wrong person. `/sync` had the same query, and its version persists into the device's cache. The daily push picked from the merged set | **Fixed.** `viewer_id` is now a required argument on `assignments_for` and `sync.pull` |
+| **high** | `guardians` has only `pk_guardians (user_id, child_id)`, which leads with `user_id` and cannot serve a `child_id`-only filter. `_active_parents` is the first query of that shape and runs per child per run | **Fixed.** `ix_guardians_child_id`, after confirming a `Seq Scan` |
+| **medium** | The migration guard checked for *zero* guardians, not the *two*-guardian case its docstring claimed to refuse | **Fixed**, and verified in both directions |
+| **medium** | `pool_health` read child-wide history while the scheduler had gone per-parent, halving the reported runway for a two-parent household | **Fixed** |
+| **low** | `GET /families/me` fabricated `granted_at` from `member.created_at` | **Fixed** — nullable now |
+| **low** | A review agent's probe file got swept into a commit by `git add -A` | Removed; staging by explicit path since |
+
+**Two more I found myself, by reading the diff back:** `POST /children` granted only its caller, so
+a child added after the second parent joined would have been invisible to them; and "the
+household's children" was defined widely enough that an invitee's **own** pre-existing child would
+have been absorbed into the household on accept.
+
+**Not acted on, recorded instead:** two concurrent accepts could in principle pass the two-parent
+cap (a read-then-write race with no schema constraint behind it), `_candidates` is re-executed once
+per parent although its result does not depend on the parent, and the nightly job remains one
+transaction for every child. The first is a real hole and wants a partial unique index or an
+advisory lock; the second and third are pre-existing shapes this phase makes more expensive rather
+than defects it introduces.
+
 ## Break-tests — run, not asserted
 
 1. **The NULL-distinctness trap.** Added `user_id` to `uq_assignments_shared`, so it became the one
@@ -87,6 +113,13 @@ you. Note the private-relay caveat in §7a if you signed in with Apple and hid y
    ON CONFLICT specification` — Postgres will not infer a partial index from the column list alone.
 3. **The entitlement gate.** Made the tier check always pass. **Three tests failed**, including
    `test_a_free_household_cannot_invite_a_second_parent`.
+4. **The read-path scoping** — added after the review found it. Removed the `viewer_id` filter from
+   `today.py` and `sync.py`. Exactly the two tests written for it failed and nothing else, which is
+   what a targeted assertion is supposed to do.
+5. **The migration's sole-guardian guard.** Built a database at `0013` with two parents on one
+   child and ran `upgrade head`: it refused with
+   *"0014: 1 child(ren) already have more than one active parent…"*. Deleted one guardian and it
+   migrated cleanly, so the guard does not false-positive on the normal case.
 
 Each break was reverted and the suite re-run green.
 
@@ -100,7 +133,7 @@ and the shared key still refusing a duplicate. A fourth covers the CHECK in both
 
 ## What ran
 
-- `uv run pytest -q` → **696 passed, 2 failed**. Both failures are `test_restore.py` and are **this
+- `uv run pytest -q` → **702 passed, 2 failed**. Both failures are `test_restore.py` and are **this
   machine, not this code**: Homebrew's `pg_dump` is 17.6, the server is 16.14, and a 17 client
   writes `transaction_timeout` into the dump. **Verified pre-existing** by stashing this entire
   branch and re-running them — identical failures.
