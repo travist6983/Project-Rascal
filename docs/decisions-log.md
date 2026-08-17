@@ -2597,7 +2597,7 @@ the checklist — in four places on purpose, because a measurement whose disappo
 pre-agreed consequence gets reinterpreted as a reason to build anyway.
 
 **It cannot be run yet.** It needs a real camera roll, which needs a TestFlight build, which is
-still the standing blocker on everything. `docs/device-verification-captions.md` is nine boxes and
+still the standing blocker on everything. `docs/Device-Verification/device-verification-captions.md` is nine boxes and
 the twelfth checklist — 460 now, still nine ticked.
 
 * * *
@@ -2978,3 +2978,59 @@ the code rather than by a second model. Four lower-severity findings were fixed 
 a follow-up commit. **The subagents had also silently defaulted to a smaller model on the first
 attempt** — caught by the owner, not by me, after I asserted they would inherit the session
 model without checking. Assert nothing about what a tool resolved; read it back.
+
+## Aug 16, 2026 — the overnight sprint, and seven gates that all held
+
+Seven stories were specified in `docs/sprint-aug16/` and run one per loop overnight. **All seven
+halted on their own preflight gates. Nothing was built and no phase number was consumed.** Each has
+a report in that directory; the discrepancy list is in `story-7-report.md`.
+
+- **The sprint's story files were authored against a repo that no longer exists**, and the tell was
+  in the runbook's own premise. It stated that `phase-queue.md`, `data-model.md` and `decisions.md`
+  disagree about the phase high-water mark, and named 47, 49 and 50. **All three claims were checked
+  and none holds.** The "47" is inside a blockquote in `phase-queue.md` documenting a *past* error —
+  the file's own conclusion there is *"Neither file was right. `main` was."* — and the other two are
+  accurate historical records, not conflicts. `main` is at 60 with 51–59 merged the same day. The
+  numbering rule that works is the one already written down: **measure `main`, not a status
+  document's count.**
+
+- **"Take the next free phase number" is the wrong rule for work that already has one**, and it is
+  how two stories failed the same gate by different routes. Story 1 is **phase 60**, specified in
+  the ledger with a contradicting design; story 3a is **phase 36** plus phase 37's entitlements
+  table. Taking 61 in either case would have orphaned a merged spec. A phase number is an
+  identifier; a story that re-specifies existing work needs the existing number, not a new one.
+
+- **Three stories asserted an owner decision that no merged document carries, and the first was
+  contradicted outright.** Story 1 claimed a rate-limiting exception granted Aug 16; `decisions.md`
+  item 12(1) records the owner making the opposite call on that date. Story 3a claimed four settled
+  answers to open item 11, which says in terms that its collisions each need an answer *before
+  anything is built*. Story 6 claimed authorisation to record a device-verification result. **After
+  the first, the phrase stopped being taken on trust** — the standing habit of writing settlements
+  into `decisions.md` is what made the check possible at all, and item 12's `PARTIALLY ANSWERED`
+  marker is what proved item 11's silence meant something.
+
+- **A partial result recorded against §0 of the transcription checklist would have destroyed the
+  measurement rather than banked it.** §0 has five boxes; the owner's recorded observation covers
+  part of one, and says nothing about whether the model invents plausible sentences where the child
+  mumbled — the finding that would argue for a confidence signal, a schema change and a separate
+  phase. §0's own closing line is why: *"the only measurement in the project that cannot be
+  re-derived by running something later — the recordings change as he does."* A ticked §0 stops
+  anyone running §0.
+
+- **Gate 4 of story 3a was run against production rather than the local fixture, and that was the
+  point of it.** `SELECT child_id, count(*) FROM guardians WHERE revoked_at IS NULL GROUP BY
+  child_id HAVING count(*) > 1` returned **0 rows** against Neon: 1 user, 2 children, 2 active
+  guardians, 25 assignments, 27 live entries, head `0013_email_sign_in`. The local database would
+  have answered 0 too and proved nothing, because the migration does not run there. **The backfill
+  window is open and the evidence is banked** in `story-3a-report.md`, because it is not
+  reconstructable after a second guardian exists.
+
+- **Nothing was touched in `Rascal-Marketing`**, which has seven uncommitted files on `main`
+  including two that stories 2 and 5 would both edit. A story that must leave a clean tree cannot
+  start in a dirty one, and the alternative was to guess whose work it was.
+
+- **Story 5 was not replaced with a free-hand substitute.** It calls for a compliance assessment
+  from a tool that does not exist here. Writing GDPR/CCPA/COPPA analysis for a product holding a
+  named minor's photographs, video and voice, overnight, unreviewed, and publishing it as the basis
+  of a public privacy policy is not the same task — and the story's own gate makes the argument:
+  *"a public commitment nobody can keep."*
