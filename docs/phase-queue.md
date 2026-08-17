@@ -8,7 +8,7 @@ stays short. If a line stops being true, delete it — a queue that carries fini
 exact failure `roadmap-status.md` has now made six revisions running.
 
 Synced with `roadmap-status.md` at **Aug 16, 2026 (third pass)**. **The highest number used is
-60**, so a genuinely new phase takes **61** — the auth bundle took 51–58, the
+60**, ~~so a genuinely new phase takes **61**~~ — **61 and 62 went the same day, Aug 17, so the next is 63** — the auth bundle took 51–58, the
 universal-link surface took 59, and **60 was allocated Aug 16, 2026 to the marketing signup
 endpoint and the Resend swap** (specified, not built). 51–59 merged on Aug 16, 2026
 (PRs #99, #100, #101) and are live in production.
