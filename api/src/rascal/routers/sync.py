@@ -50,7 +50,7 @@ async def pull(
     ),
     access: ChildAccess = Depends(child_access_from_query("viewer")),
 ) -> SyncResponse:
-    return await service.pull(session, access.child, since, limit=limit)
+    return await service.pull(session, access.child, since, access.user.id, limit=limit)
 
 
 @router.post(

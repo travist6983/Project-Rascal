@@ -207,6 +207,14 @@ def upgrade() -> None:
     )
     op.create_index("ix_guardian_invites_family_id", "guardian_invites", ["family_id"])
 
+    # **`guardians` has only `pk_guardians (user_id, child_id)`**, whose leading column is
+    # `user_id` — so it cannot serve a filter on `child_id` alone. Every check before this
+    # phase named both columns (`require_child_access`), so nothing ever needed it. The
+    # scheduler's `_active_parents` is the first query of that shape, and it runs once per
+    # child per run and again on every `/today` that self-heals. Verified as a `Seq Scan`
+    # against the dev database before adding this.
+    op.create_index("ix_guardians_child_id", "guardians", ["child_id"])
+
     # --- The dangerous part --------------------------------------------------------------
     op.add_column("assignments", sa.Column("user_id", sa.UUID(), nullable=True))
     op.create_foreign_key(
@@ -325,6 +333,7 @@ def downgrade() -> None:
     op.drop_column("assignments", "user_id")
 
     # Dropping a table drops its triggers; set_updated_at() itself belongs to 0001.
+    op.drop_index("ix_guardians_child_id", table_name="guardians")
     op.drop_index("ix_guardian_invites_family_id", table_name="guardian_invites")
     op.drop_index("ix_guardian_invites_token_hash", table_name="guardian_invites")
     op.drop_table("guardian_invites")

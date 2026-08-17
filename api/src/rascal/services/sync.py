@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -63,6 +63,7 @@ async def pull(
     session: AsyncSession,
     child: Child,
     since: dt.datetime | None,
+    viewer_id: uuid.UUID,
     *,
     limit: int = DEFAULT_PAGE_SIZE,
 ) -> SyncResponse:
@@ -128,7 +129,18 @@ async def pull(
         (
             await session.execute(
                 select(Assignment)
-                .where(Assignment.child_id == child.id, _after(Assignment.updated_at))
+                .where(
+                    Assignment.child_id == child.id,
+                    # **This guardian's daily rows, plus every shared row.** Since phase 36
+                    # a two-parent household has two daily boards, and a client that pulled
+                    # both would cache the other parent's assignments and render them as its
+                    # own — the same leak as `/today`, except it persists on the device.
+                    or_(
+                        Assignment.user_id == viewer_id,
+                        Assignment.user_id.is_(None),
+                    ),
+                    _after(Assignment.updated_at),
+                )
                 .options(selectinload(Assignment.prompt))
                 .order_by(Assignment.updated_at.asc())
                 .limit(limit + 1)

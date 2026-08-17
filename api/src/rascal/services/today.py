@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 from sqlalchemy import false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,9 +43,20 @@ def to_assignment_out(assignment: Assignment) -> AssignmentOut:
 
 
 async def assignments_for(
-    session: AsyncSession, child: Child, today: dt.date
+    session: AsyncSession, child: Child, today: dt.date, viewer_id: uuid.UUID
 ) -> tuple[list[Assignment], list[Assignment], list[Assignment]]:
-    """`today`, `waiting`, and `done_today` in one pass over the child's open work."""
+    """`today`, `waiting`, and `done_today` in one pass over **this guardian's** open work.
+
+    **`viewer_id` is not optional and that is deliberate.** Since phase 36 the three daily
+    slots are served per guardian, so a two-parent household has six daily rows for one day.
+    Without this filter every parent would see both boards — six items instead of three, half
+    of them somebody else's, and either of them able to complete the other's. Making the
+    parameter required means a future caller cannot forget it; there is no default that is
+    right for everybody.
+
+    Shared rows (`weekly`, `monthly`, `letter`) carry a NULL `user_id` and belong to the
+    child, so they reach both parents and either one completing them clears it for both.
+    """
     # done_today is anything completed with occurred_at today — in the child's timezone, so an
     # entry logged at 11pm in Auckland does not land on yesterday's screen. The window is
     # resolved to two UTC instants here and compared against the bare column, because
@@ -84,6 +96,11 @@ async def assignments_for(
                 select(Assignment)
                 .where(
                     Assignment.child_id == child.id,
+                    # This guardian's daily rows, plus every shared row.
+                    or_(
+                        Assignment.user_id == viewer_id,
+                        Assignment.user_id.is_(None),
+                    ),
                     Assignment.assigned_on <= today,
                     or_(
                         Assignment.status == "pending",

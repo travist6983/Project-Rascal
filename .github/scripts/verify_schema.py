@@ -39,6 +39,7 @@ EXPECTED_TABLES = {
 }
 
 EXPECTED_INDEXES = {
+    "ix_guardians_child_id",
     "uq_assignments_daily",
     "uq_assignments_shared",
     "ix_assignments_child_id_status_assigned_on",

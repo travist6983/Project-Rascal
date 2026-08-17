@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Date, ForeignKey, Text
+from sqlalchemy import Date, ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from rascal.constants import GUARDIAN_ROLES, PRONOUNS, GuardianRole, Pronouns
@@ -39,7 +39,12 @@ class Guardian(Base):
     """`parent` reads and writes, `viewer` reads only. Revoked rows stay for the audit trail."""
 
     __tablename__ = "guardians"
-    __table_args__ = (one_of("role", GUARDIAN_ROLES, name="role"),)
+    __table_args__ = (
+        one_of("role", GUARDIAN_ROLES, name="role"),
+        # `pk_guardians` leads with `user_id`, so it cannot serve "who guards this child".
+        # Phase 36's scheduler asks exactly that, once per child per run.
+        Index("ix_guardians_child_id", "child_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True

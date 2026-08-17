@@ -222,8 +222,11 @@ async def run_notifications(
         # cooldown, theme rotation, age window and seasonal filter are the scheduler's own.
         await ensure_day_filled(session, child, window.local_date)
 
+        # **Scoped to this user**, because the notification is going to *their* phone. A
+        # two-parent household has two daily boards, and telling one parent about the other's
+        # mission is both wrong and impossible to act on — they cannot see it to complete it.
         today_items, _waiting, _done_today = await assignments_for(
-            session, child, window.local_date
+            session, child, window.local_date, user.id
         )
         if not today_items:
             # Every item for today is done, dismissed, or the day was empty. Send nothing:

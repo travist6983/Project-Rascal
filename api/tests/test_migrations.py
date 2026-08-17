@@ -40,6 +40,7 @@ EXPECTED_INDEXES = {
     # The scheduler's idempotency guarantee, in two halves since phase 36: daily slots are
     # per-guardian and carry `user_id`, shared slots are one per child and must not — a
     # single wide index would let NULL `user_id` defeat uniqueness on the shared rows.
+    "ix_guardians_child_id",
     "uq_assignments_daily",
     "uq_assignments_shared",
     "ix_assignments_child_id_status_assigned_on",

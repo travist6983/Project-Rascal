@@ -565,3 +565,94 @@ async def test_the_preview_lists_only_the_inviters_children(
     body = (await client.get(f"/v1/invites/{token}")).json()
 
     assert body["children"] == [theirs.name]
+
+
+# --- The read paths. Each parent sees their own board and only their own. ----------------
+
+
+async def _two_parent_household(session: AsyncSession):
+    family = await make_family(session, tier="subscribed")
+    one = await make_user(session, family=family, display_name="Travis")
+    two = await make_user(session, family=family, display_name="Anna")
+    child = await make_child(session, parent=one)
+    await grant(session, two, child)
+    await _pool(session)
+    await session.commit()
+    return one, two, child
+
+
+async def test_today_shows_a_parent_their_own_three_and_not_the_others(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**The defect that would have made this whole phase pointless.**
+
+    Per-guardian assignment is only worth anything if the read path is scoped too. Unscoped,
+    a two-parent household's board shows six daily items — three of them the other parent's,
+    which this parent can see and complete.
+    """
+    one, two, child = await _two_parent_household(session)
+    on = dt.date.today().isoformat()
+
+    for viewer in (one, two):
+        body = (
+            await client.get(
+                f"/v1/children/{child.id}/today?date={on}", headers=auth_headers(viewer)
+            )
+        ).json()
+        daily = [i for i in body["today"] if i["slot"] in ("question", "mission", "mission_b")]
+        assert len(daily) == 3, f"{viewer.display_name} saw {len(daily)} daily items"
+
+    # And they are genuinely different rows, not the same three twice.
+    ids = []
+    for viewer in (one, two):
+        body = (
+            await client.get(
+                f"/v1/children/{child.id}/today?date={on}", headers=auth_headers(viewer)
+            )
+        ).json()
+        ids.append({i["id"] for i in body["today"] if i["slot"] == "question"})
+    assert ids[0] and ids[1] and ids[0].isdisjoint(ids[1])
+
+
+async def test_a_shared_slot_reaches_both_parents(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The other half of the scoping: `weekly` belongs to the child, so both see it."""
+    one, two, child = await _two_parent_household(session)
+    saturday = dt.date(2026, 8, 22)  # future-date: explicit, pure
+    await run_scheduler(session, as_of_date=saturday, child_id=child.id, seed=7)
+    await session.commit()
+
+    for viewer in (one, two):
+        body = (
+            await client.get(
+                f"/v1/children/{child.id}/today?date={saturday.isoformat()}",
+                headers=auth_headers(viewer),
+            )
+        ).json()
+        slots = {i["slot"] for i in body["today"]}
+        assert "weekly" in slots, f"{viewer.display_name} cannot see the shared weekly"
+
+
+async def test_sync_does_not_hand_a_parent_the_other_parents_assignments(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The same leak, except it persists in the device's local cache."""
+    one, two, child = await _two_parent_household(session)
+    await run_scheduler(session, as_of_date=TUESDAY, child_id=child.id, seed=7)
+    await session.commit()
+
+    pulled = {}
+    for viewer in (one, two):
+        body = (
+            await client.get(f"/v1/sync?child_id={child.id}", headers=auth_headers(viewer))
+        ).json()
+        pulled[viewer.id] = {
+            a["id"]
+            for a in body["assignments"]
+            if a["slot"] in ("question", "mission", "mission_b")
+        }
+
+    assert len(pulled[one.id]) == 3
+    assert len(pulled[two.id]) == 3
+    assert pulled[one.id].isdisjoint(pulled[two.id])
