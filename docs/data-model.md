@@ -528,7 +528,57 @@ Both default `true` — the soft opt-in D3a describes, and what makes deletion w
 every existing user. **Neither is settable through the API and `transactional_consent` in
 particular must never become so**: a user who could switch it off would silence the deletion warning
 and leave the timer running, which converts a safety interlock into a quiet way to lose an archive.
-Nothing sends email today, so neither lane reaches anybody yet.
+~~Nothing sends email today, so neither lane reaches anybody yet.~~ **Corrected Aug 16, 2026: that
+sentence was true when it was written and stopped being true in the same week.** Phase 56 shipped
+`services/mail.py` and phase 57 wired it to `POST /auth/email/start` and
+`POST /me/credentials/email`, so two routes do call `send()`. **What is still true is the part that
+matters here: no real mail has been delivered to anybody**, because `MAIL_PROVIDER` is `console` in
+every environment and the console provider prints to stdout without opening a socket. **Neither
+consent lane has reached a parent, and neither is consulted by the two routes that send** — a
+sign-in link is not a marketing or a lifecycle message and reads no consent column. The distinction
+is worth keeping straight, because "nothing is wired" and "nothing is delivered" invite very
+different decisions about adding a second sender.
+
+**Resend is the sender for both lanes**, per D8 — one account, one domain authentication, a
+`stream` argument of `marketing | transactional` on the port distinguishing them. Phase 60 replaces
+the Postmark adapter; the two consent columns above are unaffected by that swap, because they are
+read by callers and the port has never read them.
+
+**The `email` channel outcome in `lifecycle_notice_deliveries` will be written from Resend's
+delivery webhook.** That is a dependency phase 38 inherits, named here rather than designed here —
+see the notices section below.
+
+### The marketing list is provider-held, and there is no `subscribers` table
+
+**Settled Aug 16, 2026 by the owner, per open item 12(4) and D8. No table exists and none is
+specified here yet** — this note follows the precedent `visibility` set above: written into this
+file so that picking it up later is a build against a finished spec rather than a fresh design,
+with the difference stated plainly rather than left for a reader to discover.
+
+**Resend holds the list.** Double opt-in, suppression, unsubscribe and sending reputation are all
+theirs; `POST /v1/subscribe` is a thin forward that stores nothing. A subscriber is **not** a
+`users` row and has no row anywhere in this schema.
+
+**The named trigger for bringing it in-house is the first moment a subscriber can also be a user**,
+which is post-launch. Migrating a list is a CSV export; migrating a half-built consent system is
+not, which is the whole reason for starting on the provider's side.
+
+**What would need specifying when it returns** — recorded now, while the reasoning is fresh:
+
+- **Identity.** A subscriber has no `users` row, so the table needs its own key. Email is the
+  natural one and is also the thing that changes.
+- **The dedup problem, which is the hard part and is not solved by adding a table.** Sign in with
+  Apple private relay means a signed-up parent's `users.email` may never match the address they
+  gave the marketing site, so the same human can be two records with no reliable join between them.
+  Any in-house design has to say what happens when one of them unsubscribes.
+- **Consent, and how it relates to `users.marketing_consent` above.** Two systems that can disagree
+  about one person is the failure D3a's two-column shape exists to avoid; a `subscribers` table
+  reintroduces it at a different layer unless the relationship is decided first.
+- **Soft deletes and `updated_at`**, per the standing rules, and whether an unsubscribe is a
+  `deleted_at` or a consent flag — they are not the same thing and only one of them survives a
+  re-subscribe.
+
+Nothing above is a decision. It is the list of decisions the item will owe.
 
 ### Notices, and delivery proven per channel
 
@@ -560,6 +610,15 @@ a notice goes out on three channels and each records its own outcome, and **dele
 unless at least one channel recorded `delivered`.** An account that cannot be reached is kept
 indefinitely and flagged for manual review — never deleted on a timer that assumed the notice
 arrived.
+
+**The `email` channel's `outcome` comes from Resend's delivery webhook, and that is a dependency
+phase 38 inherits rather than one it may skip.** Named here, not designed here: this file does not
+specify the webhook route, its signature verification, or how a provider event maps onto
+`delivered | failed | suppressed`. What it does say is that **`delivered` on the email channel must
+mean the provider confirmed delivery, never that the send call returned without raising.** The two
+are far apart — an accepted API call is a queued message, and D3's hard stop lets deletion proceed
+once one channel records `delivered`. Treating "no exception" as proof of delivery would let an
+archive be deleted on the strength of a message that bounced.
 
 `notification_sends` is **not** this table and must not be extended into it. That one is unique on
 `(user_id, notification_date)` and that index *is* the daily-notification product guarantee; a
