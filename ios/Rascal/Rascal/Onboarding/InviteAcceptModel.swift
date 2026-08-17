@@ -34,15 +34,42 @@ final class InviteAcceptModel {
 
     private let api: APIClient
     private let token: String
+    /// True only for a preview-constructed model. Guards the two network calls.
+    private var isPreview = false
 
     init(api: APIClient, token: String) {
         self.api = api
         self.token = token
     }
 
+    #if DEBUG
+        /// A model parked in one state, for previews.
+        ///
+        /// **`DEBUG` only, and it never reaches the network.** `isPreview` makes `load` and
+        /// `accept` no-ops, which matters more than it sounds: the screen calls `load` from a
+        /// `.task`, so without this every preview would immediately replace its parked state
+        /// with whatever the machine's connectivity produced — and the failure states, which
+        /// are the ones worth looking at, would be the ones impossible to see.
+        ///
+        /// It builds a client rather than taking one because `APIClient` is not optional here,
+        /// and it deliberately does **not** use `fromBundle()`: that reads `API_BASE_URL` and
+        /// `preconditionFailure`s when it is absent, which is a crashed canvas rather than a
+        /// preview.
+        init(previewing state: State) {
+            self.api = APIClient(
+                baseURL: URL(string: "https://preview.invalid")!,
+                tokens: InMemoryTokenStore()
+            )
+            self.token = "preview"
+            self.isPreview = true
+            self.state = state
+        }
+    #endif
+
     /// Load the preview. **Unauthenticated**, because you have to be able to see what a link is
     /// before you sign in to accept it.
     func load(isSignedIn: Bool) async {
+        if isPreview { return }
         state = .loading
         do {
             let preview = try await api.invitePreview(token: token)
@@ -57,6 +84,7 @@ final class InviteAcceptModel {
     /// Accept. Authenticated — the caller must be signed in, which the screen enforces by
     /// offering sign-in first rather than by letting this fail.
     func accept() async {
+        if isPreview { return }
         state = .loading
         do {
             let accepted = try await api.acceptInvite(token: token)

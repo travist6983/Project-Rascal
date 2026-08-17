@@ -163,3 +163,92 @@ struct InviteAcceptScreen: View {
         }
     }
 }
+
+#if DEBUG
+/// The states, at the size the copy actually breaks at.
+///
+/// **Every failure state gets a preview, not just the happy one.** These are the screens
+/// somebody reads when a link did not work, they are the longest sentences in the flow, and they
+/// are the ones nobody looks at in the canvas because the happy path is what gets built.
+private func _previewModel(_ state: InviteAcceptModel.State) -> InviteAcceptModel {
+    InviteAcceptModel(previewing: state)
+}
+
+private let _preview = InvitePreview(
+    invitedBy: "Travis",
+    role: "parent",
+    expiresAt: .now.addingTimeInterval(7 * 86_400),
+    children: ["Miles", "Nora"]
+)
+
+#Preview("Invite — preview, signed out") {
+    InviteAcceptScreen(
+        model: _previewModel(.preview(_preview, canAccept: false)),
+        isSignedIn: false, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — preview, signed in") {
+    InviteAcceptScreen(
+        model: _previewModel(.preview(_preview, canAccept: true)),
+        isSignedIn: true, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — no longer valid") {
+    InviteAcceptScreen(
+        model: _previewModel(.noLongerValid), isSignedIn: false, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — joined") {
+    InviteAcceptScreen(
+        model: _previewModel(.joined(childCount: 2)),
+        isSignedIn: true, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — household full") {
+    InviteAcceptScreen(
+        model: _previewModel(.refused("This household already has two parents.")),
+        isSignedIn: true, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — unreachable") {
+    InviteAcceptScreen(
+        model: _previewModel(.unreachable("No connection. Saved here, and it'll sync when you're back.")),
+        isSignedIn: true, onSignIn: {}, onDone: {}
+    )
+}
+
+#Preview("Invite — preview, AX XXL") {
+    InviteAcceptScreen(
+        model: _previewModel(.preview(_preview, canAccept: false)),
+        isSignedIn: false, onSignIn: {}, onDone: {}
+    )
+    .environment(\.dynamicTypeSize, .accessibility4)
+}
+
+#Preview("Invite — no longer valid, AX XXL") {
+    InviteAcceptScreen(
+        model: _previewModel(.noLongerValid), isSignedIn: false, onSignIn: {}, onDone: {}
+    )
+    .environment(\.dynamicTypeSize, .accessibility4)
+}
+
+#Preview("Invite — joined, AX XXL") {
+    InviteAcceptScreen(
+        model: _previewModel(.joined(childCount: 2)),
+        isSignedIn: true, onSignIn: {}, onDone: {}
+    )
+    .environment(\.dynamicTypeSize, .accessibility4)
+}
+
+#Preview("Upgrade sheet") { SecondParentUpgradeSheet(onDismiss: {}) }
+
+#Preview("Upgrade sheet — AX XXL") {
+    SecondParentUpgradeSheet(onDismiss: {})
+        .environment(\.dynamicTypeSize, .accessibility4)
+}
+#endif
