@@ -183,6 +183,28 @@ Ages, day headers, durations and spelled counts come from `DesignSystem/Formatti
 A clock time is formatted at the use site in the device's zone. `occurred_at` is a genuine instant, and the phone in the parent's hand is the right frame for one.
 
 * * *
+## The wordmark
+
+**The name is never set in capitals. Owner's rule, Aug 18, 2026, and it has no exceptions.**
+
+`VELLUM` in 12pt semibold with 2.6pt of tracking is what stood on the welcome screen until phase
+77, and it was wrong twice over: it is a logo impersonated by type, and it is the one spelling a
+case-sensitive rename cannot find — which is exactly how it survived the Dogear → Vellum pass and
+shipped a dead name on the first screen anybody sees.
+
+**Where the name is a mark, use `WordmarkView`.** It is drawn geometry ported from
+`docs/app-icon/vellum-wordmark.svg`, so there is no font file and no licence, and it scales and
+tints without an asset. **Where the name is a word in a sentence, write it sentence case** —
+*"Vellum writes to this phone first"*, *"Settings → Vellum → Notifications"*. A mark dropped into
+running copy reads as a brand intrusion; the sentence is not an opportunity.
+
+**One place, on purpose: the welcome screen.** A logo earns its place by being rare, and every
+other occurrence in the app is a sentence. Adding a second site is a decision, not a tidy-up.
+
+`.textCase(.uppercase)` is used once, on the tab bar's own titles, which are generic chrome and
+never the product name. It must stay that way: any uppercasing modifier that could reach the name
+reintroduces the rule's failure by a different route than the one that was closed.
+
 ## Components
 ### Chip
 Capsule, `.metadata` at 13pt, 10/5 padding, `inkMuted` on `surface`, `bordered` for a hairline. Metadata chips are a soft tint with no border.
