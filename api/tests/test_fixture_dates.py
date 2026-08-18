@@ -42,6 +42,11 @@ TESTS = Path(__file__).resolve().parent
 # after it is not accepted, because "why" is the whole content of the exemption.
 MARKER = "future-date:"
 
+# The same shape of escape hatch for the machine-clock guard below: a test that is genuinely
+# *about* the runner's own clock is legitimate; one that uses it as a stand-in for the child's
+# date is the bug.
+MACHINE_CLOCK_MARKER = "machine-clock:"
+
 
 def _literal_dates(tree: ast.AST) -> list[tuple[int, int, dt.date]]:
     """Every `dt.date(...)` and `dt.datetime(...)` written out in full.
@@ -112,4 +117,74 @@ def test_no_test_hardcodes_a_date_that_has_not_happened_yet() -> None:
         "that has not run: it asserts one branch until the clock arrives, then silently starts "
         "asserting another. Move it into the past, or mark the line "
         f"`# {MARKER} <why>` if being in the future is the point.\n{detail}"
+    )
+
+
+def _machine_clock_calls(tree: ast.AST) -> list[tuple[int, int, str]]:
+    """Every read of the machine's own clock that carries no timezone.
+
+    `dt.date.today()` and a bare `dt.datetime.now()`. Both answer in whatever zone the runner
+    happens to be in, which is a different question from the one this service ever asks.
+
+    AST rather than text, so a comment or a docstring naming the call — like the one in
+    `test_guardians.py` explaining why it was removed — is invisible here. Grepping the source
+    would flag the explanation as the defect.
+    """
+    found: list[tuple[int, int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        attr = node.func.attr
+        owner = getattr(node.func.value, "attr", None) or getattr(node.func.value, "id", None)
+        if attr == "today" and owner == "date":
+            found.append(
+                (node.lineno, getattr(node, "end_lineno", None) or node.lineno, "date.today()")
+            )
+        elif attr == "now" and owner == "datetime" and not node.args and not node.keywords:
+            found.append(
+                (node.lineno, getattr(node, "end_lineno", None) or node.lineno, "datetime.now()")
+            )
+    return found
+
+
+def test_no_test_asks_the_machine_what_day_it_is() -> None:
+    """**The server's "today" is the child's, not the runner's, and a test must ask the same one.**
+
+    This is the sibling defect to the one above, and it cost a CI failure on Aug 18, 2026 that was
+    blamed on an unrelated rename. `test_guardians.py` fetched a board with
+    `?date=dt.date.today()` — the runner's local date — while `routers/today.py` computes
+    `local_today` in the child's `family_timezone` and only calls `ensure_day_filled` when the two
+    agree, because `?date=` is a debugging override and a read endpoint must not mint rows for an
+    arbitrary day.
+
+    Between 00:00 and about 04:00 UTC those disagree: UTC is already tomorrow while
+    America/Detroit is still yesterday. The day went unfilled, the board came back empty, and the
+    suite failed for **four hours a day** and passed the other twenty. Every developer here runs
+    US-Eastern, where the two never disagree, so it was invisible locally and looked like whatever
+    had landed most recently.
+
+    A green run says nothing about which branch it took, which is the same argument the guard
+    above makes about future dates. Ask for the real thing — omit `?date=` — or compute the date
+    the way the server does, with `services.dates.local_date` and the child's zone.
+    """
+    offenders: list[str] = []
+
+    for path in sorted(TESTS.rglob("*.py")):
+        if path.name == Path(__file__).name:
+            continue
+        source = path.read_text(encoding="utf-8")
+        lines = source.splitlines()
+        for start, end, call in _machine_clock_calls(ast.parse(source)):
+            span = "\n".join(lines[start - 1 : end])
+            if MACHINE_CLOCK_MARKER in span:
+                continue
+            offenders.append(f"{path.name}:{start}: {call} — {lines[start - 1].strip()}")
+
+    assert offenders == [], (
+        "These read the machine's clock, which is not the clock this service uses. The server "
+        "computes every date in the child's family_timezone, so a test that asks the runner what "
+        "day it is passes wherever those agree and fails where they do not — four hours a day, on "
+        "a UTC runner. Omit `?date=` and let the endpoint answer, or use `local_date` with the "
+        f"child's zone. If reading the runner's clock is genuinely the point, mark the line "
+        f"`# {MACHINE_CLOCK_MARKER} <why>`.\n" + "\n".join(offenders)
     )
