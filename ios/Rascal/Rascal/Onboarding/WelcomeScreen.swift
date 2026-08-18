@@ -28,10 +28,11 @@ struct WelcomeScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer()
 
-                Text("VELLUM")
-                    .typeRole(.label)
-                    .tracking(2.6)
-                    .foregroundStyle(Color.ink)
+                // **The drawn wordmark, not the word set in caps.** `Text("VELLUM")` stood here
+                // and was the one string a case-sensitive rename could not see — it is also the
+                // only place in the app where the name is a logo rather than a sentence, which
+                // is exactly why it should not be type at all.
+                WordmarkView(width: 104)
                     .accessibilityAddTraits(.isHeader)
 
                 Text("Let's save today before it's gone.")
@@ -96,7 +97,7 @@ struct WelcomeScreen: View {
                 OnboardingNotice(message: notice)
             }
 
-            Text("Your archive is tied to your Apple ID. There's nothing else to set up.")
+            Text("Whichever you choose, that's your way back in. There's nothing else to set up.")
                 .typeRole(.metadata)
                 .foregroundStyle(Color.inkMuted)
                 .multilineTextAlignment(.center)
