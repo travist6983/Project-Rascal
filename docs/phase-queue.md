@@ -7,13 +7,41 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 18, 2026 (phase 70)**. **The highest number used is
-75**, so a genuinely new phase takes **76** — ~~*"the highest number used is 73, so a genuinely
-new phase takes 74"*~~, which was true when written and stopped being true the same evening, and
-~~*"61 through 67 all went on Aug 17, so the next is 68"*~~ before it. **Measured off `main`, not
-off this file** — `git log main | grep -oiE 'phase [0-9]+'` puts 74 and 75 in history, and neither
-has a row in `roadmap-status.md` yet. That gap is the next person's to fill and is not phase 70's
-to invent.
+Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. **The highest number used is
+78**, so a genuinely new phase takes **79** — and **79 through 83 are already allocated**, and **each now has a row in
+`roadmap-status.md`** — which is the authority `CLAUDE.md` sends you to, and which carried the
+allocation nowhere for the first few hours it existed. **That gap was a fifth instance of this
+header's own failure waiting to happen**: a session obeying `CLAUDE.md` literally would read the
+ledger, see it stop at 78, and take 79 — colliding with work that is written and green. **An
+allocation recorded only in the queue is not recorded.** They go to a
+paired session building the four-prompt recording/sync/display-name pack: 79 and 80 and 81 iOS,
+**82 iOS and 83 API, split because that item crosses lanes and CI is path-scoped.**
+
+~~*"The highest number used is 75, so a genuinely new phase takes 76"*~~ — **struck Aug 18, 2026,
+and this is the fourth instance, not the third.** 76 and 77 merged (`3b6f832`, `0ad7f30`) and
+**78 is open as PR #129**, so a reader trusting that line would have collided with *two merged
+phases and one open pull request*. Before it: ~~*"the highest number used is 73, so a genuinely new
+phase takes 74"*~~, which was true when written and stopped being true the same evening, and
+~~*"61 through 67 all went on Aug 17, so the next is 68"*~~ before that, and *"…is 46, so a
+genuinely new phase takes 47"* at line 31 below.
+
+**The count inside this header was itself stale, which is the finding worth carrying.** The block
+below still opens *"Third time this header has been wrong"* — it was written when three had
+happened, and by not being re-counted it committed the very drift it exists to record. **A tally of
+your own failures is a figure like any other and rots like any other.**
+
+**The rule needed strengthening, not just the integer — the integer will rot again by morning.**
+This file's stated remedy was *"measure `main`, not this file"*, and **`main` alone would not have
+saved anyone this time**: 78 is real, is taken, and is not on `main`. The measurement that works is
+all three at once, and it is what allocated 79–83:
+
+```
+git log --all --pretty=format:'%s%n%b' | grep -oiE 'phase [0-9]+'   # commits, every ref
+git for-each-ref refs/heads refs/remotes | grep -oiE 'phase-[0-9]+'  # branch names
+gh pr list --state all --limit 200 --jq '.[].title'                  # open PRs included
+```
+
+**A number is taken the moment a branch or a PR carries it, not when it merges.**
 68 unblocked the sprint, 69 built the daily broadcast, 70 went to the icon and wordmark work,
 71 and 73 are the two halves of the Vellum rename, and 72 was the false-claims sweep. 67 closed
 the App Store deletion blocker that 65 found; the universal-link surface took 59; **60 was the
@@ -61,7 +89,7 @@ server answers**, because nil is not zero; and an **empty archive shows nothing*
 zeros. Those last three are recorded in `settings-v2-inventory.md` where D1 and D12 were dropped.
 
 **Answered Aug 12, 2026** and written into `docs/decisions.md`, which is the authority for all of
-these — **the app is called `Dogear`**, tokenise all 113 prompts, letter-on-any-day is
+these — **the app is called ~~`Dogear`~~ `Vellum`** (superseded Aug 17, 2026 by the owner; `decisions.md:115` is the settled row and this line was left saying the dead name for a day after the rename shipped in both lanes), tokenise all ~~113~~ **133** prompts — phase 25 added twenty photo bodies on Aug 14 and `mission-library.md` has said 133 since — letter-on-any-day is
 freeform-plus-seal with the age asked only once sealing is chosen, a seal is always editable, the
 kind chip takes `periwinkleDeep` in all three places, sage stays below AA as a recorded exception,
 multi-kid is in scope and prioritised, per-entry visibility gets designed now, and paper grain
@@ -105,7 +133,18 @@ iOS build, and it is the one nobody here can do.
 - Run a **restore drill**. The machinery is tested; the act has never been performed. Use the
   pinned Postgres 16 binaries — a 17 client writes a dump 16 will not take back.
 
-## Verification backlog — 460 boxes, and the only instrument that reads what tests cannot
+## Verification backlog — 467 boxes, 93 ticked, **374 open**, and the only instrument that reads what tests cannot
+
+**Recounted Aug 18, 2026, and the headline moved for the first time.** ~~*460 boxes*~~ was right when
+written; it is 467 now because phase 79 added seven to the transcription list. **93 are ticked** —
+and 84 of those were ticked on Aug 18 by the owner, on a device, in commit `d99204d` (*"notes
+update"*). **That work was invisible to every status document in this repo until this recount**,
+which is the same failure this file records about phase numbers, arriving from the other
+direction: not work claimed and not done, but **work done and not claimed.**
+
+Count them with `grep -cE '^\s*-? *\[[ xX]\]'` for the total and `\[[xX]\]` for the ticked. **A
+`grep '\[ \]'` counts only the unticked ones and will tell you the backlog is shrinking when it is
+not** — that mistake was made once during this very recount.
 
 Run in this order. Details and the "why here" for each are in `roadmap-status.md`.
 
@@ -117,10 +156,19 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 - `device-verification-share-extension.md` — 45 boxes. The only one with a number to write down.
 - `device-verification-today-v2.md` — 44. Swipe-to-skip has never been swiped. **§8 is new** —
   two children on one board.
-- `device-verification-settings.md` — 87. Longest; §0 is five minutes. **§8a and §8b are new** —
-  the stats strip and adding a child both shipped after this list was written.
+- ~~`device-verification-settings.md` — 87. Longest; §0 is five minutes.~~ — **84 of 87 ticked on
+  Aug 18, 2026 by the owner. Three boxes left, and they are specific rather than "finish the
+  file":** `:78` interrupt an export by enabling Airplane Mode mid-download, `:99` confirm
+  **Archive → Birthday** shows the same day as the row behind it, and `:213` §8a.3 cold launch
+  with Airplane Mode on — the stats strip **must not render at all**, because nil is not zero.
+  **This was the longest file in the backlog and is now the shortest thing left on it.**
 - The audio list in PR #22 — needs iOS 26+ and a quiet room. Prerequisite for transcription.
-- `device-verification-transcription.md` — 45. The one whose answer could invalidate a design.
+- `device-verification-transcription.md` — ~~45~~ **52**. The one whose answer could invalidate a
+  design. **§4a is new (phase 79)** — seven boxes on the screen going dark mid-recording. Two of
+  them expect opposite outcomes on purpose: the screen stays lit while **capturing** and locks
+  normally during **review playback**, because the wake lock is scoped to capture. The box that
+  matters most is the staged `.m4a` still existing after a return to the foreground — that one
+  was genuinely failing.
 - `device-verification-backfill.md` — 23. Needs a real camera roll, and **two children** — §3a is
   the silent one: a sibling's month used to count as covered, so this child was never offered it.
 - `device-verification-extraction.md` — 22. Needs Apple Intelligence hardware. **§4a is new.**
@@ -130,7 +178,7 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
   phase 33.** Measures how many photos already carry a written description; near-zero closes 33.
 - `device-verification-personalization.md` — 25. Same hardware gate as extraction.
 - `device-verification-moments.md` — 44.
-- `device-verification-push.md` — 32. §0–§3 mostly ticked Aug 12. Left: force-quit delivery, the
+- `device-verification-push.md` — 32, of which **9 are ticked** (§0–§3, Aug 12). Left: force-quit delivery, the
   sandbox row alongside production, all of §4–§7, and **§6a — the re-offer with a second child**,
   which is spent once and never comes back.
 - The sync-pull sequence — not a file: Settings → dry run → read the report → flip
@@ -140,9 +188,21 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
-- **Rename to `Dogear` — code is done, ~~three things left~~ two, and both are yours.** Shipped
-  Aug 12: display name on the app, widget and share extension (verified out of the built bundles,
-  not just the source), the onboarding wordmark, 13 in-app copy strings, the export viewer's
+- **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
+  **Three errors were live in this bullet until Aug 18, 2026, and they compounded.** *(i)* It was
+  headed **`Dogear`**, a name superseded on Aug 17 (`decisions.md:115`) and renamed out of both
+  lanes as phases 71 and 73. *(ii)* It said the display name shipped on *"the app, widget and share
+  extension"* — **that is three, and there are four**, because the app carries both `Info.plist` and
+  `Info-Debug.plist`; `roadmap-status.md`'s phase 73 row has this right, and the same off-by-one is
+  in a source comment at `RascalShare-Info.plist:22`. *(iii)* Its *"verified out of the built
+  bundles, not just the source"* was performed **Aug 12, against a name that has changed twice
+  since**, so the strongest-sounding clause in the bullet was the most stale — **a verification is
+  only as current as the thing it was run against, and this one outlived two renames.** All four
+  bundles read `Vellum` in source today, and `project.pbxproj` sets no
+  `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a stale
+  install rather than a source defect** — a distinction that cost another session a retracted
+  finding on Aug 18. Shipped Aug 12 and re-verified in source Aug 18: the display name on all four
+  bundles, the onboarding wordmark, 13 in-app copy strings, the export viewer's
   titles and the download filename. ~~**Left: the app icon** (a design asset)~~ — **the icon
   shipped Aug 16 as phase 47**, and it was never really a rename item: the mark carries no word,
   so it was decidable before the name and would not have changed after it. **Left: the App Store
@@ -203,16 +263,7 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   screen. **Merged and invisible** is the honest description.
 - **No real email has ever been sent.** `MAIL_PROVIDER` is `console` everywhere; Postmark has
   never been called, so the magic link is proven as logic and unproven as mail.
-- **60 — `POST /v1/subscribe`, and Resend replaces Postmark on both lanes.** API lane. Server-side
-  Turnstile verification that **fails closed**, CORS allowlisted to the marketing origin, a Resend
-  client, and the `stream` argument (`marketing | transactional`) added to the existing
-  `services/mail.py` port — **not a second port beside it.** Retires `PostmarkProvider` and
-  repoints `auth.py` and `me.py`; cheap only because `MAIL_PROVIDER` has never left `console`, so
-  there is no delivery history or warmed domain to carry. **No template beyond the minimum double
-  opt-in needs, no `subscribers` table, and no scheduled send.** Per D7, D8, D8a and open item 12.
-  **Timing: the endpoint may ship before the P0 behavioural gate; no marketing email sends before
-  it.** Stated that way deliberately — *"nothing sends"* is already false, because phase 57's
-  magic-link path sends and is not gated on P0.
+- ~~**60 — `POST /v1/subscribe`, and Resend replaces Postmark on both lanes.**~~ — **shipped Aug 17, 2026; line deleted per this file's own rule that a queue line goes when it is done.** The specification it carried is preserved in `roadmap-status.md`'s phase 60 row, which is where the long form belongs. **Everything it specified landed as specified**, including the two things most likely to have drifted: the `stream` argument went onto the existing `services/mail.py` port rather than beside it, and **no `subscribers` table was created** — the list is provider-held per open item 12(4).
 - **The marketing site itself — `Rascal-Marketing`, a different repository, so it takes no phase
   number here.** GitHub Pages custom domain with **Enforce HTTPS**, CSP via `<meta http-equiv>`
   (the header set is fixed on this host — an accepted exception, D7), the signup form, and the
@@ -293,11 +344,10 @@ reports; these are only the things somebody has to *do*.
 - **Owner: write down the trademark check you say you ran** — where you looked and what you
   found, one line. Open item 15. You answered *"already checked — it's fine"* on Aug 18; the repo
   holds the assurance but not the evidence, and only the second kind is auditable later.
-- **Re-capture the marketing site's onboarding screenshot** once phase 73 merges. The old wordmark
-  is baked into its pixels and cannot be fixed from the marketing repo.
+- **Re-capture the marketing site's onboarding screenshot** — ~~once phase 73 merges~~ **73 merged Aug 18, 2026, so this is unblocked and waiting on a build.** The old wordmark is baked into its pixels and cannot be fixed from the marketing repo. **It needs a fresh capture from a build carrying the phase 77 wordmark**, which means it is gated on the same iOS build everything else here is gated on.
 - **Exercise `POST /v1/subscribe` end to end once**, from the real GitHub Pages origin, to confirm
   CORS and a real Turnstile verification. Never yet done against the deployed API.
 - **Run the daily broadcast once with `--date` against an audience of one** before it ever runs for
   the list. The Resend Broadcasts API has never been called.
-- **A Fly scheduled machine for `python -m rascal.jobs.broadcast`**, once the above is verified.
+- **A Fly scheduled machine for `python -m rascal.jobs.broadcast`**, once the above is verified. **The invocation is now written down** — `runbook-deploy.md` §4d, added Aug 18, 2026, along with why this is the one machine that must not be armed before the P0 gate. **And a second machine is missing that nothing here was tracking: `python -m rascal.jobs.delete`** (§4c). That one has no gate and no reason to wait — **without it a parent who asks to be forgotten is never forgotten**, the API stays green throughout, and it is an App Store commitment rather than a feature.
 - **§0 device verification is still 0 of 45.** Unchanged by this sprint and still wants running.

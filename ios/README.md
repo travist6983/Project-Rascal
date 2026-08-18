@@ -33,7 +33,8 @@ only runs tests, which never touch the keychain.
 | **Entry detail** | `Timeline/EntryDetailScreen.swift` | One entry in full: media, the prompt that caused it, transcripts, metadata. Edit routes into the composer; delete is a soft delete. |
 | **Moments** | `Moments/` | This day in prior years, or a warm redirect when there is nothing. |
 | **Composer** | `Composer/` | Writing and capture, including backdating and edit mode. |
-| **Settings** | `Settings/` | Who the archive is for, which account holds it, the app version, and the way out. |
+| **Settings** | `Settings/` | Who the archive is for, which account holds it, the app version, and the way out. **Two surfaces added Aug 17, 2026 and missing from this row until Aug 18**: the **guardians** section (invite the other parent, see who has access, revoke a pending invite — phase 61) and **account deletion** (phase 67), which is its own card at the bottom because Apple requires the app to offer it and an endpoint alone satisfies nothing. |
+| **Invite acceptance** | `Guardians/` | Opening a `/invite/{token}` universal link — phase 62 — and tapping through to join a household, phase 63. Reachable without the app installed, so it is a cold-start entry point rather than a screen you navigate to. |
 | **Share sheet** | `RascalShare/`, `Rascal/Share/` | Capture from Photos without opening the app. A separate target: it copies bytes and a versioned record into the App Group and exits, and `ShareDrain` files them on the app's next launch or foreground. See below. |
 
 ## Three targets, and what each is allowed to do

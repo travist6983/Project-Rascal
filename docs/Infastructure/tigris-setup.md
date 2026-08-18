@@ -4,10 +4,22 @@
 it's Fly's native object storage, and RASCAL already deploys to Fly. It replaces section 3 of
 `docs/DEPLOY.md` (the AWS bucket) — not the whole document.
 
-**One blocker first.** The API cannot talk to Tigris today. `api/src/rascal/services/s3.py`
+> **⚠️ This document is a dated setup note (Aug 2026) and two of its instructions are now wrong.
+> Read `docs/runbook-deploy.md` first — it is the live procedure. Corrected Aug 18, 2026.**
+>
+> - **The blocker below is closed.** `services/s3.py:31` passes `endpoint_url=settings.s3_endpoint_url`.
+> - **Do not run the `fly secrets set` command in the §Fly section as written.** It sets
+>   `S3_REGION` and `S3_ENDPOINT_URL` as Fly *secrets*; both live in `api/fly.toml`'s `[env]`, and
+>   `runbook-deploy.md:108` says plainly *"You do **not** set `S3_REGION` or `S3_ENDPOINT_URL`
+>   yourself"*. A secret shadows the `[env]` value, so a stale one survives every deploy that fixes
+>   `fly.toml` — and a wrong `S3_REGION` is the failure where **the app starts, presigning
+>   succeeds, and every upload 403s**, which reads as a credentials problem for as long as you let it.
+
+~~**One blocker first.** The API cannot talk to Tigris today. `api/src/rascal/services/s3.py`
 builds its boto3 client with no `endpoint_url`, so every request goes to AWS regardless of what
 the credentials say. That's a small API-lane change, spelled out in step 1 below. Everything
-after it is configuration.
+after it is configuration.~~ — **closed: the change landed and the client is built with the
+configured endpoint.**
 
 Links:
 
@@ -153,11 +165,19 @@ Two of those deserve explanation:
 ```bash
 fly secrets set --app rascal-api \
   S3_BUCKET="<bucket>" \
-  S3_REGION="auto" \
-  S3_ENDPOINT_URL="https://fly.storage.tigris.dev" \
   AWS_ACCESS_KEY_ID="tid_…" \
   AWS_SECRET_ACCESS_KEY="tsec_…"
 ```
+
+**Corrected Aug 18, 2026 — two lines removed from that command.** It used to also set
+`S3_REGION="auto"` and `S3_ENDPOINT_URL="https://fly.storage.tigris.dev"` as secrets. **Both belong
+to `api/fly.toml`'s `[env]` and must not be set here**, per `runbook-deploy.md:108`: a Fly secret
+takes precedence over `[env]`, so setting them here means a later deploy that corrects `fly.toml`
+changes nothing and the wrong value outlives the fix.
+
+**Multipart is no longer excluded either** — `services/s3.py:82` and `:92` implement
+`create_multipart_upload` and `complete_multipart_upload`, so the note further down saying phase 2
+excludes video and therefore multipart is history rather than a limit.
 
 `fly storage create` already sets `AWS_ENDPOINT_URL_S3`, but the app reads `S3_ENDPOINT_URL`
 (the name in step 1), so set that explicitly rather than relying on Fly's variable name.

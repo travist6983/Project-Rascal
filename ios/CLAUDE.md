@@ -27,7 +27,7 @@ guessing, and prefer `ios/Fixtures/*.json` — real captured responses, refreshe
    something, it is a signal the something is out of scope.
 5. **Config comes from `Config.xcconfig` via Info.plist.** No hardcoded base URL, no
    hardcoded UUID, no `#if DEBUG let host = "..."` anywhere in Swift source. Read values
-   with `Bundle.main.object(forInfoDictionaryKey: "RASCAL_API_BASE_URL") as? String`.
+   with `Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String`. **The key is `API_BASE_URL`** — ~~`RASCAL_API_BASE_URL`~~, corrected Aug 18, 2026: that name appears nowhere in the built product. `Config.xcconfig.example:42` defines `API_BASE_URL` and `Info.plist:144` maps it through, so **an agent following the old spelling would have written a lookup that compiles, runs, and silently returns nil.**
 
    The chain is two text files beside `Rascal.xcodeproj` and no `project.pbxproj` edit:
    `Config.xcconfig` sets the values, `Info.plist` exposes them as `$(...)` references.

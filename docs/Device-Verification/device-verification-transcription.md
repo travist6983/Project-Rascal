@@ -10,7 +10,7 @@ this sentence was the only thing keeping phase 16 shut.**
 > **Owner-confirmed retrospectively, not agent-observed.** Nobody ran this checklist; this is one
 > reported observation, written down where the gate reads it.
 
-**No box below is ticked and the count is still 0 of 45**, deliberately. That single observation
+**No box below is ticked and the count is 0 of ~~45~~ 52**, deliberately — phase 79 added §4a's seven boxes on Aug 18, 2026. **And the file's scope grew before its boxes did**: every box here is about a voice note, the word *video* appears nowhere, yet phase 16 shipped video-audio transcription on Aug 17. **Nothing in this checklist exercises a video**, which is worth knowing before anyone reads a completed run as covering the feature. That single observation
 covers part of one of §0's five boxes and none of the other four — it says nothing about three
 recordings, about reading a transcript back against its audio, about whether names survive, or
 about whether it invents plausible sentences where he mumbled. **§0 still needs running**, and it
@@ -143,6 +143,48 @@ The whole point of rule 7 — the phone is an inference worker and its output ha
       vanish and it does not start a duplicate.
 - [ ] Put the phone in **Low Power Mode** and record another. Note what happens — this is
       unverified behaviour and worth writing down either way.
+
+## 4a. The screen going dark, and the take surviving it (phase 79)
+
+**Added Aug 18, 2026 for phase 79. Every box here is new and none has ever been ticked.** §4 covers
+the app being interrupted; this covers **the screen going off**, which is a different failure and
+was a real one: the recorder finalised the file exactly as promised and an unrelated foreground
+sweep deleted it two seconds later.
+
+**Read this before ticking anything, because two boxes below expect opposite outcomes.** The wake
+lock is scoped to **capture only**. While recording, the screen must stay lit. During **review
+playback** it must lock normally. A verifier who reads "screen stays lit" as the rule for both will
+tick a pass on the one case that is supposed to fail, so the two are kept apart on purpose.
+
+- [ ] **Auto-lock while recording.** Start a recording, set the phone down, and wait past the
+      Auto-Lock interval — set it to 30 seconds in iOS Settings first so this takes half a minute
+      rather than five. **The screen stays lit, the recording continues, and the elapsed time keeps
+      counting.**
+- [ ] **Side-button lock while recording.** Lock manually mid-recording, wait ten seconds, unlock
+      and return to the app. **The review scrubber is showing with the take loaded** — not a
+      capture screen sitting at 0:00 — and the take plays.
+- [ ] **Incoming call while recording.** Have someone call, answer it, hang up, return to the app.
+      Same expectation as the box above. **And the record button must not be offering to resume a
+      recording it cannot resume** — an offer that fails when taken is worse than no offer.
+- [ ] **Headphones unplugged mid-recording.** It **pauses** rather than carrying on out loud
+      through the speaker. A recording that continues on the built-in mic after the route changes
+      is a privacy surprise, not a convenience.
+- [ ] **Return to the foreground after any of the four above, and confirm the staged `.m4a` still
+      exists.** **This is the one that was failing, and it is the reason this section exists.**
+      A take gets no `Media` row until the composer saves it, and the staging sweeper treated any
+      row-less file as debris with no age guard while the sweep ran on *every* foreground — so a
+      finalised, correct recording was deleted by a different subsystem moments later. Phase 79 adds
+      a 24-hour grace window. **Check the take is still playable after backgrounding and returning,
+      not merely that the screen looked right.**
+- [ ] **Screen locks during review playback — and this one is expected to lock.** Load a take,
+      start playing it back, and leave the phone alone past the Auto-Lock interval. **It locks.
+      That is a pass.** The wake lock belongs to capture and deliberately does not extend here;
+      a screen that refuses to sleep while a recording plays is a battery complaint, not a feature.
+- [ ] Set Auto-Lock back to whatever it was.
+
+**What to write down:** for each of the four interruption cases, whether the take was reachable
+afterwards *and* whether it played — those are two different answers, and "the UI looked right" has
+already been wrong once here.
 
 ## 5. Search
 

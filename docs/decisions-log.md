@@ -3139,6 +3139,40 @@ are opposite sides of one choice; the static files and the header component sit 
 on purpose. Written into both files, because it is exactly the difference a later reader corrects
 into a bug.
 
+> **Struck the next day, and the paragraph is kept rather than deleted because the mistake in it
+> is the useful part.** *Motion and ground-independence are not opposite sides of one choice.*
+> They were opposite sides of **a static mask**, which was the only kind that had been tried, and
+> the write-up promoted an untested limit to a law. Give the mask's shapes the same class and the
+> same custom properties as the cards they mirror and one CSS rule moves both: the knockout tracks
+> the card and never has to know its ground. Corrected in phase 70a.
+>
+> **Applying it to the marketing site is what exposed it, and the site would have caught the stroke
+> version in production.** That masthead is `color-mix(in srgb, canvas 88%, transparent)` over a
+> `backdrop-filter`, so page content scrolls underneath and tints it continuously — no solid colour
+> a stroke could use stays right at every scroll position. Cream is correct at the top of the page
+> and a visible halo over a photograph twenty pixels later: a defect that appears only once
+> somebody scrolls, which is the kind that ships.
+>
+> **The general form is worth more than the fix.** A limit found while building one thing is a
+> property of that build until it has been attacked separately. Writing it down as a law makes it
+> permanent, and *another agent recorded this one in the marketing repo's brand notes on the
+> strength of this paragraph* — a false claim propagating across two repositories inside a day, on
+> nothing but confident phrasing.
+>
+> **And it went both ways the same day, which is the part that makes it a mechanism rather than a
+> lapse.** That agent gave a reason for keeping the site's footer tagline as text — that it was the
+> only place the product name reached the Markdown twins — and it was invented; the twins are
+> rendered from the page body and have never contained the footer. I wrote that reason into
+> `footer.html` in good faith because it sounded like something already checked. So each of us
+> planted a confident false reason in the other's repository, and **neither of us caught our own.
+> Each caught the other's.** The advice was right in both cases; only the reasons were fabricated,
+> which is what let them travel.
+>
+> **Both claims had the same tell: each one explained why something was impossible.** That is the
+> class of statement that most deserves a second look and least often gets one, because it closes a
+> question rather than opening one — nobody re-derives a dead end. Worth reading twice whenever a
+> note says a thing cannot be done.
+
 **The mask also had to be hung on an untransformed wrapper.** `maskUnits="userSpaceOnUse"`
 resolves against the referencing element's own user space, so a mask on the rotated card group
 interprets its coordinates inside that card's rotated frame. It renders as one solid silhouette
@@ -3167,3 +3201,65 @@ session — records that no clearance search has been run. Both accounts now sta
 disputed rather than as fact. **The chosen icon bakes the wordmark into pixels**, so the cost of
 the name being wrong went up with this phase rather than down. That is an argument for settling
 item 15, not for reopening the icon.
+
+## Aug 18, 2026 — three phases that shipped without a log entry, backfilled
+
+**`CLAUDE.md` says judgment calls go here, one line each. Phases 66, 69 and 75 made several and
+wrote none** — found by a docs audit on Aug 18, two days after the fact. Backfilled from the commits
+and the code rather than from memory, and recorded as backfill so nobody reads them as contemporaneous.
+
+### Phase 66 — deleting an account (Aug 17, 2026)
+
+- **A deletion request is stored with its own `execute_after`, not computed from a constant.** A
+  request made under a seven-day policy runs on the terms it was made under, however the constant
+  moves later. The alternative — `requested_at + CURRENT_POLICY` — silently re-dates every pending
+  request the day somebody edits a number.
+- **There is no `completed_at`, and the absence is the design.** A completed deletion has no row: it
+  cascades away with the user, so a column recording completion could never hold a value.
+  **Completion is the row being gone**, which is also the only record consistent with having been
+  asked to forget somebody.
+- **This is the one place in the service that hard-deletes user data, breaking rule 5 on purpose.**
+  Soft deletes exist so a client can learn a row went away; there is no client left to tell, and a
+  `deleted_at` on an erasure would be the service keeping exactly what it was asked to stop keeping.
+  `CLAUDE.md` rule 5 now records the exception rather than being quietly violated by it.
+- **`entries.author_id` became nullable with `ON DELETE SET NULL`** rather than cascading. A departing
+  parent's entries belong to the child's archive, not to the parent — deleting an account must not
+  delete the record of the childhood it was keeping. **This is a schema change made for a deletion
+  feature that mostly matters to everything else.**
+- **One pending request per user, by partial unique index** on `(user_id) WHERE cancelled_at IS NULL`.
+  A plain unique would forbid asking again after a cancellation, which is a state a parent can
+  genuinely reach.
+
+### Phase 69 — the daily broadcast, with the send withheld (Aug 17, 2026)
+
+- **`MARKETING_EMAIL_ENABLED` is deliberately separate from the mail credentials.** Configuring
+  `MAIL_API_KEY` so that `POST /v1/subscribe` works must not also start mailing strangers. Two
+  switches because they answer two questions, and conflating them is how a configuration step
+  becomes a send.
+- **The ledger holds no recipient, and a test asserts no column here is ever named for a person.**
+  A per-subscriber table would be the mailing list in our database under another name, and the
+  privacy page published the same day says we hold no copy.
+- **The copy is generated to YAML rather than parsed at runtime, because `docs/` is not in the
+  Docker image.** Fly builds from `api/` and the Dockerfile copies `src`, `alembic` and `seeds`, so
+  a loader pointed at `../docs/` passes every test on a laptop and raises `FileNotFoundError` on the
+  first scheduled run. **The failure mode is what made the decision, not the tidiness.**
+- **One row per `send_date`, enforced by a unique index rather than by the job remembering.** A
+  retried machine or a nervous hand-run reports the day already done and exits 0.
+
+### Phase 75 — a test guard for the machine clock (Aug 17–18, 2026)
+
+- **The guard is AST-based rather than textual, and that choice is the whole phase.** A grep over the
+  source would flag the comment in `test_guardians.py` explaining why the offending call was removed
+  — the explanation would be reported as the defect. **A rule that punishes writing down why is a
+  rule people route around.**
+- **`# machine-clock: <why>` is an earned escape hatch**, because a test genuinely about the runner's
+  clock is legitimate and one using it as a stand-in for the child's date is a bug. The guard cannot
+  tell those apart; a human writing a reason can.
+- **It lives in `test_fixture_dates.py` beside the future-date guard** because it is the same
+  argument: **a green run says nothing about which branch it took.** One file catches a date drifting
+  toward the clock; the other catches a date read from the wrong clock entirely.
+- **The bug it exists to prevent failed for four hours a day and passed the other twenty**, and every
+  developer here runs US-Eastern where the two clocks never disagree — so it was invisible locally
+  and got blamed on whatever had landed most recently, which was a rename that touched no scheduling
+  code at all. **A test that is flaky by timezone reads as a flaky test, and the last commit takes
+  the blame.**

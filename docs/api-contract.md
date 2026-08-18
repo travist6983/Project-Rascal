@@ -14,7 +14,7 @@ plus the **unbuilt** `POST /v1/subscribe` specified for phase 60.
 
 **`GET /health`** → `{ "status": "ok", "db": "ok" }`
 
-Unauthenticated. The only route outside `/v1`. Fly's health check hits this; it touches
+Unauthenticated. ~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Fly's health check hits this; it touches
 the database so a green check means the app can actually serve.
 
 ---
@@ -860,7 +860,7 @@ Single presigned PUT under ~15MB; presigned multipart above that. Video always a
 
 **`POST /media/{id}/complete`**
 Body: `{ etags?, captured_at, duration_seconds? }`
-Server marks `upload_status = complete`, kicks off thumbnail and poster-frame generation.
+Server marks `upload_status = complete`. ~~kicks off thumbnail and poster-frame generation~~ — **nothing is kicked off, and nothing ever has been.** `thumb_key` stays null; thumbnail and transcode pipelines are named out of scope in `CLAUDE.md` and were cut from P0 in `decisions.md`. **Struck Aug 18, 2026** — a client written from this line would have waited for a thumbnail that is never coming.
 
 **`GET /media/{id}/url`**
 → `{ media_id, url, expires_in }`
@@ -1003,7 +1003,7 @@ Returns entries from this month/day in prior years, grouped by years-ago. If emp
 }
 ```
 
-Every entity carries `updated_at` and `deleted_at`. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record.
+Every entity carries `updated_at`. **Three of the four carry `deleted_at` — entries, media and tags; `assignments` does not**, and does not need one, because nothing deletes an assignment: they expire by `status`, which the client already reads. Deletions arrive as rows, never as absences — a client can't infer a delete from a missing record. *(Corrected Aug 18, 2026; the line said "every entity" and `SyncAssignment` has never had the field.)*
 
 **The response is a page.** `limit` caps each of the four collections independently — default
 500, maximum 2000 — and `has_more` is true while *any* of them was cut. Keep calling with the
@@ -1116,7 +1116,7 @@ client does, at the last moment before a human sees the sentence. A body pre-ren
 could not be re-rendered when the answer changes, and the same body reaches a phone, a browser
 client, an export and a printed book.
 
-Fourteen tokens, one dictionary, no logic. Settled Aug 11, 2026 — see `docs/decisions.md`.
+Thirteen tokens, one dictionary, no logic. Settled Aug 11, 2026 — see `docs/decisions.md`. **This line said *fourteen* until Aug 18, 2026**; the table below, `constants.PROMPT_TOKENS` and the iOS `knownTokens` have always held thirteen. A client written against the old count was never wrong on the wire — the number was decoration and the table is the contract.
 
 | Token | he/him | she/her | they/them | null |
 |---|---|---|---|---|
@@ -1144,8 +1144,13 @@ permanent archive cannot hold text that is only usually grammatical.
 
 Three invariants every implementation must satisfy, and they are assertions rather than intentions:
 
-1. Text containing no tokens passes through **byte-identical** — the 113 seeded prompts are literal
-   he/him, contain no braces, and are never rewritten.
+1. Text containing no tokens passes through **byte-identical**. ~~the 113 seeded prompts are literal
+   he/him, contain no braces, and are never rewritten~~ — **struck Aug 18, 2026: that inverted on
+   Aug 13.** Phase 24 tokenised the library and phase 25 grew it to **133**; the seed loader now
+   *rejects* a body containing anything outside `constants.PROMPT_TOKENS`, and zero seeded bodies
+   carry a literal `he/him/his`. The invariant itself is unchanged and still holds — **token-free
+   text passes through untouched** — but the example it leaned on is now the opposite of the truth,
+   and a reader who took it literally would conclude the renderer is never exercised in production.
 2. A null pronoun renders the **they/them** column.
 3. An unknown token renders **literally, braces included**, and does not throw. `{foo}` stays
    `{foo}`: a visible bug is fixable, a silently dropped word is not even discoverable.
@@ -1228,8 +1233,12 @@ permitted — a refusal a deploy can see — rather than a wildcard nobody notic
 `source` names the page or campaign and reaches a log line only; the contact belongs to Resend.
 
 
-**This endpoint does not exist.** It is not implemented, routed, or callable; this records the
-shape phase 60 will build. The decisions are D7, D8 and D8a in `docs/decisions.md`, and open item
+~~**This endpoint does not exist.** It is not implemented, routed, or callable; this records the
+shape phase 60 will build.~~ — **struck Aug 18, 2026: phase 60 built it on Aug 17.**
+`POST /v1/subscribe` is implemented in `routers/subscribe.py`, mounted, and callable, with Turnstile
+verified server-side and the list held at Resend. **It is the one route in the service with no rate
+limit**, by the owner's call of Aug 16 recorded in open item 12(1) — Turnstile is the whole
+protection there and it fails closed. The decisions are D7, D8 and D8a in `docs/decisions.md`, and open item
 12 records what is deliberately still unanswered.
 
 **`POST /v1/subscribe`**

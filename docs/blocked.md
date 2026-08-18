@@ -991,17 +991,26 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   `docs/prompt-candidates/` and the *Prompt candidates* workflow opens a PR with them. A
   branch with a diff is already an accept/reject interface with a comment thread, an audit
   trail, and an undo.
-- **`POST /children/{id}/guardians`.** P2 in the contract, and the guardian invite flow is
-  out of scope. The `guardians` table, both roles, and the whole authorization path are
-  built and tested — a viewer reads and cannot write, and a revoked guardian is refused
-  everywhere. Only the invite mechanism is missing.
+- ~~**`POST /children/{id}/guardians`.** P2 in the contract, and the guardian invite flow is
+  out of scope. … Only the invite mechanism is missing.~~ — **struck Aug 18, 2026. Phase 36 built
+  the invite mechanism on Aug 17, and the route named here never existed at all.** Guardians are
+  invited through **`POST /families/me/invites`**, because an invite belongs to the *household*
+  rather than to one child: a second parent joins a family and gets every child in it. Phase 72
+  struck the child-scoped route from `api-contract.md` for the same reason. The rest of this bullet
+  was accurate and is now simply history.
 - **Thumbnails and poster frames.** `POST /media/{id}/complete` marks the row and leaves
   `thumb_key` null. The column exists and clients already handle it being null, so the
   pipeline slots in later with no schema or contract change.
 - **The `ORDER BY random()` scan in the moments fallback.** Fine at 100 entries, worth
   revisiting at P1.
-- **Transcribing the audio track of a video.** Cut from the transcription phase rather than
-  shipped shaky. The roadmap asks for it and `AVAudioFile` plausibly opens an MPEG-4
+- ~~**Transcribing the audio track of a video.** Cut from the transcription phase rather than
+  shipped shaky.~~ — **struck Aug 18, 2026: phase 16 shipped it on Aug 17**, and it did not need the
+  device checklist run first. **The premise below was false and that is the interesting part**: a
+  diagnostic handed `AVAudioFile(forReading:)` a real H.264 + AAC mp4 and it opened it, reading
+  22050 frames at 44.1 kHz mono — Core Audio reads the track straight out of the container, so the
+  separate-export machinery this bullet anticipated was built for a problem that does not exist. What
+  the premise *had* been hiding: a video with **no** audio track fails to open, which would have
+  burned a silent clip's whole six-attempt retry budget over hours. Original text kept below. The roadmap asks for it and `AVAudioFile` plausibly opens an MPEG-4
   container's audio track — but *plausibly* is the whole problem: nothing in this environment
   can run a single real transcription, so a second input path would be unverifiable on top of
   an already unverified first one. It is also the expensive one, because a backlog video has
@@ -1200,8 +1209,13 @@ it is recorded here rather than fixed across lanes.
 
 ## Phase 16 (video audio tracks) — **not blocked. Unrecorded.** (rewritten Aug 16, 2026)
 
-**Nothing stands in front of this phase.** No credential, no platform gap, no design question. It
-is unstarted, and the only thing holding it is a document that disagrees with the world.
+**Nothing stands in front of this phase.** No credential, no platform gap, no design question.
+~~It is unstarted~~ — **and as of Aug 17, 2026 it is shipped**: phase 16 landed as `b5eaa1c` (PR
+#116), `ios/Rascal/Rascal/Media/VideoAudioTrack.swift`. **This section is kept because its diagnosis
+was right and its premise was wrong**, which is a more useful record than a deleted heading: the
+thing holding the phase really was *a document that disagrees with the world*, and when somebody
+finally ran the code, the document was wrong in the other direction too — the separate audio export
+everyone had specified around turned out to be unnecessary.
 
 **The transcriber works, and it has been seen working.** Owner, Aug 16, 2026: `SpeechAnalyzer` has
 produced a real transcription on a real device, on a build from that day, and the output was
@@ -1731,3 +1745,53 @@ local `.env` went through a chat transcript and **has not been rotated** — con
 Aug 18, 2026. It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but a key that has
 been through a transcript is not a key. Rotate it before step 3 rather than after, so the key that
 reaches Fly is the one that was never exposed.
+
+---
+
+## §14 — `entry_type` is provisional for as long as an upload is, and permanent if the upload dies (Aug 18, 2026)
+
+**Not blocked, not a bug report, and not an errand. It is a contract question that needs one
+decision, and it is API-lane.** Raised by the iOS lane during phase 80, verified against `main`
+here before being written down.
+
+**What is true today.** `plan_upload` (`api/src/rascal/services/media.py:79-87`) inserts the server
+side `Media` row with `upload_status="pending"` and **does not** call `refresh_entry_type`. The
+recompute happens only in `complete_upload` (`:175`), whose comment says exactly what it is doing:
+*"The entry's type was provisional until now."* So between planning an upload and completing it,
+an entry that has a recording attached is still typed `did_it` — outside the Voice filter, outside
+the Photos filter, and described as an entry with no artifact while the bytes sit on the phone.
+
+**The window is normally short and self-healing**, and an earlier version of this finding claimed
+it was permanent for every offline entry — that was wrong and was retracted before it reached this
+page. `complete_upload` does recompute, `api/tests/test_media.py:345` asserts it
+(`test_completing_an_upload_turns_a_did_it_entry_into_a_media_entry`), and the phone re-reads the
+type on the next successful fetch.
+
+**The part that is real: an upload that never completes never closes the window.**
+`MediaCoordinator.finishUpload` exhausts its backoff ladder and sets `media.state = .failed`
+(`ios/Rascal/Rascal/Media/MediaCoordinator.swift:220`). `POST /media/{id}/complete` is then never
+called, `refresh_entry_type` never runs, and **the entry stays `did_it` for the life of the
+archive** — with a recording that exists, on a phone, that no filter will ever surface.
+
+**The change that would close it, and why it is a decision rather than a fix.** `plan_upload` could
+call `refresh_entry_type` at insert time. `derive_entry_type` (`services/entries.py:311`) does not
+filter on `upload_status` — its first rule is *"Media attached → the media kind"* — so it would
+already answer `audio` for a pending row, with no change of its own. **But that makes `entry_type`
+describe a row whose bytes are not in storage yet**, and possibly never will be. That is a change
+to what the column means, and `data-model.md` is authoritative about it, so it wants a decision
+rather than a patch. The two shapes:
+
+1. **Recompute at plan time.** The type tells the truth from the first moment the server knows a
+   recording exists. Cost: a `GET /entries?type=audio` can return an entry whose media 404s at the
+   URL step, and a Voice filter can show a take that never arrives.
+2. **Leave it at complete time and heal the dead-upload case another way** — a sweep that retypes
+   entries whose media has been `pending` beyond some age, or a client that stops trusting the
+   server's type for this question.
+
+**The client half is already done and does not wait on this.** Phase 80 made the detail screen
+prefer local staged bytes over the server's type, so *"Nothing was recorded"* can no longer appear
+over a recording that exists. **That is the right division and it is worth stating: the screen
+should not have been trusting the server's type here in the first place.** This item is only about
+whether the *server's* answer should also be right.
+
+**Whoever takes this owns the `data-model.md` sentence too**, not just the call site.

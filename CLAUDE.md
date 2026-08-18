@@ -32,7 +32,13 @@ scoped by path so a commit in one lane never runs or deploys the other.
    may assume an entry has media. "Get on the floor for ten minutes" is a complete,
    legitimate entry with no artifact.
 5. **Soft deletes and `updated_at` on every user-data table.** Deletions sync as rows with
-   `deleted_at` set, never as absences.
+   `deleted_at` set, never as absences. **One deliberate exception, added by phase 66 on Aug 17,
+   2026: account deletion hard-deletes.** A request sits in `deletion_requests` for seven days and
+   then the user's data is destroyed, because a soft delete on an erasure would be the service
+   keeping exactly what it was asked to stop keeping — and there is no client left to tell. The
+   exception is documented in `data-model.md`'s `deletion_requests` section and is the only one;
+   **every other table still obeys this rule, and adding a second exception is a decision, not a
+   precedent you already have.**
 6. **Plain JSON over HTTPS.** No Swift-specific serialization anywhere in the wire format. A
    browser will consume this API in 2027.
 7. **On-device AI output is durable data.** `PATCH /media/{id}/derived` persists transcripts
@@ -57,7 +63,7 @@ scoped by path so a commit in one lane never runs or deploys the other.
 - `dev-login` and every `/debug/*` route are registered only when `ENVIRONMENT == "local"`.
 - Prompts are seeded from `api/seeds/prompts.yaml`. `docs/mission-library.md` is the
   authoring surface; runtime never parses markdown.
-- **The seeded library is tokenised.** All 113 bodies carry the pronoun tokens as of phase 24;
+- **The seeded library is tokenised.** All **133** bodies carry the pronoun tokens — 113 were tokenised in phase 24 and phase 25 added twenty more already tokenised, so *"113"* has been the wrong count since Aug 14, 2026;
   `constants.PROMPT_TOKENS` is the list and the seed loader rejects a body containing anything
   else. Never write copy that assumes a child's gender — client-side strings are neutral too and
   stay that way. Edit `docs/mission-library.md` and regenerate; never touch `prompts.yaml` by
@@ -73,10 +79,18 @@ pytest-asyncio + httpx · ruff · Fly.io.
 
 ## Out of scope for the API lane — stop if you find yourself designing one
 
-Swift or iOS code (that is the other lane, not this one), push notifications, full-text
-search, thumbnail or transcode pipelines,
+Swift or iOS code (that is the other lane, not this one), thumbnail or transcode pipelines,
 LLM prompt generation, the admin prompt review queue, multi-kid UI concerns, observability
 beyond structured logging.
+
+~~*push notifications, full-text search*~~ — **both removed from this list Aug 18, 2026, because
+both are built and served in `api/`.** Push: `services/notifications.py`, `jobs/notify.py`, the
+`devices` and `notification_sends` tables, and a scheduled machine that has delivered to a real
+locked phone. Full-text search: migration `0004_full_text_search`, the generated `search_vector`
+columns on `entries` and `media`, two GIN indexes, and `GET /entries?q=` which the contract
+documents as *"full-text search over title, body, caption, and transcript"*. **An out-of-scope
+list that names shipped subsystems is worse than no list**: it reads as permission to remove
+working code, and it is the sentence an agent quotes when it deletes something.
 
 **Rate limiting is out of scope for routes that only touch the caller's own data, and
 required for any route that can reach somebody else.** A signed-in parent hammering their own

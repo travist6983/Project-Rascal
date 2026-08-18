@@ -155,7 +155,7 @@ sentence is printed somewhere.
 
 Larger than it looks, and the object-storage half is why:
 
-1. **An S3 delete path that does not exist** — `services/s3.py` gained presign and nothing else.
+1. ~~**An S3 delete path that does not exist** — `services/s3.py` gained presign and nothing else.~~ — **built the next day: `services/s3.py:104` is `delete_objects(keys: list[str], ...)`, added by phase 66 on Aug 17, 2026. This was the investigation's own prediction of what deletion would need, and it needed exactly that.**
    Deleting a child's media means enumerating keys and deleting them, with the 30-day soft-delete
    window as the net. **Phase 38 needs this too**, independently.
 2. **A deletion request record**, so a grace period is a state rather than a job nobody can see.

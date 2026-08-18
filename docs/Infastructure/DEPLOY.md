@@ -206,8 +206,12 @@ If any step fails the workflow goes red with a message naming the likely cause.
 
 ### First deploy: two things afterwards
 
-**Seed the mission library.** The prompts table is empty on a fresh database, and the
-scheduler with an empty library assigns nothing:
+**Seed the mission library.** ~~The prompts table is empty on a fresh database~~ — **no longer a
+manual step, as of the deploy-workflow change: the seed runs in `fly.toml`'s `release_command` on
+*every* deploy** (`release_command = "sh -c 'alembic upgrade head && python -m rascal.jobs.seed'"`),
+so the library reconciles itself with the file each time. The command below still works and is
+still the way to run it by hand, and it is idempotent. **Expect `133` in the library, not 113** —
+phase 25 added twenty photo bodies on Aug 14, 2026. Corrected Aug 18, 2026. The original note:
 
 ```bash
 fly ssh console --app rascal-api --command "python -m rascal.jobs.seed"
@@ -244,8 +248,19 @@ timezone, evening in half the world, and an hour adrift after every DST change. 
 job fires every hour and does work only for the children for whom it is currently 5am on the
 wall. Twenty-three of the twenty-four firings find nobody, log that, and exit.
 
-After a deploy that changes scheduler behaviour, the scheduled machine is still on the old
-image. Destroy and recreate it:
+> **⚠️ Do not follow the destroy-and-recreate instruction below as a routine step. Corrected
+> Aug 18, 2026.** `docs/runbook-deploy.md` §5 and §9 record this exact instruction as the cause of
+> a recurring outage class: a hand-recreated machine is easy to recreate *wrong* — dropping
+> `--command`, so it silently runs a second copy of uvicorn hourly instead of the job, or dropping
+> the `--env` flags, so it dies on `s3_region Field required` before doing any work. **The deploy
+> workflow now moves any machine with a non-empty `schedule` onto the deployed image**, which is
+> the fix for the underlying problem and means the manual dance is not needed after an ordinary
+> deploy. Recreate only when the job's *command* changes, and copy the full invocation from
+> `runbook-deploy.md` rather than from memory. **There are also four scheduled machines now, not
+> one** — `scheduler`, `notify`, `delete` and `broadcast`; this document knows only about the first.
+
+~~After a deploy that changes scheduler behaviour, the scheduled machine is still on the old
+image. Destroy and recreate it:~~
 
 ```bash
 fly machine list --app rascal-api
