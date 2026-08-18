@@ -16,7 +16,7 @@
 	     sheet's row of app icons, and `$(PRODUCT_NAME)` resolves to the target name — "RascalShare"
 	     — which is a build artefact's name, not a product's.
 
-	     **The name decision closed on Aug 12, 2026: the app is Vellum.** This comment used to say
+	     **The name closed on Aug 12, 2026 as Dogear and changed to Vellum on Aug 17, 2026.** This comment used to say
 	     it was one of the places that would have to change when it did, and the widget gallery was
 	     named as the first. Both are done, and the app now carries an explicit
 	     CFBundleDisplayName of its own rather than falling back to CFBundleName. All three read

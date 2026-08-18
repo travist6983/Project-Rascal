@@ -1,6 +1,7 @@
 // Vellum — iOS build configuration
 //
-// The app is Vellum as of Aug 12, 2026. `API_HOST` below still says `rascal-api.fly.dev` and
+// The app is Vellum as of Aug 17, 2026 (Dogear from Aug 12). `API_HOST` below still says
+// `rascal-api.fly.dev` and
 // must: that is the Fly app's name, an infrastructure identifier, and renaming it would mean a
 // new app, a new deploy and a new certificate for nothing a parent ever sees.
 //
