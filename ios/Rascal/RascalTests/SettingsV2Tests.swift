@@ -208,71 +208,6 @@ struct ChildHeroCardTests {
     }
 }
 
-// MARK: - The sync card's head
-
-@MainActor
-@Suite("Settings v2 — the sync summary")
-struct SettingsSyncSummaryTests {
-
-    private func summary(entries: Int = 0, deletions: Int = 0, media: Int = 0) -> SettingsScreen.SyncSummary {
-        SettingsScreen.syncSummary(
-            EntrySync.Outstanding(entries: entries, deletions: deletions, media: media)
-        )
-    }
-
-    /// The empty case. This is the state the card is in for a parent whose archive is healthy,
-    /// which is to say almost always.
-    @Test("nothing outstanding is a calm, untinted head with no counter and no caveat")
-    func clear() {
-        let clear = summary()
-        #expect(clear.eyebrow == "Sync")
-        #expect(clear.headline == "Everything's uploaded.")
-        #expect(clear.isActive == false, "no wash and no dot when nothing is happening")
-        // Never the string "0 left", and never a dangling caveat about a connection that is fine.
-        #expect(clear.counter == nil)
-        #expect(clear.detail == nil)
-    }
-
-    @Test("one of each thing is counted in the singular")
-    func singulars() {
-        #expect(summary(entries: 1).headline == "1 entry still to upload.")
-        #expect(summary(media: 1).headline == "1 file still to upload.")
-        #expect(summary(entries: 1, media: 1).headline == "1 entry and 1 file still to upload.")
-    }
-
-    @Test("entries and deletions are both writes, and are counted together")
-    func deletionsAreWrites() {
-        // A deletion is a row the server has not been told about — the same kind of debt as an
-        // entry it has not seen, and it would be strange to name it separately to a parent.
-        #expect(summary(entries: 2, deletions: 1).headline == "3 entries still to upload.")
-        #expect(summary(deletions: 1).headline == "1 entry still to upload.")
-        #expect(summary(entries: 3, deletions: 1, media: 2).headline == "4 entries and 2 files still to upload.")
-    }
-
-    @Test("the counter is the total, and it agrees with the headline's own arithmetic")
-    func counterMatchesTotal() {
-        #expect(summary(entries: 3, deletions: 1, media: 4).counter == "8 left")
-        #expect(summary(media: 1).counter == "1 left")
-        // Two numbers on one card that disagree is worse than one number.
-        for (e, d, m) in [(1, 0, 0), (0, 1, 0), (0, 0, 1), (3, 2, 7), (12, 0, 40)] {
-            let value = summary(entries: e, deletions: d, media: m)
-            #expect(value.counter == "\(e + d + m) left")
-            #expect(value.isActive)
-        }
-    }
-
-    @Test("nothing here scolds, counts down, or turns the archive into a problem")
-    func toneHoldsInEveryState() {
-        for (e, d, m) in [(0, 0, 0), (1, 0, 0), (0, 0, 1), (9, 3, 40)] {
-            let value = summary(entries: e, deletions: d, media: m)
-            let words = [value.eyebrow, value.headline, value.detail, value.counter]
-                .compactMap { $0 }.joined(separator: " ").lowercased()
-            for scold in ["failed", "error", "problem", "warning", "overdue", "!"] {
-                #expect(!words.contains(scold), "\(scold) in: \(words)")
-            }
-        }
-    }
-}
 
 // MARK: - The dry run, and what the report sheet is handed
 
@@ -458,123 +393,6 @@ struct RecomputeSeparationTests {
     }
 }
 
-// MARK: - Phase 20: every surviving value on the sync card
-
-/// **Each value asserted against a constructed state, so a hardcoded one cannot pass.**
-///
-/// The card claimed "UPLOADING · 8 left", "8 files still to upload" and "Last pull — Off" on a
-/// phone whose owner had not added eight things. One of those was a placeholder, one folded two
-/// different facts into one number, and the third put a toggle's state in a timestamp's row.
-@MainActor
-@Suite("Phase 20 — the sync card tells the truth")
-struct SyncCardTruthTests {
-
-    private func summary(
-        entries: Int = 0, deletions: Int = 0, media: Int = 0, failedMedia: Int = 0
-    ) -> SettingsScreen.SyncSummary {
-        SettingsScreen.syncSummary(
-            EntrySync.Outstanding(
-                entries: entries, deletions: deletions, media: media, failedMedia: failedMedia
-            )
-        )
-    }
-
-    /// **The 5.2 defect.** Eight media rows of which five have stopped trying is not "8 left";
-    /// it is three still coming and five that need asking again, and the reassuring sentence
-    /// belongs only to the three.
-    @Test("files past the retry cap are not counted as files still on their way")
-    func stalledFilesAreNotCountedAsWaiting() {
-        let value = summary(media: 8, failedMedia: 5)
-
-        #expect(value.counter == "3 left", "the counter promised eight arrivals, not three")
-        #expect(value.headline == "3 files still to upload.")
-        #expect(value.stalled != nil, "five stopped files said nothing at all")
-        #expect(value.stalled?.contains("5 files") == true)
-    }
-
-    /// The whole outstanding set has stopped. Nothing is "still to upload" and nothing will
-    /// "finish on their own" — the card must not say either.
-    @Test("with everything stalled the card stops promising an arrival")
-    func allStalledDropsThePromise() {
-        let value = summary(media: 4, failedMedia: 4)
-
-        #expect(value.counter == nil, "counting down to a finish that is not coming")
-        #expect(value.headline.contains("still to upload") == false)
-        #expect(value.detail?.contains("finish on their own") != true)
-        #expect(value.detail?.contains("still on this phone") == true)
-        #expect(value.isActive == false, "a live dot for work that has stopped")
-    }
-
-    /// The ordinary case is unchanged, which is what makes the split safe to make.
-    @Test("with nothing stalled the card reads exactly as it did")
-    func noStalledIsUnchanged() {
-        let value = summary(entries: 3, deletions: 1, media: 4)
-
-        #expect(value.counter == "8 left")
-        #expect(value.headline == "4 entries and 4 files still to upload.")
-        #expect(value.stalled == nil)
-        #expect(value.isActive)
-    }
-
-    /// Tone, including the line the split added. A file that stopped trying is a fact about a
-    /// connection, and this app does not turn it into an emergency.
-    @Test("the stalled line states a fact and does not scold")
-    func stalledLineIsCalm() {
-        for (m, f) in [(8, 5), (4, 4), (1, 1), (40, 12)] {
-            let value = summary(media: m, failedMedia: f)
-            let words = [value.eyebrow, value.headline, value.detail, value.counter, value.stalled]
-                .compactMap { $0 }.joined(separator: " ").lowercased()
-            for scold in ["failed", "error", "problem", "warning", "overdue", "lost", "!"] {
-                #expect(!words.contains(scold), "\(scold) in: \(words)")
-            }
-        }
-    }
-
-    /// **The 5.3 defect.** A primary action that reports nothing teaches the parent that the
-    /// card is decorative, and this one is pressed at the moment somebody is worried.
-    @Test("Retry now says what it achieved, in every outcome")
-    func retryReportsAResult() {
-        let cleared = SettingsScreen.retryResult(
-            before: EntrySync.Outstanding(media: 3),
-            after: EntrySync.Outstanding()
-        )
-        #expect(cleared == "Everything's uploaded.")
-
-        let partial = SettingsScreen.retryResult(
-            before: EntrySync.Outstanding(media: 8),
-            after: EntrySync.Outstanding(media: 3)
-        )
-        #expect(partial.contains("5 finished"))
-        #expect(partial.contains("3 still to go"))
-
-        let stuck = SettingsScreen.retryResult(
-            before: EntrySync.Outstanding(media: 4, failedMedia: 4),
-            after: EntrySync.Outstanding(media: 4, failedMedia: 4)
-        )
-        #expect(stuck.contains("Nothing moved"))
-        #expect(stuck.contains("still here"))
-
-        let one = SettingsScreen.retryResult(
-            before: EntrySync.Outstanding(media: 2),
-            after: EntrySync.Outstanding(media: 1)
-        )
-        #expect(one.contains("1 finished"), "singular not pluralised")
-    }
-
-    /// Some landed and everything left has stopped. "3 still to go" would be a countdown to an
-    /// arrival that is not coming — the same dishonesty the headline was fixed for.
-    @Test("a partial retry whose remainder has stalled does not count down")
-    func partialRetryWithStalledRemainder() {
-        let result = SettingsScreen.retryResult(
-            before: EntrySync.Outstanding(media: 8, failedMedia: 3),
-            after: EntrySync.Outstanding(media: 3, failedMedia: 3)
-        )
-
-        #expect(result.contains("5 finished"))
-        #expect(result.contains("still to go") == false, "counting down to files that stopped")
-        #expect(result.lowercased().contains("stopped trying"))
-    }
-}
 
 // MARK: - Phase 20: a refused preference write names the control it refused
 
@@ -943,6 +761,130 @@ struct RecomputeCheckboxTests {
         #expect(none.lowercased().contains("nothing needed changing"))
         for scold in ["failed", "error", "problem", "!"] {
             #expect(!none.lowercased().contains(scold))
+        }
+    }
+}
+
+// MARK: - Phase 81: one status sentence, and one set of numbers behind it
+
+/// Settings keeps one row. These are the values it can show, in priority order — and there is only
+/// ever one of them, which is the whole point: the old card said "2 left", "2 files still to upload"
+/// and "10 files stopped trying" at once and left the reader to work out whether the total was 2 or
+/// 12.
+@MainActor
+@Suite("Phase 81 — the one status row")
+struct SyncStatusRowTests {
+
+    private func counts(
+        entries: Int = 0, deletions: Int = 0, waiting: Int = 0,
+        stalled: Int = 0, withoutBytes: Int = 0
+    ) -> SyncCounts {
+        SyncCounts(
+            unsyncedEntries: entries, pendingDeletions: deletions,
+            waitingMedia: waiting, stalledMedia: stalled, stalledWithoutBytes: withoutBytes
+        )
+    }
+
+    @Test("offline outranks every other status, because it is the one that changes what you can do")
+    func offlineWins() {
+        let busy = counts(entries: 3, waiting: 4, stalled: 10)
+        #expect(SyncCounts.status(busy, isOnline: false) == .offline)
+        #expect(SyncCounts.rowValue(.offline) == "Offline")
+    }
+
+    @Test("stalled outranks waiting, because it is the half that needs a person")
+    func stalledBeatsWaiting() {
+        let both = counts(waiting: 2, stalled: 12)
+        #expect(SyncCounts.status(both, isOnline: true) == .stopped(12))
+        #expect(SyncCounts.rowValue(.stopped(12)) == "12 stopped")
+    }
+
+    @Test("waiting shows only when nothing has stopped")
+    func waitingWhenNothingStalled() {
+        #expect(SyncCounts.status(counts(waiting: 2), isOnline: true) == .waiting(2))
+        #expect(SyncCounts.rowValue(.waiting(2)) == "2 waiting")
+    }
+
+    @Test("an empty queue is up to date, and never the string zero")
+    func clearIsUpToDate() {
+        #expect(SyncCounts.status(counts(), isOnline: true) == .upToDate)
+        #expect(SyncCounts.rowValue(.upToDate) == "Up to date")
+        for value in [SyncCounts.rowValue(.upToDate), SyncCounts.rowValue(.offline)] {
+            #expect(!value.contains("0"), "never '0 waiting'")
+        }
+    }
+
+    /// **The defect, stated as an invariant.** Both surfaces read one `SyncCounts`, so the row's
+    /// status and the upload group's sentences are arithmetic on the same rows by construction.
+    @Test("the row's number and the upload sentences cannot disagree")
+    func oneCountOneSource() {
+        let c = counts(entries: 1, waiting: 3, stalled: 10)
+
+        // The row says what is coming; the group's two sentences account for the same rows.
+        #expect(SyncCounts.status(c, isOnline: true) == .stopped(10))
+        #expect(SyncCounts.waitingLine(c) == "1 entry and 3 files still to upload.")
+        #expect(SyncCounts.stalledLine(c)?.contains("10 files") == true)
+        // 1 + 3 waiting, 10 stalled, and the total is the sum rather than a third number.
+        #expect(c.waiting == 4)
+        #expect(c.total == 14)
+    }
+}
+
+/// Phase 20 split waiting from stalled into two sentences on purpose. That split is kept — the
+/// defect was never that the sentences existed, it was that they contradicted each other on the
+/// totals. These are phase 20's rules, carried onto the single-source API.
+@MainActor
+@Suite("Phase 81 — the split phase 20 made, still true")
+struct SyncSplitTests {
+
+    @Test("files past the retry cap are not counted as files still on their way")
+    func stalledIsNotWaiting() {
+        // Eight files of which five have stopped is three coming and five needing a person.
+        let c = SyncCounts(waitingMedia: 3, stalledMedia: 5)
+        #expect(SyncCounts.rowValue(SyncCounts.status(c, isOnline: true)) == "5 stopped")
+        #expect(SyncCounts.waitingLine(c) == "3 files still to upload.")
+        #expect(SyncCounts.stalledLine(c)?.contains("5 files") == true)
+    }
+
+    @Test("with everything stalled nothing promises an arrival")
+    func allStalledDropsThePromise() {
+        let c = SyncCounts(stalledMedia: 4)
+        #expect(SyncCounts.waitingLine(c) == nil, "nothing is 'still to upload'")
+        #expect(SyncCounts.stalledLine(c)?.contains("still on this phone") == true)
+    }
+
+    /// The old stalled sentence said "Retry now picks them back up." It could not: the sweep
+    /// excludes `failed` rows by predicate, so the copy named rows the button could not move.
+    @Test("the stalled line no longer promises what retry will achieve")
+    func noPromiseAboutRetry() {
+        let c = SyncCounts(stalledMedia: 6)
+        let line = try! #require(SyncCounts.stalledLine(c))
+        #expect(!line.lowercased().contains("picks them back up"))
+        #expect(!line.lowercased().contains("retry now"))
+    }
+
+    /// A stalled row whose bytes are gone is a different thing from one that can be retried, and
+    /// the same class of lie phase 80 fixed at the entry level.
+    @Test("a stalled row with no bytes left is distinguished, not lumped in")
+    func missingBytesAreNamed() {
+        let some = SyncCounts(stalledMedia: 5, stalledWithoutBytes: 2)
+        #expect(SyncCounts.stalledLine(some)?.contains("2 of them") == true)
+        #expect(some.retryable == 3)
+
+        let all = SyncCounts(stalledMedia: 2, stalledWithoutBytes: 2)
+        #expect(all.retryable == 0)
+        #expect(SyncCounts.stalledLine(all)?.contains("no longer on this phone") == true)
+    }
+
+    @Test("nothing on either sentence scolds, and nothing is urgent")
+    func toneHolds() {
+        for (w, s, g) in [(3, 5, 0), (0, 4, 4), (1, 1, 0), (12, 40, 7)] {
+            let c = SyncCounts(waitingMedia: w, stalledMedia: s, stalledWithoutBytes: g)
+            let words = [SyncCounts.waitingLine(c), SyncCounts.stalledLine(c)]
+                .compactMap { $0 }.joined(separator: " ").lowercased()
+            for scold in ["failed", "error", "problem", "warning", "overdue", "lost", "!"] {
+                #expect(!words.contains(scold), "\(scold) in: \(words)")
+            }
         }
     }
 }
