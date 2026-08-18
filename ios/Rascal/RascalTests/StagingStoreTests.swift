@@ -127,17 +127,54 @@ struct StagingStoreTests {
 
     // MARK: Drift
 
-    @Test("a file with no media row is an orphan and is removed")
+    @Test("a file with no media row is an orphan and is removed once it is old enough")
     func removesOrphanFiles() throws {
         let store = makeStore()
         let context = try makeContext()
         // A crash between writing bytes and saving the row leaves exactly this.
         _ = try store.stage(data: Data("orphan".utf8), as: UUID(), ext: "jpg")
 
-        let result = StagingSweeper(store: store, context: context).sweep()
+        // A day and a minute later. The file is written now, so the clock moves rather than the
+        // file's timestamp — back-dating a file is the one thing this rule must not depend on.
+        let later = Date().addingTimeInterval(StagingSweeper.orphanGrace + 60)
+        let result = StagingSweeper(store: store, context: context).sweep(now: later)
 
         #expect(result.orphanFiles == 1)
         #expect(store.stagedFiles().isEmpty)
+    }
+
+    @Test("a just-written file with no media row is a recording in hand, not debris")
+    func keepsYoungOrphans() throws {
+        // **The take-deleting bug.** A recording is staged the moment it stops and gets no `Media`
+        // row until the composer saves. Locking the screen mid-recording is a background then a
+        // foreground, and the foreground runs this sweep — so the unqualified orphan rule deleted
+        // the file on the way back to the review screen, and the parent found a scrubber pointing
+        // at nothing.
+        let store = makeStore()
+        let context = try makeContext()
+        let staged = try store.stage(data: Data("a take".utf8), as: UUID(), ext: "m4a")
+
+        let result = StagingSweeper(store: store, context: context).sweep()
+
+        #expect(result.youngOrphansKept == 1)
+        #expect(result.orphanFiles == 0)
+        #expect(store.exists(staged), "the recording is still there to be saved")
+    }
+
+    @Test("the grace window protects photos and video too, not only audio")
+    func youngOrphanRuleIsNotAudioOnly() throws {
+        // The composer stages every kind before saving, so a fix scoped to m4a would leave a
+        // picked photo being deleted out from under the same screen.
+        let store = makeStore()
+        let context = try makeContext()
+        let photo = try store.stage(data: Data("photo".utf8), as: UUID(), ext: "jpg")
+        let video = try store.stage(data: Data("video".utf8), as: UUID(), ext: "mov")
+
+        let result = StagingSweeper(store: store, context: context).sweep()
+
+        #expect(result.youngOrphansKept == 2)
+        #expect(store.exists(photo))
+        #expect(store.exists(video))
     }
 
     @Test("an unrecognised filename is left alone rather than guessed at")

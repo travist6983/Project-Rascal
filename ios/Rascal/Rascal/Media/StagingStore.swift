@@ -115,6 +115,15 @@ nonisolated struct StagingStore {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil
     }
 
+    /// When these bytes were last written. Used by the sweep to tell debris from a take somebody
+    /// is still holding — see `StagingSweeper.orphanGrace`.
+    ///
+    /// `nil` when the attribute cannot be read at all, which the sweep treats as "old", because a
+    /// file whose age is unknowable is not evidence that a recording is in progress.
+    func modifiedAt(of url: URL) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
+    }
+
     // MARK: Deleting
 
     func removeOriginal(for mediaId: UUID, ext: String) {

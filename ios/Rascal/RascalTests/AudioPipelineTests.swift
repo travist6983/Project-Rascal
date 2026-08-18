@@ -254,6 +254,37 @@ struct AudioPipelineStateTests {
         #expect(pipeline.state == .paused(canResume: false))
     }
 
+    @Test("a call then a lock does not leave a resumable pause with nothing to resume")
+    func interruptionThenBackgroundIsNotResumable() async throws {
+        // The order a phone call actually arrives in: the audio session is interrupted, and then
+        // the app leaves the foreground. `pause(canResume: true)` runs first and
+        // `finalizeForBackground()` second — and the second one nils the recorder.
+        //
+        // This used to end at `.paused(canResume: true)` with no recorder, which is a screen
+        // offering to carry on recording over a `resume()` that returns silently: the parent's
+        // reported symptom, a recorder sitting at 0:00 whose button does nothing.
+        let store = try temporaryStore()
+        let pipeline = AudioPipeline(store: store)
+        let id = UUID()
+        let url = store.originalURL(for: id, ext: AudioPipeline.fileExtension)
+        try writeRecording(seconds: 1.0, to: url)
+        pipeline.prepareForTesting(mediaId: id, state: .recording)
+
+        pipeline.apply(interruption: .began, shouldResume: true)
+        #expect(pipeline.state == .paused(canResume: true))
+        pipeline.finalizeForBackground()
+
+        #expect(
+            pipeline.state == .paused(canResume: false),
+            "there is no recorder to resume into once the file has been closed"
+        )
+        // And the route back to the take is the one that works without a recorder.
+        await pipeline.stop()
+        #expect(pipeline.state == .finished(try #require(
+            await AudioPipeline.finalize(mediaId: id, url: url)
+        )))
+    }
+
     @Test("headphones pulled out pauses instead of playing on through the speaker")
     func routeChangePauses() throws {
         // Without this the session reroutes to the speaker and keeps recording, which at a
@@ -553,5 +584,169 @@ struct AudioComposerTests {
         #expect(card.voice?.openingLine == nil, "no transcript is absent, not blank")
         #expect(card.typeLabel == "Voice")
         #expect(card.isAwaitingSync == false)
+    }
+}
+
+// MARK: - Keeping the screen awake
+
+/// Records every value the pipeline asks for, in order, so the assertions can be about the
+/// *sequence* rather than only the final value — a flag set true and never cleared and a flag
+/// correctly paired look identical if you only read the end.
+///
+/// No lock here, unlike `StubAuthorizer`: `ScreenWakeLocking` is `@MainActor`, so there is no
+/// concurrent access to guard against.
+@MainActor
+final class ScreenWakeSpy: ScreenWakeLocking {
+    private(set) var history: [Bool] = []
+    var isAwake: Bool { history.last ?? false }
+
+    func setScreenAwake(_ awake: Bool) {
+        history.append(awake)
+    }
+}
+
+@MainActor
+@Suite("Recording keeps the screen awake")
+struct ScreenWakeTests {
+
+    private func pipeline(_ wake: ScreenWakeSpy) throws -> AudioPipeline {
+        AudioPipeline(store: try temporaryStore(), wake: wake)
+    }
+
+    @Test("a fresh pipeline has not touched the idle timer")
+    func startsUntouched() throws {
+        let wake = ScreenWakeSpy()
+        _ = try pipeline(wake)
+        // Constructing a recorder must not keep a phone awake. Nothing is recording yet.
+        #expect(wake.history.isEmpty)
+    }
+
+    @Test("entering recording holds the screen awake")
+    func recordingHoldsTheScreen() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        #expect(wake.isAwake, "auto-lock is what loses the take this feature exists to keep")
+    }
+
+    @Test("every exit from recording releases it, including pause")
+    func everyExitReleases() throws {
+        // The exhaustive list. `State` has six cases; `.recording` is the one that holds the
+        // lock, so every other case must release it — and if a seventh state is ever added, this
+        // list is where the omission shows up.
+        let exits: [(String, AudioPipeline.State)] = [
+            ("paused, resumable", .paused(canResume: true)),
+            ("paused, not resumable", .paused(canResume: false)),
+            ("finished", .finished(AudioPipeline.Recording(
+                mediaId: UUID(),
+                url: URL(filePath: "/dev/null"),
+                duration: 1,
+                byteCount: 1
+            ))),
+            ("failed", .failed("anything")),
+            ("denied", .denied),
+            ("idle", .idle),
+        ]
+
+        for (label, exit) in exits {
+            let wake = ScreenWakeSpy()
+            let pipeline = try pipeline(wake)
+
+            pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+            #expect(wake.isAwake, "precondition for \(label)")
+
+            pipeline.prepareForTesting(mediaId: UUID(), state: exit)
+
+            #expect(wake.isAwake == false, "\(label) must let the screen lock")
+        }
+    }
+
+    @Test("a paused recorder does not hold the screen awake indefinitely")
+    func pauseReleases() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        // Through the real method rather than the seam, so this covers what an interruption does.
+        pipeline.pause(canResume: true)
+
+        #expect(pipeline.state == .paused(canResume: true))
+        #expect(wake.isAwake == false, "a pause can last forever; the screen must not")
+    }
+
+    @Test("an interruption releases the screen on its way to paused")
+    func interruptionReleases() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        pipeline.apply(interruption: .began, shouldResume: true)
+
+        #expect(wake.isAwake == false)
+    }
+
+    @Test("headphones pulled out releases the screen")
+    func routeChangeReleases() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        pipeline.apply(routeChange: .oldDeviceUnavailable)
+
+        #expect(wake.isAwake == false)
+    }
+
+    @Test("backgrounding releases the screen")
+    func backgroundingReleases() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        pipeline.finalizeForBackground()
+
+        #expect(wake.isAwake == false, "the app is going away; it cannot own the screen")
+    }
+
+    @Test("cancelling releases the screen")
+    func cancelReleases() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+
+        pipeline.cancel()
+
+        #expect(wake.isAwake == false)
+    }
+
+    @Test("teardown releases the screen even if a state change somehow did not")
+    func teardownIsABackstop() throws {
+        let wake = ScreenWakeSpy()
+        let pipeline = try pipeline(wake)
+        pipeline.prepareForTesting(mediaId: UUID(), state: .recording)
+        #expect(wake.isAwake)
+
+        // What the recorder screen's `onDisappear` calls first. A dismissal that never changed
+        // state must still not strand a phone that never sleeps.
+        pipeline.stopObservingInterruptions()
+
+        #expect(wake.isAwake == false)
+    }
+
+    @Test("a full capture cycle never leaves the lock held")
+    func fullCycleLeavesNothingHeld() async throws {
+        let wake = ScreenWakeSpy()
+        let store = try temporaryStore()
+        let pipeline = AudioPipeline(store: store, wake: wake)
+        let id = UUID()
+        let url = store.originalURL(for: id, ext: AudioPipeline.fileExtension)
+        try writeRecording(seconds: 1.0, to: url)
+
+        pipeline.prepareForTesting(mediaId: id, state: .recording)
+        await pipeline.stop()
+
+        #expect(wake.isAwake == false)
+        #expect(wake.history.contains(true), "and it was actually held while recording")
     }
 }
