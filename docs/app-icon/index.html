@@ -102,26 +102,34 @@
   /* ── the hover state ──────────────────────────────────────────────── */
   /* The mark is inline here rather than an <img> because an <img> gets no pointer
      events — the fan cannot open inside one. This is the snippet the site would use. */
-  .hoverdemo {
-    display:inline-flex; align-items:center; gap:18px; padding:14px 18px; border-radius:10px;
-    text-decoration:none; cursor:pointer;
-  }
-  .hoverdemo:focus-visible { outline:2px solid var(--terracotta); outline-offset:4px; }
-  .fan { width:96px; height:64px; overflow:visible; }
-  .fan .card {
+  .hoverdemo { display:inline-flex; align-items:center; gap:0; padding:14px 18px;
+    border-radius:10px; text-decoration:none; }
+  .brand { display: inline-block; line-height: 0; color: #23253C; border-radius: 6px; }
+  .brand svg { display: block; height: 34px; width: auto; overflow: visible; }
+
+  /* One rule, two jobs. The cards carry this class and so do the shapes inside each
+     knockout mask, so the gap between two cards travels with the cards rather than staying
+     where they used to be. Without that the mark tears the moment it opens. */
+  .brand__card {
     transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
-    transition: transform 260ms cubic-bezier(.4,0,.2,1);
+    transition: transform 260ms cubic-bezier(.4, 0, .2, 1);
   }
-  .hoverdemo:hover .fan .card, .hoverdemo:focus-visible .fan .card {
+  /* Opening staggers from the middle outward; closing does not, so the hand snaps shut
+     rather than unravelling. The delay lives in the hover rule for exactly that reason. */
+  .brand:hover .brand__card,
+  .brand:focus-visible .brand__card {
     transform: rotate(calc(var(--a) * 1.45deg)) translateY(-127px);
-    transition: transform 460ms cubic-bezier(.22,.9,.28,1);
+    transition: transform 460ms cubic-bezier(.22, .9, .28, 1);
     transition-delay: calc(var(--i) * 45ms);
   }
-  .hoverdemo .word { width:132px; height:auto; }
+  .brand:focus-visible { outline: 2px solid #C05A2B; outline-offset: 6px; }
+
   @media (prefers-reduced-motion: reduce) {
-    .fan .card { transition: none; }
-    .hoverdemo:hover .fan .card, .hoverdemo:focus-visible .fan .card {
+    .brand__card,
+    .brand:hover .brand__card,
+    .brand:focus-visible .brand__card {
       transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+      transition: none;
     }
   }
 
@@ -289,32 +297,67 @@
   is dark. It comes from a knockout: the gap between one card and the next is cut out of the card
   behind, so the same file stays crisp on cream, on ink and on terracotta.</p>
 
-  <h3>The site's hover state — on white</h3>
+  <h3>The site's hover state</h3>
   <p>Hover it. The hand opens — outer cards last, on a 45ms stagger, so it reads as a fan
   rather than a scale; closing has no stagger, so it snaps shut instead of unravelling.
   Keyboard users get it on <code>:focus-visible</code>, and it respects
   <code>prefers-reduced-motion</code>.</p>
   <p><strong>The copy-pasteable version is <code>vellum-logo-hover.html</code></strong> —
-  generated, so it cannot drift from the artwork, and it carries the markup and CSS as
-  blocks to lift. What is below mirrors it; that file is the one to hand the site.</p>
+  generated, so it cannot drift from the artwork, and it carries the markup and CSS as blocks
+  to lift. It is shipped: this is the masthead and footer of the marketing site as of
+  Aug&nbsp;18.</p>
+  <p><strong>It asks nothing of the ground it sits on</strong>, which the site turns out to
+  need. That masthead is not white — it is <code>color-mix(in srgb, var(--canvas) 88%,
+  transparent)</code> over a backdrop filter, and the footer is a different cream again.</p>
   <div class="plate white">
-    <a class="hoverdemo" href="#" aria-label="Vellum">
-      <svg class="fan" viewBox="-150 -205 300 198" aria-hidden="true" focusable="false">
-        <g class="card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/></g>
-        <g class="card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/></g>
-        <g class="card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/></g>
-        <g class="card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/></g>
-        <g class="card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/></g>
+    <a class="hoverdemo brand" href="/" aria-label="Vellum">
+      <svg viewBox="0 -163.8 845.362 163.8" aria-hidden="true" focusable="false">
+        <defs>
+        <mask id="vli-k0" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+          <rect x="-400" y="-400" width="800" height="800" fill="#fff"/>
+          <g class="brand__card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+        </mask>
+        <mask id="vli-k1" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+          <rect x="-400" y="-400" width="800" height="800" fill="#fff"/>
+          <g class="brand__card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+        </mask>
+        <mask id="vli-k2" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+          <rect x="-400" y="-400" width="800" height="800" fill="#fff"/>
+          <g class="brand__card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+          <g class="brand__card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+        </mask>
+        <mask id="vli-k3" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">
+          <rect x="-400" y="-400" width="800" height="800" fill="#fff"/>
+          <g class="brand__card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-56" y="-81" width="112" height="162" rx="28" fill="#000"/></g>
+        </mask>
+        </defs>
+        <g transform="translate(125.931 10.081) scale(0.864)">
+          <g mask="url(#vli-k0)"><g class="brand__card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC"/></g></g>
+          <g mask="url(#vli-k1)"><g class="brand__card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC"/></g></g>
+          <g mask="url(#vli-k2)"><g class="brand__card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F"/></g></g>
+          <g mask="url(#vli-k3)"><g class="brand__card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F"/></g></g>
+          <g class="brand__card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B"/></g>
+        </g>
+        <g transform="translate(313.862 0)">
+          <path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="currentColor" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
       </svg>
-      <img class="word" src="vellum-wordmark.svg" alt="">
     </a>
   </div>
-  <p><strong>This one strokes its card gaps in white; every static file here cuts them
-  out.</strong> A knockout needs to know nothing about the background, which is what makes
-  the SVGs safe on white, on cream and on ink alike — but the mask is built from where the
-  cards <em>are</em>, so the moment one rotates away its notch stays behind and the mark
-  tears. A stroke moves with its card. That trades ground-independence for motion, which is
-  the right trade in a header with one known background and the wrong one everywhere else.</p>
+  <p><strong>The mask moves with the cards, which is what makes this possible at all.</strong>
+  A knockout is built from where the cards are, so left static it tears the instant the fan
+  opens — the gap stays where the card used to be. The mask's shapes carry the same class and
+  the same custom properties as the cards they mirror, so one rule moves both.</p>
+  <p>An earlier build dodged that by stroking the gaps in the page colour, and it would have
+  been wrong on the site it was built for: the masthead is a translucent cream over a backdrop
+  filter, so page content scrolls underneath and tints it continuously. <strong>No solid colour
+  is right at every scroll position.</strong> Cutting the gap is the only answer that holds, so
+  it had to learn to move.</p>
 </section>
 
 <section>

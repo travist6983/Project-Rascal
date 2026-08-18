@@ -514,139 +514,166 @@ export function lockupStacked({ ink = C.ink, hue = C.terracotta, ground = C.canv
 }
 
 /* ── the website component ────────────────────────────────────────────────
-   A logo that opens when you point at it, built for a white ground.
+   A logo that opens when you point at it.
 
-   Two things here are deliberate and easy to get wrong.
+   **The mask animates, and that is the whole trick.** An earlier build of this stroked the
+   card gaps in the page colour, on the reasoning that a knockout mask is built from where
+   the cards *are* — so a rotating card would leave its notch behind and the mark would
+   tear. True of a *static* mask. Give the mask's shapes the same class and the same custom
+   properties as the cards they mirror, and one CSS rule moves both: the knockout tracks the
+   card it belongs to and never needs to know what is behind it.
 
-   **It strokes rather than knocks out.** Every static file in this directory cuts the gap
-   between cards out of the card behind, so it needs to know nothing about the ground. That
-   cannot animate: the mask is built from where the cards *are*, so the moment a card
-   rotates away its notch stays behind and the mark tears. A stroke moves with the card it
-   belongs to. It costs the file its ground-independence — which is exactly the trade worth
-   making here, because a site header has one known background and this one is white.
+   That is not a nicety here. The masthead this sits in is `color-mix(in srgb, canvas 88%,
+   transparent)` with a `backdrop-filter`, so page content scrolls underneath and tints it
+   continuously. **There is no solid colour a stroke could use that is right at every scroll
+   position** — cream would be right at the top of the page and wrong over a photograph
+   twenty pixels later. The knockout is the only correct answer, so it had to learn to move.
 
-   **The rest position is in the markup, the motion is in CSS.** Each card carries a real
-   `transform` attribute, so with the stylesheet stripped the fan is still a fan rather than
-   five cards piled on one point.                                                          */
+   The rest positions are real `transform` attributes as well as CSS, so with the stylesheet
+   stripped the fan is still a fan rather than five cards piled on one point.               */
 
-export function hoverComponent({ ground = '#FFFFFF' } = {}) {
-  const wm = wordmark({ fill: C.ink });
-  const m = wm.metrics;
+// `id` must differ per instance on a page. Two inlined copies sharing a mask id means the
+// second silently borrows the first's mask — which sits in the other one's DOM subtree, so
+// it never receives the second's :hover and that mark tears the moment it opens.
+export function hoverComponent({ cls = 'vellum-logo', id = 'vl', anchorClass = '', label = 'Vellum', href = '/' } = {}) {
+  const wm = wordmark({ fill: 'currentColor' });
+  const mt = wm.metrics;
   const step = 16, drop = 120, w = 100, h = 150, r = 22, edge = 6;
-  const spread = [-2, -1, 0, 1, 2];
-  const order = [-2, 2, -1, 1, 0];
-  const tone = { 2: mix(C.terracotta, C.canvas, 0.72), 1: mix(C.terracotta, C.canvas, 0.42), 0: C.terracotta };
+  const order = [-2, 2, -1, 1, 0];   // back to front
+  const tone = {
+    2: mix(C.terracotta, C.canvas, 0.72),
+    1: mix(C.terracotta, C.canvas, 0.42),
+    0: C.terracotta,
+  };
 
-  const probe = mark({ step, drop, sheet: null, edge, knockout: false });
-  const markH = m.asc * 1.3;
+  const probe = mark({ step, drop, sheet: null, edge, knockout: true });
+  const markH = mt.asc * 1.3;
   const k = markH / probe.box.h;
   const mw = probe.box.w * k;
-  const gap = m.xh * 0.62;
+  const gap = mt.xh * 0.62;
   const width = mw + gap + wm.width;
 
-  const cards = order
-    .map((kk) => {
-      const deg = kk * step;
-      return (
-        `        <g class="vl-card" style="--a:${n(deg)};--i:${Math.abs(kk)}" ` +
-        `transform="rotate(${n(deg)}) translate(0 ${n(-drop)})">\n` +
-        `          <rect x="${n(-w / 2)}" y="${n(-h / 2)}" width="${w}" height="${h}" rx="${r}" ` +
-        `fill="${tone[Math.abs(kk)]}" stroke="${ground}" stroke-width="${edge}"/>\n` +
-        `        </g>`
-      );
-    })
-    .join('\n');
+  const vars = (kk) => `--a:${n(kk * step)};--i:${Math.abs(kk)}`;
+  const at = (kk) => `rotate(${n(kk * step)}) translate(0 ${n(-drop)})`;
+  const box = (grow, fill) =>
+    `<rect x="${n(-w / 2 - grow)}" y="${n(-h / 2 - grow)}" width="${n(w + 2 * grow)}" ` +
+    `height="${n(h + 2 * grow)}" rx="${n(r + grow)}" fill="${fill}"/>`;
 
-  const snippet = `<a class="vellum-logo" href="/" aria-label="Vellum">
+  const defs = [];
+  const cards = order.map((kk, i) => {
+    const front = order.slice(i + 1);
+    const inner =
+      `<g class="${cls}__card" style="${vars(kk)}" transform="${at(kk)}">${box(0, tone[Math.abs(kk)])}</g>`;
+    if (!front.length) return `      ${inner}`;
+    const mid = `${id}-k${i}`;
+    defs.push(
+      `    <mask id="${mid}" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800">\n` +
+        `      <rect x="-400" y="-400" width="800" height="800" fill="#fff"/>\n` +
+        front
+          .map(
+            (f) =>
+              `      <g class="${cls}__card" style="${vars(f)}" transform="${at(f)}">${box(edge, '#000')}</g>`,
+          )
+          .join('\n') +
+        `\n    </mask>`,
+    );
+    return `      <g mask="url(#${mid})">${inner}</g>`;
+  });
+
+  return {
+    markup: `<a class="${[anchorClass, cls].filter(Boolean).join(' ')}" href="${href}" aria-label="${label}">
   <svg viewBox="0 ${n(-markH)} ${n(width)} ${n(markH)}" aria-hidden="true" focusable="false">
+    <defs>
+${defs.join('\n')}
+    </defs>
     <g transform="translate(${n(-probe.box.x * k)} ${n(-probe.box.y * k - markH)}) scale(${n(k)})">
-${cards}
+${cards.join('\n')}
     </g>
     <g transform="translate(${n(mw + gap)} 0)">
       ${wm.body}
     </g>
   </svg>
-</a>`;
+</a>`,
 
-  const css = `.vellum-logo {
-  display: inline-block;
-  line-height: 0;                 /* an inline-block wrapping an svg gets a descender gap */
-  border-radius: 6px;
-}
-.vellum-logo svg {
-  display: block;
-  height: 44px;                   /* the only size you set — width follows the viewBox */
-  width: auto;
-  overflow: visible;              /* the fan opens past its box; see the note below */
-}
-.vellum-logo .vl-card {
+    css: `.${cls} { display: inline-block; line-height: 0; color: ${C.ink}; border-radius: 6px; }
+.${cls} svg { display: block; height: 34px; width: auto; overflow: visible; }
+
+/* One rule, two jobs. The cards carry this class and so do the shapes inside each
+   knockout mask, so the gap between two cards travels with the cards rather than staying
+   where they used to be. Without that the mark tears the moment it opens. */
+.${cls}__card {
   transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
   transition: transform 260ms cubic-bezier(.4, 0, .2, 1);
 }
 /* Opening staggers from the middle outward; closing does not, so the hand snaps shut
    rather than unravelling. The delay lives in the hover rule for exactly that reason. */
-.vellum-logo:hover .vl-card,
-.vellum-logo:focus-visible .vl-card {
+.${cls}:hover .${cls}__card,
+.${cls}:focus-visible .${cls}__card {
   transform: rotate(calc(var(--a) * 1.45deg)) translateY(-127px);
   transition: transform 460ms cubic-bezier(.22, .9, .28, 1);
   transition-delay: calc(var(--i) * 45ms);
 }
-.vellum-logo:focus-visible {
-  outline: 2px solid ${C.terracotta};
-  outline-offset: 6px;
-}
+.${cls}:focus-visible { outline: 2px solid ${C.terracotta}; outline-offset: 6px; }
+
 @media (prefers-reduced-motion: reduce) {
-  .vellum-logo .vl-card,
-  .vellum-logo:hover .vl-card,
-  .vellum-logo:focus-visible .vl-card {
+  .${cls}__card,
+  .${cls}:hover .${cls}__card,
+  .${cls}:focus-visible .${cls}__card {
     transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
     transition: none;
   }
-}`;
+}`,
+  };
+}
 
+// A page that demonstrates the component and hands over its two blocks. The ground is
+// deliberately switchable: this mark no longer cares, and the quickest way to prove that
+// is to put it on three of them.
+export function hoverPage() {
+  const c = hoverComponent();
   const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const demo = (bg, label, note) =>
+    `<section class="ground" style="background:${bg}">
+    <p class="lab">${label}</p>
+    ${c.markup.split('\n').join('\n    ')}
+    <p class="note">${note}</p>
+  </section>`;
 
   return `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vellum — the logo, on white, with its hover state</title>
+<title>Vellum — the logo and its hover state</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&display=swap">
 <style>
-  body {
-    margin: 0; background: ${ground}; color: ${C.ink};
-    font: 400 16px/1.6 "Source Sans 3", system-ui, -apple-system, sans-serif;
-  }
-  .bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 22px clamp(20px, 5vw, 56px); border-bottom: 1px solid #ECE7E0;
-  }
-  .bar nav { display: flex; gap: 30px; color: ${C.inkMuted}; font-size: 15px; }
-  .stage { padding: clamp(40px, 7vw, 90px) clamp(20px, 5vw, 56px); max-width: 860px; }
-  h1 { font: 600 27px/1.25 "Source Sans 3", system-ui, sans-serif; margin: 0 0 10px; letter-spacing: -.01em; }
-  p { color: ${C.inkMuted}; max-width: 62ch; margin: 0 0 18px; }
-  .sizes { display: flex; gap: 54px; align-items: flex-end; flex-wrap: wrap; margin: 34px 0 0; }
-  .sizes .vellum-logo svg { height: 64px; }
-  .sizes .s2 .vellum-logo svg { height: 34px; }
-  .sizes .s3 .vellum-logo svg { height: 24px; }
-  .cap { font: 11px/1.4 ui-monospace, Menlo, monospace; color: #A8A096; margin-top: 12px;
-         letter-spacing: .07em; text-transform: uppercase; }
-  h2 { font: 600 15px/1.3 "Source Sans 3", sans-serif; margin: 54px 0 10px;
-       letter-spacing: .09em; text-transform: uppercase; color: ${C.terracotta}; font-size: 12px; }
-  pre {
-    background: #FAF7F2; border: 1px solid #ECE7E0; border-radius: 12px;
-    padding: 20px 22px; overflow-x: auto; font: 12.5px/1.65 ui-monospace, Menlo, monospace;
-    color: #3A3C52;
-  }
-  .note { border-left: 3px solid ${C.terracotta}; padding-left: 16px; margin: 26px 0; }
+  body { margin: 0; font: 400 16px/1.6 system-ui, -apple-system, sans-serif; color: ${C.ink};
+         background: ${C.canvas}; }
+  .ground { padding: 34px clamp(20px, 5vw, 56px); }
+  .lab { margin: 0 0 18px; font: 11px/1.4 ui-monospace, Menlo, monospace; color: ${C.inkMuted};
+         letter-spacing: .09em; text-transform: uppercase; }
+  .note { margin: 16px 0 0; font-size: 14px; color: ${C.inkMuted}; max-width: 62ch; }
+  .prose { padding: clamp(34px, 6vw, 70px) clamp(20px, 5vw, 56px); max-width: 860px; }
+  h1 { font: 800 27px/1.2 Nunito, system-ui, sans-serif; margin: 0 0 12px; }
+  h2 { font: 600 12px/1.3 system-ui, sans-serif; margin: 44px 0 10px; letter-spacing: .09em;
+       text-transform: uppercase; color: ${C.terracotta}; }
+  p { color: ${C.inkMuted}; max-width: 64ch; }
+  pre { background: ${C.surface}; border: 1px solid ${C.border}; border-radius: 12px;
+        padding: 20px 22px; overflow-x: auto; font: 12.5px/1.65 ui-monospace, Menlo, monospace;
+        color: #3A3C52; }
+  .sizes { display: flex; gap: 54px; align-items: flex-end; flex-wrap: wrap; }
+  .sizes .s-l ${'.' + 'vellum-logo'} svg { height: 64px; }
+  .sizes .s-s .vellum-logo svg { height: 22px; }
 
-${css.split('\n').map((l) => (l ? '  ' + l : l)).join('\n')}
+${c.css.split('\n').map((l) => (l ? '  ' + l : l)).join('\n')}
 </style>
 
-<div class="bar">
-  ${snippet.split('\n').join('\n  ')}
-  <nav><span>How it works</span><span>Pricing</span><span>Sign in</span></nav>
-</div>
+${demo(C.canvas, 'on the site canvas — #FDFAF4', 'Where the masthead sits.')}
+${demo(C.surface, 'on the footer surface — #FFFDF9', 'A different cream from the header. The mark does not have to be told.')}
+${demo('#FFFFFF', 'on pure white — #FFFFFF', 'Not used by this site, but it costs nothing to be right here too.')}
+${demo('#EDE3D6', 'on a tinted band — #EDE3D6', 'The point: the gaps are cut, not painted, so any ground works.')}
 
-<div class="stage">
+<div class="prose">
   <h1>Point at it.</h1>
   <p>The hand opens — outer cards last, on a 45ms stagger, so it reads as a fan rather than
   as a scale. Closing has no stagger, so it snaps shut instead of unravelling. Keyboard users
@@ -654,32 +681,29 @@ ${css.split('\n').map((l) => (l ? '  ' + l : l)).join('\n')}
   less motion gets none.</p>
 
   <div class="sizes">
-    <div><div>${snippet.split('\n').join('\n    ')}</div><div class="cap">64 — hero</div></div>
-    <div class="s2"><div>${snippet.split('\n').join('\n    ')}</div><div class="cap">34 — header</div></div>
-    <div class="s3"><div>${snippet.split('\n').join('\n    ')}</div><div class="cap">24 — footer</div></div>
+    <div class="s-l">${c.markup.split('\n').join('\n    ')}</div>
+    <div>${c.markup.split('\n').join('\n    ')}</div>
+    <div class="s-s">${c.markup.split('\n').join('\n    ')}</div>
   </div>
 
-  <div class="note">
-    <p><strong>One caveat worth knowing.</strong> The fan opens past the edge of its own box,
-    so the svg is set <code>overflow: visible</code> and the layout does not shift when it
-    moves. A parent with <code>overflow: hidden</code> will clip the open state — if the header
-    has one, give this element room rather than turning the overflow off.</p>
-  </div>
+  <h2>Why the mask carries the same class as the cards</h2>
+  <p>A knockout mask is built from where the cards are. Left static, the gap stays put while
+  the card rotates away and the mark tears. The mask's shapes carry the same class and the
+  same custom properties as the cards they mirror, so one rule moves both.</p>
+  <p>It matters more than tidiness. The masthead is translucent with a backdrop filter, so
+  page content scrolls underneath and tints it continuously — there is no solid colour a
+  stroke could have used that stays right at every scroll position.</p>
 
   <h2>The markup</h2>
-  <pre>${esc(snippet)}</pre>
+  <pre>${esc(c.markup)}</pre>
 
   <h2>The CSS</h2>
-  <pre>${esc(css)}</pre>
+  <pre>${esc(c.css)}</pre>
 
-  <div class="note">
-    <p><strong>Why this one strokes its card gaps in white</strong> when every other file in
-    this directory cuts them out. A knockout needs to know nothing about the background, which
-    is what makes the static files safe anywhere — but the mask is built from where the cards
-    are, so the moment one rotates away its notch stays behind and the mark tears. A stroke
-    moves with its card. That trades ground-independence for motion, which is the right trade
-    here and the wrong one everywhere else.</p>
-  </div>
+  <p><strong>One caveat.</strong> The fan opens past the edge of its own box, so the svg is
+  <code>overflow: visible</code> and the layout never shifts when it moves. At a 34px height
+  it reaches about 6px left, 2px down and 0px right of its box. A parent with
+  <code>overflow: hidden</code> clips the open state.</p>
 </div>
 `;
 }
@@ -793,7 +817,7 @@ const files = {
   // The owner chose candidate 2 on Aug 17 2026. It takes the unqualified name; the two
   // that lost keep descriptive ones and stay in the tree, because a candidate nobody can
   // look at again is a decision nobody can revisit.
-  'vellum-logo-hover.html': () => hoverComponent(),
+  'vellum-logo-hover.html': () => hoverPage(),
 
   'vellum-icon-fan.svg': () => iconWordmark(shippedFan()),
   'vellum-icon-alt-v.svg': () => iconVFan(shippedFan()),
