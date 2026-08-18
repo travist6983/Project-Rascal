@@ -14,6 +14,11 @@ import SwiftUI
 /// only transform is a translation of +126 and a uniform scale. Keeping the numbers literal
 /// means a redrawn wordmark can be re-pasted from the SVG rather than re-derived.
 ///
+/// **The name is never set in capitals** — owner's rule, Aug 18, 2026, recorded in
+/// `docs/design-system.md`. Where the name is a mark, this view. Where it is a word in a
+/// sentence, sentence case. There is no third option, and `VELLUM` was the spelling a
+/// case-sensitive rename could not find.
+///
 /// **Arcs are flattened to cubic Béziers here rather than handed to `addArc`.** SVG arcs are
 /// endpoint-parameterised and `addArc` is centre-parameterised, and the `clockwise:` flag's
 /// meaning depends on the coordinate system it is read in — which is exactly the kind of thing
