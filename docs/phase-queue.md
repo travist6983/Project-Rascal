@@ -7,9 +7,13 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 17, 2026 (fourth pass, story 7)**. **The highest
-number used is 73**, so a genuinely new phase takes **74** — ~~*"61 through 67 all went on Aug
-17, so the next is 68"*~~, which was true when written and stopped being true the same evening.
+Synced with `roadmap-status.md` at **Aug 18, 2026 (phase 70)**. **The highest number used is
+75**, so a genuinely new phase takes **76** — ~~*"the highest number used is 73, so a genuinely
+new phase takes 74"*~~, which was true when written and stopped being true the same evening, and
+~~*"61 through 67 all went on Aug 17, so the next is 68"*~~ before it. **Measured off `main`, not
+off this file** — `git log main | grep -oiE 'phase [0-9]+'` puts 74 and 75 in history, and neither
+has a row in `roadmap-status.md` yet. That gap is the next person's to fill and is not phase 70's
+to invent.
 68 unblocked the sprint, 69 built the daily broadcast, 70 went to the icon and wordmark work,
 71 and 73 are the two halves of the Vellum rename, and 72 was the false-claims sweep. 67 closed
 the App Store deletion blocker that 65 found; the universal-link surface took 59; **60 was the
