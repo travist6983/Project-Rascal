@@ -286,8 +286,9 @@ reports; these are only the things somebody has to *do*.
   `scripts/email_sequence_to_yaml.py`. That file is owner-only by its own header and its 5
   occurrences are the last place the dead name survives in this repo. Editing the generated YAML
   directly is discarded on the next regeneration.
-- **Owner: a trademark clearance search**, or an explicit decision to accept the risk without one.
-  Open item 15. Cheapest before the first marketing send, which has not happened.
+- **Owner: write down the trademark check you say you ran** — where you looked and what you
+  found, one line. Open item 15. You answered *"already checked — it's fine"* on Aug 18; the repo
+  holds the assurance but not the evidence, and only the second kind is auditable later.
 - **Re-capture the marketing site's onboarding screenshot** once phase 73 merges. The old wordmark
   is baked into its pixels and cannot be fixed from the marketing repo.
 - **Exercise `POST /v1/subscribe` end to end once**, from the real GitHub Pages origin, to confirm
