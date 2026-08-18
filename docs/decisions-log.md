@@ -3083,3 +3083,87 @@ built against the tree rather than against its own brief**, and the two that wer
   the gate-4 production evidence from a window that has since closed, both break-tests, and the
   adversarial-review table. Restored under a dated header. **The same failure as an absolute that
   goes false: it costs nothing today and everything the day somebody needs it.**
+
+* * *
+
+## Aug 18, 2026 — Phase 70: the Vellum wordmark, the logo kit, and the app icon
+
+**Phase 47 said the icon decision was name-independent, and it was right.** *"The mark carries
+no word, so it was decidable before the name was and would not have moved after it."* The name
+moved twice — RASCAL to Dogear to Vellum — and the fan did not. What this phase added is one
+change to it, not a redraw: the front card's entry title, a 138×15 bar standing in for a line of
+type, becomes the actual line of type. The owner chose that over a wordless V-fan and a monogram.
+
+**Both losing candidates are kept in the tree** as `vellum-icon-alt-v.svg` and
+`vellum-icon-alt-monogram.svg`. A candidate nobody can look at again is a decision nobody can
+revisit, and the V-fan in particular is the one to reach for if the icon ever has to work without
+a name — which is the situation this project has now been in twice.
+
+**The five cards are lifted out of `rascal-icon-fan.svg`, not redrawn.** The generator parses the
+shipped file for each card's fill and the motif inside its clip, and re-authors only where the
+cards sit. A redraw would have put a dozen changes on the table and called them one. **The parse
+had a real bug in it**: the file lists cards in *drawing* order, back to front, with the front
+card last at rotation 0, and reading that order as positional put the audio card in front. It
+looked like a z-order problem. Cards are sorted by tilt now, and the sort carries the comment
+saying why.
+
+**The wordmark is drawn, not set.** A monolinear skeleton stroked at a constant weight with round
+caps and joins, every curve a true circular arc. Three things follow: no font file ships, no
+licence is anybody's to enforce, and the letters render identically in a browser that has never
+heard of us. The round terminals are not taste — the app's type is SF Rounded and the cards carry
+a 52/252 corner radius, and a flat-cut wordmark beside that art reads as a different company's.
+Eight builds were drawn; the owner chose build 5, short ascenders, set lowercase. **The chosen
+metrics are the generator's defaults**, so the lockups and the icon are the chosen build by
+construction rather than by a number copied into three files by hand.
+
+**Two defects that were invisible until the ground changed, which is the interesting part.**
+
+The colour lockups painted the gap between one card and the next in canvas cream. That is correct
+on the app's cream canvas and invisible there — and on the marketing site's white it reads as a
+warm halo around every card, so the mark looks soft-edged where it should look cut. They knock the
+gap out of the card behind now, which is true transparency, and the same file is right on white,
+on cream and on ink. **Byte-identical on cream**, so nothing that was already right changed.
+
+The one-colour lockup failed the same way from the other direction. Depth there cannot come from
+tone, because there is only one tone; the first build used translucency, and overlapping sheets
+compound and go grey the moment the ground is dark. It knocks out too.
+
+**An asset that encodes an assumption about its surroundings looks correct until the surroundings
+change.** Both of these were shipped-looking for hours.
+
+**The hover component deliberately does the opposite, and that is a trade rather than an
+inconsistency.** A knockout mask is built from where the cards *are*. The instant a card rotates
+away, its notch stays behind and the mark tears — so the animated version strokes its gaps in
+white, which moves with the card and costs it ground-independence. Motion and ground-independence
+are opposite sides of one choice; the static files and the header component sit on opposite sides
+on purpose. Written into both files, because it is exactly the difference a later reader corrects
+into a bug.
+
+**The mask also had to be hung on an untransformed wrapper.** `maskUnits="userSpaceOnUse"`
+resolves against the referencing element's own user space, so a mask on the rotated card group
+interprets its coordinates inside that card's rotated frame. It renders as one solid silhouette
+with no gaps at all, which looks like the mask being ignored rather than being applied in the
+wrong place.
+
+**Three cards, not five, below about 24px.** `vellum-mark-compact.svg` exists because the
+five-card fan stops being five of anything at favicon size, and an honest three beats a smudge
+claiming to be five.
+
+**`index.html` is hand-kept and this generator does not write it.** `generate.mjs` next door
+regenerates the contact sheet from its own variant list, and doing so once deleted the only page
+that mentioned the shipped icon. Importing `generate-vellum.mjs` also writes nothing — the file
+writes are behind an entry-point check, because the contact sheet's build imports a function from
+it and a module that writes nine files as a side effect of `import` is one you cannot borrow from.
+
+**Nothing has shipped to a phone.** `render-appicon.mjs` still reads `rascal-icon-fan.svg`, and
+that file was not modified. Repointing it and re-rendering `AppIcon-1024.png` is an iOS-lane
+change under the two-lane rule, and takes its own number. **The icon is drawn and decided, not
+shipped**, and treating those as the same thing is how the PNG became a build product with no
+build the first time.
+
+**One thing the owner should see rather than have settled for him.** He confirmed the Vellum name
+has been checked and is fine, and `decisions.md` open item 15 — filed the same night by another
+session — records that no clearance search has been run. Both accounts now stand in the repo, as
+disputed rather than as fact. **The chosen icon bakes the wordmark into pixels**, so the cost of
+the name being wrong went up with this phase rather than down. That is an argument for settling
+item 15, not for reopening the icon.

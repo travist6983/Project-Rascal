@@ -1,73 +1,358 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>RASCAL — app icon</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vellum — identity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;800&family=Source+Sans+3:wght@400;600&display=swap">
 <style>
-  :root { color-scheme: light; }
-  body { margin:0; padding:56px 64px 96px; background:#EFE9DF; color:#23253C;
-         font:16px/1.5 "Source Sans 3", system-ui, -apple-system, sans-serif; }
-  h1 { font-size:40px; letter-spacing:-.03em; margin:0 0 10px; }
-  .lede { color:#6E6A63; max-width:620px; margin:0 0 48px; }
-  .v { margin-bottom:64px; padding-bottom:56px; border-bottom:1px solid #DFD6C8; }
-  .v:last-child { border:0; }
-  h2 { font-size:23px; letter-spacing:-.02em; margin:0 0 6px; }
-  header p { color:#6E6A63; max-width:640px; margin:0 0 26px; font-size:15px; }
-  .row { display:flex; gap:48px; align-items:flex-start; flex-wrap:wrap; }
-  img { display:block; border-radius:22.37%; }
-  .big img { width:300px; height:300px; box-shadow:0 18px 44px rgba(35,37,60,.20); }
-  .scale { display:flex; gap:26px; align-items:flex-end; }
-  figcaption { margin-top:9px; font:12px ui-monospace,Menlo,monospace; color:#A8A096; text-align:center; }
-  .dark { margin-top:34px; padding:26px 30px; border-radius:20px; background:#23253C;
-          display:flex; gap:26px; align-items:flex-end; }
-  .dark figcaption { color:#7C7994; }
-  .chosen { border-left:3px solid #C05A2B; padding-left:24px; margin-left:-27px; }
-  .tag { display:inline-block; margin-left:10px; padding:3px 10px; border-radius:11px;
-         background:#C05A2B; color:#FDFAF4; font:600 11px/1.4 ui-monospace,Menlo,monospace;
-         letter-spacing:.06em; text-transform:uppercase; vertical-align:6px; }
-</style>
-<h1>RASCAL — app icon</h1>
-<p class="lede">Three readings of the stacked-layer silhouette. The layers are the five entry kinds,
-and each one carries the motif that identifies it on its own Entry Detail screen.
-<strong>Fan is the one, decided Aug 16, 2026</strong> — and the decision is name-independent, because
-nothing in the mark is a word. <code>rascal-icon-fan.svg</code> is the source of truth; the PNG in
-<code>AppIcon.appiconset</code> is rendered from it by <code>render-appicon.mjs</code> and is not
-edited by hand.</p>
+  /* The palette is docs/design-system.md, not a choice made on this page. */
+  :root {
+    --canvas:#FDFAF4; --surface:#FFFDF9; --ink:#23253C; --muted:#6E6A63; --faint:#B4ADA3;
+    --border:#EDE5DA; --terracotta:#C05A2B; --peri:#5566D6; --sage:#4B7A4F;
+    --sheet:#EFE9DF; --rule:#E4DCD0;
+  }
+  :root:not([data-theme="light"]) { color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas:#1B1C2C; --surface:#23253C; --ink:#F3EDE4; --muted:#A9A299; --faint:#6E6A63;
+      --border:#33354B; --terracotta:#E08A5A; --peri:#8E9BEA; --sage:#8DB98F;
+      --sheet:#15161F; --rule:#33354B;
+    }
+  }
+  :root[data-theme="dark"] {
+    --canvas:#1B1C2C; --surface:#23253C; --ink:#F3EDE4; --muted:#A9A299; --faint:#6E6A63;
+    --border:#33354B; --terracotta:#E08A5A; --peri:#8E9BEA; --sage:#8DB98F;
+    --sheet:#15161F; --rule:#33354B;
+  }
 
-  <section class="v">
-    <header>
-      <h2>Tinted stack</h2>
-      <p>Every layer keeps its own kind tint — sage, cream, lavender, peach — the way the entry screens do. Depth is carried by the shadow each layer drops on the one behind it.</p>
-    </header>
-    <div class="row">
-      <figure class="big"><img src="rascal-icon-tinted.svg" alt="Tinted stack"><figcaption>1024</figcaption></figure>
-      <div class="scale">
-        <figure><img src="rascal-icon-tinted.svg" style="width:180px;height:180px"><figcaption>180</figcaption></figure><figure><img src="rascal-icon-tinted.svg" style="width:120px;height:120px"><figcaption>120</figcaption></figure><figure><img src="rascal-icon-tinted.svg" style="width:87px;height:87px"><figcaption>87</figcaption></figure><figure><img src="rascal-icon-tinted.svg" style="width:60px;height:60px"><figcaption>60</figcaption></figure><figure><img src="rascal-icon-tinted.svg" style="width:40px;height:40px"><figcaption>40</figcaption></figure>
+  * { box-sizing: border-box; }
+  body {
+    margin:0; padding:0 clamp(20px,5vw,72px) 120px; background:var(--canvas); color:var(--ink);
+    font:400 16px/1.55 "Source Sans 3", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+
+  /* ── masthead ─────────────────────────────────────────────────────── */
+  header.top { padding: clamp(44px,8vw,86px) 0 0; }
+  .lockup { width: min(420px, 78vw); height:auto; display:block; }
+  .top p { max-width: 60ch; color: var(--muted); margin: 26px 0 0; font-size: 17px; }
+  .stamp {
+    display:inline-block; margin-bottom:26px; padding:5px 11px; border-radius:999px;
+    background:var(--surface); border:1px solid var(--border); color:var(--muted);
+    font:600 11px/1.4 ui-monospace, Menlo, monospace; letter-spacing:.08em; text-transform:uppercase;
+  }
+  hr.big { border:0; border-top:1px solid var(--border); margin: clamp(52px,7vw,80px) 0 0; }
+
+  /* ── sections ─────────────────────────────────────────────────────── */
+  section { padding-top: clamp(46px,6vw,72px); }
+  h2 {
+    font:800 clamp(26px,4.2vw,34px)/1.15 Nunito, system-ui, sans-serif;
+    letter-spacing:-.02em; margin:0 0 4px; text-wrap:balance;
+  }
+  .eyebrow {
+    font:600 11.5px/1.4 ui-monospace, Menlo, monospace; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--terracotta); margin:0 0 12px;
+  }
+  section > p { max-width: 66ch; color:var(--muted); margin:14px 0 0; }
+  section > p strong { color: var(--ink); font-weight:600; }
+  h3 {
+    font:600 17px/1.3 Nunito, system-ui, sans-serif; margin:34px 0 10px; color:var(--ink);
+  }
+
+  .plate {
+    margin-top:26px; background:var(--surface); border:1px solid var(--border);
+    border-radius:16px; padding:clamp(16px,3vw,30px); overflow-x:auto;
+  }
+  /* Direct child only. A blanket `.plate img` also caught the kit specimens, and CSS beats
+     a presentation attribute, so every `height="60"` in there was silently ignored and the
+     specimens rendered full-bleed. */
+  .plate > img { display:block; width:100%; height:auto; }
+  .plate.white { background:#FFFFFF; border-color:#ECE7E0; }
+
+  /* ── the icon candidates ──────────────────────────────────────────── */
+  .icons { display:grid; gap:clamp(20px,3vw,34px); grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); margin-top:28px; }
+  .cand { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:22px; }
+  .cand > img { width:100%; height:auto; border-radius:22.37%; display:block; }
+  .cand.chosen { border-color:var(--terracotta); box-shadow:0 0 0 1px var(--terracotta); }
+  .cand.chosen h3::after {
+    content:"chosen"; margin-left:9px; padding:3px 8px; border-radius:9px;
+    background:var(--terracotta); color:#FDFAF4; vertical-align:2px;
+    font:600 10px/1.4 ui-monospace,Menlo,monospace; letter-spacing:.07em; text-transform:uppercase;
+  }
+  .cand h3 { margin:18px 0 6px; }
+  .cand p { margin:0; color:var(--muted); font-size:14.5px; }
+  .ramp { display:flex; gap:12px; align-items:flex-end; margin:18px 0 0; flex-wrap:wrap; }
+  .ramp img { border-radius:22.37%; display:block; }
+  .ramp figure { margin:0; }
+  .ramp figcaption { margin-top:6px; text-align:center; font:11px/1 ui-monospace,Menlo,monospace; color:var(--faint); }
+  .verdict { margin-top:16px; padding-top:14px; border-top:1px solid var(--border); font-size:14px; color:var(--muted); }
+  .verdict b { color:var(--ink); font-weight:600; }
+
+  /* ── the kit ──────────────────────────────────────────────────────── */
+  .kit { display:flex; gap:clamp(24px,4vw,56px); align-items:center; flex-wrap:wrap; }
+  .kit img { display:block; }
+  .onink {
+    background:#23253C; border-radius:16px; padding:26px 34px; display:flex; gap:34px;
+    align-items:center; flex-wrap:wrap; color:#FDFAF4;
+  }
+  .cap { font:11px/1.4 ui-monospace,Menlo,monospace; color:var(--faint); margin-top:8px; }
+
+  /* ── the hover state ──────────────────────────────────────────────── */
+  /* The mark is inline here rather than an <img> because an <img> gets no pointer
+     events — the fan cannot open inside one. This is the snippet the site would use. */
+  .hoverdemo {
+    display:inline-flex; align-items:center; gap:18px; padding:14px 18px; border-radius:10px;
+    text-decoration:none; cursor:pointer;
+  }
+  .hoverdemo:focus-visible { outline:2px solid var(--terracotta); outline-offset:4px; }
+  .fan { width:96px; height:64px; overflow:visible; }
+  .fan .card {
+    transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+    transition: transform 260ms cubic-bezier(.4,0,.2,1);
+  }
+  .hoverdemo:hover .fan .card, .hoverdemo:focus-visible .fan .card {
+    transform: rotate(calc(var(--a) * 1.45deg)) translateY(-127px);
+    transition: transform 460ms cubic-bezier(.22,.9,.28,1);
+    transition-delay: calc(var(--i) * 45ms);
+  }
+  .hoverdemo .word { width:132px; height:auto; }
+  @media (prefers-reduced-motion: reduce) {
+    .fan .card { transition: none; }
+    .hoverdemo:hover .fan .card, .hoverdemo:focus-visible .fan .card {
+      transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+    }
+  }
+
+  /* ── open questions ───────────────────────────────────────────────── */
+  ol.open { max-width:70ch; margin:26px 0 0; padding:0; list-style:none; counter-reset:q; }
+  ol.open li {
+    counter-increment:q; position:relative; padding:0 0 0 44px; margin-bottom:26px;
+  }
+  ol.open li::before {
+    content: counter(q); position:absolute; left:0; top:1px;
+    width:28px; height:28px; border-radius:50%; background:var(--terracotta); color:#FDFAF4;
+    font:600 13px/28px ui-monospace,Menlo,monospace; text-align:center;
+  }
+  ol.open b { display:block; font:600 16.5px/1.35 Nunito, sans-serif; margin-bottom:5px; }
+  ol.open span { color:var(--muted); font-size:15px; }
+
+  footer { margin-top:70px; padding-top:26px; border-top:1px solid var(--border);
+           color:var(--faint); font:13px/1.6 ui-monospace,Menlo,monospace; }
+  code { font-family:ui-monospace,Menlo,monospace; font-size:.92em; color:var(--terracotta); }
+</style>
+
+<div class="wrap">
+
+<header class="top">
+  <span class="stamp">Phase 70 · decided · Aug 17 2026</span>
+  <img class="lockup" src="vellum-logo-horizontal.svg" alt="Vellum">
+  <p>The fan survives the rename. Everything here is the mark decided on Aug&nbsp;16 plus one
+  change at a time — a wordmark drawn to sit beside it, and three readings of what putting the
+  name into the icon actually means. <strong>Both decisions are made</strong> and are marked
+  below; the candidates that lost stay in the tree, because a candidate nobody can look at
+  again is a decision nobody can revisit.</p>
+</header>
+
+<hr class="big">
+
+<section>
+  <p class="eyebrow">Decision one · settled</p>
+  <h2>The word</h2>
+  <p>Drawn, not set. Every curve is a true circular arc on a monolinear skeleton with round
+  terminals — so there is no font file to ship, no licence to honour, and it renders identically
+  in a browser that has never heard of us. The round terminals are not a style choice: the app's
+  own type is SF&nbsp;Rounded and the cards carry a 52/252 corner radius, and a flat-cut wordmark
+  beside that art reads as a different company's.</p>
+  <p><strong>Build 5 — short ascenders — is the one</strong>, chosen Aug&nbsp;17. The l's clear
+  the x-height by 26 rather than 42, which keeps the word compact and level instead of letting
+  two stems run away with it. It is the default in the generator now, so the lockups and the
+  icon are the chosen build by construction rather than by anybody copying a number across.</p>
+  <p>The other seven are kept below for the record. Large on the left, at site-header size on the
+  right — the right-hand column is where the differences actually mattered, because that is the
+  size the word is read at nine times out of ten. Set <strong>lowercase</strong>, also settled:
+  the marketing site's five title-case renderings are the ones that move.</p>
+  <div class="plate"><img src="vellum-wordmark-options.svg" alt="Eight builds of the vellum wordmark"></div>
+</section>
+
+<section>
+  <p class="eyebrow">Decision two · settled</p>
+  <h2>The icon</h2>
+  <p>All three keep the fan, all three keep the five entry kinds and their motifs, and none of
+  them redraws a card. What separated them is <strong>how literally the name enters the
+  picture</strong>. <strong>The front card says it</strong> — chosen Aug&nbsp;17, and it is
+  <code>vellum-icon-fan.svg</code>. The two that lost keep descriptive filenames.</p>
+
+  <div class="icons">
+
+    <div class="cand chosen">
+      <img src="vellum-icon-fan.svg" alt="The chosen icon — the front card carries the wordmark">
+      <div class="ramp">
+        <figure><img src="vellum-icon-fan.svg" width="72" height="72"><figcaption>180</figcaption></figure>
+        <figure><img src="vellum-icon-fan.svg" width="52" height="52"><figcaption>120</figcaption></figure>
+        <figure><img src="vellum-icon-fan.svg" width="40" height="40"><figcaption>87</figcaption></figure>
+        <figure><img src="vellum-icon-fan.svg" width="28" height="28"><figcaption>60</figcaption></figure>
       </div>
+      <h3>The front card says it</h3>
+      <p>Geometry untouched to the decimal. The front card's entry title — a bar standing in
+      for a line of type — becomes the line of type it was standing in for.</p>
+      <p class="verdict"><b>Costs:</b> the word is gone by 87pt and is a smudge at 60. But it
+      was always a smudge there: it replaced a bar that read as one. <b>Watch:</b> Apple's own
+      guidance is that icons shouldn't carry words, and this is the one that does.</p>
     </div>
-  </section>
-  <section class="v">
-    <header>
-      <h2>Tonal stack</h2>
-      <p>The reference read: one colour, depth by tone, motifs as light watermarks. Quieter on a home screen, and the kinds are texture rather than statement.</p>
-    </header>
-    <div class="row">
-      <figure class="big"><img src="rascal-icon-tonal.svg" alt="Tonal stack"><figcaption>1024</figcaption></figure>
-      <div class="scale">
-        <figure><img src="rascal-icon-tonal.svg" style="width:180px;height:180px"><figcaption>180</figcaption></figure><figure><img src="rascal-icon-tonal.svg" style="width:120px;height:120px"><figcaption>120</figcaption></figure><figure><img src="rascal-icon-tonal.svg" style="width:87px;height:87px"><figcaption>87</figcaption></figure><figure><img src="rascal-icon-tonal.svg" style="width:60px;height:60px"><figcaption>60</figcaption></figure><figure><img src="rascal-icon-tonal.svg" style="width:40px;height:40px"><figcaption>40</figcaption></figure>
+
+    <div class="cand">
+      <img src="vellum-icon-alt-v.svg" alt="Not chosen — the fan opens into a V">
+      <div class="ramp">
+        <figure><img src="vellum-icon-alt-v.svg" width="52" height="52"><figcaption>120</figcaption></figure>
+        <figure><img src="vellum-icon-alt-v.svg" width="40" height="40"><figcaption>87</figcaption></figure>
+        <figure><img src="vellum-icon-alt-v.svg" width="28" height="28"><figcaption>60</figcaption></figure>
       </div>
+      <h3>Not chosen — the hand opens upward</h3>
+      <p>The shipped fan pivots at the top and splays downward. This one turns about a single
+      pivot below the hand instead, the way a hand of cards actually opens, and the silhouette
+      that falls out is a V.</p>
+      <p class="verdict"><b>Why it lost:</b> the V is a shape you either see or you don't, and
+      nobody who hasn't been told will. It stays because it is the only wordless option, and if
+      the icon ever has to work without a name, this is where to start.</p>
     </div>
-  </section>
-  <section class="v chosen">
-    <header>
-      <h2>Fan<span class="tag">shipped</span></h2>
-      <p>Same five motifs, different silhouette — a hand of entries rather than a stack. Each card is legible down its outer edge, so the motif sits high.</p>
-      <p><strong>This is the app icon.</strong> It survives the mask down to 40pt — the front card's
-      cream sheet and the terracotta ground stay separable when the four behind it have collapsed into
-      a single fanned edge, which is the size where the other two readings stop being five of anything.</p>
-    </header>
-    <div class="row">
-      <figure class="big"><img src="rascal-icon-fan.svg" alt="Fan"><figcaption>1024</figcaption></figure>
-      <div class="scale">
-        <figure><img src="rascal-icon-fan.svg" style="width:180px;height:180px"><figcaption>180</figcaption></figure><figure><img src="rascal-icon-fan.svg" style="width:120px;height:120px"><figcaption>120</figcaption></figure><figure><img src="rascal-icon-fan.svg" style="width:87px;height:87px"><figcaption>87</figcaption></figure><figure><img src="rascal-icon-fan.svg" style="width:60px;height:60px"><figcaption>60</figcaption></figure><figure><img src="rascal-icon-fan.svg" style="width:40px;height:40px"><figcaption>40</figcaption></figure>
+
+    <div class="cand">
+      <img src="vellum-icon-alt-monogram.svg" alt="Not chosen — the front card is the letter">
+      <div class="ramp">
+        <figure><img src="vellum-icon-alt-monogram.svg" width="52" height="52"><figcaption>120</figcaption></figure>
+        <figure><img src="vellum-icon-alt-monogram.svg" width="40" height="40"><figcaption>87</figcaption></figure>
+        <figure><img src="vellum-icon-alt-monogram.svg" width="28" height="28"><figcaption>60</figcaption></figure>
       </div>
+      <h3>Not chosen — the front card is the letter</h3>
+      <p>The photograph, the sheet and the lines come off the front card and a <b>v</b> takes
+      the whole face of it.</p>
+      <p class="verdict"><b>Why it lost:</b> the front card stops being an entry and becomes a
+      badge — four cards say what this app is and the fifth says who makes it. It was the best
+      small-size read of the three, which is the trade that was declined.</p>
     </div>
-  </section>
+
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">The kit</p>
+  <h2>Everything else</h2>
+  <p>The logo's fan is not the icon's fan with the detail switched off — it is a different
+  drawing of the same idea. No motifs, because a sixteen-bar waveform at 28px is a smudge;
+  no kind tints, because four of the five are too pale to hold on cream. Depth is carried by
+  one hue in three tones, which is also what lets it survive a single-colour print.</p>
+  <p><strong>Every static file here is ground-independent.</strong> The gap between one card
+  and the next is cut out of the card behind rather than painted in the background colour, so
+  the same file is crisp on white, on cream and on anything between. Painting it cream was
+  right for the app and wrong for the marketing site: on white it read as a warm halo round
+  every card, and the mark looked soft-edged where it should look cut.</p>
+
+  <h3>Lockups</h3>
+  <div class="plate white">
+    <div class="kit">
+      <div><img src="vellum-logo-horizontal.svg" height="60" alt="Horizontal lockup">
+        <div class="cap">horizontal</div></div>
+      <div><img src="vellum-logo-stacked.svg" height="120" alt="Stacked lockup">
+        <div class="cap">stacked</div></div>
+      <div><img src="vellum-wordmark.svg" height="40" alt="Wordmark">
+        <div class="cap">word alone</div></div>
+    </div>
+  </div>
+
+  <h3>The mark, down to a favicon</h3>
+  <div class="plate">
+    <div class="kit">
+      <div><img src="vellum-mark.svg" height="72" alt="Fan mark"><div class="cap">mark · 5 cards</div></div>
+      <div><img src="vellum-mark.svg" height="32" alt=""><div class="cap">32</div></div>
+      <div><img src="vellum-mark-compact.svg" height="32" alt="Compact mark"><div class="cap">compact · 32</div></div>
+      <div><img src="vellum-mark-compact.svg" height="18" alt=""><div class="cap">compact · 18</div></div>
+    </div>
+  </div>
+  <p>Below about 24px the five-card fan stops being five of anything, so there is a
+  three-card cut for favicons and avatars. A mark that is honestly three cards beats one that
+  is a smudge claiming to be five.</p>
+
+  <h3>One colour, either ground</h3>
+  <div class="plate">
+    <div class="kit">
+      <div><img src="vellum-logo-mono.svg" height="54" alt="One-colour lockup"><div class="cap">mono · ink</div></div>
+      <div class="onink"><img src="vellum-logo-mono.svg" height="54"
+        style="filter:brightness(0) invert(1)" alt="One-colour lockup reversed"></div>
+    </div>
+  </div>
+  <p><code>vellum-logo-mono.svg</code> paints itself in <code>currentColor</code>, so an
+  <code>&lt;img&gt;</code> renders it ink and inline use takes whatever <code>color</code> the
+  page sets. Depth there cannot come from tone, because there is only one tone, and it cannot
+  come from translucency either — overlapping sheets compound and go muddy the moment the ground
+  is dark. It comes from a knockout: the gap between one card and the next is cut out of the card
+  behind, so the same file stays crisp on cream, on ink and on terracotta.</p>
+
+  <h3>The site's hover state — on white</h3>
+  <p>Hover it. The hand opens — outer cards last, on a 45ms stagger, so it reads as a fan
+  rather than a scale; closing has no stagger, so it snaps shut instead of unravelling.
+  Keyboard users get it on <code>:focus-visible</code>, and it respects
+  <code>prefers-reduced-motion</code>.</p>
+  <p><strong>The copy-pasteable version is <code>vellum-logo-hover.html</code></strong> —
+  generated, so it cannot drift from the artwork, and it carries the markup and CSS as
+  blocks to lift. What is below mirrors it; that file is the one to hand the site.</p>
+  <div class="plate white">
+    <a class="hoverdemo" href="#" aria-label="Vellum">
+      <svg class="fan" viewBox="-150 -205 300 198" aria-hidden="true" focusable="false">
+        <g class="card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/></g>
+        <g class="card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/></g>
+        <g class="card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/></g>
+        <g class="card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/></g>
+        <g class="card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/></g>
+      </svg>
+      <img class="word" src="vellum-wordmark.svg" alt="">
+    </a>
+  </div>
+  <p><strong>This one strokes its card gaps in white; every static file here cuts them
+  out.</strong> A knockout needs to know nothing about the background, which is what makes
+  the SVGs safe on white, on cream and on ink alike — but the mask is built from where the
+  cards <em>are</em>, so the moment one rotates away its notch stays behind and the mark
+  tears. A stroke moves with its card. That trades ground-independence for motion, which is
+  the right trade in a header with one known background and the wrong one everywhere else.</p>
+</section>
+
+<section>
+  <p class="eyebrow">Not answered here</p>
+  <h2>Four things this page can't settle</h2>
+  <ol class="open">
+    <li><b>Two records disagree about the name.</b>
+      <span>You confirmed on Aug&nbsp;17 that Vellum has been checked and is fine, so nothing
+      here is blocked on it. But <code>decisions.md</code> open item 15 was filed the same
+      night by another session saying the trademark search <em>hasn't</em> been run, P1 before
+      the App Store listing. One of those two needs to go, and only you know which.</span></li>
+    <li><b>The site still sets the word in title case.</b>
+      <span>Lowercase is settled here. The marketing site renders its wordmark as live text —
+      Nunito 800, title case — in five places, so adopting this is a swap of text for inline
+      SVG in each, not a file copy. That's the site session's pass to schedule, not a
+      drive-by.</span></li>
+    <li><b>The site is still carrying the old mark.</b>
+      <span><code>src/assets/icon.svg</code> in Rascal-Marketing is a dog-eared page — a
+      visual pun on the previous name. Under Vellum the pun is dead, and until it's replaced
+      the app and the site ship two different marks under one name.</span></li>
+    <li><b>The rename is bigger than the artwork.</b>
+      <span>"Dogear" is 21 occurrences across 9 files in <code>api/</code> and 14 across 8 in
+      <code>ios/</code> — including outbound email subject lines, a public HTML page title, and
+      an iOS string reading "Settings → Dogear → Notifications". <code>decisions.md</code> line
+      115 still records the app as Dogear. None of that is touched by this phase.</span></li>
+    <li><b>Nothing has shipped to the phone.</b>
+      <span><code>rascal-icon-fan.svg</code> is still what <code>render-appicon.mjs</code>
+      renders and still what's in the asset catalogue. Pointing that script at the new file and
+      re-rendering <code>AppIcon-1024.png</code> is an iOS-lane change and wasn't made here.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Artwork is generated: <code>node docs/app-icon/generate-vellum.mjs</code> — including
+  <code>vellum-logo-hover.html</code><br>
+  This page is hand-kept and no script writes it — see the header of <code>generate.mjs</code>
+  for why that matters.<br>
+  <code>rascal-icon-fan.svg</code> is still the shipped icon and was not modified.
+</footer>
+
+</div>

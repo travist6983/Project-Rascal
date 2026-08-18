@@ -1,0 +1,258 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vellum — the logo, on white, with its hover state</title>
+<style>
+  body {
+    margin: 0; background: #FFFFFF; color: #23253C;
+    font: 400 16px/1.6 "Source Sans 3", system-ui, -apple-system, sans-serif;
+  }
+  .bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px clamp(20px, 5vw, 56px); border-bottom: 1px solid #ECE7E0;
+  }
+  .bar nav { display: flex; gap: 30px; color: #6E6A63; font-size: 15px; }
+  .stage { padding: clamp(40px, 7vw, 90px) clamp(20px, 5vw, 56px); max-width: 860px; }
+  h1 { font: 600 27px/1.25 "Source Sans 3", system-ui, sans-serif; margin: 0 0 10px; letter-spacing: -.01em; }
+  p { color: #6E6A63; max-width: 62ch; margin: 0 0 18px; }
+  .sizes { display: flex; gap: 54px; align-items: flex-end; flex-wrap: wrap; margin: 34px 0 0; }
+  .sizes .vellum-logo svg { height: 64px; }
+  .sizes .s2 .vellum-logo svg { height: 34px; }
+  .sizes .s3 .vellum-logo svg { height: 24px; }
+  .cap { font: 11px/1.4 ui-monospace, Menlo, monospace; color: #A8A096; margin-top: 12px;
+         letter-spacing: .07em; text-transform: uppercase; }
+  h2 { font: 600 15px/1.3 "Source Sans 3", sans-serif; margin: 54px 0 10px;
+       letter-spacing: .09em; text-transform: uppercase; color: #C05A2B; font-size: 12px; }
+  pre {
+    background: #FAF7F2; border: 1px solid #ECE7E0; border-radius: 12px;
+    padding: 20px 22px; overflow-x: auto; font: 12.5px/1.65 ui-monospace, Menlo, monospace;
+    color: #3A3C52;
+  }
+  .note { border-left: 3px solid #C05A2B; padding-left: 16px; margin: 26px 0; }
+
+  .vellum-logo {
+    display: inline-block;
+    line-height: 0;                 /* an inline-block wrapping an svg gets a descender gap */
+    border-radius: 6px;
+  }
+  .vellum-logo svg {
+    display: block;
+    height: 44px;                   /* the only size you set — width follows the viewBox */
+    width: auto;
+    overflow: visible;              /* the fan opens past its box; see the note below */
+  }
+  .vellum-logo .vl-card {
+    transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+    transition: transform 260ms cubic-bezier(.4, 0, .2, 1);
+  }
+  /* Opening staggers from the middle outward; closing does not, so the hand snaps shut
+     rather than unravelling. The delay lives in the hover rule for exactly that reason. */
+  .vellum-logo:hover .vl-card,
+  .vellum-logo:focus-visible .vl-card {
+    transform: rotate(calc(var(--a) * 1.45deg)) translateY(-127px);
+    transition: transform 460ms cubic-bezier(.22, .9, .28, 1);
+    transition-delay: calc(var(--i) * 45ms);
+  }
+  .vellum-logo:focus-visible {
+    outline: 2px solid #C05A2B;
+    outline-offset: 6px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vellum-logo .vl-card,
+    .vellum-logo:hover .vl-card,
+    .vellum-logo:focus-visible .vl-card {
+      transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+      transition: none;
+    }
+  }
+</style>
+
+<div class="bar">
+  <a class="vellum-logo" href="/" aria-label="Vellum">
+    <svg viewBox="0 -163.8 842.213 163.8" aria-hidden="true" focusable="false">
+      <g transform="translate(124.357 6.25) scale(0.83)">
+          <g class="vl-card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)">
+            <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+          </g>
+          <g class="vl-card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)">
+            <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+          </g>
+          <g class="vl-card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)">
+            <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+          </g>
+          <g class="vl-card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)">
+            <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+          </g>
+          <g class="vl-card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)">
+            <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/>
+          </g>
+      </g>
+      <g transform="translate(310.713 0)">
+        <path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="#23253C" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>
+  </a>
+  <nav><span>How it works</span><span>Pricing</span><span>Sign in</span></nav>
+</div>
+
+<div class="stage">
+  <h1>Point at it.</h1>
+  <p>The hand opens — outer cards last, on a 45ms stagger, so it reads as a fan rather than
+  as a scale. Closing has no stagger, so it snaps shut instead of unravelling. Keyboard users
+  get the same thing on <code>:focus-visible</code>, and anyone who has asked their system for
+  less motion gets none.</p>
+
+  <div class="sizes">
+    <div><div><a class="vellum-logo" href="/" aria-label="Vellum">
+      <svg viewBox="0 -163.8 842.213 163.8" aria-hidden="true" focusable="false">
+        <g transform="translate(124.357 6.25) scale(0.83)">
+            <g class="vl-card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+        </g>
+        <g transform="translate(310.713 0)">
+          <path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="#23253C" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </svg>
+    </a></div><div class="cap">64 — hero</div></div>
+    <div class="s2"><div><a class="vellum-logo" href="/" aria-label="Vellum">
+      <svg viewBox="0 -163.8 842.213 163.8" aria-hidden="true" focusable="false">
+        <g transform="translate(124.357 6.25) scale(0.83)">
+            <g class="vl-card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+        </g>
+        <g transform="translate(310.713 0)">
+          <path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="#23253C" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </svg>
+    </a></div><div class="cap">34 — header</div></div>
+    <div class="s3"><div><a class="vellum-logo" href="/" aria-label="Vellum">
+      <svg viewBox="0 -163.8 842.213 163.8" aria-hidden="true" focusable="false">
+        <g transform="translate(124.357 6.25) scale(0.83)">
+            <g class="vl-card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+            <g class="vl-card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)">
+              <rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/>
+            </g>
+        </g>
+        <g transform="translate(310.713 0)">
+          <path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="#23253C" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </svg>
+    </a></div><div class="cap">24 — footer</div></div>
+  </div>
+
+  <div class="note">
+    <p><strong>One caveat worth knowing.</strong> The fan opens past the edge of its own box,
+    so the svg is set <code>overflow: visible</code> and the layout does not shift when it
+    moves. A parent with <code>overflow: hidden</code> will clip the open state — if the header
+    has one, give this element room rather than turning the overflow off.</p>
+  </div>
+
+  <h2>The markup</h2>
+  <pre>&lt;a class="vellum-logo" href="/" aria-label="Vellum"&gt;
+  &lt;svg viewBox="0 -163.8 842.213 163.8" aria-hidden="true" focusable="false"&gt;
+    &lt;g transform="translate(124.357 6.25) scale(0.83)"&gt;
+        &lt;g class="vl-card" style="--a:-32;--i:2" transform="rotate(-32) translate(0 -120)"&gt;
+          &lt;rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/&gt;
+        &lt;/g&gt;
+        &lt;g class="vl-card" style="--a:32;--i:2" transform="rotate(32) translate(0 -120)"&gt;
+          &lt;rect x="-50" y="-75" width="100" height="150" rx="22" fill="#ECCDBC" stroke="#FFFFFF" stroke-width="6"/&gt;
+        &lt;/g&gt;
+        &lt;g class="vl-card" style="--a:-16;--i:1" transform="rotate(-16) translate(0 -120)"&gt;
+          &lt;rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/&gt;
+        &lt;/g&gt;
+        &lt;g class="vl-card" style="--a:16;--i:1" transform="rotate(16) translate(0 -120)"&gt;
+          &lt;rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F" stroke="#FFFFFF" stroke-width="6"/&gt;
+        &lt;/g&gt;
+        &lt;g class="vl-card" style="--a:0;--i:0" transform="rotate(0) translate(0 -120)"&gt;
+          &lt;rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B" stroke="#FFFFFF" stroke-width="6"/&gt;
+        &lt;/g&gt;
+    &lt;/g&gt;
+    &lt;g transform="translate(310.713 0)"&gt;
+      &lt;path d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75" fill="none" stroke="#23253C" stroke-width="19.5" stroke-linecap="round" stroke-linejoin="round"/&gt;
+    &lt;/g&gt;
+  &lt;/svg&gt;
+&lt;/a&gt;</pre>
+
+  <h2>The CSS</h2>
+  <pre>.vellum-logo {
+  display: inline-block;
+  line-height: 0;                 /* an inline-block wrapping an svg gets a descender gap */
+  border-radius: 6px;
+}
+.vellum-logo svg {
+  display: block;
+  height: 44px;                   /* the only size you set — width follows the viewBox */
+  width: auto;
+  overflow: visible;              /* the fan opens past its box; see the note below */
+}
+.vellum-logo .vl-card {
+  transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+  transition: transform 260ms cubic-bezier(.4, 0, .2, 1);
+}
+/* Opening staggers from the middle outward; closing does not, so the hand snaps shut
+   rather than unravelling. The delay lives in the hover rule for exactly that reason. */
+.vellum-logo:hover .vl-card,
+.vellum-logo:focus-visible .vl-card {
+  transform: rotate(calc(var(--a) * 1.45deg)) translateY(-127px);
+  transition: transform 460ms cubic-bezier(.22, .9, .28, 1);
+  transition-delay: calc(var(--i) * 45ms);
+}
+.vellum-logo:focus-visible {
+  outline: 2px solid #C05A2B;
+  outline-offset: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vellum-logo .vl-card,
+  .vellum-logo:hover .vl-card,
+  .vellum-logo:focus-visible .vl-card {
+    transform: rotate(calc(var(--a) * 1deg)) translateY(-120px);
+    transition: none;
+  }
+}</pre>
+
+  <div class="note">
+    <p><strong>Why this one strokes its card gaps in white</strong> when every other file in
+    this directory cuts them out. A knockout needs to know nothing about the background, which
+    is what makes the static files safe anywhere — but the mask is built from where the cards
+    are, so the moment one rotates away its notch stays behind and the mark tears. A stroke
+    moves with its card. That trades ground-independence for motion, which is the right trade
+    here and the wrong one everywhere else.</p>
+  </div>
+</div>
