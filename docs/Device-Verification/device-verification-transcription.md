@@ -1,6 +1,26 @@
 # Transcription — device verification
 
-**Nothing in this feature has ever run.** That is not a caution, it is the literal state: the
+~~**Nothing in this feature has ever run.**~~ — **corrected Aug 17, 2026. It has run once, and
+this sentence was the only thing keeping phase 16 shut.**
+
+> **Owner, Aug 16, 2026:** `SpeechAnalyzer` produced a real transcription on a real device, on a
+> build from that day, and the output was accurate enough to capture his son's actual
+> pronunciation of words.
+>
+> **Owner-confirmed retrospectively, not agent-observed.** Nobody ran this checklist; this is one
+> reported observation, written down where the gate reads it.
+
+**No box below is ticked and the count is still 0 of 45**, deliberately. That single observation
+covers part of one of §0's five boxes and none of the other four — it says nothing about three
+recordings, about reading a transcript back against its audio, about whether names survive, or
+about whether it invents plausible sentences where he mumbled. **§0 still needs running**, and it
+says itself that it is the one measurement in this project that cannot be re-derived later,
+because the recordings change as he does. A ticked §0 would stop anybody running it.
+
+What the correction unblocks is **phase 16**, whose preflight read the struck sentence above and
+hard-stopped — correctly, on input that had stopped being true.
+
+**The rest of this file is unchanged and remains true:** the
 test suite proves the queue, the writeback, the retry, the sync-conflict rule, and the two display
 surfaces, and every one of those assertions runs against a stub transcriber. `SpeechAnalyzer` is
 iOS 26 and the app deploys to 18.6, `isAvailable` is false on every simulator, and the model assets

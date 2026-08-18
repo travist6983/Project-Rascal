@@ -1,6 +1,13 @@
 # Proposed diff to `CLAUDE.md` — the rate-limiting scope line
 
-**Proposed, not applied.** Phase 57 shipped rate limiting, which `CLAUDE.md` currently lists as
+✅ **APPLIED Aug 17, 2026, in phase 68 — this file is kept as the reasoning, not as a pending
+change.** What landed differs from the proposal below in two ways, both because the tree moved
+under it: **the guardian invite flow came off the out-of-scope list too** (phase 36 built it, so
+the proposal's own quoted block was already stale), and the line now records that
+`POST /v1/subscribe` deliberately carries **no** rate limit because Turnstile is its whole
+protection — the owner's call of Aug 16, which the proposal predates.
+
+~~Proposed, not applied.~~ Phase 57 shipped rate limiting, which `CLAUDE.md` currently lists as
 out of scope for the API lane. The plan for that phase said to propose the change rather than
 edit the standing rules silently, so here it is. **Nothing in the code depends on this edit
 landing** — the behaviour ships either way; what is at stake is whether the standing rules

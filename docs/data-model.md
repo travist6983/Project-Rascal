@@ -256,6 +256,36 @@ the soft-delete rule. Soft deletes exist so a client can learn a row went away; 
 client left to tell, and a `deleted_at` on an erasure would be the service keeping exactly what
 it was asked to stop keeping.
 
+### Which tables carry `deleted_at`, and why the rest do not
+
+`CLAUDE.md` rule 5 says *"soft deletes and `updated_at` on every user-data table"*, and eighteen
+tables do not have one. **Checked Aug 17, 2026 in phase 68 rather than left as an open worry** —
+the rule holds exactly where it does work, and every gap is principled:
+
+**The rule's actual job is sync.** *"Deletions sync as rows with `deleted_at` set, never as
+absences"* — so it binds on tables a client pulls, because an absence is indistinguishable from
+"not yet fetched". `GET /sync` serves **entries, media, tags and assignments**. Entries, media
+and tags carry `deleted_at`. **Assignments do not, and do not need one: nothing deletes an
+assignment.** They expire by `status`, which is a value the client already reads; the only
+`delete(Assignment)` calls in the service are the two local-only `/debug` routes and account
+erasure, and neither has a client left to inform.
+
+**Everything else is not synced**, and splits three ways:
+
+- **Auth and infrastructure** — `credentials`, `refresh_tokens`, `email_sign_in_tokens`,
+  `idempotency_keys`, `rate_limit_events`, `devices`. A revocation is what `revoked_at` records
+  on the two that need it; the rest are ledgers that expire or are pruned.
+- **Membership** — `guardians`, `families`, `entitlements`, `guardian_invites`,
+  `deletion_requests`. `guardians` and `guardian_invites` carry `revoked_at`, which is the soft
+  delete under another name and for the same reason: a revoked row keeps its unique-key namespace.
+- **`children`** — the one genuinely arguable case. It has no `deleted_at` because until phase 66
+  **nothing could delete a child**, and what phase 66 does is erase rather than delete. A
+  tombstone there would be the service keeping a record of a child it was asked to forget.
+
+**The one to revisit** is `children`, the day a parent can remove a single child without deleting
+their account. That is not a feature today and it is not queued; when it is, it wants a
+`deleted_at` and a sync lane, because *then* there is a client left to tell.
+
 **What is deleted:** the account always; the archive **only when no other guardian remains**.
 When a second guardian stays, the children, entries and media are untouched and only the
 departing parent's `guardians` rows and credentials go — with `entries.author_id` set to null, on

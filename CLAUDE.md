@@ -75,8 +75,31 @@ pytest-asyncio + httpx · ruff · Fly.io.
 
 Swift or iOS code (that is the other lane, not this one), push notifications, full-text
 search, thumbnail or transcode pipelines,
-LLM prompt generation, the guardian invite flow, the admin prompt review queue, a web
-frontend, multi-kid UI concerns, rate limiting, observability beyond structured logging.
+LLM prompt generation, the admin prompt review queue, multi-kid UI concerns, observability
+beyond structured logging.
+
+**Rate limiting is out of scope for routes that only touch the caller's own data, and
+required for any route that can reach somebody else.** A signed-in parent hammering their own
+archive is a support conversation, not an attack.
+
+Two routes qualify, and the second is why this is not simply "unauthenticated endpoints".
+`POST /auth/email/start` is unauthenticated and mails an address a stranger chose.
+`POST /me/credentials/email` is *authenticated* and mails an address the account does not own
+and has not proved anything about — so without a limit, anyone who can create a free account
+can use it, and our sending reputation, to mail a stranger repeatedly.
+
+The limit lives in the app rather than at the edge because an edge limiter cannot see the
+address: it is inside the request body. It is Postgres-backed because there is more than one
+Fly machine, so an in-memory counter is per-process theatre.
+
+**`POST /v1/subscribe` deliberately has none**, and that is not an oversight in the rule above:
+Turnstile is the whole protection there, by the owner's call of Aug 16, 2026, and it fails
+closed. See `decisions.md` open item 12(1).
+
+**A web frontend is no longer out of scope in the sense this line meant.** There is no web
+*client* for the archive and there is not going to be one soon — but the marketing site is a
+browser calling this API, so CORS, `MARKETING_ORIGINS` and `POST /v1/subscribe` are all API-lane
+concerns now. What stays out of scope is serving HTML for the product itself, per D7.
 
 ## Working here
 
