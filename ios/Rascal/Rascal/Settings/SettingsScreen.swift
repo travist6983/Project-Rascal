@@ -81,6 +81,8 @@ struct SettingsScreen: View {
     /// Built on first appearance, like `export`: the screen's memberwise init is what
     /// `RootView` calls, and a `@State` with no default would take it away.
     @State private var guardians: GuardiansModel?
+    @State private var deletion: AccountDeletionModel?
+    @State private var showingDelete = false
     @State private var outstanding = EntrySync.Outstanding()
     @State private var isRetrying = false
     /// What the last "Retry now" achieved. Nil until one has been pressed.
@@ -136,6 +138,7 @@ struct SettingsScreen: View {
                 }
 
                 appSection
+                deleteAccountRow
 
                 if let notice {
                     Text(notice)
@@ -157,6 +160,7 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if guardians == nil { guardians = GuardiansModel(api: session.api) }
+            if deletion == nil { deletion = AccountDeletionModel(api: session.api) }
             await loadChild()
             await loadStats()
         }
@@ -218,6 +222,25 @@ struct SettingsScreen: View {
                 ) { updated in
                     session.apply(user: updated)
                 }
+            }
+        }
+        .sheet(isPresented: $showingDelete) {
+            if let deletion {
+                DeleteAccountSheet(
+                    model: deletion,
+                    // Changes what the sheet truthfully says: with a second parent in the
+                    // household the children stay with them, and telling somebody their
+                    // child's archive is about to be deleted when it is not would be a
+                    // frightening lie.
+                    hasOtherGuardian: (guardians?.family?.guardians.count ?? 1) > 1,
+                    onDeleted: {
+                        showingDelete = false
+                        // The session is already dead server-side — requesting revokes every
+                        // refresh token — so this reflects a state rather than causing one.
+                        Task { await onSignOut() }
+                    },
+                    onDismiss: { showingDelete = false }
+                )
             }
         }
         .confirmationDialog(
@@ -617,6 +640,22 @@ struct SettingsScreen: View {
                 SettingsValueRow(label: "Version", value: Self.version)
             }
         }
+    }
+
+    /// **Its own card, at the bottom, with whitespace above it.** `docs/design-system.md` is
+    /// explicit that there is no destructive colour in this product and that an irreversible
+    /// action gets its weight from placement instead — so this is terracotta like any other
+    /// action, set apart by where it sits rather than by being painted red.
+    private var deleteAccountRow: some View {
+        SettingsCard {
+            SettingsActionRow(
+                label: "Delete your account",
+                detail: "Nothing happens for seven days, and signing back in undoes it."
+            ) {
+                showingDelete = true
+            }
+        }
+        .padding(.top, 28)
     }
 
     /// Below everything, where it was. Terracotta is the primary action colour and signing out

@@ -166,3 +166,36 @@ extension APIClient {
         token.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? token
     }
 }
+
+// MARK: - Deleting the account
+
+/// A scheduled deletion. `executeAfter` is what a confirmation reads back to the parent — the
+/// client never computes it from a policy it would then have to keep in step with the server's.
+nonisolated struct ScheduledDeletion: Decodable, Equatable, Sendable {
+    let requestedAt: Date
+    let executeAfter: Date
+}
+
+extension APIClient {
+
+    /// `POST /v1/me/deletion` — ask for the account to be deleted, seven days from now.
+    ///
+    /// **`202`, and nothing is deleted yet.** Every refresh token is revoked, so this signs the
+    /// account out of every device immediately — the caller must sign out, because the session
+    /// is already dead server-side.
+    ///
+    /// **Idempotent:** asking twice returns the first request rather than restarting the clock.
+    func requestAccountDeletion() async throws -> ScheduledDeletion {
+        try await send(.post, "v1/me/deletion")
+    }
+
+    /// `DELETE /v1/me/deletion` — withdraw a request.
+    ///
+    /// **Kept for completeness rather than used by the app**, and that is worth knowing before
+    /// somebody wires a button to it: requesting deletion revokes every refresh token, so within
+    /// fifteen minutes the access token expires and there is no session left to call this with.
+    /// **Signing in is the cancel a parent actually takes**, and the server does it for them.
+    func cancelAccountDeletion() async throws {
+        let _: EmptyResponse = try await send(.delete, "v1/me/deletion")
+    }
+}
