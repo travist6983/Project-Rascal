@@ -3034,3 +3034,24 @@ a report in that directory; the discrepancy list is in `story-7-report.md`.
   named minor's photographs, video and voice, overnight, unreviewed, and publishing it as the basis
   of a public privacy policy is not the same task — and the story's own gate makes the argument:
   *"a public commitment nobody can keep."*
+
+## Aug 17, 2026 — the Vellum rename, and what was deliberately left alone
+
+- **The owner ruled the name is officially Vellum**, with the *Vellum by 180g* trademark risk
+  already on the table and no clearance search run. Recorded as a knowing decision with the risk
+  left open, not as a resolved question. The expensive surfaces are outbound email — which cannot
+  be recalled once sent — and the App Store listing.
+- **`manifest.format` stayed `rascal-export` through a second rename.** It has now survived both.
+  The viewer checks it, and moving it would make every archive exported before today fail to open
+  in a newer viewer. The download filename is decoration and moved both times.
+- **`docs/marketing/email-sequence.md` was not touched, and neither was the YAML generated from
+  it.** The file's header forbids an agent editing that copy. The owner authorised the *name*, not
+  an exception to that rule, and he was asleep. The order when he does it: edit the markdown, then
+  re-run `scripts/email_sequence_to_yaml.py` — a direct edit to `api/seeds/email_copy.yaml` is
+  silently discarded on the next regeneration.
+- **D5a's subscription group was corrected to `Vellum Membership` while that was still possible.**
+  App Store product identifiers are permanent on first save; nothing exists in App Store Connect
+  yet, so this was a free edit today and an impossible one later.
+- **A half-applied rename is worse than either end of it.** The site saying Vellum while the
+  sign-in email says Dogear is the state to avoid, which is why the remaining surfaces are
+  enumerated in the decision row rather than left to be discovered.

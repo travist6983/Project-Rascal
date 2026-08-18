@@ -351,9 +351,11 @@ async def test_the_manifest_says_what_is_in_the_box(
     response = await _download(client, world)
 
     manifest = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
-    # **Stays `rascal-export` through the Dogear rename, on purpose.** This is the identifier
-    # the viewer checks; renaming it would make every archive exported before the rename fail
-    # to open in a newer viewer. The download filename is decoration and did move — below.
+    # **Stays `rascal-export` through two renames now — Dogear, then Vellum — on purpose.**
+    # This is the identifier the viewer checks; renaming it would make every archive exported
+    # before a rename fail to open in a newer viewer. That it has survived two is the point:
+    # the product name is not allowed to reach this string. The download filename is
+    # decoration and moved both times — below.
     assert manifest["format"] == "rascal-export"
     assert manifest["format_version"] == 1
     assert manifest["child"]["name"] == "Miles"
@@ -374,7 +376,7 @@ async def test_the_manifest_says_what_is_in_the_box(
 
     assert response.headers["x-rascal-export-entries"] == "7"
     assert response.headers["content-length"] == str(len(response.content))
-    assert "dogear-miles-" in response.headers["content-disposition"]
+    assert "vellum-miles-" in response.headers["content-disposition"]
 
 
 async def test_a_name_that_is_not_ascii_still_downloads(
@@ -390,7 +392,7 @@ async def test_a_name_that_is_not_ascii_still_downloads(
     response = await client.get(f"/v1/children/{child.id}/export", headers=auth_headers(user))
     assert response.status_code == 200
     assert response.headers["content-disposition"].isascii()
-    assert "dogear-child-" in response.headers["content-disposition"]
+    assert "vellum-child-" in response.headers["content-disposition"]
 
     manifest = json.loads(zipfile.ZipFile(io.BytesIO(response.content)).read("manifest.json"))
     assert manifest["child"]["name"] == "ミロ"
@@ -691,13 +693,13 @@ async def test_a_scoped_download_is_named_for_its_range(
     world = await _archive(session)
 
     both = await _download(client, world, **{"from": "2026-01-01", "to": "2026-12-31"})
-    assert "dogear-miles-20260101-20261231.zip" in both.headers["content-disposition"]
+    assert "vellum-miles-20260101-20261231.zip" in both.headers["content-disposition"]
 
     since = await _download(client, world, **{"from": "2026-05-01"})
-    assert "dogear-miles-20260501-end.zip" in since.headers["content-disposition"]
+    assert "vellum-miles-20260501-end.zip" in since.headers["content-disposition"]
 
     until = await _download(client, world, **{"to": "2026-05-01"})
-    assert "dogear-miles-start-20260501.zip" in until.headers["content-disposition"]
+    assert "vellum-miles-start-20260501.zip" in until.headers["content-disposition"]
 
 
 async def test_a_backwards_range_is_rejected_before_anything_is_built(

@@ -226,8 +226,8 @@ async def test_the_from_and_reply_to_settings_reach_the_provider(monkeypatch) ->
     settings = _settings(
         mail_provider="resend",
         mail_api_key="k",
-        mail_from="Dogear <hello@dogear.test>",
-        mail_reply_to="replies@dogear.test",
+        mail_from="Vellum <hello@vellum.test>",
+        mail_reply_to="replies@vellum.test",
     )
     seen: dict = {}
 
@@ -240,8 +240,8 @@ async def test_the_from_and_reply_to_settings_reach_the_provider(monkeypatch) ->
     _install(monkeypatch, handler)
     await send(settings, to="p@example.com", subject="s", text="t", stream="transactional")
 
-    assert seen["from"] == "Dogear <hello@dogear.test>"
-    assert seen["reply_to"] == "replies@dogear.test"
+    assert seen["from"] == "Vellum <hello@vellum.test>"
+    assert seen["reply_to"] == "replies@vellum.test"
     # The lane travels with the message. Resend has no stream concept, so it rides as a header
     # — and a bounce investigation that cannot tell a deletion warning from a newsletter is an
     # investigation into the wrong problem.

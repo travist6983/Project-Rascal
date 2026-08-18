@@ -67,7 +67,7 @@ async def invite_landing(token: str) -> HTMLResponse:
 
     **The person opening this probably does not have the app**, which is the whole difference.
     A magic link goes to somebody who already has an archive; an invite goes to the other
-    parent, who may be meeting Dogear for the first time on a laptop. Telling them to "open
+    parent, who may be meeting Vellum for the first time on a laptop. Telling them to "open
     this on your iPhone" would be an instruction they cannot follow.
 
     So it says what the link *is* — somebody is sharing a child's archive with them — and where
@@ -83,7 +83,7 @@ async def invite_landing(token: str) -> HTMLResponse:
         """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dogear</title>
+<title>Vellum</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -94,9 +94,9 @@ async def invite_landing(token: str) -> HTMLResponse:
 </style>
 <main>
   <h1>Someone shared a child\u2019s archive with you</h1>
-  <p>Dogear keeps a record of a childhood, one small thing at a time. This link adds you to
+  <p>Vellum keeps a record of a childhood, one small thing at a time. This link adds you to
      the household, so you both keep the same one.</p>
-  <p>It opens in the Dogear app on iPhone. Install it, then tap this link again on that phone.</p>
+  <p>It opens in the Vellum app on iPhone. Install it, then tap this link again on that phone.</p>
 </main>
 """
     )
@@ -115,7 +115,7 @@ async def signin_landing() -> HTMLResponse:
         """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dogear</title>
+<title>Vellum</title>
 <style>
   :root { color-scheme: light dark; }
   body { font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -126,7 +126,7 @@ async def signin_landing() -> HTMLResponse:
 </style>
 <main>
   <h1>Open this on your iPhone</h1>
-  <p>This sign-in link works in the Dogear app, so it needs the phone the app is installed on.</p>
+  <p>This sign-in link works in the Vellum app, so it needs the phone the app is installed on.</p>
   <p>Open the same email there and tap the link again.</p>
 </main>
 """

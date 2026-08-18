@@ -242,7 +242,7 @@ async def add_my_credential(
         "**Always `202`, and the body says nothing about the address.** An address already on "
         "a *different* account is answered identically to a fresh one, with nothing written "
         "and nothing sent — anything else would tell any caller, and anyone who can create a "
-        "free account is a caller, whether a given address signs in to Dogear. "
+        "free account is a caller, whether a given address signs in to Vellum. "
         "`POST /auth/email/start` already refuses that question unconditionally, so answering "
         "it here would be an inconsistency as much as a leak.\n\n"
         "An address already on *this* account gets a fresh link, so an expired verification is "
@@ -293,9 +293,9 @@ async def _deliver_verification_link(settings: Settings, address: str, raw_token
             # asked for it, and it reads no consent column — D3a.
             stream="transactional",
             to=address,
-            subject="Confirm this address for Dogear",
+            subject="Confirm this address for Vellum",
             text=(
-                "Open this link to add this address as a way to sign in to Dogear.\n\n"
+                "Open this link to add this address as a way to sign in to Vellum.\n\n"
                 f"{link}\n\n"
                 "It works once, and for fifteen minutes. Until you open it, this address cannot "
                 "be used to sign in. If you did not ask for this, you can ignore it."

@@ -209,9 +209,9 @@ async def _deliver_sign_in_link(settings: Settings, address: str, raw_token: str
             # it reads no consent column — D3a.
             stream="transactional",
             to=address,
-            subject="Your Dogear sign-in link",
+            subject="Your Vellum sign-in link",
             text=(
-                "Here is your link to sign in to Dogear.\n\n"
+                "Here is your link to sign in to Vellum.\n\n"
                 f"{link}\n\n"
                 "It works once, and for fifteen minutes. If you did not ask for it, nothing "
                 "has happened to your account and you can ignore this."

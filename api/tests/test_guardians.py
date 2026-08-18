@@ -593,13 +593,16 @@ async def test_today_shows_a_parent_their_own_three_and_not_the_others(
     which this parent can see and complete.
     """
     one, two, child = await _two_parent_household(session)
-    on = dt.date.today().isoformat()
-
+    # **No `?date=`, and that is the fix rather than a simplification.** This read used to pass
+    # `dt.date.today()` — the *test machine's* date — while `today.py` computes `local_today` in
+    # the child's `family_timezone` and only calls `ensure_day_filled` when the two agree. On a
+    # UTC runner between 00:00 and ~04:00 UTC it is already tomorrow in America/Detroit's terms,
+    # so the dates disagreed, the day was never filled, and the board came back empty: *"Travis
+    # saw 0 daily items"*. It passed on any machine in US time and failed in CI for four hours a
+    # day. Omitting the parameter asks for the same thing the app asks for.
     for viewer in (one, two):
         body = (
-            await client.get(
-                f"/v1/children/{child.id}/today?date={on}", headers=auth_headers(viewer)
-            )
+            await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(viewer))
         ).json()
         daily = [i for i in body["today"] if i["slot"] in ("question", "mission", "mission_b")]
         assert len(daily) == 3, f"{viewer.display_name} saw {len(daily)} daily items"
@@ -608,9 +611,7 @@ async def test_today_shows_a_parent_their_own_three_and_not_the_others(
     ids = []
     for viewer in (one, two):
         body = (
-            await client.get(
-                f"/v1/children/{child.id}/today?date={on}", headers=auth_headers(viewer)
-            )
+            await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(viewer))
         ).json()
         ids.append({i["id"] for i in body["today"] if i["slot"] == "question"})
     assert ids[0] and ids[1] and ids[0].isdisjoint(ids[1])

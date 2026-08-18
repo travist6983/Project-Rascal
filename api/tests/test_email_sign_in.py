@@ -149,7 +149,7 @@ async def test_an_address_on_another_account_is_indistinguishable_from_a_new_one
     """**This answered `409 credential_in_use` and that was an enumeration oracle.**
 
     The route is authenticated, but anyone who can create a free account is authenticated — so
-    a 409 told any caller whether a given address signs in to Dogear, one probe at a time.
+    a 409 told any caller whether a given address signs in to Vellum, one probe at a time.
     `POST /auth/email/start` already refuses that exact question with an unconditional 202, so
     answering it here was an inconsistency as well as a leak.
 

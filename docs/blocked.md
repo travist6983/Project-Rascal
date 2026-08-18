@@ -1447,7 +1447,7 @@ even though the products are not.
 ### The product identifiers, chosen Aug 16 and permanent once created
 
 ```
-Subscription group:  Dogear Membership
+Subscription group:  Vellum Membership
 Annual:              com.travisterry.childarchive.subscription.annual
 Monthly:             com.travisterry.childarchive.subscription.monthly
 ```
@@ -1465,7 +1465,11 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
    possible until it shows active.
 2. **Enrol in the App Store Small Business Program.** Requires step 1. Note the fiscal-month lag
    above — this is the one worth doing now.
-3. **Create the subscription group** `Dogear Membership`.
+3. **Create the subscription group** `Vellum Membership`. **Renamed from `Dogear Membership` on
+   Aug 17, 2026 with the product, and this line was the urgent half of that rename**: a
+   subscription group name is **permanent on first save**, so working this runbook before it was
+   corrected would have carried the dead name for the life of the listing. Nothing has been
+   created yet, which is the only reason this edit was still possible.
 4. **Create the two products** with the identifiers above, at **$5.99/month** and **$59.99/year**.
 5. **Set the annual as the preselected option**, and configure the **14-day free trial** as an
    introductory offer, per D1.
@@ -1515,7 +1519,7 @@ on revocation being recoverable.
   ```
   `users.id` = ______________________  `subject_id` = ______________________
 
-- [ ] **2.** Settings → Apple ID → Sign-In & Security → Sign in with Apple → find Dogear →
+- [ ] **2.** Settings → Apple ID → Sign-In & Security → Sign in with Apple → find Vellum →
   **Stop Using Apple ID**.
 
 - [ ] **3.** Confirm the webhook arrived. **Read it from the logs, not from the app UI** — the
@@ -1643,7 +1647,10 @@ it needs a domain.
 
 1. **Clear the name, then buy the domain.** Three checks before money changes hands, none of which
    exists anywhere in this repo today — **`decisions.md` open item 1 settled `Dogear` on Aug 12,
-   2026 and recorded no clearance work at all**, so treat this as the first pass rather than a
+   2026 and recorded no clearance work at all, and the Aug 17, 2026 rename to `Vellum` recorded
+   none either** (open item 15). **The rename made this step more urgent rather than resetting
+   it**: *Vellum by 180g* is a live software trademark in a publishing-adjacent category, which
+   is a nearer neighbour than anything Dogear had. Treat this as the first pass rather than a
    re-verification: the **social handle**, an **App Store search-collision check** for apps
    shipping under a similar name, and a **trademark search** in the classes an app would fall in.
    A name that fails any of these is cheaper to change now than after a domain, an App Store
