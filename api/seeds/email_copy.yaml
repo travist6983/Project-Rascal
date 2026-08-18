@@ -1,0 +1,137 @@
+_generated_by: scripts/email_sequence_to_yaml.py
+_source: docs/marketing/email-sequence.md
+_warning: Generated. Edit the markdown and re-run the script; never edit this file by hand.
+welcome:
+- index: 1
+  day: 0
+  subject: Your first question
+  body: 'That''s you on the list. Here''s the first one.
+
+
+    **What did they say today that you want to remember?**
+
+
+    Write it down somewhere — a notes app, a napkin, the back of your hand. The point isn''t where. The
+    point is that in nine years you will not remember it, and right now you do.
+
+
+    That''s the whole idea behind Dogear. One question a day about your kid, and one small mission — take
+    a photo, record their voice, get on the floor for ten minutes. What you capture becomes a timeline
+    they inherit, with the question that caused it still attached.
+
+
+    A photo without context is a photo. A photo with the question that made you take it is a story.
+
+
+    We''ll send you a question most days. No streaks, nothing to keep up with.'
+- index: 2
+  day: 2
+  subject: The thing camera rolls can't do
+  body: '**What are they afraid of right now?**
+
+
+    Worth writing down, because it will change, and because you will forget that it was ever true.
+
+
+    Here''s the thing about your camera roll: it already has eleven thousand photos of your kid. What
+    it doesn''t have is why. Which one was the day they finally let go of the couch. Which blurry one
+    is the good one.
+
+
+    Dogear isn''t storage. You''ve got storage. It''s the prompt, the context, and being able to find
+    it again in 2040.'
+- index: 3
+  day: 5
+  subject: Some days you just get on the floor
+  body: '**What''s a small thing they''re better at than they were a month ago?**
+
+
+    A note on missions, since a couple of you asked.
+
+
+    Not every mission produces something to upload. "Get on the floor and play for ten minutes" makes
+    nothing you can post, and it is a complete, legitimate entry in the archive. So is a sentence you
+    typed. So is a photo.
+
+
+    Three shapes: you did it, you captured it, you wrote it. All three count the same.
+
+
+    Most apps in this category quietly assume a photo. Ours doesn''t, and that was a decision, not an
+    oversight.'
+- index: 4
+  day: 9
+  subject: Missed a few?
+  body: '**What do they do that nobody else would notice?**
+
+
+    If you haven''t written anything down since the first email — that''s fine, and it''s the reason this
+    email exists.
+
+
+    Dogear has no streaks. Nothing turns red. Missed prompts stack up quietly and expire after two weeks
+    without ever mentioning it again. An app that makes you feel worse about parenting has failed at the
+    only thing it was for.
+
+
+    The exit test we used while building it wasn''t a feature list. It was: did I use this for seven days
+    without forcing myself.'
+- index: 5
+  day: 16
+  subject: Where this is going
+  body: '**What''s something they believe right now that isn''t true?**
+
+
+    Write that one down. Trust me.
+
+
+    Quick note on what Dogear actually is, since you''ve been getting these for a couple of weeks.
+
+
+    It''s an iPhone app. One question a day, one mission, a bigger mission weekly, a measurement monthly.
+    Everything lands on a searchable timeline — searchable through what was said, not just when it happened,
+    because voice recordings get transcribed.
+
+
+    It''s built to be handed over. Not exported into a folder someone loses. Handed over, as a thing with
+    the questions still attached.
+
+
+    It''s being built by one person in the evenings, for one four-year-old, and it works. You''ll hear
+    from us when it''s ready for anyone else.
+
+
+    Until then: the questions keep coming.'
+pool:
+- What did they say today that you want to remember?
+- What are they afraid of right now?
+- What's a small thing they're better at than they were a month ago?
+- What do they do that nobody else would notice?
+- What's something they believe right now that isn't true?
+- Who is their favourite person outside this house, and why?
+- What's the current obsession? The one you're a little tired of.
+- What makes them laugh the hardest?
+- What did they teach you this week?
+- What do they call something, using the wrong word, that you'll be sad to lose?
+- What are they proud of right now?
+- What does bedtime actually look like, honestly?
+- What's the sound of your house right now?
+- What's a thing they're allowed to do now that they weren't six months ago?
+- What do they want to be? Ask them today, not from memory.
+- What's the hardest part of this age?
+- What's the part you'd keep, exactly as it is?
+- Where do they go when they're upset?
+- What's their favourite meal this month?
+- What's a phrase they've picked up from you that you wish they hadn't?
+- What did you do together today that cost nothing?
+- Who are they at somebody else's house, versus here?
+- What's the last thing they were completely absorbed by?
+- What's something they've stopped doing that you didn't notice stopping?
+- What do they smell like right now? Be specific.
+- What's the argument you keep having?
+- What are their hands doing when they're thinking?
+- What's a thing about them that's entirely their own — from neither of you?
+- What did today actually look like, from waking up to now?
+- What would you want them to know about this exact week, twenty years from now?
+footer: You're getting this because you signed up at [site]. One email a day, and you can stop them any
+  time — [unsubscribe].

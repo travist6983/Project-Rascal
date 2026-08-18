@@ -202,6 +202,18 @@ class Settings(DatabaseSettings):
     # lives. Unset means the route refuses rather than accepting an address it cannot store.
     resend_audience_id: str | None = None
 
+    # **The switch that lets the daily broadcast actually send, and it defaults to off.**
+    #
+    # Open item 12 says it in every line that touches this work: *no marketing email sends
+    # before the P0 behavioural gate*, which is seven days of unforced daily use and has not
+    # started. A job that would send the moment credentials appeared would turn setting a
+    # secret into mailing strangers, and nobody setting a secret expects that.
+    #
+    # Off, the job does everything except the network call: picks the prompt, renders both
+    # bodies, writes the ledger row as `skipped`, and logs what it would have sent. Flipping
+    # this to true is the entire difference, and there is no code change behind it.
+    marketing_email_enabled: bool = False
+
     # Browser origins allowed to call the subscribe route. **A list from the first commit**,
     # because a scalar is a thing a second origin has to migrate off — and the marketing site
     # will have a custom domain beside its github.io one. Never `*`, and applied to that route

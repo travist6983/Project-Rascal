@@ -97,4 +97,7 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     "guardian_invites",
     # Phase 66.
     "deletion_requests",
+    # Phase 69. Not user data — a broadcast has no recipient in this schema — but it carries
+    # `updated_at` because a row is written before the send and updated after it.
+    "email_broadcasts",
 )
