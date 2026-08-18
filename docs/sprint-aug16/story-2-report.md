@@ -1,94 +1,94 @@
-# Story 2 — report
+# Story 2 — the capture form. Report.
 
-**HALTED — Gate 1 — story 1 has not merged, so the contract this story is forbidden to guess does
-not exist. A second, independent reason not to proceed is below.**
+**Repo touched:** `travist6983/Rascal-Marketing` only. No phase number is consumed: this is
+marketing-site work, and the roadmap ledger numbers API and iOS lane phases.
 
-Nothing written. No branch, no commit, no PR, in either repo.
+## The story's contract was wrong in three ways, and the shipped one was used instead
 
----
+Story 2 was written before phase 60 landed, and it specifies an endpoint that does not exist.
+Gate 1 says to confirm the contract and not to guess, so it was read out of
+`api/src/rascal/routers/subscribe.py` on `main`.
 
-## Gate 1 — FAILS, exactly as written
+| Story 2 says | `main` actually has |
+|---|---|
+| `POST /v1/subscribers` | `POST /v1/subscribe` |
+| `{ email, source }` | `{ email, turnstile_token, source }` |
+| A honeypot is the whole defence | Turnstile is the defence; the honeypot is a cheap addition |
+| We own confirmation tokens and three landing pages | Resend owns double opt-in; we store nothing |
 
-The gate: *"Read story 1's merged PR or `docs/sprint-aug16/story-1-report.md` in the monorepo.
-Confirm the three route paths and the exact request body. **Do not guess the contract.** If story 1
-has not merged, halt."*
+The third row is the one that changed the shape of the work, so it is spelled out below.
 
-Story 1 halted (`story-1-report.md`) and opened no PR. There are **no route paths to read**.
+## Three behaviours that look obvious and are wrong against this route
 
-This gate is well-made and it is doing its job: story 2's form would have posted to
-`${API_BASE}/v1/subscribers`, and the merged decisions say the route is **`POST /v1/subscribe`**
-(`decisions.md` item 12, D7, `roadmap-status.md:483`). Building the form against the story's guess
-would have produced a page that 404s against the endpoint the API will actually ship — and it would
-have looked finished.
+1. **There is no duplicate state, and the form must not invent one.** The route answers `202`
+   for every outcome that is not an outage — new, already subscribed, already unsubscribed, all
+   identical — because any other answer makes it an oracle that tells anyone with a browser
+   whether a given address is on the list. The previous script had a `409` branch and a
+   "You're already on the list" line. Both are gone. The page cannot know that and must not
+   guess it.
+2. **The old success state was a lie.** It said *"You're in. First prompt lands tomorrow
+   morning."* Nothing is stored by us and the contact is unconfirmed until they click Resend's
+   email, so the confirmation email contradicted that sentence within the minute. It now says to
+   check the inbox.
+3. **The two hidden consent inputs were deleted.** `marketing_consent` and
+   `transactional_consent` were there for D3a's two-flags-not-one-flag rule, but there is no
+   `subscribers` table and the server ignores both fields. A consent flag posted into nowhere is
+   worse than no flag: to anyone auditing the form it reads as consent being recorded. D3a comes
+   back on the day the list comes in-house.
 
-## The second reason — the tree is not clean before I start
+## Landing pages — two, not three
 
-`~/repos/personal/Rascal-Marketing` has **seven modified files uncommitted on `main`**:
+- **`/thanks` became the confirmed page** rather than a new `confirmed.html` beside it. It
+  already existed, already said "You're on the list", and nothing linked to it. That sentence is
+  true exactly once — after somebody clicks the confirmation link — so that is now the only page
+  allowed to say it, and the form no longer navigates there.
+- **`/unsubscribed` is new.** One line, no win-back, no "are you sure?", per the story. It also
+  states the suppression list in the same breath as the confirmation, because finding that out
+  later reads like something that was hidden.
+- **`confirm-error.html` was deliberately not built.** It describes our confirmation token
+  failing, and we have no confirmation token — Resend owns that flow and renders its own error.
+  Nothing in the system can produce a link to that page. Building it would mean shipping a page
+  no URL reaches, describing a mechanism that does not exist.
 
-```
- docs/site-content.md             |  5 ++++-
- src/assets/site.css              | 33 +++++++++++++++++++
- src/assets/site.js               | 43 ++++++++++++++++++++++++++-
- src/pages/compare/tinybeans.html | 21 +-----------------
- src/pages/faq.html               |  8 ++++----
- src/pages/index.html             |  2 +-
- src/pages/pricing.html           |  2 +-
- 7 files changed, 87 insertions(+), 27 deletions(-)
-```
+## What ran, and what is reasoned
 
-`src/assets/site.js` and `site.css` are two of the three files story 2's form would touch. **This is
-somebody's work in progress**, and the runbook's requirement to leave a clean tree cannot be met by a
-story that starts in a dirty one. I did not stage, stash, commit or revert any of it, and I did not
-read further into it than the diffstat above.
+**Observed.** The form was driven in Chrome against a local stub and Cloudflare's public test
+site key (`1x00000000000000000000AA`), served from a throwaway copy of `dist/`:
 
-**If that work is yours and it is finished, commit it before this story runs again.** If it is
-another session's, that session should land it first — the marketing lane has one story after this
-one (story 5) and both touch the same files.
+| Path | Result |
+|---|---|
+| Happy path | `POST /v1/subscribe`, body keys exactly `email`, `source`, `turnstile_token`, real token, `source: "/waitlist"` |
+| Success state | Form replaced with "Check your inbox — there is a link to confirm." |
+| Honeypot filled | Success state shown, **zero requests reached the stub** |
+| Malformed address | Inline message, `aria-invalid="true"`, nothing sent |
+| Server returns non-2xx | One calm line in `--ink-muted` (not red), button label restored, form intact, retry possible |
+| No site key (today's state) | "Signups are not open yet — nothing was sent", **and the Cloudflare script never loads** |
 
-## Gate 2 — Idempotency — not landed
+**Reasoned, not observed.** The real `rascal-api.fly.dev` was never called, so the deployed
+route, its CORS response to the GitHub Pages origin, and a genuine Turnstile verification are
+unverified. This does not work end to end and nobody should say it does until it has been
+exercised once against the deployed API from the real origin.
 
-No capture form and no confirmation/unsubscribe landing pages exist. `src/pages/terms.html` **does**
-already exist, which matters for **story 5** rather than this one.
+## Owner errand this adds
 
-## Gate 3 — the gate's premise is wrong, though the gate itself would not have fired
+**Create a Turnstile widget and put its site key in `SIGNUP.TURNSTILE_SITE_KEY` in
+`src/assets/site.js`.** It is a public key and belongs in the markup; it is not
+`TURNSTILE_SECRET_KEY`, which is the server's and is already on the blocked list. Until it is
+set the form explains itself and posts nothing, which is deliberate — the server fails closed on
+a missing token, so a form that posted anyway would only ever show an error.
 
-The gate says: *"This repo is deliberately no-framework and no-build. If the work seems to need a
-bundler, a package, or a transpile step, halt and say why rather than introducing one."*
+Also still outstanding, and both already on the list: `MAIL_API_KEY` (full access) and
+`RESEND_AUDIENCE_ID`, without which the route returns `503` and the form shows its calm error.
 
-**The repo has a build step.** `package.json` carries `build: node scripts/build.mjs`, plus
-`check`, `serve`, `og`, `social:*`, `video`, and a `dist/` and `node_modules/`. It is
-**no-framework**, which is true and worth preserving — but "no-build" is not an accurate description
-of it.
+## Privacy page, again
 
-The gate would not have fired (a plain form needs no bundler), so this is a note rather than a
-finding. It is recorded because the next person to read that sentence will believe it.
+Story 5 deliberately left the Turnstile disclosure out so the page was true at every commit.
+It lands here, with the form, plus two corrections the form itself forced:
 
-## Gate 4 — Design tokens — not reached
+- *"There is no second form and no hidden field"* became false the moment a honeypot existed.
+  The hidden field is now described, including that it is never transmitted.
+- The Turnstile paragraph says plainly that **right now it does not load at all**, because no
+  site key is set. Asserting a third party runs when it does not is the same class of error the
+  story 5 audit existed to fix.
 
-`docs/design-system.md` in the monorepo is present and is the authority, as the gate says. Not read
-in depth, because no styling work was done.
-
----
-
-## What unblocks this
-
-Story 2 is **cheap and low-risk once its input exists** — three pages and one form, no framework.
-It needs exactly two things:
-
-1. **Story 1's contract**, which needs the phase-60 ratifications in `story-1-report.md`. The route
-   is `POST /v1/subscribe` and the request body is whatever that phase settles.
-2. **A clean marketing tree.**
-
-**One correction to carry into story 2 whenever it runs:** the story specifies a honeypot field as
-the spam defence and refers to "the rate limiter". The merged decision is **Turnstile**, verified
-server-side, *"a missing or failed token being a rejection rather than a warning"* (`decisions.md`
-item 12(1)), with **no rate limit on the endpoint**. D7 notes Turnstile is host-independent and
-costs nothing on GitHub Pages — *"Choosing GitHub Pages did not cost it."* A honeypot is a
-reasonable addition; it is not a substitute for the thing the owner chose.
-
-## Deliberately not done
-
-- No form, no `confirmed.html`, no `confirm-error.html`, no `unsubscribed.html`.
-- Nothing staged, stashed, committed or reverted in `Rascal-Marketing`.
-- Nothing in `api/`, `ios/`, `roadmap-status.md` or `phase-queue.md`.
-- No phase number consumed.
+`npm run build && npm run check`: 21 pages, 0 warnings, 0 failures.
