@@ -7,11 +7,21 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 16, 2026 (third pass)**. **The highest number used is
-60**, ~~so a genuinely new phase takes **61**~~ — **61 through 67 all went on Aug 17, so the next is 68** — 67 closed the App Store deletion blocker that 65 found — the auth bundle took 51–58, the
-universal-link surface took 59, and **60 was allocated Aug 16, 2026 to the marketing signup
-endpoint and the Resend swap** (specified, not built). 51–59 merged on Aug 16, 2026
-(PRs #99, #100, #101) and are live in production.
+Synced with `roadmap-status.md` at **Aug 17, 2026 (fourth pass, story 7)**. **The highest
+number used is 73**, so a genuinely new phase takes **74** — ~~*"61 through 67 all went on Aug
+17, so the next is 68"*~~, which was true when written and stopped being true the same evening.
+68 unblocked the sprint, 69 built the daily broadcast, 70 went to the icon and wordmark work,
+71 and 73 are the two halves of the Vellum rename, and 72 was the false-claims sweep. 67 closed
+the App Store deletion blocker that 65 found; the universal-link surface took 59; **60 was the
+marketing signup endpoint and the Resend swap**. 51–59 merged on Aug 16, 2026 (PRs #99, #100,
+#101) and are live in production.
+
+> **Third time this header has been wrong, and this one is the mildest of the three** — it was
+> stale rather than self-contradicting, and it was stale by six numbers in a single evening
+> because seven phases ran in one night. Recorded rather than quietly corrected, because that
+> is what the two entries below it are for. **The rule that works has not changed and worked
+> again here: measure `main`, not a status document's count.** Phase 71 read this line, found
+> it said 68, checked `main`, and found 68 already merged as `364154c`.
 
 > **This header has now been wrong twice in two days, and the second time was worse.** It said
 > *"the highest number used is 46, so a genuinely new phase takes 47"* while line 121 of this
@@ -237,10 +247,20 @@ would cost to restart.
   onto an archive that already has guardians is a migration over user content, so having it settled
   in advance is worth more now than it was when nothing was iceboxed.
 
-**36 is deliberately still in the build queue**, and the distinction is worth stating because the
-two phases overlap. 30 was *grandparents as read-only viewers*. 36 is a **second parent** becoming
-a full guardian, which is what D4's "one price for the whole household" is sold on — a different
-need with a different consumer. If that should ice too, say so and it moves here in a line.
+~~**36 is deliberately still in the build queue**~~ — **36 shipped Aug 17, 2026 and is out of
+the queue entirely.** The server half is phase 36 itself and the client half is phases 61 and 63;
+the sprint's stories 3a and 3b both re-reported it as `ALREADY LANDED` at their own idempotency
+gates.
+
+**The distinction that had it iced is the thing that turned out to be confusing, and it is worth
+keeping in the owner's own framing:** he had been reading *guardian* as **grandparents** — which
+is phase 30, still iced — when what he actually wanted was a **second parent**. The two were
+separated on Aug 15 for exactly that reason, and the separation is what let one ship while the
+other stayed parked. 30 is unchanged and nothing tonight un-ices it or needs unwinding.
+
+**What un-icing 36 restored: D4's consumer.** *"One price for the whole household"* now has the
+thing it is sold on, which it did not while this was parked — and the free tier deliberately does
+**not** include a second guardian, so the invite surface is the upgrade surface.
 
 ## Deliberately not doing
 
@@ -250,3 +270,30 @@ Delete nothing here without a decision to go with it.
 - Renumbering the phase collisions (3, 11, 19, 20 each mean two things). The ledger disambiguates.
 - Paper grain. Already in `decisions.md` under "Rejected — do not revisit"; confirmed Aug 12, no
   action. The design exports will keep shipping it and the answer stays no.
+
+---
+
+## Follow-ups the Aug 17 sprint generated
+
+One line each, per this file's rule. The reasoning is in `roadmap-status.md` and the story
+reports; these are only the things somebody has to *do*.
+
+- **Owner: set the Turnstile site key** in `Rascal-Marketing`'s `src/assets/site.js`. Public key,
+  belongs in markup. Until then the signup form declines to post and says so.
+- **Owner: three Fly secrets** — `TURNSTILE_SECRET_KEY`, `MAIL_API_KEY` (full access, not
+  `sending_access`), `RESEND_AUDIENCE_ID`. Without them `POST /v1/subscribe` answers 503.
+- **Owner: rename the product in `docs/marketing/email-sequence.md`**, then re-run
+  `scripts/email_sequence_to_yaml.py`. That file is owner-only by its own header and its 5
+  occurrences are the last place the dead name survives in this repo. Editing the generated YAML
+  directly is discarded on the next regeneration.
+- **Owner: write down the trademark check you say you ran** — where you looked and what you
+  found, one line. Open item 15. You answered *"already checked — it's fine"* on Aug 18; the repo
+  holds the assurance but not the evidence, and only the second kind is auditable later.
+- **Re-capture the marketing site's onboarding screenshot** once phase 73 merges. The old wordmark
+  is baked into its pixels and cannot be fixed from the marketing repo.
+- **Exercise `POST /v1/subscribe` end to end once**, from the real GitHub Pages origin, to confirm
+  CORS and a real Turnstile verification. Never yet done against the deployed API.
+- **Run the daily broadcast once with `--date` against an audience of one** before it ever runs for
+  the list. The Resend Broadcasts API has never been called.
+- **A Fly scheduled machine for `python -m rascal.jobs.broadcast`**, once the above is verified.
+- **§0 device verification is still 0 of 45.** Unchanged by this sprint and still wants running.

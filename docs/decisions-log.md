@@ -3055,3 +3055,31 @@ a report in that directory; the discrepancy list is in `story-7-report.md`.
 - **A half-applied rename is worse than either end of it.** The site saying Vellum while the
   sign-in email says Dogear is the state to avoid, which is why the remaining surfaces are
   enumerated in the decision row rather than left to be discovered.
+## Aug 17–18, 2026 — the overnight sprint, reconciled (story 7, phase 74)
+
+**The sprint's own specs were the least reliable document in the room**, and that is the entry
+worth keeping. They were authored roughly thirteen phases behind `main` and specified an
+endpoint (`POST /v1/subscribers`), a table (`subscribers`), a webhook and a rate-limit exception
+that either never existed or had been settled the other way. **Every story that ran had to be
+built against the tree rather than against its own brief**, and the two that were not built —
+3a and 3b — were not built because they had already shipped as phases 36, 61 and 63.
+
+- **Story 7's own instructions were partly false and were not followed literally.** It asks for
+  five specific claims to be written into `decisions.md` item 12, three of which contradict
+  `main`: a `subscribers` table as the source of truth for consent, a welcome sequence sending
+  through the Emails API, and a consent webhook. **Its gate 3 is what authorised ignoring
+  them** — *"if a report claims something and the tree disagrees, the tree wins and you write
+  down the discrepancy"* — so the discrepancies are recorded in item 12 rather than the claims.
+- **Gate 1 was not satisfiable as written and was met in substance.** It requires every other
+  story to be merged or halted, while the runbook forbids a story merging its own PR. Taken
+  literally, story 7 can never run unattended. Phases with open PRs are filed as **PR open**,
+  never as shipped, which is the honest form of the same information.
+- **A queue header went stale by six numbers in one evening.** Third time in three days, and the
+  mildest — stale rather than self-contradicting. The rule that worked again: measure `main`,
+  not a status document's count. Phase 71 read *"the next is 68"*, checked `main`, and found 68
+  already merged.
+- **Deleting evidence to tidy a report was caught and reversed.** Phase 72's first commit
+  replaced story 3a's 196-line report with a 55-line summary of the same conclusion, discarding
+  the gate-4 production evidence from a window that has since closed, both break-tests, and the
+  adversarial-review table. Restored under a dated header. **The same failure as an absolute that
+  goes false: it costs nothing today and everything the day somebody needs it.**
