@@ -6,7 +6,7 @@ import Foundation
 /// than a custom scheme, so the same `https://` URL opens the app when it is installed and a web
 /// page when it is not. That matters more here than it does for a magic link — a magic link goes
 /// to somebody who already has the app, and an invitation goes to the other parent, who may be
-/// meeting Dogear for the first time on a laptop.
+/// meeting Vellum for the first time on a laptop.
 ///
 /// The claim is made in two places that have to agree, and nothing checks them at build time:
 /// `Rascal.entitlements` lists `applinks:rascal-api.fly.dev`, and the API serves

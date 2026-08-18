@@ -28,7 +28,7 @@ struct WelcomeScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer()
 
-                Text("DOGEAR")
+                Text("VELLUM")
                     .typeRole(.label)
                     .tracking(2.6)
                     .foregroundStyle(Color.ink)

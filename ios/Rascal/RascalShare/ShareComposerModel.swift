@@ -79,7 +79,7 @@ final class ShareComposerModel {
         // would spend a parent's time and disk on something that ends in silence. Saying so now is
         // the honest version, and it names the one action that fixes it.
         guard let owner = inbox.currentOwner() else {
-            phase = .unusable("Open Dogear and sign in, then share this again.")
+            phase = .unusable("Open Vellum and sign in, then share this again.")
             return
         }
         ownerChildId = owner
@@ -133,7 +133,7 @@ final class ShareComposerModel {
             return true
         } catch {
             isSaving = false
-            phase = .unusable("This couldn't be saved. Open Dogear and add it from there.")
+            phase = .unusable("This couldn't be saved. Open Vellum and add it from there.")
             return false
         }
     }

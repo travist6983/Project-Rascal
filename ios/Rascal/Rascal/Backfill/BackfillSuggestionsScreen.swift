@@ -118,7 +118,7 @@ struct BackfillSuggestionsScreen: View {
     /// the app can see, and under `.limited` that is whatever was shared.
     private var intro: String {
         isLimited
-            ? "These are the photos you've shared with Dogear. Pick a month and start anywhere."
+            ? "These are the photos you've shared with Vellum. Pick a month and start anywhere."
             : "There's a lot here you haven't written about yet. Pick a month and start anywhere."
     }
 
