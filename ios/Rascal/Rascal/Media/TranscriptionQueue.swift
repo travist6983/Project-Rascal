@@ -326,7 +326,7 @@ final class TranscriptionQueue {
         }
 
         let mediaId = media.id
-        let input: (url: URL, isTemporary: Bool)
+        var input: (url: URL, isTemporary: Bool)
         switch await resolveInput(for: media) {
         case .success(let resolved):
             input = resolved
@@ -336,6 +336,44 @@ final class TranscriptionQueue {
             return .failed
         }
         defer { if input.isTemporary { try? FileManager.default.removeItem(at: input.url) } }
+
+        // **A video usually needs nothing done to it**, which was the surprise of phase 16:
+        // `AVAudioFile(forReading:)` reads the audio track straight out of an mp4, so the export
+        // the phase was specified around turned out to be machinery for a problem that does not
+        // exist. What is genuinely needed is the silence check — without it a clip with no audio
+        // track fails to open and is recorded as an unreachable recording, burning six retries
+        // against a video that never had sound.
+        var extractedTrack: URL?
+        // Its own `defer`: the download above may also have left a temporary file, and both have
+        // to go on every path out of here.
+        defer { if let extractedTrack { try? FileManager.default.removeItem(at: extractedTrack) } }
+
+        if media.mediaKind == .video {
+            let trackURL = scratch.appending(
+                path: "vtrack-\(mediaId.uuidString.lowercased()).\(AudioPipeline.fileExtension)"
+            )
+            do {
+                switch try await VideoAudioTrack.plan(for: input.url, exportingTo: trackURL) {
+                case .readDirectly:
+                    break
+                case .extracted(let url):
+                    extractedTrack = url
+                    input = (url, false)  // cleanup is the `defer` above, not this tuple's flag
+                case .silent:
+                    // **Not a failure.** The same answer as a recording of a child who would not
+                    // talk, and it takes the same path: done, attempts reset, nothing written.
+                    media.transcriptSync = .synced
+                    media.transcriptAttemptCount = 0
+                    media.transcriptNextAttemptAt = nil
+                    try? context.save()
+                    return .transcribed
+                }
+            } catch {
+                media.recordTranscriptFailure(Self.describe(error), now: now)
+                try? context.save()
+                return .failed
+            }
+        }
 
         let produced: String
         do {
@@ -401,8 +439,11 @@ final class TranscriptionQueue {
                 return .success((staged, false))
             }
         }
+        // The container matters now that video is eligible: writing mp4 bytes to a `.m4a` path
+        // leaves `AVURLAsset` sniffing content to recover from a name we chose wrongly.
+        let ext = media.mediaKind == .video ? "mp4" : AudioPipeline.fileExtension
         let destination = scratch.appending(
-            path: "transcribe-\(media.id.uuidString.lowercased()).\(AudioPipeline.fileExtension)"
+            path: "transcribe-\(media.id.uuidString.lowercased()).\(ext)"
         )
         switch await MediaAccess.downloadToFile(
             mediaId: media.id, destination: destination, api: api
@@ -422,12 +463,18 @@ final class TranscriptionQueue {
 
     /// Voice notes the server has, that this phone is allowed to work on.
     ///
-    /// **Audio only, and `complete` only.** Incomplete upload is the same discipline as
+    /// **Audio and video, and `complete` only.** Incomplete upload is the same discipline as
     /// entries-before-media in the upload sweep: `PATCH /media/{id}/derived` resolves a media row
     /// the server has to already know about, so transcribing first would spend the whole retry
-    /// budget on 404s. Video is deliberately absent — see `docs/decisions.md`.
+    /// budget on 404s.
+    ///
+    /// **Video joined in phase 16**, once the transcriber had been seen working on a real device.
+    /// It is the same path and not a second one — and it turned out to need less than the phase
+    /// was specified around, because `AVAudioFile` reads an mp4's audio track directly.
     static func isTranscribable(_ media: Media) -> Bool {
-        media.deletedAt == nil && media.mediaKind == .audio && media.isComplete
+        media.deletedAt == nil
+            && (media.mediaKind == .audio || media.mediaKind == .video)
+            && media.isComplete
     }
 
     /// Rows with words to deliver. `.pending` only — `.failed` has spent its budget and waits
