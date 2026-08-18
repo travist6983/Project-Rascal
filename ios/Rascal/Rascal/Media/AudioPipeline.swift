@@ -69,6 +69,11 @@ final class AudioPipeline: NSObject {
         let byteCount: Int
     }
 
+    /// **Never assigned directly. Every write goes through `setState`,** which is the one place
+    /// that decides whether the screen is being held awake. A direct assignment would compile and
+    /// would silently leak the wake lock, so `grep -nE "(^|[^.[:alnum:]_])state = "` over this
+    /// file is expected to return exactly one hit: the assignment inside `setState` itself. A
+    /// second hit is the bug.
     private(set) var state: State = .idle
     /// Seconds captured so far, from the recorder rather than a wall clock, so a pause does not
     /// keep counting.
@@ -83,6 +88,7 @@ final class AudioPipeline: NSObject {
 
     private let store: StagingStore
     private let session: AVAudioSession
+    private let wake: any ScreenWakeLocking
     private var recorder: AVAudioRecorder?
     private var meterTimer: Timer?
     /// The id is minted before the first byte, so the staged file has its final name immediately
@@ -94,10 +100,39 @@ final class AudioPipeline: NSObject {
     nonisolated static let meterHistoryLength = 48
     nonisolated static let meterInterval: TimeInterval = 1.0 / 12.0
 
-    init(store: StagingStore = StagingStore(), session: AVAudioSession = .sharedInstance()) {
+    /// `wake` defaults to nil rather than to `ScreenWakeFactory.live()`, and is resolved in the
+    /// body instead. A default argument is evaluated in a nonisolated context, so naming a
+    /// `@MainActor` factory there does not compile; the init body is isolated and can.
+    init(
+        store: StagingStore = StagingStore(),
+        session: AVAudioSession = .sharedInstance(),
+        wake: (any ScreenWakeLocking)? = nil
+    ) {
         self.store = store
         self.session = session
+        self.wake = wake ?? ScreenWakeFactory.live()
         super.init()
+    }
+
+    // MARK: The one place state changes
+
+    /// Move to a new state and hold the screen awake for exactly as long as that state is
+    /// `.recording`.
+    ///
+    /// **Auto-lock is the interruption this prevents, and it is the only one it prevents.** The
+    /// side button, a call, Siri and another app taking the audio session all still stop the
+    /// recording; they are handled by finalising the file, not by staying awake. This exists so a
+    /// parent who sets the phone down to catch two minutes of a story does not lose it to the
+    /// screen timing out — nothing more.
+    ///
+    /// Derived from the state rather than set alongside it, so every exit from `.recording`
+    /// releases the lock without anyone having to remember to: `.paused` releases it, because a
+    /// paused recorder is not recording and an indefinite pause holding a screen awake is the bug
+    /// this shape exists to make unwritable. `.finished`, `.failed`, `.denied` and `.idle` all
+    /// release it for the same reason.
+    private func setState(_ new: State) {
+        state = new
+        wake.setScreenAwake(new == .recording)
     }
 
     // MARK: Permission
@@ -115,11 +150,11 @@ final class AudioPipeline: NSObject {
         case .granted:
             return true
         case .denied:
-            state = .denied
+            setState(.denied)
             return false
         default:
             let granted = await AVAudioApplication.requestRecordPermission()
-            if !granted { state = .denied }
+            if !granted { setState(.denied) }
             return granted
         }
     }
@@ -154,11 +189,11 @@ final class AudioPipeline: NSObject {
             self.recorder = recorder
             levels = []
             elapsed = 0
-            state = .recording
+            setState(.recording)
             startMetering()
             return true
         } catch {
-            state = .failed(Self.explain(error))
+            setState(.failed(Self.explain(error)))
             return false
         }
     }
@@ -197,7 +232,7 @@ final class AudioPipeline: NSObject {
         guard let finished = await Self.finalize(mediaId: mediaId, url: url) else {
             // The bytes are still on disk; only reading them failed. Said plainly rather than
             // pretending the take is gone — and the id is kept so a retry does not orphan it.
-            state = .failed("That recording saved, but its length couldn't be read.")
+            setState(.failed("That recording saved, but its length couldn't be read."))
             return
         }
         elapsed = finished.duration
@@ -206,7 +241,7 @@ final class AudioPipeline: NSObject {
         // whether that happens would depend on when SwiftUI decides to rebuild a sheet's state —
         // not something someone's recording should rest on.
         self.mediaId = nil
-        state = .finished(finished)
+        setState(.finished(finished))
     }
 
     /// Pause and keep what exists. Used by every interruption path.
@@ -217,7 +252,7 @@ final class AudioPipeline: NSObject {
         guard state == .recording else { return }
         stopMetering()
         recorder?.pause()
-        state = .paused(canResume: canResume)
+        setState(.paused(canResume: canResume))
     }
 
     /// Continue a paused take into the same file.
@@ -226,17 +261,17 @@ final class AudioPipeline: NSObject {
         do {
             try activateSession()
         } catch {
-            state = .failed(Self.explain(error))
+            setState(.failed(Self.explain(error)))
             return
         }
         // `record()` alone drops the cap: a take paused once could then run forever. Resumed
         // with what is left of the ten minutes.
         let remaining = max(1, Self.maximumDuration - recorder.currentTime)
         guard recorder.record(forDuration: remaining) else {
-            state = .failed(Self.explain(Failure.couldNotStart))
+            setState(.failed(Self.explain(Failure.couldNotStart)))
             return
         }
-        state = .recording
+        setState(.recording)
         startMetering()
     }
 
@@ -255,7 +290,7 @@ final class AudioPipeline: NSObject {
         mediaId = nil
         elapsed = 0
         levels = []
-        state = .idle
+        setState(.idle)
     }
 
     /// The take being reviewed, if there is one.
@@ -292,7 +327,15 @@ final class AudioPipeline: NSObject {
         // when its hop runs, but until then the screen must not show a running timer over a
         // recorder that has already stopped — and if the hop never runs, `stop()` reads the take
         // off disk from exactly this state. Both routes reach the recording; neither lies.
-        if case .recording = state { state = .paused(canResume: false) }
+        //
+        // **Unconditional, and `canResume: false` even when this was already paused.** It used to
+        // be guarded on `.recording`, which left the interruption-then-background order —
+        // `pause(canResume: true)` from a phone call, then this — sitting at
+        // `.paused(canResume: true)` with `recorder` already nil. `resume()` requires a live
+        // recorder, so the parent came back to a resumable-looking screen at 0:00 whose record
+        // button did nothing. There is no recorder to resume into after this method runs; saying
+        // so is what routes them to `stop()`, which reads the finished file off disk.
+        setState(.paused(canResume: false))
     }
 
     private var isPaused: Bool {
@@ -409,6 +452,12 @@ final class AudioPipeline: NSObject {
     func stopObservingInterruptions() {
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.interruptionNotification, object: session)
         NotificationCenter.default.removeObserver(self, name: AVAudioSession.routeChangeNotification, object: session)
+        // **The teardown backstop for the wake lock.** `setState` releases it on every transition
+        // out of `.recording`, and the recorder screen's `onDisappear` calls this before it calls
+        // `finalizeForBackground()` — so an unexpected dismissal that somehow skipped a state
+        // change cannot leave a phone that never sleeps. Releasing a lock nobody holds is free;
+        // that asymmetry is why this is safe to do unconditionally.
+        wake.setScreenAwake(false)
     }
 
     /// A call, Siri, a timer going off.
@@ -433,7 +482,7 @@ final class AudioPipeline: NSObject {
             pause(canResume: true)
         case .ended:
             if case .paused = state {
-                state = .paused(canResume: shouldResume)
+                setState(.paused(canResume: shouldResume))
             }
         @unknown default:
             pause(canResume: false)
@@ -470,7 +519,7 @@ final class AudioPipeline: NSObject {
     /// shipped code, and it is compiled out of a release build entirely.
     func prepareForTesting(mediaId: UUID?, state: State) {
         self.mediaId = mediaId
-        self.state = state
+        setState(state)
     }
 
     /// The recorder object the cap and the delegate need. Constructing one requires no
@@ -513,7 +562,7 @@ extension AudioPipeline: AVAudioRecorderDelegate {
             self.recorder = nil
             self.deactivateSession()
             guard flag else {
-                self.state = .failed("That recording stopped early. What was captured is saved.")
+                setState(.failed("That recording stopped early. What was captured is saved."))
                 return
             }
             await self.settle(mediaId: mediaId, url: url)
@@ -526,7 +575,7 @@ extension AudioPipeline: AVAudioRecorderDelegate {
             self.recorder = nil
             self.deactivateSession()
             // The file up to this point is still on disk and still playable.
-            self.state = .paused(canResume: false)
+            setState(.paused(canResume: false))
         }
     }
 }
