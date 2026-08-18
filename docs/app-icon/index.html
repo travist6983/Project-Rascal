@@ -381,8 +381,15 @@
     <li><b>The rename is bigger than the artwork.</b>
       <span>"Dogear" is 21 occurrences across 9 files in <code>api/</code> and 14 across 8 in
       <code>ios/</code> — including outbound email subject lines, a public HTML page title, and
-      an iOS string reading "Settings → Dogear → Notifications". <code>decisions.md</code> line
-      115 still records the app as Dogear. None of that is touched by this phase.</span></li>
+      an iOS string reading "Settings &rarr; Dogear &rarr; Notifications". <code>decisions.md</code> line
+      115 still records the app as Dogear. None of that is touched by this phase.<br>
+      <b>Done, Aug 18 2026 &mdash; this item is closed.</b> Phase 71 renamed the API half, phase 73
+      the phone, and phase 76 the last of it, including the five words of owner-reviewed email copy.
+      <code>decisions.md</code> line 115 is now the <i>Vellum</i> row; the Dogear row moved to 116 and
+      is kept beneath it, superseded rather than deleted. The one thing this bullet did not predict:
+      the wordmark on the welcome screen was set as <code>Text("VELLUM")</code> in capitals, so a
+      case-sensitive sweep could not see it &mdash; it survived the rename and shipped a dead name on
+      the first screen anybody opens, and took phase 77 to fix.</span></li>
     <li><b>Nothing has shipped to the phone.</b>
       <span><code>rascal-icon-fan.svg</code> is still what <code>render-appicon.mjs</code>
       renders and still what's in the asset catalogue. Pointing that script at the new file and

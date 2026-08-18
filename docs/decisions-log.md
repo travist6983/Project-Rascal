@@ -3201,3 +3201,65 @@ session — records that no clearance search has been run. Both accounts now sta
 disputed rather than as fact. **The chosen icon bakes the wordmark into pixels**, so the cost of
 the name being wrong went up with this phase rather than down. That is an argument for settling
 item 15, not for reopening the icon.
+
+## Aug 18, 2026 — three phases that shipped without a log entry, backfilled
+
+**`CLAUDE.md` says judgment calls go here, one line each. Phases 66, 69 and 75 made several and
+wrote none** — found by a docs audit on Aug 18, two days after the fact. Backfilled from the commits
+and the code rather than from memory, and recorded as backfill so nobody reads them as contemporaneous.
+
+### Phase 66 — deleting an account (Aug 17, 2026)
+
+- **A deletion request is stored with its own `execute_after`, not computed from a constant.** A
+  request made under a seven-day policy runs on the terms it was made under, however the constant
+  moves later. The alternative — `requested_at + CURRENT_POLICY` — silently re-dates every pending
+  request the day somebody edits a number.
+- **There is no `completed_at`, and the absence is the design.** A completed deletion has no row: it
+  cascades away with the user, so a column recording completion could never hold a value.
+  **Completion is the row being gone**, which is also the only record consistent with having been
+  asked to forget somebody.
+- **This is the one place in the service that hard-deletes user data, breaking rule 5 on purpose.**
+  Soft deletes exist so a client can learn a row went away; there is no client left to tell, and a
+  `deleted_at` on an erasure would be the service keeping exactly what it was asked to stop keeping.
+  `CLAUDE.md` rule 5 now records the exception rather than being quietly violated by it.
+- **`entries.author_id` became nullable with `ON DELETE SET NULL`** rather than cascading. A departing
+  parent's entries belong to the child's archive, not to the parent — deleting an account must not
+  delete the record of the childhood it was keeping. **This is a schema change made for a deletion
+  feature that mostly matters to everything else.**
+- **One pending request per user, by partial unique index** on `(user_id) WHERE cancelled_at IS NULL`.
+  A plain unique would forbid asking again after a cancellation, which is a state a parent can
+  genuinely reach.
+
+### Phase 69 — the daily broadcast, with the send withheld (Aug 17, 2026)
+
+- **`MARKETING_EMAIL_ENABLED` is deliberately separate from the mail credentials.** Configuring
+  `MAIL_API_KEY` so that `POST /v1/subscribe` works must not also start mailing strangers. Two
+  switches because they answer two questions, and conflating them is how a configuration step
+  becomes a send.
+- **The ledger holds no recipient, and a test asserts no column here is ever named for a person.**
+  A per-subscriber table would be the mailing list in our database under another name, and the
+  privacy page published the same day says we hold no copy.
+- **The copy is generated to YAML rather than parsed at runtime, because `docs/` is not in the
+  Docker image.** Fly builds from `api/` and the Dockerfile copies `src`, `alembic` and `seeds`, so
+  a loader pointed at `../docs/` passes every test on a laptop and raises `FileNotFoundError` on the
+  first scheduled run. **The failure mode is what made the decision, not the tidiness.**
+- **One row per `send_date`, enforced by a unique index rather than by the job remembering.** A
+  retried machine or a nervous hand-run reports the day already done and exits 0.
+
+### Phase 75 — a test guard for the machine clock (Aug 17–18, 2026)
+
+- **The guard is AST-based rather than textual, and that choice is the whole phase.** A grep over the
+  source would flag the comment in `test_guardians.py` explaining why the offending call was removed
+  — the explanation would be reported as the defect. **A rule that punishes writing down why is a
+  rule people route around.**
+- **`# machine-clock: <why>` is an earned escape hatch**, because a test genuinely about the runner's
+  clock is legitimate and one using it as a stand-in for the child's date is a bug. The guard cannot
+  tell those apart; a human writing a reason can.
+- **It lives in `test_fixture_dates.py` beside the future-date guard** because it is the same
+  argument: **a green run says nothing about which branch it took.** One file catches a date drifting
+  toward the clock; the other catches a date read from the wrong clock entirely.
+- **The bug it exists to prevent failed for four hours a day and passed the other twenty**, and every
+  developer here runs US-Eastern where the two clocks never disagree — so it was invisible locally
+  and got blamed on whatever had landed most recently, which was a rename that touched no scheduling
+  code at all. **A test that is flaky by timezone reads as a flaky test, and the last commit takes
+  the blame.**

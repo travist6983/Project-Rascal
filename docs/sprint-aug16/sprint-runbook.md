@@ -115,7 +115,7 @@ fix it and re-read.
 | # | Errand | Unblocks |
 |---|---|---|
 | 1 | Register a domain and add Resend's SPF/DKIM records | **Every real send.** Until this verifies, Resend only sends from `onboarding@resend.dev` to your own account address |
-| 2 | `fly secrets set --app rascal-api RESEND_API_KEY=…` | Story 1's send path. **Full-access key, not `sending_access`** — the contacts upsert needs more than send |
+| 2 | `fly secrets set --app rascal-api MAIL_API_KEY=…` — ~~`RESEND_API_KEY`~~, **corrected Aug 18, 2026: there is no `RESEND_API_KEY` and nothing reads one.** `Settings` has named it `MAIL_API_KEY` since phase 56, because the port is provider-agnostic and the provider is chosen by `MAIL_PROVIDER`. Setting the name in this row would have left every send raising a missing-key error with the secret sitting right there | Story 1's send path. **Full-access key, not `sending_access`** — the contacts upsert needs more than send |
 | 3 | `fly secrets set --app rascal-api RESEND_WEBHOOK_SECRET=…` | Story 1's webhook signature verification |
 | 4 | Create a Resend Audience, set `RESEND_AUDIENCE_ID` | Story 4's broadcast |
 | 5 | Set your own family to `subscribed` (SQL in story 3a) | Inviting your wife. The free-tier gate is live code and will refuse otherwise |

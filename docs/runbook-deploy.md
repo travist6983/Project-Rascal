@@ -1,7 +1,7 @@
 # Deploying RASCAL — the whole thing, in order
 
 **This is the procedure.** Follow it top to bottom and you end with a verified deployment.
-`docs/DEPLOY.md` is the reference behind it — why Neon is split into two URLs, how backups
+`docs/Infastructure/DEPLOY.md` is the reference behind it — **the path gained its `Infastructure/` segment in the Aug 16 docs move and every citation here still said `docs/DEPLOY.md` until Aug 18, 2026 (the directory's spelling is the repo's, and is left alone rather than renamed under a doc audit)** — — why Neon is split into two URLs, how backups
 and rollback work, what to do when something specific is broken. When the two disagree,
 this file wins.
 
@@ -295,7 +295,84 @@ hours rather than one. Nothing in the job assumes an interval; run it more often
 platform ever allows.
 
 Backups need their own credentials (`BACKUP_DATABASE_URL` and an `AWS_*` pair as GitHub
-secrets) — that is `docs/DEPLOY.md` §4 and it is not on the path to a running API.
+secrets) — that is `docs/Infastructure/DEPLOY.md` §4 and it is not on the path to a running API.
+
+### 4c. The deletion job — a third scheduled machine, and the only one with a legal deadline
+
+**Added to this runbook Aug 18, 2026. It had none — `jobs/delete.py` shipped in phase 66 on Aug 17
+and this document, which is where an operator learns that scheduled machines exist at all, did not
+mention it.** §4b exists because the notify machine was missed for a day; this is the same omission
+one layer up, in the document written to prevent it.
+
+The job is `python -m rascal.jobs.delete`, same shape as §4b and §5, **not created or updated by
+`fly deploy`**, and it needs the same non-optional `--env` flags for the same reason.
+
+```bash
+fly machine run registry.fly.io/rascal-api:deployment-<id> \
+  --app rascal-api \
+  --schedule daily \
+  --region ord \
+  --vm-size shared-cpu-1x \
+  --vm-memory 512 \
+  --restart no \
+  --env ENVIRONMENT=prod \
+  --env S3_REGION=auto \
+  --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+  -- python -m rascal.jobs.delete
+```
+
+**`--schedule daily` is sufficient and hourly is harmless.** Nothing in the job assumes an
+interval: a request carries its own `execute_after`, so a late run deletes what was due and an
+early one deletes nothing. Every run is idempotent, because a completed request is no longer
+pending — there is no ledger to double-write.
+
+**Why this one is not optional, and it is a different argument from §4b's.** A missed notification
+is a broken feature. **A missed deletion is a promise not kept**: phase 65 established that in-app
+account deletion is what Apple's rule requires, phases 66 and 67 built the request and the button,
+and **the request is the only half that a machine has to finish.** Without this machine a parent
+taps *delete my account*, is signed out, sees every confirmation the app can give — and the row
+sits in `deletion_requests` forever. The API stays green the entire time. There is no read path
+that repairs it, exactly as there is none for notifications.
+
+**`--dry-run` exists because this is the only job in the service that destroys user data**, and it
+prints what would go without touching anything. Use it the first time, and after any change to the
+grace period. Note that the deletion is a **hard** delete by deliberate exception to the
+soft-delete rule — `data-model.md`'s `deletion_requests` section explains why completion is the row
+being gone rather than a `completed_at` column, which also means **a run you did not want cannot be
+undone from the database.**
+
+### 4d. The broadcast job — a fourth scheduled machine, and it is the one that must NOT be armed yet
+
+**Added to this runbook Aug 18, 2026, and it had zero mentions here before that.** The job is
+`python -m rascal.jobs.broadcast`, shipped in phase 69 on Aug 17.
+
+**Create it the same way as §4c with `--schedule daily` and `-- python -m rascal.jobs.broadcast`,
+but read this first, because arming it is a decision and not a step.**
+
+`MARKETING_EMAIL_ENABLED` defaults false and is **deliberately kept separate from the mail
+credentials** so that configuring `MAIL_API_KEY` to make `POST /v1/subscribe` work cannot start
+mailing strangers. Without it the job does the entire run except the network call and logs the
+rendered mail. **`decisions.md` open item 12 forbids any marketing send before the P0 behavioural
+gate**, and `blocked.md` §13 deliberately omits `MARKETING_EMAIL_ENABLED` from its
+value-and-destination table for this exact reason: completing that table must not send anything.
+
+Two properties worth knowing before you run it by hand:
+
+1. **It is safe to run twice.** The unique index on `email_broadcasts.send_date` means a second
+   run reports the day already done and exits 0.
+2. **`--show` renders today's mail and sends nothing, ever** — that is the safe way to look at it,
+   and `--date` lets you inspect a future day.
+
+**Unverified as of Aug 18, 2026: the Resend Broadcasts API has never been called from anything.**
+Neither CORS, nor a real Turnstile verification, nor this job's network path has run against the
+deployed service. The two steps before arming it are in `blocked.md` §13: exercise the subscribe
+route from the real origin, then broadcast to an audience of one.
+
+**All four machines are independent, and having one is not having the others.** As of this writing
+the scheduler (`185d762c643778`) and notify (`8900ddf6719058`) machines exist; **the deletion and
+broadcast machines are not recorded as created anywhere in this repo.** §5's rule covers all of
+them — every machine with a non-empty `schedule` is moved onto the deployed image by the deploy
+workflow, so the image-pinning trap in §4b applies to these two the moment they exist.
 
 ---
 
@@ -507,7 +584,7 @@ deliberately not going to be one before 37.
 
 - Flip `FLY_DEPLOY_ENABLED` to `true` (GitHub → Settings → Secrets and variables → Actions →
   Variables) so merging to `main` deploys by itself.
-- `docs/DEPLOY.md` §Rollback, §Backups, and §When something is wrong.
+- `docs/Infastructure/DEPLOY.md` §Rollback, §Backups, and §When something is wrong.
 
 ---
 

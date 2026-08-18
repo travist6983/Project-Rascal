@@ -1,3 +1,10 @@
+> **⚠️ FINISHED AND SUPERSEDED — this file is a completed review checklist from Aug 13, 2026, not
+> current work. Marked Aug 18, 2026.** All 40 of its boxes are ticked and the phases it names are
+> long merged; the figures below (879 iOS tests in 110 suites, 491 API tests) are five days and
+> roughly twenty phases stale — the suites are now 995 in 121 and 757 in 47. **The live queue is
+> `docs/phase-queue.md` and the live status is `docs/roadmap-status.md`.** Kept rather than deleted
+> because `TASK.md` is where the review that produced it recorded its own outcome.
+>
 > All items below were applied on 2026-08-13 and are checked off. iOS fixes ship in the
 > `ios/review-fixes` PR, API fixes in `api/review-fixes`. Verified green: 879 iOS tests in
 > 110 suites, 491 API tests, `ruff check` and `ruff format --check` clean.

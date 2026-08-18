@@ -6,7 +6,7 @@ Each day the app hands a parent two things: **a question** to answer about their
 **a mission** — take a photo, shoot a video, record their voice, or do a thing together.
 Completed items become entries on a searchable timeline. Years later, the kid gets the keys.
 
-This repository is the backend. The iOS client is a separate piece of work; `ios/` is empty.
+This repository holds **both halves**: the backend in `api/` and the iOS client in `ios/`. ~~*The iOS client is a separate piece of work; `ios/` is empty.*~~ — **that was true when this file was written and stopped being true long before Aug 18, 2026**, when it was finally corrected: `ios/` is a full SwiftUI app of 241 Swift files, on TestFlight against the deployed API. The two are separate **lanes** rather than separate repositories — an agent working in `ios/` never edits `api/` and vice versa, CI is path-scoped, and `ios/CLAUDE.md` carries that lane's rules. **The product is called Vellum**; `RASCAL` is the repository and package name and deliberately stays put, the way `manifest.format` has stayed `rascal-export` across two renames.
 
 - **Specs live in `docs/` and are authoritative.** `data-model.md` is the schema,
   `api-contract.md` is the endpoints, `decisions.md` is settled and not up for relitigation,
@@ -171,7 +171,7 @@ docker-compose.yml         Postgres 16 on 5433
 .env.example               every key, with safe local defaults
 .github/workflows/ci.yml   lint + tests against a Postgres service container
 docs/                      the specs, plus decisions-log.md, blocked.md, DEPLOY.md
-ios/                       empty. Not this task.
+ios/                       the SwiftUI client — 241 Swift files, its own lane, its own CLAUDE.md
 api/
   pyproject.toml           deps, ruff, pytest
   Dockerfile               multi-stage, non-root

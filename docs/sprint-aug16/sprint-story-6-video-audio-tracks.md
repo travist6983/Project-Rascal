@@ -14,7 +14,7 @@ document.
 `docs/blocked.md` was rewritten on Aug 16, 2026 to record that the transcriber works and has been
 seen working: the owner reported `SpeechAnalyzer` producing a real transcription on a real device,
 on a build from that day, accurate enough to capture his son's actual pronunciation. That is
-precisely the question `docs/device-verification-transcription.md` **§0** exists to answer.
+precisely the question `docs/Device-Verification/device-verification-transcription.md` **§0** exists to answer.
 
 But that file still opens with *"Nothing in this feature has ever run"* and still reads **0 of 45**.
 Phase 16's preflight reads that sentence and hard-stops — correctly, on stale input.
@@ -23,7 +23,7 @@ Phase 16's preflight reads that sentence and hard-stops — correctly, on stale 
 
 ### What you may write, and what you may not
 
-**May:** record the §0 result in `docs/device-verification-transcription.md` — the outcome, the
+**May:** record the §0 result in `docs/Device-Verification/device-verification-transcription.md` — the outcome, the
 date, the owner's attribution, and an explicit marker that it is **owner-confirmed retrospectively,
 not agent-observed**. Correct the file's opening claim so it no longer says nothing has ever run,
 and correct the header count to reflect exactly the boxes §0 covers.

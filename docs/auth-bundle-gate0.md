@@ -1,4 +1,6 @@
-# Dogear auth bundle — Gate 0 preflight
+# Vellum auth bundle — Gate 0 preflight
+
+> **Renamed Aug 18, 2026.** The title read *"Dogear auth bundle"*. This was the last live occurrence of the dead name in `docs/`, and it survived phase 76's sweep — which reported the repo clean — because the sweep read the body of each file and a title is the one line nobody re-reads. The product is **Vellum** (`decisions.md:115`); the bundle's contents are unaffected.
 
 **Run:** Aug 16, 2026, against `main` at `f47a2a1`, working tree clean.
 **Verdict: PASSED, with three of the gate's own premises corrected.** No check failed in the
@@ -261,5 +263,13 @@ consistent with a question already recorded as open.
 
 **No settled decision is being relitigated.** `decisions.md` carries no entry on magic links,
 email sign-in, password auth or credential linking. The only adjacent settled item is the
-Facebook/Meta rejection at `:201-211`, which this bundle does not touch. `phase-queue.md:163-169`
-records the ordering constraint — linking before Google — which the plan's A→B→C→D order honours.
+Facebook/Meta rejection at `:201-211`, which this bundle does not touch. ~~`phase-queue.md:163-169` records the ordering constraint — linking before Google — which the
+plan's A→B→C→D order honours.~~ **Struck Aug 18, 2026: that citation rotted and the constraint is
+now history.** `phase-queue.md:163-169` is today about `Transcript.Segment` and the caption
+clobber — the file was rewritten under the line number, which is why this file now cites *the
+forward queue's `Google sign-in` row* in `roadmap-status.md` **by name rather than by line**.
+The constraint itself was honoured and is spent: credential linking shipped as **phase 52** and
+Google as **54 and 55**, all on Aug 16, 2026, in that order. **The reusable part is the failure
+mode, not the fact**: a line-numbered cross-reference into a living document is a claim with an
+expiry date nobody sets, and this one was quoted as current for two days after it stopped being
+true.

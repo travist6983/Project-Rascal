@@ -1,3 +1,23 @@
+> **⚠️ SUPERSEDED IN ONE RESPECT — read before generating anything. Added Aug 18, 2026.**
+> This bundle was exported Aug 16, 2026 and is accurate about that day. **Two things changed on
+> Aug 17–18 and both bear directly on the `Wordmark` rules below:**
+>
+> 1. **The product is called `Vellum`, not `RASCAL`.** Settled by the owner Aug 17, 2026
+>    (`docs/decisions.md:115`) and renamed through both lanes as phases 71 and 73. `RASCAL` remains
+>    the repository, package and path name and is correct wherever you see it as an identifier —
+>    but it is no longer the product's name in any copy a person reads.
+> 2. **A mark now exists, and the name is never set in capitals.** The statements below that
+>    *"there is no logo file in any source"* and *"no logo — wordmark only, by design"* were true
+>    when written and are false now: phase 70 drew the mark (`docs/app-icon/vellum-mark.svg`,
+>    `vellum-icon-fan.svg`) and phase 77 drew the wordmark as geometry, ported into the app as
+>    `WordmarkView`. **Phase 78 makes it a rule with no exceptions: the name is never set in
+>    capitals** — `VELLUM` in tracked-out capitals is exactly what phase 77 removed from the
+>    welcome screen. Where a mark goes, use the drawn wordmark; where the name appears in a
+>    sentence, write it sentence case.
+>
+> **Do not "fix" the body below to match.** It is a dated export and its value is that it records
+> what was true on Aug 16. `docs/design-system.md` is the live authority for the app.
+
 # RASCAL Design System
 
 RASCAL is a daily-memory app for parents. Every morning it hands you **one** small

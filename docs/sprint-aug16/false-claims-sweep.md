@@ -55,8 +55,21 @@ rather than a policy. Now documented.
 
 ## What was checked and found sound
 
-- **Every table in `models/` is documented in `data-model.md`** — all 21, no gaps. Including
-  `deletion_requests`, which phase 66 added and documented in the same pass.
+- ~~**Every table in `models/` is documented in `data-model.md`** — all 21, no gaps. Including
+  `deletion_requests`, which phase 66 added and documented in the same pass.~~
+  **— the one claim in this sweep that was itself false, found Aug 18, 2026.** There are **22**
+  `__tablename__` declarations, not 21, and the twenty-second — **`email_broadcasts`** — had *zero*
+  occurrences in `data-model.md`. **The sweep and the table it missed shipped the same night**:
+  phase 69 created `email_broadcasts` in migration `0016` on Aug 17, and this sweep ran against a
+  tree that already contained it. `deletion_requests` was caught precisely because phase 66
+  documented it in the same pass; `email_broadcasts` was missed because phase 69 did not, and a
+  count taken from the document rather than from `models/` cannot see a table that was never added
+  to it. **A sweep that counts what the doc lists will always agree with the doc.** Documented
+  Aug 18, 2026.
+
+  **Recorded because it is the sweep's own lesson arriving one level up:** this document exists to
+  catch claims stated in the present indicative that the tree does not support, and *"all 21, no
+  gaps"* is exactly such a claim.
 - **Three of the four documented-but-unserved routes were already honest.**
   `GET /families/{id}/entitlement` and `POST /webhooks/app-store` are both written in the
   subjunctive — *"**Would** return…"*, *"**Would** accept…"* — which is a deliberate and effective
@@ -75,6 +88,13 @@ rather than a policy. Now documented.
 
 The route diff now comes back **clean in both directions**: nothing served is undocumented, and
 every documented-but-unserved route is explicitly marked unbuilt.
+
+**Re-verified Aug 18, 2026 and it still holds** — the app's own OpenAPI reports 57 operations across
+48 paths, every one of them documented, and the four documented-but-unserved routes are each still
+honestly marked: `GET /families/{id}/entitlement` and `POST /webhooks/app-store` subjunctive
+(*"Would…"*), `POST /prompts/batch-review` explicitly negated, and `POST /children/{id}/guardians`
+struck with its supersession named. **This half of the sweep was sound and is left alone**; only the
+table count above was wrong.
 
 ## The generalisation worth keeping
 

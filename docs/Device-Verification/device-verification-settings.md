@@ -11,7 +11,7 @@ keychain, every request after sign-in comes back `401`, and it looks like an aut
 
 Tick each line or write down what happened instead. A line that "seemed fine" is not ticked.
 
-> **Updated for Phase 13 (Settings v2), and never yet run.** This was written for PR #21 and the
+> **Updated for Phase 13 (Settings v2), and ~~never yet run~~ — RUN Aug 18, 2026: 84 of 87 ticked** by the owner, in commit `d99204d`. **Three boxes remain** (`:78` interrupting an export with Airplane Mode, `:99` Archive → Birthday showing the same day as the row behind it, `:213` §8a.3 the stats strip not rendering at all on a cold Airplane-Mode launch). **Two Settings surfaces shipped Aug 17 and have no boxes anywhere in this file**: the guardians section (phase 61, inviting the other parent) and in-app account deletion (phase 67) — that second one is an App Store requirement, so it is the more expensive gap. This was written for PR #21 and the
 > screen has since had its design pass — so §0 is new, §1 and §4 have moved, and the row names in
 > them have changed. Sections 2, 3, 5, 6 and 7 are unchanged in substance and were already
 > outstanding. **Run §0 first.** It is short, it is new, and it is the one that failed once
@@ -163,7 +163,7 @@ Only possible once Apple Developer enrollment closes — `docs/blocked.md` secti
       address, or **Not provided** if Apple sends none. It must never be blank.
 - [X] Open **Account**, change your name, save. The row updates.
 - [X] **Force quit and relaunch.** Note what the Your name row shows. The current build cannot
-      refetch the user record — there is no `GET /me` — so it renders no value rather than
+      refetch the user record — ~~there is no `GET /me`~~ **`GET /v1/me` has existed since the 51–59 auth bundle; corrected Aug 18, 2026** — so it renders no value rather than
       claiming "Not set". If that reads badly on a real device, that is the argument for asking
       Lane A for a `GET /me`.
 - [X] Try to save a blank name and a very long one. Both are refused with the server's own

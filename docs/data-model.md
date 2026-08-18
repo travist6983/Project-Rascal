@@ -126,7 +126,7 @@ PK on `(user_id, child_id)`.
 
 **This table is still the whole of authorization**, and phase 36 did not change that. `deps.require_child_access` reads `guardians` and only `guardians`, so accepting a household invite grants access by writing the rows that check already reads — there is no second code path and nothing to keep in sync. What phase 36 added is a way to *create* the second row (`POST /v1/invites/{token}/accept`), not a new way to be authorized.
 
-**Removing a guardian is not specified.** `revoked_at` makes the access half a column write, but what happens to the entries they wrote — `entries.completed_by` records which parent answered — is undecided. `docs/decisions.md` open item 13.
+**Removing a guardian is not specified.** `revoked_at` makes the access half a column write, but what happens to the entries they wrote — ~~`entries.completed_by`~~ **`assignments.completed_by`** records which parent answered (`entries` has no such column; corrected Aug 18, 2026, and the distinction matters because an entry can exist with no assignment at all) — is undecided. `docs/decisions.md` open item 13.
 
 ### `families`
 The household. Deliberately almost empty: it is an identity, not a record.
@@ -264,8 +264,13 @@ the rule holds exactly where it does work, and every gap is principled:
 
 **The rule's actual job is sync.** *"Deletions sync as rows with `deleted_at` set, never as
 absences"* — so it binds on tables a client pulls, because an absence is indistinguishable from
-"not yet fetched". `GET /sync` serves **entries, media, tags and assignments**. Entries, media
-and tags carry `deleted_at`. **Assignments do not, and do not need one: nothing deletes an
+"not yet fetched". `GET /sync` serves **entries, media, tags and assignments**. ~~Entries, media
+and tags carry `deleted_at`.~~ — **corrected Aug 18, 2026: the three tables carrying a column
+literally named `deleted_at` are `entries`, `media` and `entry_tags`.** `tags` itself has none. The
+distinction is not pedantry: a tag is a name owned by a child and a row in `entry_tags` is that name
+*applied to an entry*, so **untagging is what a client has to learn about**, and that is the
+`entry_tags` row going away. Renaming or removing the tag itself is not a sync event anybody has
+asked for. **Assignments do not, and do not need one: nothing deletes an
 assignment.** They expire by `status`, which is a value the client already reads; the only
 `delete(Assignment)` calls in the service are the two local-only `/debug` routes and account
 erasure, and neither has a client left to inform.
@@ -384,6 +389,40 @@ No `updated_at` and no soft delete — this is a system ledger rather than user 
 syncs to a client and there is nothing here to restore, which is the same reasoning that
 leaves `refresh_tokens` and `idempotency_keys` without them.
 
+### `email_broadcasts`
+One row per day the marketing broadcast ran. Phase 69, per open item 12. **Documented Aug 18, 2026
+— the table shipped in `0016_email_broadcasts` on Aug 17 and this file carried no section for it
+for a day**, which is the gap `CLAUDE.md`'s *"if the code and `data-model.md` disagree, the code is
+wrong"* rule exists to make expensive.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `send_date` | date | **unique** — `uq_email_broadcasts_send_date`. One broadcast per day, enforced by the database rather than by the job remembering |
+| `pool_index` | integer | which of the 30 pool prompts the day-of-year pick landed on. Deterministic, so a re-run picks the same one |
+| `subject` | text | the rendered subject, stored because the copy can change under a sent mail |
+| `status` | text | `sent` \| `skipped` \| `failed`. **No server default** — a row is never written without the job saying which happened |
+| `resend_id` | text | nullable, the provider's id when it sent |
+| `error` | text | nullable, why it did not |
+| `sent_at` | timestamptz | nullable — null for `skipped` and `failed` |
+| `created_at` / `updated_at` | timestamptz | |
+
+**No foreign keys at all, and no recipient column — that absence is the design.** The list is
+provider-held at Resend per open item 12(4), so a per-subscriber row here would be the mailing list
+in our database under another name, and the privacy page published the same day says we hold no
+copy. **A test asserts no column in this table is ever named for a person.** The ledger records
+that a send happened, not who received it.
+
+**No `deleted_at`**, for the same reason as `notification_sends`: a system ledger rather than user
+data, never synced to a client, nothing here to restore.
+
+**One constraint name in the live database does not match this file's convention**, and it is
+recorded rather than quietly renamed because renaming it is a migration. `models/email_broadcast.py`
+passes `name="ck_email_broadcasts_status"` where every other table passes a bare column name, and
+the `ck_%(table_name)s_%(constraint_name)s` convention then expands it again — so the constraint is
+actually **`ck_email_broadcasts_ck_email_broadcasts_status`**. Anything naming it
+`ck_email_broadcasts_status` — including a migration trying to drop it — will not find it.
+
 ---
 
 ## Implementation conventions
@@ -409,10 +448,18 @@ SQLAlchemy's `Index()` won't express it the way Postgres needs:
 ```sql
 CREATE INDEX ix_entries_child_month_day ON entries (
     child_id,
-    (extract(month from occurred_at)),
-    (extract(day from occurred_at))
+    (extract(month from occurred_at AT TIME ZONE 'UTC')),
+    (extract(day from occurred_at AT TIME ZONE 'UTC'))
 );
 ```
+
+**The `AT TIME ZONE 'UTC'` casts are load-bearing and this file omitted them until Aug 18, 2026.**
+`extract()` on a `timestamptz` resolves against the *session* `TimeZone`, which makes the expression
+non-immutable and the index uncreatable — Postgres rejects it outright. Worse if it were allowed:
+an index built under one session timezone would silently fail to match a query planned under
+another, so *"on this day in previous years"* would quietly return nothing. **Copying the version
+that was written here would not have produced a slow index; it would have produced no index and a
+migration that fails.** The migration in `0001_initial.py:46-50` has always had it right.
 
 **Soft-deletable tables** are `entries` and `media`. Every read path filters
 `deleted_at IS NULL` except `/sync`, which must return deleted rows so clients can
@@ -501,7 +548,14 @@ Runs 5am in each child's `family_timezone`.
 3. Saturday: also fill slot `weekly`.
 4. First of the month: also fill slot `monthly` (measurement).
 5. Fifteenth of the month: also fill slot `letter`.
-6. Insert with `ON CONFLICT (child_id, assigned_on, slot) DO NOTHING`.
+6. Insert with ~~`ON CONFLICT (child_id, assigned_on, slot) DO NOTHING`~~ — **that conflict target
+   no longer exists.** Migration `0014` dropped `uq_assignments_child_id_assigned_on_slot` when
+   per-guardian daily assignment arrived, replacing it with **two partial unique indexes**:
+   `uq_assignments_daily` on `(child_id, user_id, assigned_on, slot)` for the daily slots and
+   `uq_assignments_shared` on `(child_id, assigned_on, slot)` for the shared ones. **An `ON CONFLICT`
+   must now name the matching index's `WHERE` clause**, exactly as this file already warns above:
+   *"Postgres will not infer a partial unique index"* — so this step contradicted its own document
+   for a day.
 
 Steps 3–5 fire **on top of** step 2 and never in place of it, so the worst day the calendar can produce — a Saturday that is also the 15th — is five assignments. A slot whose pool is empty is left empty and logged; it is never filled from another kind's pool.
 
@@ -559,7 +613,13 @@ Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusi
 
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
-**Almost none of this exists.** No table below has been created. It is written down so the shape is
+**Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:
+`entitlements` was created by migration `0014` as part of phase 36**, because a household needed a
+tier before monetization needed one. Its live shape is documented above and **differs from the
+proposal below in one way worth knowing: the live table has no `last_sign_in_at`**, deliberately —
+that column is specified below as a `MAX` over `users.last_sign_in_at`, and the live section
+explains why a denormalisation that must never be written independently was not created. Everything
+else below is still unbuilt. It is written down so the shape is
 settled before it is built — the decisions are D1–D6 in `docs/decisions.md` — and so the two things
 that would be expensive to retrofit are decided first: the consent lanes and the per-channel
 delivery record.

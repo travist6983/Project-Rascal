@@ -189,14 +189,29 @@ struct EntryDetailScreen: View {
     /// **Then media, then completion mode, then the fallback.** A did-it entry someone
     /// photographed is a picture entry: the artifact is what there is to look at, whatever the
     /// server derived the type to be.
+    ///
+    /// **`hasVoice` is that same rule, and it was missing.** Pictures short-circuited on rows this
+    /// phone can see; audio did not, so the voice hero's presence was decided by `type` alone —
+    /// server truth. And `type` is legitimately `did_it` for a fresh voice entry: `POST /entries`
+    /// derives it before any media exists and `POST /media/{id}/complete` recomputes it later. So
+    /// an entry recorded off Wi-Fi rendered as an entry with nothing in it, over a local audio row
+    /// the screen already had in hand, under the sentence "Nothing was recorded." A permanent
+    /// archive stating something false about a moment is the worst thing this screen can do.
+    ///
+    /// It also closes a second defect by construction. `completionMark` returns `.inline` for a
+    /// did-it entry with voice, while `didItCanvas` draws an unconditional 74pt check — so that
+    /// combination drew two completion marks. `pictureCount > 0` already rerouted the picture
+    /// case, which made `hasVoice` the only surviving path into `didItCanvas` with an inline mark.
     nonisolated static func backdrop(
         unlockAtAge: Int?,
         unsealed: Bool,
         type: EntryType?,
-        pictureCount: Int
+        pictureCount: Int,
+        hasVoice: Bool
     ) -> Backdrop {
         if unlockAtAge != nil, !unsealed { return .sealed }
         if pictureCount > 0 { return .picture }
+        if hasVoice { return .voice }
         switch type {
         case .audio: return .voice
         case .didIt: return .didIt
@@ -204,13 +219,50 @@ struct EntryDetailScreen: View {
         }
     }
 
+    /// What a media row that has not reached the server has to say for itself.
+    ///
+    /// The screen needs this because "not uploaded" is not one situation. Bytes still on the phone
+    /// play immediately and are waiting on a network; bytes that are gone are a loss and have to
+    /// be said out loud. Rendering both as the same thing is what turns an unsynced entry into
+    /// either a lie or a false alarm.
+    nonisolated enum LocalMediaStanding: Equatable {
+        /// The server has the bytes. Ordinary playback.
+        case playable
+        /// Not on the server; the original is still on this phone, so it plays from disk.
+        case waitingHere
+        /// Past the retry cap, original still here. Plays from disk; nothing is retrying it.
+        case stoppedTryingHere
+        /// Not on the server and not on this phone. **The only shape that is a loss.**
+        case gone
+    }
+
+    /// `complete` is playable whatever is on disk — the bytes are in storage and
+    /// `GET /media/{id}/url` will fetch them. Everything else depends on the local original,
+    /// because an incomplete upload has nothing at its key: the contract answers
+    /// `409 upload_incomplete`.
+    nonisolated static func standing(
+        state: MediaUploadState,
+        hasLocalBytes: Bool
+    ) -> LocalMediaStanding {
+        if state == .complete { return .playable }
+        guard hasLocalBytes else { return .gone }
+        return state == .failed ? .stoppedTryingHere : .waitingHere
+    }
+
     private var backdropKind: Backdrop {
         Self.backdrop(
             unlockAtAge: entry?.unlockAtAge,
             unsealed: unsealed,
             type: entry?.type,
-            pictureCount: pictures.count
+            pictureCount: pictures.count,
+            hasVoice: voiceMedia != nil
         )
+    }
+
+    /// The standing of the voice row, if there is one. The `@Query` already excludes deleted rows.
+    private var voiceStanding: LocalMediaStanding? {
+        guard let voice = voiceMedia else { return nil }
+        return Self.standing(state: voice.state, hasLocalBytes: stagedOriginal(voice) != nil)
     }
 
     /// Where a did-it entry's completion mark goes — **and it goes exactly one place.**
@@ -346,15 +398,31 @@ struct EntryDetailScreen: View {
         if let voice = voiceMedia {
             VStack {
                 Spacer(minLength: 0)
-                VoicePlayerView(
-                    mediaId: voice.id,
-                    durationSeconds: voice.durationSeconds,
-                    transcript: nil,
-                    localFile: stagedOriginal(voice),
-                    api: api,
-                    prominent: true
-                )
-                .padding(.horizontal, 34)
+                if voiceStanding == .gone {
+                    // **The one shape that is a loss, and the only place this screen says so.**
+                    // A player here would offer to play bytes that do not exist, and
+                    // `VoicePlayerView`'s own failure copy — "It's safe in the archive" — would be
+                    // false: this recording never reached the archive. Said plainly, without
+                    // apology and without turning anything red, per `docs/design-system.md`.
+                    Text("This recording didn't finish uploading, and the file is no longer on this phone.")
+                        .typeRole(.body)
+                        .foregroundStyle(Color.ink)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 34)
+                } else {
+                    // Plays from the local original when there is one, whatever the upload state —
+                    // it is faster, it is free, and before an upload lands it is the only copy.
+                    VoicePlayerView(
+                        mediaId: voice.id,
+                        durationSeconds: voice.durationSeconds,
+                        transcript: nil,
+                        localFile: stagedOriginal(voice),
+                        api: api,
+                        prominent: true
+                    )
+                    .padding(.horizontal, 34)
+                }
                 Spacer(minLength: 0)
                 // Clear of the sheet, at whatever height the sheet actually is.
                 Color.clear.frame(height: sheetHeight + 24)
@@ -868,8 +936,36 @@ struct EntryDetailScreen: View {
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
             }
+
+            // **An entry can be synced while its recording is not**, and that is the ordinary case
+            // for anything captured off Wi-Fi: `POST /entries` succeeds in a moment, the bytes take
+            // longer. The line above is about the entry and cannot speak for the media, so this is
+            // the only place the screen says where the recording itself has got to.
+            //
+            // `.gone` is deliberately absent: the canvas already states that loss in full, and
+            // saying it twice on one screen makes it read as two problems.
+            if let line = Self.mediaStandingLine(voiceStanding) {
+                Text(line)
+                    .typeRole(.metadata)
+                    .foregroundStyle(Color.inkMuted)
+            }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    /// The one line about where a recording has got to, or nothing when there is nothing to say.
+    ///
+    /// Never an error and never urgent: an entry saved locally but not yet synced is not a failure,
+    /// and `docs/design-system.md` is explicit that it is never presented as one.
+    nonisolated static func mediaStandingLine(_ standing: LocalMediaStanding?) -> String? {
+        switch standing {
+        case .waitingHere: "The recording is on this phone — it'll upload when you're back on"
+        // No retry control offered here on purpose: the sweep that would carry it excludes
+        // `failed` rows, so a button on this screen could not act. Stating the fact is honest;
+        // offering an action that does nothing is not.
+        case .stoppedTryingHere: "The recording stopped uploading. It's still on this phone."
+        case .playable, .gone, .none: nil
+        }
     }
 
     /// What the drag reveals: the kind chip, the tags, and — where the canvas has not already

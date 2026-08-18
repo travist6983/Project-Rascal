@@ -3,6 +3,16 @@
 **HALTED — Gate 2 — `docs/blocked.md` contradicts this story's P1. Reporting both sides, as the
 gate instructs.**
 
+> **Resolved the next day, and the halt was right. Annotated Aug 18, 2026.** The work shipped as
+> **phase 16** on Aug 17 (`b5eaa1c`, PR #116). **Both sides of the contradiction this report
+> refused to pick between turned out to be wrong**, which is the vindication of halting rather than
+> guessing: the story assumed a video's audio had to be exported to a separate m4a first, and
+> `blocked.md` assumed the device checklist was the gate. A diagnostic settled it — `AVAudioFile`
+> opens an mp4 and reads the AAC track straight out of the container, so there was no second input
+> path to verify and no checklist to wait on. **The halt cost a day; picking either side would have
+> shipped machinery for a problem that does not exist.** Kept as written, because a report that
+> refused to invent an answer is the record worth having.
+
 No code written. No documentation commit. No PR. No checklist box touched. Tree clean except this report.
 
 **Stated in its own sentence, as the story requires: §0 was *not* recorded, no box was ticked, and

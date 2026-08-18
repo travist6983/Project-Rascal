@@ -204,7 +204,7 @@ struct EntryDetailV2Tests {
     func sealedOutranksMedia() {
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: 18, unsealed: false, type: .text, pictureCount: 3
+                unlockAtAge: 18, unsealed: false, type: .text, pictureCount: 3, hasVoice: false
             ) == .sealed
         )
     }
@@ -213,7 +213,7 @@ struct EntryDetailV2Tests {
     func unsealedFallsThroughToTheRealOne() {
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: 18, unsealed: true, type: .text, pictureCount: 1
+                unlockAtAge: 18, unsealed: true, type: .text, pictureCount: 1, hasVoice: false
             ) == .picture
         )
     }
@@ -224,22 +224,22 @@ struct EntryDetailV2Tests {
     func everyShapeHasAGround() {
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .photo, pictureCount: 1
+                unlockAtAge: nil, unsealed: false, type: .photo, pictureCount: 1, hasVoice: false
             ) == .picture
         )
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .audio, pictureCount: 0
+                unlockAtAge: nil, unsealed: false, type: .audio, pictureCount: 0, hasVoice: false
             ) == .voice
         )
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 0
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 0, hasVoice: false
             ) == .didIt
         )
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .text, pictureCount: 0
+                unlockAtAge: nil, unsealed: false, type: .text, pictureCount: 0, hasVoice: false
             ) == .canvas
         )
     }
@@ -250,7 +250,7 @@ struct EntryDetailV2Tests {
     func mediaOutranksType() {
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 2
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 2, hasVoice: false
             ) == .picture
         )
     }
@@ -414,7 +414,7 @@ struct EntryDetailV2Tests {
 
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: entry.type, pictureCount: 0
+                unlockAtAge: nil, unsealed: false, type: entry.type, pictureCount: 0, hasVoice: false
             ) == .didIt
         )
         #expect(EntryDetailScreen.transcript(in: []) == nil, "and no transcript block")
@@ -584,7 +584,7 @@ struct EntryDetailFidelityTests {
         for (type, pictures, expected) in cases {
             #expect(
                 EntryDetailScreen.backdrop(
-                    unlockAtAge: nil, unsealed: false, type: type, pictureCount: pictures
+                    unlockAtAge: nil, unsealed: false, type: type, pictureCount: pictures, hasVoice: false
                 ) == expected,
                 "\(String(describing: type)) with \(pictures) pictures"
             )
@@ -597,12 +597,12 @@ struct EntryDetailFidelityTests {
     func mediaOutranksMode() {
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 1
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 1, hasVoice: false
             ) == .picture
         )
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: .audio, pictureCount: 2
+                unlockAtAge: nil, unsealed: false, type: .audio, pictureCount: 2, hasVoice: false
             ) == .picture
         )
     }
@@ -615,7 +615,7 @@ struct EntryDetailFidelityTests {
         #expect(unknown == .unknown("hologram"))
         #expect(
             EntryDetailScreen.backdrop(
-                unlockAtAge: nil, unsealed: false, type: unknown, pictureCount: 0
+                unlockAtAge: nil, unsealed: false, type: unknown, pictureCount: 0, hasVoice: false
             ) == .canvas
         )
         #expect(
@@ -711,7 +711,7 @@ struct EntryDetailFidelityTests {
         for type in [EntryType.photo, .video, .audio, .text, .didIt] {
             #expect(
                 EntryDetailScreen.backdrop(
-                    unlockAtAge: 18, unsealed: false, type: type, pictureCount: 3
+                    unlockAtAge: 18, unsealed: false, type: type, pictureCount: 3, hasVoice: false
                 ) == .sealed,
                 "a sealed \(type) entry with three photos is sealed"
             )
@@ -757,5 +757,142 @@ struct ViewerRequestTests {
 
         #expect(request.items.count == 9)
         #expect(request.items.map(\.id) == ids, "and in the order the screen showed them")
+    }
+}
+
+// MARK: - An entry whose media has not reached the server
+
+/// The archive is permanent, so a screen that states something false about a moment is the worst
+/// defect this app can have. An entry recorded off Wi-Fi rendered as an entry with nothing in it,
+/// under the sentence "Nothing was recorded" — over a local audio row the screen already had.
+@MainActor
+@Suite("Unsynced media never reads as nothing")
+struct UnsyncedMediaTests {
+
+    // MARK: The routing defect itself
+
+    @Test("a did-it entry with a local recording is a voice entry, not a did-it entry")
+    func localVoiceOutranksServerType() {
+        // **The regression.** `entry_type` is legitimately `did_it` for a fresh voice entry:
+        // `POST /entries` derives it before any media exists, and `POST /media/{id}/complete`
+        // recomputes it afterwards. Off Wi-Fi, `complete` has not happened yet — so the server
+        // says did-it and is not wrong, and the screen must not repeat it as if it were the
+        // whole truth.
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 0, hasVoice: true
+            ) == .voice
+        )
+    }
+
+    @Test("a did-it entry with no recording is still a did-it entry")
+    func genuineDidItIsUntouched() {
+        // The other half of the invariant. The did-it treatment and its copy are correct for a
+        // genuinely artifact-less entry, and this fix must not take that away.
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 0, hasVoice: false
+            ) == .didIt
+        )
+    }
+
+    @Test("the seal still answers before any local recording is consulted")
+    func sealOutranksLocalVoice() {
+        // Ordering is the safety property in `backdrop`, and a new short-circuit is exactly how
+        // it gets broken. A sealed letter with a recording must stay sealed.
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: 18, unsealed: false, type: .didIt, pictureCount: 0, hasVoice: true
+            ) == .sealed
+        )
+    }
+
+    @Test("a photo still outranks a recording, so the ordering is unchanged below the seal")
+    func pictureStillOutranksVoice() {
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: .didIt, pictureCount: 1, hasVoice: true
+            ) == .picture
+        )
+    }
+
+    /// The did-it canvas draws an unconditional 74pt check while `completionMark` returns
+    /// `.inline` for a did-it entry carrying voice — so that pair drew two marks. `pictureCount`
+    /// already rerouted the photo case, which left `hasVoice` as the only way in.
+    @Test("the double completion mark is unreachable, because that entry is no longer a did-it")
+    func doubleMarkIsStructurallyClosed() {
+        let type = EntryType.didIt
+        #expect(
+            EntryDetailScreen.completionMark(type: type, pictureCount: 0, hasVoice: true) == .inline,
+            "the inline mark is still correct for this entry"
+        )
+        #expect(
+            EntryDetailScreen.backdrop(
+                unlockAtAge: nil, unsealed: false, type: type, pictureCount: 0, hasVoice: true
+            ) != .didIt,
+            "but it no longer reaches the canvas that draws a second, larger one"
+        )
+    }
+
+    // MARK: What an un-uploaded row has to say for itself
+
+    @Test("bytes on the phone play from the phone, whatever the upload state")
+    func localBytesArePlayable() {
+        // Faster, free, and before an upload lands it is the only copy in existence.
+        #expect(EntryDetailScreen.standing(state: .staged, hasLocalBytes: true) == .waitingHere)
+        #expect(EntryDetailScreen.standing(state: .uploading, hasLocalBytes: true) == .waitingHere)
+        #expect(EntryDetailScreen.standing(state: .uploaded, hasLocalBytes: true) == .waitingHere)
+    }
+
+    @Test("a completed upload is playable even with nothing left on the phone")
+    func completeIsPlayableWithoutLocalBytes() {
+        // The staging sweep disposes originals once they are complete and thumbnailed. That is a
+        // cache miss, not a loss: `GET /media/{id}/url` fetches them back.
+        #expect(EntryDetailScreen.standing(state: .complete, hasLocalBytes: false) == .playable)
+        #expect(EntryDetailScreen.standing(state: .complete, hasLocalBytes: true) == .playable)
+    }
+
+    @Test("past the retry cap with bytes still here is not the same as a loss")
+    func failedWithBytesIsNotGone() {
+        #expect(
+            EntryDetailScreen.standing(state: .failed, hasLocalBytes: true) == .stoppedTryingHere
+        )
+    }
+
+    @Test("not on the server and not on the phone is the one shape that is a loss")
+    func theOnlyLoss() {
+        // Every one of these is a recording that cannot be played from anywhere, and the screen
+        // has to say so rather than draw a player over bytes that do not exist.
+        #expect(EntryDetailScreen.standing(state: .staged, hasLocalBytes: false) == .gone)
+        #expect(EntryDetailScreen.standing(state: .uploading, hasLocalBytes: false) == .gone)
+        #expect(EntryDetailScreen.standing(state: .uploaded, hasLocalBytes: false) == .gone)
+        #expect(EntryDetailScreen.standing(state: .failed, hasLocalBytes: false) == .gone)
+    }
+
+    // MARK: What the screen says about it
+
+    @Test("waiting and stopped each get one plain line, and neither is an error")
+    func theLinesSayWhatHappened() {
+        let waiting = EntryDetailScreen.mediaStandingLine(.waitingHere)
+        let stopped = EntryDetailScreen.mediaStandingLine(.stoppedTryingHere)
+
+        #expect(waiting == "The recording is on this phone — it'll upload when you're back on")
+        #expect(stopped == "The recording stopped uploading. It's still on this phone.")
+
+        // Tone is a product rule here, not a preference: never scold, never apologise, no urgency.
+        for line in [waiting, stopped].compactMap({ $0 }) {
+            #expect(!line.lowercased().contains("sorry"))
+            #expect(!line.lowercased().contains("error"))
+            #expect(!line.contains("!"))
+        }
+    }
+
+    @Test("a playable recording says nothing, and a lost one says it only once")
+    func silenceWhereThereIsNothingToAdd() {
+        #expect(EntryDetailScreen.mediaStandingLine(.playable) == nil, "the ordinary case is quiet")
+        #expect(EntryDetailScreen.mediaStandingLine(nil) == nil, "and so is an entry with no media")
+        // The canvas already states this loss in full. Saying it twice on one screen makes one
+        // problem read as two.
+        #expect(EntryDetailScreen.mediaStandingLine(.gone) == nil)
     }
 }

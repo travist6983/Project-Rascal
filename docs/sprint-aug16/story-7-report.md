@@ -20,11 +20,13 @@ information, and it is what gate 3 asks for.
 | 2 — capture form | Landed in `Rascal-Marketing` (`8162c90`), deployed |
 | 3a — guardians, server | ALREADY LANDED — phase 36 |
 | 3b — guardians, iOS | ALREADY LANDED — phases 61 and 63 |
-| 4 — daily prompt email | Built as phase 69, **PR #118 open** |
+| 4 — daily prompt email | Built as phase 69, ~~**PR #118 open**~~ — **merged Aug 18, 2026 at 10:37 UTC (`490f06b`)** |
 | 5 — privacy and terms | Landed in `Rascal-Marketing` (`1f823a1`, `e1cb3c2`), deployed |
 | 6 — video audio tracks | Merged as phase 16, PR #116 |
 | Sweep | Phase 72, **PR #120 open** |
 | Rename | Phases 71 and 73, **PRs #119 and #121 open** |
+
+> **Every PR this table calls open has since merged — annotated Aug 18, 2026.** #118 at `490f06b` (10:37 UTC), #119 at `40483b9` (10:45), #120 at `c885885` (10:45) and #121 at `84d107e` (10:46), all within nine minutes of each other. **The table was correct when written and became wrong overnight**, which is exactly the failure mode story 7 was commissioned to catch — a status recorded as a state rather than as a state *on a date*. The rows are kept unedited; only this note is new.
 
 ## Story 7's own instructions were partly false, and gate 3 is what settled it
 
