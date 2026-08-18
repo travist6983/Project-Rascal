@@ -172,7 +172,7 @@ class Settings(DatabaseSettings):
     # deleting their child's archive.
     mail_provider: Literal["console", "resend"] = "console"
     mail_api_key: str | None = None
-    mail_from: str = "Dogear <hello@rascal.local>"
+    mail_from: str = "Vellum <hello@rascal.local>"
     # Unset means replies go to `mail_from`.
     mail_reply_to: str | None = None
     mail_timeout_seconds: float = 10.0

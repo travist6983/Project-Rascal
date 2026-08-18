@@ -174,7 +174,7 @@ async def attach_email_credential(
 
     **The silent `None` is the whole privacy argument, and it is a consistency argument too.**
     This route used to answer `409 credential_in_use` there, which told any caller — and anyone
-    who can create a free account is a caller — whether a given address signs in to Dogear.
+    who can create a free account is a caller — whether a given address signs in to Vellum.
     `POST /auth/email/start` already refuses that exact question with an unconditional `202`,
     so answering it here was not merely a leak but an inconsistency: two endpoints, the same
     question about the same address, two different answers. The quieter one is the correct one.

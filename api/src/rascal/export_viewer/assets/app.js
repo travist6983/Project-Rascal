@@ -849,7 +849,7 @@
 
     var head = add(app, el("header", "masthead"));
     var inner = add(head, el("div", "masthead-inner"));
-    add(inner, el("p", "eyebrow", "Dogear archive"));
+    add(inner, el("p", "eyebrow", "Vellum archive"));
     var h1 = add(inner, el("h1"));
     h1.appendChild(document.createTextNode(childName));
 
@@ -978,7 +978,7 @@
   window.addEventListener("hashchange", route);
 
   try {
-    document.title = childName + " — Dogear archive";
+    document.title = childName + " — Vellum archive";
     buildShell();
     route();
   } catch (err) {
