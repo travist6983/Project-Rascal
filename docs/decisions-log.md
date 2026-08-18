@@ -3139,6 +3139,40 @@ are opposite sides of one choice; the static files and the header component sit 
 on purpose. Written into both files, because it is exactly the difference a later reader corrects
 into a bug.
 
+> **Struck the next day, and the paragraph is kept rather than deleted because the mistake in it
+> is the useful part.** *Motion and ground-independence are not opposite sides of one choice.*
+> They were opposite sides of **a static mask**, which was the only kind that had been tried, and
+> the write-up promoted an untested limit to a law. Give the mask's shapes the same class and the
+> same custom properties as the cards they mirror and one CSS rule moves both: the knockout tracks
+> the card and never has to know its ground. Corrected in phase 70a.
+>
+> **Applying it to the marketing site is what exposed it, and the site would have caught the stroke
+> version in production.** That masthead is `color-mix(in srgb, canvas 88%, transparent)` over a
+> `backdrop-filter`, so page content scrolls underneath and tints it continuously — no solid colour
+> a stroke could use stays right at every scroll position. Cream is correct at the top of the page
+> and a visible halo over a photograph twenty pixels later: a defect that appears only once
+> somebody scrolls, which is the kind that ships.
+>
+> **The general form is worth more than the fix.** A limit found while building one thing is a
+> property of that build until it has been attacked separately. Writing it down as a law makes it
+> permanent, and *another agent recorded this one in the marketing repo's brand notes on the
+> strength of this paragraph* — a false claim propagating across two repositories inside a day, on
+> nothing but confident phrasing.
+>
+> **And it went both ways the same day, which is the part that makes it a mechanism rather than a
+> lapse.** That agent gave a reason for keeping the site's footer tagline as text — that it was the
+> only place the product name reached the Markdown twins — and it was invented; the twins are
+> rendered from the page body and have never contained the footer. I wrote that reason into
+> `footer.html` in good faith because it sounded like something already checked. So each of us
+> planted a confident false reason in the other's repository, and **neither of us caught our own.
+> Each caught the other's.** The advice was right in both cases; only the reasons were fabricated,
+> which is what let them travel.
+>
+> **Both claims had the same tell: each one explained why something was impossible.** That is the
+> class of statement that most deserves a second look and least often gets one, because it closes a
+> question rather than opening one — nobody re-derives a dead end. Worth reading twice whenever a
+> note says a thing cannot be done.
+
 **The mask also had to be hung on an untransformed wrapper.** `maskUnits="userSpaceOnUse"`
 resolves against the referencing element's own user space, so a mask on the rotated card group
 interprets its coordinates inside that card's rotated frame. It renders as one solid silhouette
