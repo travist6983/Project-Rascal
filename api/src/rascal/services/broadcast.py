@@ -84,7 +84,7 @@ def render(prompt: str, footer: str) -> tuple[str, str]:
     bottom — and the bottom is the unsubscribe.
     """
     footer_html = (
-        footer.replace("[site]", f'<a href="{SITE_URL}" style="color:{INK_MUTED}">Dogear</a>')
+        footer.replace("[site]", f'<a href="{SITE_URL}" style="color:{INK_MUTED}">Vellum</a>')
         .replace(
             "[unsubscribe]",
             f'<a href="{UNSUBSCRIBE_TOKEN}" style="color:{INK_MUTED}">unsubscribe</a>',
