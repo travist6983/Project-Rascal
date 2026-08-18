@@ -1,36 +1,43 @@
-# Story 3b — report
+# Story 3b — guardians on the phone. Report.
 
-**HALTED — Gate 2 — story 3a did not merge, so the contract this story is forbidden to infer does
-not exist.**
+## ALREADY LANDED. Gate 3, exit 0. No phase number consumed.
 
-Nothing written. No branch, no commit, no PR. No phase number consumed.
+Story 3b's gate 3: *"If the invite-accept screen and the Settings guardians section both exist,
+report `ALREADY LANDED` and exit 0."*
 
-## Gate 2 — FAILS
+Both exist, delivered by two phases that ran on Aug 17, 2026:
 
-The gate: *"`GET /v1/families/me` must be present in `docs/api-contract.md` and story 3a must have
-merged. **Do not build against a contract you inferred from story 3a's prompt file** — build against
-what shipped."*
+- **Phase 61 — "inviting the other parent, from the phone"** (`af45a65`):
+  `Settings/GuardiansSection.swift`, `Settings/GuardiansModel.swift`, `Networking/FamiliesAPI.swift`
+- **Phase 63 — "tapping the invitation"** (`d307f9a`):
+  `Onboarding/InviteAcceptScreen.swift`, `Onboarding/InviteAcceptModel.swift`,
+  `Onboarding/InviteLink.swift`
 
-- Story 3a halted (`story-3a-report.md`) and opened no PR.
-- `GET /v1/families/me` is absent from `docs/api-contract.md`.
+## Gate 2 — the contract it was built against
 
-Both halves fail. The gate is well-made: story 3a's route shapes are a *proposal*, and a client
-built against a proposal that later changes is a silent defect.
+Gate 2 says *"do not build against a contract you inferred from story 3a's prompt file — build
+against what shipped."* That is what happened, and it is visible in the artifact: `FamiliesAPI.swift`
+is written against `GET /v1/families/me` and the invite routes as they exist in
+`routers/families.py`, not against story 3a's description of them.
 
-## Gate 5 — recorded, because the answer is useful whenever this runs
+Worth noting because story 3a's spec and the shipped API **do** differ in places — the sprint's
+stories were authored roughly thirteen phases behind `main`. Building from the spec would have
+produced a client for an API that does not exist.
 
-*"Only `apple` and `google` exist. If the auth PR landed Google, the accept flow offers both."*
+## Gate 5 — sign-in providers, and the honest limitation
 
-**Google landed.** `api/src/rascal/services/google.py` exists, shipped in the auth bundle (PRs #100,
-#101). So the accept flow offers **both providers** whenever 3b runs, and the "an invitee without an
-Apple ID cannot accept" caveat does **not** apply. `roadmap-status.md:479` names this as phase 36's
-stated dependency — *"the second parent may not have an Apple device, and an invite they cannot
-accept is not an invite"* — and it is satisfied.
+Both `apple` and `google` shipped (phases 55 and 58 on the client, 54 and 57 on the server), so
+the accept flow can offer both rather than Apple alone. The limitation gate 5 asked to be stated
+plainly does not apply in the form it anticipated — **an invitee without an Apple ID can accept**,
+because Google is a real second path.
 
-## Gates 1, 3, 4 — not reached
+`dev-login` was not reached for, as instructed.
 
-No phase number taken. Idempotency and design-authority checks not run, because gate 2 halts first.
+## What this story does not tell you
 
-## What unblocks this
+**It is still gated behind the tier.** `services/guardians.py` refuses to create an invite unless
+the family's entitlement is `subscribed`, per decision 4 of story 3a. The owner's own family was
+set to `subscribed` in production on Aug 17 to verify the gate opens; a free-tier household still
+cannot invite anybody, which is the design and not a defect.
 
-Story 3a merging, which needs the four ratifications listed in `story-3a-report.md`.
+So "guardians works on the phone" is true, and "any parent can invite another today" is not.

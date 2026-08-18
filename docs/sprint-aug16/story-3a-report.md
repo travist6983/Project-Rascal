@@ -1,4 +1,23 @@
-# Story 3a — report
+# Story 3a — guardians, the server half. Report.
+
+> **Updated Aug 17, 2026 — phase 36 has since MERGED and DEPLOYED**, so this report's original
+> line *"PR open, not merged"* is out of date and nothing else in it is. Re-running story 3a now
+> reports **ALREADY LANDED** at its own gate 3 and consumes no phase number: `families`,
+> `entitlements` and `guardian_invites` are all in alembic history at
+> `0014_families_and_invites`, all five invite routes are live in `routers/families.py`, the
+> router is mounted at `main.py:89`, and the free-tier gate is `services/guardians.py:165`.
+>
+> **Gate 4 must not be re-run as though it still meant what it did.** The check it describes
+> below — any child with more than one active guardian — guarded a migration that has since been
+> applied. The same query today answers a different question, and the 0-row evidence recorded
+> below is not reproducible now. That is exactly why it was written down.
+>
+> **The rest of this file is the original report and is kept intact**, because the production
+> evidence, the break-tests and the adversarial-review table are the parts that stop being
+> derivable. An earlier version of this update replaced the whole file with a summary; that was
+> a mistake and this restores it.
+
+---
 
 **BUILT as phase 36.** Migration `0014_families_and_invites`, five routes, per-guardian daily
 assignment. 702 tests pass. PR open, not merged.
