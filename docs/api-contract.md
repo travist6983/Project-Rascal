@@ -489,8 +489,11 @@ a birthdate typo does not silently reshape 500 entries. The consequence is that 
 otherwise permanent, and this is the escape hatch: explicit, user-invoked, never a side
 effect of `PATCH /children/{id}`. Fix the birthdate first, then call this.
 
-- **Soft-deleted entries are included.** Nothing is deleted in this system, and a restored
-  entry must not come back carrying an age computed against the wrong birthdate.
+- **Soft-deleted entries are included.** Nothing is deleted *by this endpoint*, and a
+  restored entry must not come back carrying an age computed against the wrong birthdate.
+  This read **"nothing is deleted in this system"** until Aug 17, 2026, which phase 66 made
+  false: `POST /me/deletion` hard-deletes rows and objects seven days after a parent asks.
+  The narrower claim is the one that was ever load-bearing here.
 - **Only rows that actually change are written**, so `GET /sync` carries the correction
   without dragging eighteen years of unchanged entries through the cursor behind it.
   `entries_updated` counts rows changed, not rows examined.
@@ -499,8 +502,12 @@ effect of `PATCH /children/{id}`. Fix the birthdate first, then call this.
 - One transaction. A partially recomputed archive is not an acceptable outcome.
 - `occurred_at` and `created_at` are never touched.
 
-**`POST /children/{id}/guardians`**
-Body: `{ email, role }` → creates an invite. P2.
+~~**`POST /children/{id}/guardians`** — Body: `{ email, role }` → creates an invite. P2.~~
+**Struck Aug 17, 2026: this route never existed and is superseded.** Guardians are invited
+through **`POST /families/me/invites`**, built in phase 36 — an invite belongs to the
+household rather than to one child, because a second parent joins a family and gets every
+child in it, not one. Kept struck rather than deleted so the next reader sees that the
+child-scoped shape was considered and replaced, rather than wondering where it went.
 
 **`GET /children/{id}/export`** — parent only → `application/zip`.
 
@@ -1081,6 +1088,16 @@ The library is content. It's authored and reviewed server-side, never generated 
 Registered only when `ENVIRONMENT == "local"`, same gating as `dev-login`. These exist
 because building the daily loop means running the daily loop dozens of times in one
 evening, and waiting until 5am tomorrow is not a development strategy.
+
+**`POST /debug/board`**
+Body: `{ child_id }` → resets today to exactly one assignment per *kind*. **A test fixture, not
+a scheduler**, and the distinction is why it exists: the real scheduler fills *slots* — a
+question, a photo mission, a second mission — so it cannot produce one of every kind on demand,
+and exercising the photo and video paths otherwise meant hand-editing rows.
+
+*Added to this document Aug 17, 2026. It had shipped without an entry here, which the phase 72
+sweep found by diffing the served routes against this file — the only route in the service that
+was missing.*
 
 **`POST /debug/scheduler/run`**
 Body: `{ date, child_id? }` → runs the full scheduler for an arbitrary date. Idempotent,
