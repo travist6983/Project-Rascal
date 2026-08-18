@@ -547,15 +547,15 @@ struct ShareCopyTests {
         // partial assertion on a sentence tests that the sentence exists, not that it reads.
         #expect(
             ShareCopy.dateExplanation(source: .shareTime, kinds: [.photo])
-                == "This photo doesn't say when it was taken, so today is standing in. You can change it in Dogear."
+                == "This photo doesn't say when it was taken, so today is standing in. You can change it in Vellum."
         )
         #expect(
             ShareCopy.dateExplanation(source: .shareTime, kinds: [.video, .video])
-                == "These videos don't say when they were taken, so today is standing in. You can change it in Dogear."
+                == "These videos don't say when they were taken, so today is standing in. You can change it in Vellum."
         )
         #expect(
             ShareCopy.dateExplanation(source: .shareTime, kinds: [.photo, .video])
-                == "These files don't say when they were taken, so today is standing in. You can change it in Dogear."
+                == "These files don't say when they were taken, so today is standing in. You can change it in Vellum."
         )
     }
 

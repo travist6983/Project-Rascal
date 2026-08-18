@@ -15,15 +15,15 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below is
 	     `$(PRODUCT_NAME)`, which resolves to the *target* name — "Rascal" — and a target name is a
-	     build artefact, not a product. Setting this explicitly is what renamed the app to Dogear
+	     build artefact, not a product. Setting this explicitly is what renamed the app to Vellum
 	     without touching the target, the Swift module, the bundle id or the App Group, none of
 	     which a parent ever sees and all of which cost signing work to move.
 
 	     The widget and the share extension carry the same string in their own plists. All three
 	     have to agree: iOS groups the widget gallery by the app's display name, and a widget
-	     reading "Dogear" under a heading reading something else is worse than either alone. -->
+	     reading "Vellum" under a heading reading something else is worse than either alone. -->
 	<key>CFBundleDisplayName</key>
-	<string>Dogear</string>
+	<string>Vellum</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -83,7 +83,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Dogear reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
+	<string>Vellum reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>
@@ -95,7 +95,7 @@
 	     `childarchive://today`, parsed by WidgetDeepLink. Named from the bundle id rather than
 	     the product, because a scheme a parent has already tapped is as permanent as a bundle id.
 
-	     **That call paid off on Aug 12, 2026**, when the product was named Dogear: the scheme did
+	     **That call paid off on Aug 12, 2026**, when the product was named Vellum: the scheme did
 	     not have to move, so nothing already tapped broke. Leave it `childarchive` — it is an
 	     identifier, and renaming it now would buy nothing and cost every existing deep link.
 	     Not written as a $() reference either, because it is not a build configuration: pointing

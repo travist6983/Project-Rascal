@@ -145,7 +145,7 @@ struct NotificationSettingsSection: View {
 
     private var blocked: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Notifications are off for Dogear in iOS Settings.")
+            Text("Notifications are off for Vellum in iOS Settings.")
                 .typeRole(.body)
                 .foregroundStyle(Color.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -153,7 +153,7 @@ struct NotificationSettingsSection: View {
             // Says where it is and stops. No pitch for what they are missing, no second ask, and
             // no count of anything. A refusal is a complete answer and the app behaves
             // identically without it.
-            Text("If you want it back, it's in Settings → Dogear → Notifications.")
+            Text("If you want it back, it's in Settings → Vellum → Notifications.")
                 .typeRole(.metadata)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
