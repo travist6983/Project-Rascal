@@ -293,7 +293,7 @@ the inbox that receives the link is the only one that can activate it.
 telling anybody; a magic link to a dead relay is a key that looks alive. **Always `202`, and the body says nothing about the address** — an address already on a
 *different* account is answered identically to a fresh one, with nothing written and nothing
 sent. It used to answer `409 credential_in_use`, which told any caller whether a given address
-signs in to Dogear; the route is authenticated, but anyone who can create a free account is a
+signs in to Vellum; the route is authenticated, but anyone who can create a free account is a
 caller. `POST /auth/email/start` already refuses that question unconditionally, so answering it
 here was an inconsistency as much as a leak. Read `GET /me/credentials` for the result.
 
@@ -554,7 +554,7 @@ manifest.js              manifest.json's bytes as `window.RASCAL_MANIFEST = …;
   read as a gap in the download, not a gap in the childhood. `scope` is absent from every
   archive exported before this existed, and **absent means whole**: a reader must not infer
   partial from a missing key.
-- A scoped download is named for its range — `dogear-<child>-20260101-20261231.zip`, with
+- A scoped download is named for its range — `vellum-<child>-20260101-20261231.zip`, with
   `start` or `end` standing in for an open bound — so two exports taken the same afternoon do
   not collide. The complete export's name is unchanged.
 
