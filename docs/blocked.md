@@ -1692,3 +1692,42 @@ it needs a domain.
 paths, on purpose and for the same reason §10 does it: vendor navigation changes, and a stale menu
 path in a runbook is worse than a described destination. Nobody on this branch has a session with
 Cloudflare, Resend, or a registrar.
+
+### Every value this errand produces, and exactly where it goes (Aug 18, 2026)
+
+Written because the steps above say *what to create* and stop short of *where the result lands*,
+and the second half is where an errand stalls at a keyboard. **Nothing in the marketing or email
+path works until these exist: none of `MAIL_API_KEY`, `RESEND_AUDIENCE_ID`, `TURNSTILE_SECRET_KEY`
+or `MARKETING_EMAIL_ENABLED` is set on `rascal-api` as of Aug 18, 2026** — checked, not assumed.
+
+**Turnstile is the one step with no prerequisite.** It needs no domain and no DNS, so it can be
+done in isolation and it is what makes the signup form stop saying *"signups are not open yet."*
+
+| # | What you create | Where the value goes |
+|---|---|---|
+| 1 | Cloudflare Turnstile widget → **site key** (public) | `Rascal-Marketing`, `src/assets/site.js`, `SIGNUP.TURNSTILE_SITE_KEY`. Then `npm run build && npm run check` and push |
+| 2 | The same widget's **secret key** | `fly secrets set --app rascal-api TURNSTILE_SECRET_KEY='…'` |
+| 3 | Resend API key — **full access, not `sending_access`**, because the contacts upsert needs more than send | `fly secrets set --app rascal-api MAIL_API_KEY='re_…'` — **the setting is `MAIL_API_KEY`, not `RESEND_API_KEY`; nothing reads the latter** |
+| 4 | Resend **Audience** → its id | `fly secrets set --app rascal-api RESEND_AUDIENCE_ID='…'` |
+| 5 | A verified **sending subdomain**, never the apex, with SPF/DKIM/DMARC | `fly secrets set --app rascal-api MAIL_FROM='Vellum <hello@mail.yourdomain>'` and `MAIL_PROVIDER=resend` |
+| 6 | The domain itself | `Rascal-Marketing`, `site.config.json` → `DOMAIN` and `ORIGIN`. **`ORIGIN` is empty on purpose**; the moment it holds a real `https://` origin the build starts emitting canonicals, absolute OG URLs and `sitemap.xml` |
+| 7 | GitHub Pages custom domain + **Enforce HTTPS** | Repository settings. **Verify the checkbox by eye** — it cannot be enabled until the certificate issues, so a domain configured in one sitting usually leaves it off, and the page then serves over plain HTTP with nothing drawing attention to it |
+
+**Deliberately not in that table: `MARKETING_EMAIL_ENABLED`.** It is the switch that lets the daily
+broadcast actually send, it defaults false, and it is kept separate from the credentials precisely
+so that finishing the table above does not start mailing anybody. Open item 12: **no marketing
+email before the P0 behavioural gate**, which is seven days of unforced daily use and has not
+started. When it is time: `fly secrets set --app rascal-api MARKETING_EMAIL_ENABLED=true`.
+
+**Two things to do before that flag, in this order.** Exercise `POST /v1/subscribe` once from the
+real GitHub Pages origin, which is the first test of CORS and of a genuine Turnstile verification —
+neither has ever run against the deployed API. Then run
+`python -m rascal.jobs.broadcast --date <a day> ` against an audience containing **only your own
+address**, because the Resend Broadcasts API has never been called by this service and its
+two-step create-then-send shape is implemented from documentation rather than observation.
+
+**One item on this page is still open and is not in the table:** the Resend key currently in the
+local `.env` went through a chat transcript and **has not been rotated** — confirmed by the owner
+Aug 18, 2026. It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but a key that has
+been through a transcript is not a key. Rotate it before step 3 rather than after, so the key that
+reaches Fly is the one that was never exposed.

@@ -280,12 +280,12 @@ reports; these are only the things somebody has to *do*.
 
 - **Owner: set the Turnstile site key** in `Rascal-Marketing`'s `src/assets/site.js`. Public key,
   belongs in markup. Until then the signup form declines to post and says so.
-- **Owner: three Fly secrets** — `TURNSTILE_SECRET_KEY`, `MAIL_API_KEY` (full access, not
-  `sending_access`), `RESEND_AUDIENCE_ID`. Without them `POST /v1/subscribe` answers 503.
-- **Owner: rename the product in `docs/marketing/email-sequence.md`**, then re-run
-  `scripts/email_sequence_to_yaml.py`. That file is owner-only by its own header and its 5
-  occurrences are the last place the dead name survives in this repo. Editing the generated YAML
-  directly is discarded on the next regeneration.
+- **Owner: the §13 errand.** `docs/blocked.md` now carries a table of every value it produces and
+  the exact file or `fly secrets set` command each one lands in. **Turnstile is the only step with
+  no prerequisite** and is what makes the signup form stop saying "signups are not open yet".
+- ~~Owner: rename the product in `docs/marketing/email-sequence.md`~~ — **done in phase 76**, by
+  the owner's explicit say-so, as a name swap and nothing else. The generator was re-run and the
+  YAML follows.
 - **Owner: write down the trademark check you say you ran** — where you looked and what you
   found, one line. Open item 15. You answered *"already checked — it's fine"* on Aug 18; the repo
   holds the assurance but not the evidence, and only the second kind is auditable later.
