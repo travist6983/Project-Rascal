@@ -494,3 +494,34 @@ async def test_tokens_are_rendered_before_the_body_is_ever_sent(session) -> None
 
     assert "{" not in rendered
     assert "their hands" in rendered
+
+
+async def test_a_forced_run_claims_the_local_day_not_the_utc_one(
+    library, session, monkeypatch
+) -> None:
+    """**The evening trap.** `run_broadcast` falls back to the UTC date when handed no day, and
+    after 8pm Detroit that is already tomorrow. A `--force` hand-run at 10pm therefore claimed
+    the next morning's slot, and the 8am machine then found the day already sent — no email, no
+    error, and a ledger row saying it went.
+    """
+    import datetime as dt
+    import zoneinfo
+
+    from rascal.jobs import broadcast as job
+
+    evening = dt.datetime(2026, 8, 17, 22, 30, tzinfo=zoneinfo.ZoneInfo("America/Detroit"))
+    assert evening.astimezone(dt.UTC).date() != evening.date(), (
+        "this test is meaningless unless the two dates actually differ"
+    )
+
+    monkeypatch.setattr(job, "_local_now", lambda settings: evening)
+    captured: dict = {}
+
+    async def _fake(session, settings, *, as_of=None, copy=None):
+        captured["as_of"] = as_of
+        raise broadcast.AlreadySent("stop here")
+
+    monkeypatch.setattr(job.broadcast, "run_broadcast", _fake)
+    await job._run(None, force=True)
+
+    assert captured["as_of"] == evening.date(), "a forced run must claim the reader's day"
