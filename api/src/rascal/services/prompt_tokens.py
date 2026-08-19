@@ -133,6 +133,7 @@ def render_alert_body(
     name: str,
     pronouns: str | None,
     prompt_id: object = None,
+    assignment_id: object = None,
 ) -> str:
     """The alert body, rendered — and withheld rather than sent with a brace still in it.
 
@@ -152,10 +153,19 @@ def render_alert_body(
     rendered = render(body, name=name, pronouns=pronouns)
     if "{" in rendered or "}" in rendered:
         # Warning rather than error: the notification still goes, and the archive is untouched.
-        # The prompt id is the whole point of the log line — it is what makes the body findable.
+        #
+        # **Both ids, because one of them can be null and the other cannot.** Naming the body is
+        # the entire purpose of this line — a fallback nobody can trace is a silent degradation
+        # wearing a log entry. `assignments.prompt_id` is nullable: a parent-authored `custom_body`
+        # has no prompt, and that is exactly the body most likely to contain a hand-typed brace.
+        # Logging only the prompt id meant the one case most likely to fire named nothing at all.
         log.warning(
             "prompt body still contains a brace after rendering; sending neutral copy instead",
-            extra={"prompt_id": str(prompt_id), "pronouns": pronouns or "they/them"},
+            extra={
+                "prompt_id": None if prompt_id is None else str(prompt_id),
+                "assignment_id": None if assignment_id is None else str(assignment_id),
+                "pronouns": pronouns or "they/them",
+            },
         )
         return NEUTRAL_ALERT_BODY
     return rendered
