@@ -734,8 +734,23 @@ entry is, resolved in this order:
 3. Else any `title` or `body` → `text`. A title is written content.
 4. Else → `did_it`.
 
-Recomputed on `POST /media/{id}/complete`, since media lands after the entry exists. A
-freeform entry has no assignment and so falls through to (3)/(4). What was asked is still
+**Recomputed on every route that creates, removes or re-owns a media row** — `POST
+/media/upload-url`, `POST /media/{id}/complete`, `PATCH /entries/{id}`, and a `/sync/push`
+carrying `deleted_at` — because media lands after the entry exists and can leave again.
+
+**Rule (1) counts a media row whose bytes are not in storage yet**, and that is deliberate,
+settled Aug 18, 2026 by the owner: `entry_type` describes the media a parent attached, not what
+storage happens to hold. So an entry is typed `audio` from the moment `POST /media/upload-url`
+mints the row, while `upload_status` is still `pending`.
+
+The alternative was to type it only once bytes landed, and it had a hole with no floor: an upload
+that never completes never calls `POST /media/{id}/complete`, so the entry kept its creation-time
+type **permanently** and fell out of the `?type=` filters forever. A recording made off Wi-Fi
+whose upload later died was a voice note filed as an entry with nothing in it. `upload_status` is
+the field that answers "are the bytes there"; `entry_type` answers "what is this". See
+`docs/blocked.md` §14.
+
+A freeform entry has no assignment and so falls through to (3)/(4). What was asked is still
 reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
 `text`, `did_it`.
 

@@ -305,6 +305,15 @@ async def _apply_media(session: AsyncSession, child: Child, incoming: PushMedia)
         media.caption = incoming.caption
     media.deleted_at = incoming.deleted_at
     await session.flush()
+
+    # **The only route that removes media, so the only route that can strand a type.** There is no
+    # `DELETE /media`; a push carrying `deleted_at` is how a parent's deletion reaches the server.
+    # Without this, deleting an entry's only photo left `entry_type` at `photo` — an entry with
+    # nothing attached, still filed under Photos. `refresh_entry_type` already excludes
+    # soft-deleted rows, so it gives the right answer here with no special case.
+    from rascal.services.media import retype_owning_entry
+
+    await retype_owning_entry(session, media)
     return PushResult(id=incoming.id, status="accepted")
 
 
