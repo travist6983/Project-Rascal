@@ -63,6 +63,28 @@ PIXEL = bytes.fromhex(
     "00000049454e44ae426082"
 )
 
+#: Over `multipart_threshold_bytes` (15MB) and exactly two parts at `multipart_chunk_bytes`
+#: (8MB). Two is the smallest number that proves assembly rather than a single-part passthrough.
+MULTIPART_BYTES = 16 * 1024 * 1024
+
+
+def multipart_payload(chunk: int, total: int, part_count: int) -> bytes:
+    """`total` bytes, with a distinct filler byte per part.
+
+    **A distinct filler per part rather than one repeated byte**, so that parts assembled out of
+    order fail the comparison instead of producing a length that happens to match. A video written
+    from mis-ordered parts is the right size and plays as static, which is the failure mode a
+    length-only assertion cannot see.
+
+    Module-level and pure so it is testable without a deployment — `test_verify_deployment.py`
+    pins it against the server's real chunk size and threshold.
+    """
+    return b"".join(
+        bytes([(index % 251) + 1]) * min(chunk, total - index * chunk)
+        for index in range(part_count)
+    )
+
+
 VERIFY_CHILD_NAME = "deploy-verify"
 
 
@@ -99,7 +121,10 @@ class Verifier:
         self.http = httpx.Client(timeout=30.0, follow_redirects=False)
         self.user_id: uuid.UUID | None = None
         self.child_id: uuid.UUID | None = None
-        self.orphaned_key: str | None = None
+        # A list, not one key: two checks upload now, and this script cannot delete either —
+        # it holds presigned URLs, not storage credentials. Losing one silently is how an
+        # object stays in a production bucket forever.
+        self.orphaned_keys: list[str] = []
 
     # --- plumbing --------------------------------------------------------------------------
 
@@ -374,7 +399,7 @@ class Verifier:
                 "role.",
             )
         # Only now: an object exists in the bucket, and cleanup cannot reach it.
-        self.orphaned_key = plan["s3_key"]
+        self.orphaned_keys.append(plan["s3_key"])
 
         media_id = plan["media_id"]
         completed = self.post(f"/v1/media/{media_id}/complete", headers=self.auth, json={})
@@ -410,6 +435,175 @@ class Verifier:
             f"{len(PIXEL)} bytes round-tripped through {host} at key {plan['s3_key']}",
         )
 
+    def check_multipart_upload(self) -> bool:
+        """Presign a multipart upload, PUT both parts, complete it, and prove the object is whole.
+
+        **`CompleteMultipartUpload` is where S3-compatible stores most often diverge from AWS, and
+        it fails *after* the bytes have been spent.** That is the argument for proving it here, on
+        demand, rather than discovering it on a phone, on cellular, with a parent's video — which is
+        the only other place it would surface. Specified in `docs/blocked.md` §2b.
+
+        Nothing else exercises this path. The suite has a test that a multipart upload *cannot* be
+        completed without etags, and none that it can: `moto` would answer for the store rather than
+        the store answering for itself, which is exactly the divergence in question.
+
+        Two assertions, both from §2b. **`chunk_bytes` is non-null**, because the client is
+        documented as reading the server's number rather than hardcoding 8MB, and a null on the
+        multipart path would make every client split at the wrong boundary. And **the reassembled
+        object is byte-for-byte what was sent** — asserted with a distinct filler per part, not just
+        a length, so parts assembled out of order fail here instead of producing a video that plays
+        as static.
+        """
+        assert self.child_id is not None
+        entry_id = uuid.uuid4()
+        entry = self.post(
+            "/v1/entries",
+            headers=self.auth,
+            json={
+                "id": str(entry_id),
+                "child_id": str(self.child_id),
+                "occurred_at": dt.datetime.now(tz=dt.UTC).isoformat(),
+                "title": "deploy verification, multipart",
+            },
+        )
+        if entry.status_code not in (200, 201):
+            return self.record(
+                "multipart upload",
+                False,
+                f"POST /v1/entries answered {entry.status_code}: {entry.text[:200]}",
+            )
+
+        presigned = self.post(
+            "/v1/media/upload-url",
+            headers=self.auth,
+            json={
+                "entry_id": str(entry_id),
+                "kind": "video",
+                "filename": "deploy-verify.mov",
+                "bytes": MULTIPART_BYTES,
+                "content_type": "video/quicktime",
+            },
+        )
+        if presigned.status_code != 200:
+            return self.record(
+                "multipart upload",
+                False,
+                f"POST /v1/media/upload-url answered {presigned.status_code}: "
+                f"{presigned.text[:200]}",
+            )
+        plan = presigned.json()
+
+        # Since phase 87 the split is decided on size alone, for every kind — so asking for
+        # multipart means asking for something over the threshold, and a single-PUT answer here
+        # means the server's threshold is not what this script believes it is.
+        if not plan.get("multipart") or not plan.get("parts"):
+            return self.record(
+                "multipart upload",
+                False,
+                f"{MULTIPART_BYTES} bytes was planned as a single PUT. Either "
+                f"multipart_threshold_bytes is higher than this script assumes, or the routing "
+                f"changed: {plan}",
+            )
+        chunk = plan.get("chunk_bytes")
+        if not chunk:
+            return self.record(
+                "multipart upload",
+                False,
+                "chunk_bytes came back null on the multipart path. The client reads this rather "
+                "than hardcoding 8MB, so every client would split at the wrong boundary.",
+            )
+
+        parts = plan["parts"]
+        payload = multipart_payload(chunk, MULTIPART_BYTES, len(parts))
+        if len(payload) != MULTIPART_BYTES:
+            return self.record(
+                "multipart upload",
+                False,
+                f"the server planned {len(parts)} parts of {chunk} bytes, which does not cover "
+                f"{MULTIPART_BYTES} bytes. This is a bug in the plan, not in the store.",
+            )
+
+        etags = []
+        for part in parts:
+            number = part["part_number"]
+            start = (number - 1) * chunk
+            body = payload[start : start + chunk]
+            put = self.http.put(part["upload_url"], content=body)
+            if put.status_code not in (200, 201, 204):
+                return self.record(
+                    "multipart upload",
+                    False,
+                    f"PUT of part {number} ({len(body)} bytes) answered {put.status_code}: "
+                    f"{put.text[:200]}",
+                )
+            # Recorded the moment the first part lands: an incomplete multipart upload still
+            # occupies storage, and this script cannot delete it.
+            if not self.orphaned_keys or self.orphaned_keys[-1] != plan["s3_key"]:
+                self.orphaned_keys.append(plan["s3_key"])
+            etag = put.headers.get("ETag") or put.headers.get("etag")
+            if not etag:
+                return self.record(
+                    "multipart upload",
+                    False,
+                    f"part {number} uploaded but returned no ETag header, so the upload cannot be "
+                    "completed. The store is not returning what CompleteMultipartUpload needs.",
+                )
+            etags.append({"part_number": number, "etag": etag.strip('"')})
+
+        media_id = plan["media_id"]
+        completed = self.post(
+            f"/v1/media/{media_id}/complete", headers=self.auth, json={"etags": etags}
+        )
+        if completed.status_code != 200:
+            return self.record(
+                "multipart upload",
+                False,
+                f"CompleteMultipartUpload failed: POST /v1/media/{media_id}/complete answered "
+                f"{completed.status_code}: {completed.text[:200]}. The bytes are already spent — "
+                "this is the failure this check exists to catch before a phone does.",
+            )
+
+        download = self.get(f"/v1/media/{media_id}/url", headers=self.auth)
+        if download.status_code != 200:
+            return self.record(
+                "multipart upload",
+                False,
+                f"GET /v1/media/{media_id}/url answered {download.status_code}: "
+                f"{download.text[:200]}",
+            )
+        fetched = self.http.get(download.json()["url"])
+        if fetched.status_code != 200:
+            return self.record(
+                "multipart upload",
+                False,
+                f"the reassembled object would not download: HTTP {fetched.status_code}",
+            )
+        if len(fetched.content) != MULTIPART_BYTES:
+            return self.record(
+                "multipart upload",
+                False,
+                f"the object is {len(fetched.content)} bytes, not {MULTIPART_BYTES}. The parts "
+                "were accepted and the completion succeeded, so this is a store that assembled "
+                "them wrongly.",
+            )
+        if fetched.content != payload:
+            pairs = zip(fetched.content, payload, strict=True)
+            first = next((i for i, (a, b) in enumerate(pairs) if a != b), None)
+            return self.record(
+                "multipart upload",
+                False,
+                f"the object is the right length and the wrong bytes, first differing at offset "
+                f"{first}. Parts were assembled out of order or one was substituted — a video "
+                "written this way plays as static.",
+            )
+
+        return self.record(
+            "multipart upload",
+            True,
+            f"{MULTIPART_BYTES} bytes in {len(parts)} parts of {chunk}, completed and "
+            f"reassembled byte-for-byte at key {plan['s3_key']}",
+        )
+
     # --- cleanup ---------------------------------------------------------------------------
 
     def cleanup(self) -> None:
@@ -423,13 +617,14 @@ class Verifier:
                 conn.execute(sa.text("DELETE FROM children WHERE id = :id"), {"id": self.child_id})
             if self.user_id is not None:
                 conn.execute(sa.text("DELETE FROM users WHERE id = :id"), {"id": self.user_id})
-        if self.orphaned_key:
+        if self.orphaned_keys:
+            noun = "object was" if len(self.orphaned_keys) == 1 else "objects were"
             print(
-                f"\nThe uploaded object was left behind — this script holds presigned URLs, not "
-                f"storage credentials. Remove it with:\n"
-                f'  aws s3 rm "s3://$S3_BUCKET/{self.orphaned_key}" '
-                f"--endpoint-url https://t3.storage.dev"
+                f"\n{len(self.orphaned_keys)} uploaded {noun} left behind — this script holds "
+                f"presigned URLs, not storage credentials. Remove them with:"
             )
+            for key in self.orphaned_keys:
+                print(f'  aws s3 rm "s3://$S3_BUCKET/{key}" --endpoint-url https://t3.storage.dev')
 
     def guarded(self, name: str, check: Callable[[], bool]) -> bool:
         """Turn a network failure into a recorded result rather than a stack trace.
@@ -460,6 +655,7 @@ class Verifier:
             print("SKIP  object storage\n      --skip-storage")
         elif reached_a_child:
             self.guarded("object storage", self.check_object_storage)
+            self.guarded("multipart upload", self.check_multipart_upload)
 
         self.cleanup()
 
