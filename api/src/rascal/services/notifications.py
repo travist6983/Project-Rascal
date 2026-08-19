@@ -42,6 +42,7 @@ from rascal.constants import (
 from rascal.models import Assignment, Child, Device, Guardian, NotificationSend, User
 from rascal.services.dates import zone
 from rascal.services.devices import live_devices
+from rascal.services.prompt_tokens import render_alert_body
 from rascal.services.push import PushClient, PushMessage, send_with_retry
 from rascal.services.scheduler import ensure_day_filled
 from rascal.services.today import assignments_for
@@ -250,8 +251,22 @@ async def run_notifications(
         # so it cannot be broken by a commit expiring an attribute — in particular
         # `resolved_body`, which reaches through the `lazy="raise"` prompt relationship.
         targets = [Target(id=d.id, token=d.token, environment=d.environment) for d in devices]
+        # **The one place the server renders a prompt body, and it renders nothing else.**
+        #
+        # `docs/decisions.md` says bodies are stored with tokens intact and every *client*
+        # substitutes. There is no client between this and a lock screen, so without this the
+        # parent reads "Take a photo of {them} eating something {they} said {they} hated." The
+        # stored body is untouched — this is a rendered copy that lives for the length of the send.
+        #
+        # The title is deliberately not rendered: it carries the child's given name and nothing
+        # else, so there is no token in it to substitute.
         payload = Payload(
-            body=assignment.resolved_body,
+            body=render_alert_body(
+                assignment.resolved_body,
+                name=child.name,
+                pronouns=child.pronouns,
+                prompt_id=assignment.prompt_id,
+            ),
             title=_first_name(child.name),
             assignment_id=assignment.id,
         )
