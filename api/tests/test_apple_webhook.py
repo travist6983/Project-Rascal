@@ -362,3 +362,76 @@ async def test_an_unreadable_event_is_refused(apple_client: AsyncClient, apple_k
     )
     response = await _post(apple_client, payload)
     assert response.status_code == 401
+
+
+# --- Phase 93: the assumption underneath all of the above ----------------------------------
+
+
+async def test_a_changed_subject_after_a_revoke_is_a_second_account(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """**The failure mode, pinned. This test asserts what breaks, not what works.**
+
+    Every recoverability claim on this route rests on one unobserved assumption: that Apple's `sub`
+    is the *same value* after a user revokes the app and signs back in. `blocked.md` §11 records
+    that nobody has ever run that experiment against a real Apple ID, and no test can settle it —
+    the suite signs its own tokens, so it can only ever assert the behaviour it chose to simulate.
+
+    What a test *can* do is make the consequence executable rather than a paragraph. If the
+    assumption is wrong, the parent does not get an error: they get a **second, empty archive**, and
+    the first one becomes unreachable through the only credential they have. That is not a bug in
+    this code — the server deliberately never links accounts by email address, and `ios/CLAUDE.md`
+    says so of the client too — it is the cost of the design, and it should be visible in the suite
+    next to the tests that assume it away.
+
+    Sibling to `test_a_revoked_account_signs_back_in_to_the_same_archive`, which asserts the same
+    sequence with a stable subject and is the happy path this one is the shadow of.
+    """
+    first = await _sign_in(apple_client, apple_keypair, subject="001.before-revoke")
+    created = await apple_client.post(
+        "/v1/children",
+        json={"name": "Ada", "birthdate": "2022-03-04", "family_timezone": "America/New_York"},
+        headers={"Authorization": f"Bearer {first['access_token']}"},
+    )
+    assert created.status_code in (200, 201), created.text
+
+    await _post(
+        apple_client,
+        notification(apple_keypair, event_type="consent-revoked", subject="001.before-revoke"),
+    )
+
+    # The same human, the same device, a different `sub`. This is the branch nobody has observed.
+    second = await _sign_in(apple_client, apple_keypair, subject="001.after-revoke")
+
+    assert second["user"]["id"] != first["user"]["id"], (
+        "a changed subject is a different person as far as this server is concerned"
+    )
+    assert await session.scalar(sa.select(sa.func.count()).select_from(User)) == 2
+    assert await session.scalar(sa.select(sa.func.count()).select_from(Credential)) == 2
+
+    # The consequence, stated as the parent would meet it: the archive is still there, and the
+    # only credential they have cannot see it.
+    visible = await apple_client.get(
+        "/v1/children", headers={"Authorization": f"Bearer {second['access_token']}"}
+    )
+    assert visible.status_code == 200
+    assert visible.json() == [], "the second account is empty"
+    assert await session.scalar(sa.select(sa.func.count()).select_from(Child)) == 1, (
+        "and the first child still exists, owned by a user nobody can sign in as"
+    )
+
+
+async def test_nothing_links_the_two_accounts_by_email(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """The obvious repair is the one that must not exist.
+
+    Linking by email would silently join two accounts on a value the user can change and Apple can
+    relay privately, which is why `POST /me/credentials` requires somebody to be signed in and ask.
+    This asserts the absence, so that "just match on email" fails a test rather than a review.
+    """
+    first = await _sign_in(apple_client, apple_keypair, subject="001.first-sub")
+    second = await _sign_in(apple_client, apple_keypair, subject="001.second-sub")
+
+    assert first["user"]["id"] != second["user"]["id"]
+    assert await session.scalar(sa.select(sa.func.count()).select_from(User)) == 2
