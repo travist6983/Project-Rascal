@@ -869,7 +869,7 @@ Three-step upload. The server never proxies bytes.
 Body: `{ entry_id, kind, filename, bytes, content_type }`
 → `{ media_id, upload_url, parts?, s3_key }`
 
-Single presigned PUT under ~15MB; presigned multipart above that. Video always assumes multipart.
+Single presigned PUT at or under ~15MB; presigned multipart above that. **Size is the only rule, for every kind** — video assumed multipart regardless of size until Aug 18, 2026, which cost a two-second clip an initiate round trip, a presign, a part upload and a complete call to move less than one chunk.
 
 **Client uploads directly to S3** on a background `URLSession`. This survives app backgrounding and cellular flakiness, which matters more than anything else in the capture path.
 
