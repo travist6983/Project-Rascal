@@ -53,6 +53,26 @@ def wants_multipart(kind: MediaKind, size: int, settings: Settings) -> bool:
     return kind == "video" or size > settings.multipart_threshold_bytes
 
 
+async def retype_owning_entry(session: AsyncSession, media: Media) -> None:
+    """Recompute the owning entry's type now that this media row exists.
+
+    **`entry_type` describes the media a parent attached, not the bytes storage happens to hold
+    yet** — settled Aug 18, 2026 by the owner. `derive_entry_type` does not filter on
+    `upload_status`, so a `pending` row already answers `audio`, and typing at plan time is what
+    closes the hole: an upload that never completes never calls
+    `POST /media/{id}/complete`, so before this the entry stayed `did_it` **permanently** and fell
+    out of the Voice and Photos filters forever. See `docs/blocked.md` §14.
+
+    Called from every path that creates, removes or re-owns a media row, so the type follows the
+    media rather than following one particular request.
+    """
+    from rascal.services.entries import refresh_entry_type
+
+    entry = await session.get(Entry, media.entry_id)
+    if entry is not None:
+        await refresh_entry_type(session, entry)
+
+
 async def plan_upload(
     session: AsyncSession,
     child_id: uuid.UUID,
@@ -93,6 +113,7 @@ async def plan_upload(
         media.s3_upload_id = None
         session.add(media)
         await session.flush()
+        await retype_owning_entry(session, media)
         return UploadPlan(
             media=media,
             upload_url=s3.presign_put(key, content_type, settings),
@@ -120,6 +141,7 @@ async def plan_upload(
     media.s3_upload_id = upload_id
     session.add(media)
     await session.flush()
+    await retype_owning_entry(session, media)
 
     parts = [
         UploadPart(part_number=number, upload_url=s3.presign_part(key, upload_id, number, settings))
@@ -165,14 +187,11 @@ async def complete_upload(
         media.duration_seconds = duration_seconds
     await session.flush()
 
-    # The entry's type was provisional until now: media arrives after the entry exists, so a
-    # `did_it` row becomes a photo row the moment the photo lands. The trigger moves the
-    # entry's updated_at, so the change syncs.
-    from rascal.services.entries import refresh_entry_type
-
-    entry = await session.get(Entry, media.entry_id)
-    if entry is not None:
-        await refresh_entry_type(session, entry)
+    # Recomputed again here, not because the type should have changed — `plan_upload` already
+    # typed it — but because `bytes` and `duration_seconds` may have moved above, and because a
+    # row created before this phase shipped was never typed at plan time. Idempotent: it returns
+    # False when the value did not move.
+    await retype_owning_entry(session, media)
 
     # The set_updated_at() trigger wrote a new updated_at that this object has not seen.
     await session.refresh(media)

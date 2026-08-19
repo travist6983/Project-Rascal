@@ -524,3 +524,115 @@ async def test_a_media_mission_completed_without_an_artifact_derives_from_the_me
 
     await session.refresh(entry)
     assert entry.entry_type == "audio"
+
+
+# --- Phase 86: entry_type follows the media, not the bytes -----------------------------------
+
+
+async def test_planning_an_upload_types_the_entry_immediately(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """**The §14 hole, closed.** An upload that never completes never calls
+    `POST /media/{id}/complete` — so before this the entry kept whatever type it was created with,
+    permanently, and fell out of the Voice and Photos filters forever.
+
+    `entry_type` describes the media a parent attached, not the bytes storage happens to hold yet.
+    """
+    user, _, entry = await _entry(session)
+    entry.entry_type = "did_it"
+    await session.commit()
+
+    response = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "kind": "audio",
+            "filename": "take.m4a",
+            "bytes": 2048,
+            "content_type": "audio/m4a",
+        },
+        headers=auth_headers(user),
+    )
+    assert response.status_code == 200
+
+    await session.refresh(entry)
+    assert entry.entry_type == "audio", "typed before a single byte reaches storage"
+    # And the bytes genuinely are not there: the row is still `pending`, and nothing has called
+    # `POST /media/{id}/complete`. That combination is the whole point — the type describes the
+    # media a parent attached, not what storage holds.
+    status = await session.scalar(sa.select(Media.upload_status).where(Media.entry_id == entry.id))
+    assert status == "pending"
+
+
+async def test_a_multipart_plan_types_the_entry_too(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """Two branches return from `plan_upload`, so the recompute has to be on both. A video-only
+    fix would have left every large photo mistyped."""
+    user, _, entry = await _entry(session)
+    entry.entry_type = "did_it"
+    await session.commit()
+
+    response = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "kind": "video",
+            "filename": "clip.mov",
+            "bytes": 64 * 1024 * 1024,
+            "content_type": "video/quicktime",
+        },
+        headers=auth_headers(user),
+    )
+    assert response.json()["multipart"] is True
+
+    await session.refresh(entry)
+    assert entry.entry_type == "video"
+
+
+async def test_deleting_the_only_media_through_sync_retypes_the_entry(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """**A bug §14 did not mention.** There is no `DELETE /media`, so a `/sync/push` carrying
+    `deleted_at` is the only way a parent's deletion reaches the server — and it never recomputed.
+    Deleting an entry's only photo left the entry filed under Photos with nothing attached.
+    """
+    user, child, entry = await _entry(session)
+    media_id = uuid.uuid4()
+    plan = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "media_id": str(media_id),
+            "kind": "photo",
+            "filename": "IMG_1.HEIC",
+            "bytes": 2048,
+            "content_type": "image/heic",
+        },
+        headers=auth_headers(user),
+    )
+    assert plan.status_code == 200
+    await session.refresh(entry)
+    assert entry.entry_type == "photo"
+
+    pushed = await client.post(
+        "/v1/sync/push",
+        json={
+            "child_id": str(child.id),
+            "entries": [],
+            "media": [
+                {
+                    "id": str(media_id),
+                    "entry_id": str(entry.id),
+                    "deleted_at": "2026-08-18T13:00:00Z",
+                }
+            ],
+        },
+        headers=auth_headers(user),
+    )
+    assert pushed.status_code == 200
+    assert pushed.json()["media"][0]["status"] == "accepted"
+
+    await session.refresh(entry)
+    assert entry.entry_type != "photo", "an entry with nothing attached is not a photo entry"
+    assert entry.entry_type == "did_it"
