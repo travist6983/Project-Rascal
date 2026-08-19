@@ -693,6 +693,25 @@ two-second clip well under 15 MB still takes the multipart path. And the thresho
 video-only**: any object over 15 MB qualifies, so a 48MP HEIC or a ProRAW frame takes multipart
 too. Whether that is the intended shape is the owner's call; **no code was touched.**
 
+> **~~Video is multipart unconditionally~~ — changed by the owner's call in phase 87, Aug 18, 2026.**
+> `wants_multipart` no longer takes `kind` at all: `return size > settings.multipart_threshold_bytes`.
+> Size decides for every kind, so a two-second clip now takes the single-PUT path. The quoted
+> function above is the pre-87 version and is kept because the paragraphs below reason from it.
+>
+> **What that costs this section, and it is the interesting part.** The cellular inference below —
+> *"because video short-circuits, a video upload takes the multipart path at any size, so the Aug 16
+> upload exercised multipart"* — was sound when written and is now **only true of that specific Aug 16
+> run**, which happened under the old rule. It cannot be repeated by uploading any video: a future
+> cellular test has to send something over 15 MB to exercise multipart at all.
+>
+> That is worth naming as a shape rather than a correction. **An inference recorded from code becomes
+> a claim about history the moment the code changes**, and nothing re-reads it — the sentence stays
+> grammatical, stays cited, and quietly stops describing the present. §2b's engineering task is the
+> durable answer precisely because it re-derives the fact each time it runs instead of remembering it.
+>
+> The half that was always right and stays right: the threshold is **not** video-only, so a 48MP HEIC
+> or a ProRAW frame over 15 MB takes multipart. That is now the *only* way anything takes multipart.
+
 **What that means for the cellular test.** Because video short-circuits, a video upload takes the
 multipart path at any size — so the Aug 16 upload exercised multipart rather than merely coexisting
 with it, and `chunk_bytes` came back **8 MB rather than null** (`services/media.py:101` is the
