@@ -1518,6 +1518,20 @@ is worse than a described destination. Nobody on this branch has an App Store Co
 
 ## §11 — Apple's `sub` has never been observed across a revoke and re-authorize (Aug 16, 2026)
 
+> **Owner, Aug 19, 2026: deferred — "not today, but remind me about it."** So this stays open by
+> decision rather than by neglect, and the reminder is this paragraph: it is a five-minute errand on a
+> device, and it is the last unobserved assumption underneath account recoverability.
+>
+> **What changed while it waited:** phase 93 added two tests that assert the *failure* mode rather
+> than the feature — a changed `sub` after a revoke produces a second, empty archive with the first
+> still in the database owned by a user nobody can sign in as, and nothing links the two by email.
+> `services/auth.py:44-52` already described that consequence in its own docstring; the suite did not.
+>
+> That does **not** narrow this item. It means the cost of the wrong answer is now executable instead
+> of prose, so whoever runs the experiment can see immediately which branch they landed in. The
+> experiment itself still needs a real Apple ID, because the suite mints its own tokens and can only
+> assert what it chose to simulate.
+
 **Phase 53 is built and tested and may not be called complete on that.** The route, the four
 event behaviours, the signature verification and nineteen tests are on `main`. What has never
 happened is the thing the design rests on, and it needs your phone.
