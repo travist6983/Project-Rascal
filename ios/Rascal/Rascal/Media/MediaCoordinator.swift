@@ -235,6 +235,11 @@ final class MediaCoordinator {
         let context = context()
         let inFlight = await uploader.inFlightMediaIds()
 
+        // **Before anything is dispatched.** A row the system has forgotten is invisible to
+        // `dueMedia`, so it has to be put back before the queue is read — see the note on the
+        // method itself for why this is permanent rather than a race window.
+        Self.reconcileStalledUploads(in: context, inFlight: inFlight)
+
         let due = Self.dueMedia(in: context, now: now, excluding: inFlight)
         for media in due {
             switch media.state {
@@ -252,6 +257,38 @@ final class MediaCoordinator {
         // an attempt on a 404 — the same discipline as entries-before-media above.
         await transcription?.sweep(now: now)
         return due.count
+    }
+
+    /// Return rows the system has forgotten to `staged`, so the queue can see them again.
+    ///
+    /// **A row in `uploading` with no live task is stranded permanently, not transiently.** This is
+    /// the part worth being precise about: `dueMedia` excludes `uploading` by *state*, not by the
+    /// in-flight set, so an empty `inFlightMediaIds()` does not rescue it — the row is skipped by
+    /// its own state forever. And nothing else moves it: only the two `URLSessionTask` delegate
+    /// callbacks write a row out of `uploading`. There is no timeout, no launch audit, and until now
+    /// no foreground audit. `Media.needsUpload`, the one property that excludes `uploading`, is
+    /// defined and called from nowhere.
+    ///
+    /// Two real routes in. iOS discards background tasks — after a reboot, a force quit, or the
+    /// system reclaiming the session, the task is gone and the row still believes it is in flight.
+    /// And an in-app one: `MediaUploader.finishPart` increments a part's attempt count and sets
+    /// `nextAttemptAt` on a failure below the retry cap, but only marks the media `failed` when the
+    /// cap is reached — so below the cap the parent row sits in `uploading` with no live task, and
+    /// nothing re-dispatches a part. `MediaPart.nextAttemptAt` is written there and read nowhere.
+    ///
+    /// Returning them to `staged` is safe rather than clever: `staged` means "start over", and
+    /// `beginUpload` re-requests an upload URL. **Attempt counts are deliberately untouched** —
+    /// this is a reconciliation, not a manual retry, and resetting somebody's backoff ladder here
+    /// would let a genuinely failing row spin without ever reaching the cap.
+    @discardableResult
+    static func reconcileStalledUploads(in context: ModelContext, inFlight: Set<UUID>) -> Int {
+        let stranded = ((try? context.fetch(FetchDescriptor<Media>())) ?? []).filter { row in
+            row.deletedAt == nil && row.state == .uploading && !inFlight.contains(row.id)
+        }
+        guard !stranded.isEmpty else { return 0 }
+        for row in stranded { row.state = .staged }
+        try? context.save()
+        return stranded.count
     }
 
     /// Everything outstanding, for the count the Today row shows.

@@ -83,15 +83,15 @@ struct SettingsScreen: View {
     @State private var guardians: GuardiansModel?
     @State private var deletion: AccountDeletionModel?
     @State private var showingDelete = false
-    @State private var outstanding = EntrySync.Outstanding()
-    @State private var isRetrying = false
-    /// What the last "Retry now" achieved. Nil until one has been pressed.
-    @State private var retryOutcome: String?
     @State private var export: ArchiveExport?
     @State private var syncStatus: SyncStatusModel?
-    /// Pushes the diagnostics screen. See `diagnosticsScreen`.
-    @State private var showingDiagnostics = false
-    @State private var showingCaptionProbe = false
+    /// The uploads half, and the only place any upload number on this screen comes from.
+    @State private var uploads: SyncUploadsModel?
+    /// Whether there is a network path at all. Owned here rather than inside the uploads model so
+    /// the Settings row can say "Offline" before that model exists.
+    @State private var reachability = NetworkReachability()
+    /// Pushes `SyncScreen`. Everything the sync card used to hold lives there now.
+    @State private var showingSync = false
 
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
@@ -106,8 +106,7 @@ struct SettingsScreen: View {
         // turns its own bar back on. Nothing else on this screen gains a chrome it did not have.
         NavigationStack {
             content
-                .navigationDestination(isPresented: $showingDiagnostics) { diagnosticsScreen }
-                .navigationDestination(isPresented: $showingCaptionProbe) { CaptionProbeScreen() }
+                .navigationDestination(isPresented: $showingSync) { syncScreen }
                 .toolbar(.hidden, for: .navigationBar)
         }
     }
@@ -164,14 +163,24 @@ struct SettingsScreen: View {
             await loadChild()
             await loadStats()
         }
-        // **`sync` arrives late for exactly the same reason `syncEngine` does**, and the counts
-        // are worse than the rows when they are wrong: with no `EntrySync` the default
-        // `Outstanding` is all zeroes, which `syncSummary` reads as clear — so the card said
-        // "Everything's uploaded." on the strength of never having looked. That was survivable
-        // when it was a quiet row and is not now that it is the headline of a card.
+        // **`sync` arrives late for exactly the same reason `syncEngine` does.** With no
+        // `EntrySync` there is nothing to count, and the old card read that absence as "clear" and
+        // said "Everything's uploaded." on the strength of never having looked. The row now shows
+        // an em dash until the model exists, because not knowing is a different answer from zero.
         //
-        // Counted once on appear and again the moment the sweep exists.
-        .onChange(of: sync != nil, initial: true) { _, _ in refreshOutstanding() }
+        // `initial: true` and keyed on the arrival, so a Settings-first launch is not stranded —
+        // the same shape as `syncEngine` below, for the same reason.
+        .onChange(of: sync != nil, initial: true) { _, _ in
+            if uploads == nil, let sync {
+                uploads = SyncUploadsModel(
+                    // The app's one sweep, so this screen acts on the same queue the uploader
+                    // does rather than starting a second one.
+                    sweep: { await sync.sweep() },
+                    context: context,
+                    reachability: reachability
+                )
+            }
+        }
         // **Not in `.task`, because `.task` runs once and the engine can arrive after it.**
         //
         // `RootView` builds the `SyncEngine` in its own `.task`, and this screen is handed
@@ -199,9 +208,14 @@ struct SettingsScreen: View {
         // file nobody is going to open. Cancelled rather than orphaned.
         .onDisappear { export?.cancel() }
         // A sweep can finish while this screen is open — from a foreground elsewhere, or from a
-        // background upload landing — so the counts are re-read rather than left stale.
+        // background upload landing — so the count is re-read rather than left stale.
+        //
+        // **This is not sufficient on its own and is not claimed to be.** `scenePhase` does not
+        // fire while the app stays in the foreground, so a background upload landing while this
+        // screen is open does not move the row until something else re-reads. `SyncScreen` refreshes
+        // on appear, which is the surface where a stale number would actually mislead.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { refreshOutstanding() }
+            if phase == .active { uploads?.refresh() }
         }
         .sheet(item: $route) { route in
             switch route {
@@ -463,172 +477,47 @@ struct SettingsScreen: View {
 
     // MARK: Syncing
 
+    /// **Exactly one row.** Everything that used to be on this card — two counts that could
+    /// disagree, a retry that reported it had done nothing, a "Sync diagnostics" row that described
+    /// only the pull — is now one level down, in `SyncScreen`. What stays here is a single status
+    /// sentence and a chevron.
+    ///
+    /// `Export the archive` is deliberately not moved. It is not a sync control.
     private var syncSection: some View {
         section("Syncing") {
             SettingsCard {
-                syncHeader
-                // Only when there is something to retry. A row that reads "Retry now" beside
-                // "Everything's uploaded" is furniture, and this screen has none.
-                if !outstanding.isClear {
-                    SettingsDivider()
-                    SettingsActionRow(
-                        label: isRetrying ? "Retrying" : "Retry now",
-                        // What the last press achieved. Absent until there has been one, so this
-                        // is a result rather than a standing caption.
-                        detail: retryOutcome,
-                        isBusy: isRetrying
-                    ) { Task { await retry() } }
-                }
-                if let transcription { TranscriptionBacklogSection(queue: transcription) }
-                if let syncStatus { SyncPullSection(model: syncStatus) }
-                // **One row, inside the card the diagnostics are diagnostics *for*.** They used
-                // to be a top-level `Advanced` card, which put two tools for an unshipped
-                // sync-pull engine at the same level as the archive and the account — reading as
-                // part of ordinary use. The actions themselves are unchanged and neither is
-                // deleted: the dry run is the thing that gets read before the pull flag is
-                // flipped, and that is still ahead.
-                if syncStatus != nil {
-                    SettingsDivider()
-                    SettingsRow(label: "Sync diagnostics") { showingDiagnostics = true }
-                }
-                // **A measurement, not a feature, and it is here because it has to run on a real
-                // phone.** Phase 33's device half rests on whether photos already carry written
-                // descriptions, and nobody has counted. It cannot live behind `#if DEBUG` — the
-                // only place with a real camera roll is a TestFlight build, which is a release
-                // configuration. It goes when the number is known: see `CaptionProbe`.
-                SettingsDivider()
-                SettingsRow(label: "Photo caption check") { showingCaptionProbe = true }
+                SettingsRow(label: "Syncing", value: syncRowValue) { showingSync = true }
             }
         }
     }
 
+    /// The one true status, from the one model. Before that model exists there is still an honest
+    /// answer to give — whether there is a network path — so the row is never blank and never lies
+    /// by omission.
+    private var syncRowValue: String {
+        guard let uploads else {
+            return reachability.isOnline ? "—" : SyncCounts.rowValue(.offline)
+        }
+        return SyncCounts.rowValue(uploads.status)
+    }
+
+    // MARK: Syncing, one level down
+
+    /// Built here rather than inside `SyncScreen` so the models outlive a push and a pop: the
+    /// uploads model holds the retry's in-flight state, and rebuilding it on every appearance
+    /// would drop a "Retrying" mid-flight.
     @ViewBuilder
-    private var syncHeader: some View {
-        let summary = Self.syncSummary(outstanding)
-        SettingsCardHeader(
-            eyebrow: summary.eyebrow,
-            counter: summary.counter,
-            headline: summary.headline,
-            detail: summary.detail,
-            isActive: summary.isActive
-        )
-        // Its own line, under the reassuring one, because it is the part that is not reassuring.
-        // `inkMuted` rather than a red — a file that stopped trying is a fact about a connection,
-        // not an emergency, and nothing in this app turns red.
-        if let stalled = summary.stalled {
-            Text(stalled)
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Layout.cardPadding)
-                .padding(.bottom, Layout.cardPadding)
-        }
-    }
-
-    /// Everything the sync card's head says, in both of its states.
-    ///
-    /// A value rather than a view body, for the same reason `TranscriptionBacklogSection.summary`
-    /// and `RecomputeAgesModel.summary` are: these are sentences a parent reads at the one moment
-    /// they are worried about whether their photos are safe, and a sentence that can only be
-    /// checked by looking at a simulator is a sentence nothing checks.
-    ///
-    /// Never a badge, never red, never a nudge — a photo that has not uploaded yet is a fact about
-    /// the network, and the app does not imply otherwise. The wash the design import puts behind
-    /// the active state is the same terracotta the app uses for everything else in progress; it
-    /// means live, not wrong.
-    struct SyncSummary: Equatable {
-        let eyebrow: String
-        /// Absent when there is nothing to count — never the string "0".
-        let counter: String?
-        let headline: String
-        let detail: String?
-        /// Files past the retry cap, said separately. Nil when there are none.
-        let stalled: String?
-        /// Tints the wash and lights the dot.
-        let isActive: Bool
-    }
-
-    /// "3 entries and 2 files still to upload." — a count, not an accusation.
-    ///
-    /// **Waiting and stalled are two sentences, and that is the fix.** The counter used to be
-    /// `outstanding.total`, which folds files past the retry cap in with files still on their
-    /// way, under a line promising they would "finish on their own when you're back on a good
-    /// connection". A `failed` row does not finish on its own — it is terminal until something
-    /// asks again — so eight stuck files read as eight patient ones, and the card was most
-    /// reassuring at precisely the moment it should not have been.
-    static func syncSummary(_ outstanding: EntrySync.Outstanding) -> SyncSummary {
-        guard !outstanding.isClear else {
-            return SyncSummary(
-                eyebrow: "Sync",
-                counter: nil,
-                headline: "Everything's uploaded.",
-                detail: nil,
-                stalled: nil,
-                isActive: false
+    private var syncScreen: some View {
+        if let uploads {
+            SyncScreen(
+                uploads: uploads,
+                transcription: transcription,
+                pull: syncStatus
             )
-        }
-
-        let stalled = outstanding.failedMedia > 0
-            ? (outstanding.failedMedia == 1
-                ? "1 file stopped trying. Retry now picks it back up."
-                : "\(outstanding.failedMedia) files stopped trying. Retry now picks them back up.")
-            : nil
-
-        // Everything stalled and nothing waiting: the card must not say "still to upload" about
-        // rows that have stopped, and must not count down to a finish that will not arrive.
-        guard outstanding.waiting > 0 else {
-            return SyncSummary(
-                eyebrow: "Sync",
-                counter: nil,
-                headline: outstanding.failedMedia == 1
-                    ? "1 file didn't finish uploading."
-                    : "\(outstanding.failedMedia) files didn't finish uploading.",
-                detail: "They're still on this phone. Retry now tries again.",
-                stalled: nil,
-                isActive: false
-            )
-        }
-
-        var parts: [String] = []
-        let writes = outstanding.entries + outstanding.deletions
-        if writes > 0 { parts.append(writes == 1 ? "1 entry" : "\(writes) entries") }
-        let waitingMedia = max(0, outstanding.media - outstanding.failedMedia)
-        if waitingMedia > 0 {
-            parts.append(waitingMedia == 1 ? "1 file" : "\(waitingMedia) files")
-        }
-        let subject = parts.joined(separator: " and ")
-
-        return SyncSummary(
-            eyebrow: "Uploading",
-            counter: "\(outstanding.waiting) left",
-            headline: "\(subject) still to upload.",
-            detail: "They'll finish on their own when you're back on a good connection.",
-            stalled: stalled,
-            isActive: true
-        )
-    }
-
-    // MARK: Advanced
-
-    /// The secondary screen behind "Sync diagnostics".
-    ///
-    /// **The top-level `Advanced` card is gone and this is where its contents went.** The two
-    /// actions and their explanatory copy are carried over unchanged — that copy is good, and the
-    /// dry run is what gets read before the pull flag is flipped.
-    ///
-    /// **This must survive the Settings-first launch race, which is the race the screenshot
-    /// harness runs every time.** `SyncStatusModel` is built in `.onChange(of: syncEngine != nil,
-    /// initial: true)` rather than in `.task`, because `.task` fires once and `RootView` builds
-    /// the engine in *its* `.task` — so a launch that lands straight on this tab had a nil engine
-    /// when `.task` ran, and Phase 13's `Advanced` card was silently absent for the whole session.
-    /// Moving it behind a row makes that failure quieter, not safer: the row would simply never
-    /// appear. The `onChange` is what keeps both the row and this screen arriving late rather
-    /// than never.
-    @ViewBuilder
-    private var diagnosticsScreen: some View {
-        if let syncStatus {
-            SyncDiagnosticsScreen(model: syncStatus)
+        } else {
+            // No `EntrySync` at all. Said plainly rather than shown as an empty list, which would
+            // read as "nothing to upload".
+            SyncUnavailableScreen()
         }
     }
 
@@ -823,48 +712,4 @@ struct SettingsScreen: View {
     /// **It says what happened.** A primary action that disables, re-enables, and reports nothing
     /// teaches the parent that the card is decorative — and this one is pressed at the moment
     /// somebody is worried about whether their photos are safe.
-    private func retry() async {
-        guard let sync, !isRetrying else { return }
-        isRetrying = true
-        retryOutcome = nil
-        defer { isRetrying = false }
-
-        let before = outstanding
-        await sync.sweep()
-        refreshOutstanding()
-        retryOutcome = Self.retryResult(before: before, after: outstanding)
-    }
-
-    /// What the retry achieved, in one sentence, from the counts on either side of it.
-    ///
-    /// Derived from the store rather than from the sweep's return value on purpose: `sweep()`
-    /// reports entries pushed, and the thing a parent is watching is the whole number on the card
-    /// going down — which includes media, deletions, and rows that failed again.
-    static func retryResult(
-        before: EntrySync.Outstanding,
-        after: EntrySync.Outstanding
-    ) -> String {
-        if after.isClear {
-            return "Everything's uploaded."
-        }
-        let landed = max(0, before.total - after.total)
-        // **Everything left has stopped trying, so nothing is "still to go".** Same rule as the
-        // card's own headline: a number that is coming and a number that has stalled are
-        // different facts, and only one of them is a countdown.
-        let remainderStalled = after.waiting == 0 && after.failedMedia > 0
-
-        if landed == 0 {
-            return remainderStalled
-                ? "Nothing moved. They're still here — it's worth trying again on a better connection."
-                : "Nothing moved yet. It'll keep trying on its own."
-        }
-        let noun = landed == 1 ? "1 finished" : "\(landed) finished"
-        return remainderStalled
-            ? "\(noun). The rest stopped trying — worth another go on a better connection."
-            : "\(noun). \(after.total) still to go."
-    }
-
-    private func refreshOutstanding() {
-        outstanding = sync?.outstanding() ?? EntrySync.Outstanding()
-    }
 }
