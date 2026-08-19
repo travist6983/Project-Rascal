@@ -348,3 +348,65 @@ struct RetryControlEnablementTests {
         #expect(model.rows.count == 1, "and the per-file list shows the same row")
     }
 }
+
+// MARK: - Phase 85: one fetch, two views of it
+
+/// The counts and the per-file list are the same rows read two ways. Reading the table twice was
+/// twice the work on the main actor, and two chances to disagree between fetches while a background
+/// upload delegate writes to the store.
+@MainActor
+@Suite("Phase 85 — the counts and the list read one fetch")
+struct OneFetchTests {
+
+    @Test("reading from a fetched set gives the same answer as fetching inside")
+    func bothEntryPointsAgree() throws {
+        let context = try makeContext()
+        let store = makeStore()
+        _ = try seedMedia(in: context, store: store, state: .staged, withBytes: true)
+        _ = try seedMedia(in: context, store: store, state: .failed, withBytes: true)
+        _ = try seedMedia(in: context, store: store, state: .failed, withBytes: false)
+        _ = try seedMedia(in: context, store: store, state: .complete, withBytes: true)
+
+        let media = SyncCounts.outstandingMedia(in: context)
+        let shared = SyncCounts.read(outstandingMedia: media, context: context, store: store)
+        let fetched = SyncCounts.read(context: context, store: store)
+
+        #expect(shared == fetched, "the convenience overload must not be a second definition")
+        #expect(shared.waitingMedia == 1)
+        #expect(shared.stalledMedia == 2)
+        #expect(shared.stalledWithoutBytes == 1)
+    }
+
+    @Test("the one predicate excludes complete and deleted rows for every caller")
+    func onePredicateForEveryone() throws {
+        let context = try makeContext()
+        let store = makeStore()
+        _ = try seedMedia(in: context, store: store, state: .complete, withBytes: true)
+        let deleted = try seedMedia(in: context, store: store, state: .staged, withBytes: true)
+        deleted.deletedAt = Date()
+        try context.save()
+        _ = try seedMedia(in: context, store: store, state: .uploading, withBytes: true)
+
+        let media = SyncCounts.outstandingMedia(in: context)
+
+        #expect(media.count == 1, "complete and deleted are both out")
+        #expect(SyncUploadsModel.readRows(from: media, store: store).count == 1)
+    }
+
+    @Test("the list and the counts describe the same rows, structurally")
+    func listAndCountsCannotDisagree() throws {
+        let context = try makeContext()
+        let store = makeStore()
+        for state in [MediaUploadState.staged, .uploading, .uploaded, .failed] {
+            _ = try seedMedia(in: context, store: store, state: state, withBytes: true)
+        }
+
+        let media = SyncCounts.outstandingMedia(in: context)
+        let counts = SyncCounts.read(outstandingMedia: media, context: context, store: store)
+        let rows = SyncUploadsModel.readRows(from: media, store: store)
+
+        // Not "these two happen to match" — they are the same array, mapped twice.
+        #expect(rows.count == counts.waitingMedia + counts.stalledMedia)
+        #expect(rows.filter { $0.state == .failed }.count == counts.stalledMedia)
+    }
+}
