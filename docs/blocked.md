@@ -693,6 +693,25 @@ two-second clip well under 15 MB still takes the multipart path. And the thresho
 video-only**: any object over 15 MB qualifies, so a 48MP HEIC or a ProRAW frame takes multipart
 too. Whether that is the intended shape is the owner's call; **no code was touched.**
 
+> **~~Video is multipart unconditionally~~ — changed by the owner's call in phase 87, Aug 18, 2026.**
+> `wants_multipart` no longer takes `kind` at all: `return size > settings.multipart_threshold_bytes`.
+> Size decides for every kind, so a two-second clip now takes the single-PUT path. The quoted
+> function above is the pre-87 version and is kept because the paragraphs below reason from it.
+>
+> **What that costs this section, and it is the interesting part.** The cellular inference below —
+> *"because video short-circuits, a video upload takes the multipart path at any size, so the Aug 16
+> upload exercised multipart"* — was sound when written and is now **only true of that specific Aug 16
+> run**, which happened under the old rule. It cannot be repeated by uploading any video: a future
+> cellular test has to send something over 15 MB to exercise multipart at all.
+>
+> That is worth naming as a shape rather than a correction. **An inference recorded from code becomes
+> a claim about history the moment the code changes**, and nothing re-reads it — the sentence stays
+> grammatical, stays cited, and quietly stops describing the present. §2b's engineering task is the
+> durable answer precisely because it re-derives the fact each time it runs instead of remembering it.
+>
+> The half that was always right and stays right: the threshold is **not** video-only, so a 48MP HEIC
+> or a ProRAW frame over 15 MB takes multipart. That is now the *only* way anything takes multipart.
+
 **What that means for the cellular test.** Because video short-circuits, a video upload takes the
 multipart path at any size — so the Aug 16 upload exercised multipart rather than merely coexisting
 with it, and `chunk_bytes` came back **8 MB rather than null** (`services/media.py:101` is the
@@ -1499,6 +1518,20 @@ is worse than a described destination. Nobody on this branch has an App Store Co
 
 ## §11 — Apple's `sub` has never been observed across a revoke and re-authorize (Aug 16, 2026)
 
+> **Owner, Aug 19, 2026: deferred — "not today, but remind me about it."** So this stays open by
+> decision rather than by neglect, and the reminder is this paragraph: it is a five-minute errand on a
+> device, and it is the last unobserved assumption underneath account recoverability.
+>
+> **What changed while it waited:** phase 93 added two tests that assert the *failure* mode rather
+> than the feature — a changed `sub` after a revoke produces a second, empty archive with the first
+> still in the database owned by a user nobody can sign in as, and nothing links the two by email.
+> `services/auth.py:44-52` already described that consequence in its own docstring; the suite did not.
+>
+> That does **not** narrow this item. It means the cost of the wrong answer is now executable instead
+> of prose, so whoever runs the experiment can see immediately which branch they landed in. The
+> experiment itself still needs a real Apple ID, because the suite mints its own tokens and can only
+> assert what it chose to simulate.
+
 **Phase 53 is built and tested and may not be called complete on that.** The route, the four
 event behaviours, the signature verification and nineteen tests are on `main`. What has never
 happened is the thing the design rests on, and it needs your phone.
@@ -1710,12 +1743,50 @@ Cloudflare, Resend, or a registrar.
 ### Every value this errand produces, and exactly where it goes (Aug 18, 2026)
 
 Written because the steps above say *what to create* and stop short of *where the result lands*,
-and the second half is where an errand stalls at a keyboard. **Nothing in the marketing or email
-path works until these exist: none of `MAIL_API_KEY`, `RESEND_AUDIENCE_ID`, `TURNSTILE_SECRET_KEY`
-or `MARKETING_EMAIL_ENABLED` is set on `rascal-api` as of Aug 18, 2026** — checked, not assumed.
+and the second half is where an errand stalls at a keyboard.
 
-**Turnstile is the one step with no prerequisite.** It needs no domain and no DNS, so it can be
-done in isolation and it is what makes the signup form stop saying *"signups are not open yet."*
+> ### ~~None of these is set~~ — **the errand ran on the evening of Aug 18, 2026. Six of seven values are deployed.**
+>
+> `fly secrets list --app rascal-api`, run Aug 19, 2026, shows all six marketing values **Deployed**:
+> `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM`, `TURNSTILE_SECRET_KEY`, `RESEND_AUDIENCE_ID` and
+> `MARKETING_ORIGINS`. `MARKETING_EMAIL_ENABLED` is **absent, deliberately** — see below. Verified
+> against the platform, not inferred from a commit.
+>
+> The domain is `getvellumapp.com`: registered, on GitHub Pages, HTTPS enforced, apex not project
+> path. `mail.getvellumapp.com` is verified at Resend — a subdomain, never the apex, as step 5
+> required. **The first real email this service has ever sent reached the owner's inbox**, not spam.
+>
+> So the paragraph this note replaces was true when written and became false within about two
+> hours. The steps below are kept rather than struck, because the *order* is still the record of how
+> it is done — and a future domain move repeats it.
+>
+> **`MARKETING_ORIGINS` was missing from the table entirely**, and it became load-bearing the moment
+> the site moved to the apex: its default was the `github.io` origin, and the browser now sends
+> `https://getvellumapp.com`. It holds both. A value-and-destination table that omits the one value
+> CORS depends on is the table's own failure mode, not an oversight in the errand.
+>
+> **The site key is public by design and its being committed is correct, not a leak.** Cloudflare
+> issues two: the *site* key belongs in markup where the browser can read it, and the *secret* key
+> is the one `rascal-api` holds. `Rascal-Marketing`'s `site.js` already carries that explanation in
+> a comment above the constant — read it there rather than re-deriving it, so the file and this page
+> cannot drift into disagreeing about whether a committed key is a problem. Written here because a
+> key visible in a public repo is exactly the shape that gets a security issue filed against a
+> correct configuration.
+>
+> **The one thing that actually went wrong, and it was this file's fault.** Two of those secrets were
+> set to placeholder text: `TURNSTILE_SECRET_KEY` held a literal ellipsis, and `RESEND_AUDIENCE_ID`
+> held `…`, which surfaced as `/audiences/%E2%80%A6/contacts → 422` in a Fly log. The commands in the
+> table below are written to be copy-pasteable **and** contain fill-in-the-blanks that are also valid
+> shell, so pasting one verbatim succeeds and deploys the blank. Both are corrected.
+>
+> **The rule that follows, and it generalises past this page:** a runbook command meant to be pasted
+> must not contain a placeholder that the shell will accept. Use an obviously-invalid marker that
+> fails loudly — `PASTE_KEY_HERE` — or a `$VARIABLE` the shell refuses when unset. A quiet 422 in a
+> log is the expensive version of a syntax error.
+
+**Turnstile was the one step with no prerequisite.** It needed no domain and no DNS, which is why it
+could be done in isolation — and it is what made the signup form stop saying *"signups are not open
+yet."* Done: site key `0x4AAAAAAEUwlZkn4ah9zsvA` committed and deployed.
 
 | # | What you create | Where the value goes |
 |---|---|---|
@@ -1740,11 +1811,47 @@ neither has ever run against the deployed API. Then run
 address**, because the Resend Broadcasts API has never been called by this service and its
 two-step create-then-send shape is implemented from documentation rather than observation.
 
-**One item on this page is still open and is not in the table:** the Resend key currently in the
-local `.env` went through a chat transcript and **has not been rotated** — confirmed by the owner
-Aug 18, 2026. It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but a key that has
-been through a transcript is not a key. Rotate it before step 3 rather than after, so the key that
-reaches Fly is the one that was never exposed.
+**Of those two, the first is done.** `POST /v1/subscribe` has now been exercised from the real origin
+— that signup is what revealed that Resend's contacts API does **not** do double opt-in, which phase
+88 then fixed. So CORS and a genuine Turnstile verification have both run against the deployed API
+for the first time.
+
+**The second has not, and the machine for it does not exist.** `fly machine list --app rascal-api`,
+Aug 19, 2026, returns four: two `app` running uvicorn, one running `python -m rascal.jobs.scheduler`,
+one running `python -m rascal.jobs.notify`. **There is no broadcast machine**, so §4d of
+`runbook-deploy.md` is still accurate that it was never created. The broadcast dry run against an
+audience containing only the owner's own address is therefore still ahead, and it remains the right
+first call: the Resend Broadcasts API has never been invoked by this service, and its two-step
+create-then-send shape is implemented from documentation rather than from observation.
+
+**One item on this page is still open, is not in the table, and got worse rather than better:** the
+Resend key that went through a chat transcript and **has not been rotated** — confirmed by the owner
+Aug 18, 2026.
+
+The original entry excused it: *"It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but
+a key that has been through a transcript is not a key. Rotate it before step 3 rather than after, so
+the key that reaches Fly is the one that was never exposed."*
+
+**That mitigation has expired.** `MAIL_PROVIDER` and `MAIL_API_KEY` are both `Deployed` on
+`rascal-api` as of Aug 19, and the service has sent a real email through Resend — so the provider is
+no longer `console`, something does read the key, and step 3 has already happened. The advice was
+"rotate before step 3"; step 3 ran first.
+
+**Answered by the owner, Aug 19, 2026: the key deployed on Fly is a new one.** It was minted during
+the errand, so the exposed key never reached production. That was the question, and it was one only
+the owner could answer — `fly secrets list` shows a digest and the value is write-only by design,
+which is correct and also why this had to be asked rather than checked.
+
+**One thing remains, and it is smaller than it was.** The exposed key is not in use anywhere, but it
+is presumably still *valid* at Resend, and a valid key sitting in a chat transcript is a credential
+with no owner. **Revoke it at Resend** — not because anything reads it, but because nothing should be
+able to. No deploy, no secret to set, no code: it is a click in the Resend dashboard, and it closes
+this item completely.
+
+**The general shape is worth keeping even after this is closed.** A risk note that carries its own
+mitigation — *"it is inert, so this is not urgent yet"* — has a shelf life measured by whether the
+mitigation still holds, and nothing re-reads it on the day it stops holding. This one was written
+about a `console` provider roughly two hours before the provider became `resend`.
 
 ---
 
