@@ -43,14 +43,19 @@ async def _run(as_of: dt.date | None, *, force: bool) -> int:
 
     # **Checked before anything touches the database.** A row claims the day, so an off-hour run
     # that wrote one would cancel that day's send rather than defer it.
-    if as_of is None and not force:
+    if as_of is None:
         local = _local_now(settings)
-        if local.hour != settings.broadcast_send_hour:
+        if not force and local.hour != settings.broadcast_send_hour:
             print(
                 f"broadcast: not the send hour — it is {local:%H:%M %Z}, "
                 f"sending at {settings.broadcast_send_hour:02d}:00. Nothing written."
             )
             return 0
+        # **The local date, on the forced path too.** `run_broadcast` falls back to the UTC date
+        # when handed no day, and after 8pm Detroit that is already tomorrow — so `--force` in
+        # the evening claimed the *next* morning's slot and the scheduled run then found the day
+        # already sent. The symptom is the worst available: no email, no error, and a ledger row
+        # saying it went.
         as_of = local.date()
     async with get_sessionmaker()() as session:
         try:
