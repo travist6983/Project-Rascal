@@ -1804,15 +1804,16 @@ the key that reaches Fly is the one that was never exposed."*
 no longer `console`, something does read the key, and step 3 has already happened. The advice was
 "rotate before step 3"; step 3 ran first.
 
-**So the open question is one the owner can answer in a word, and nobody else can:** is the key now
-deployed on Fly the exposed one, or a fresh one minted during the errand? A digest is all
-`fly secrets list` shows, so this cannot be checked from outside — the value is write-only by design,
-which is correct and also why this has to be asked rather than verified.
+**Answered by the owner, Aug 19, 2026: the key deployed on Fly is a new one.** It was minted during
+the errand, so the exposed key never reached production. That was the question, and it was one only
+the owner could answer — `fly secrets list` shows a digest and the value is write-only by design,
+which is correct and also why this had to be asked rather than checked.
 
-- If it is the exposed key: mint a new one at Resend, `fly secrets set --app rascal-api
-  MAIL_API_KEY='<new>'`, then revoke the old one at Resend so the transcript copy stops working.
-- If it is already fresh: strike this item, and note that the exposed key still wants revoking at
-  Resend even though nothing uses it.
+**One thing remains, and it is smaller than it was.** The exposed key is not in use anywhere, but it
+is presumably still *valid* at Resend, and a valid key sitting in a chat transcript is a credential
+with no owner. **Revoke it at Resend** — not because anything reads it, but because nothing should be
+able to. No deploy, no secret to set, no code: it is a click in the Resend dashboard, and it closes
+this item completely.
 
 **The general shape is worth keeping even after this is closed.** A risk note that carries its own
 mitigation — *"it is inert, so this is not urgent yet"* — has a shelf life measured by whether the
