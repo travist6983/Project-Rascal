@@ -107,9 +107,17 @@ async def test_a_large_photo_crosses_over_to_multipart(
     assert [part["part_number"] for part in body["parts"]] == list(range(1, len(body["parts"]) + 1))
 
 
-async def test_video_always_assumes_multipart_however_small(
+async def test_a_small_video_takes_the_single_put_path(
     client: AsyncClient, session: AsyncSession, bucket: str
 ) -> None:
+    """**Reversed in phase 87.** This test asserted the opposite, under the name
+    `test_video_always_assumes_multipart_however_small`, and the old rule was `kind == "video" or
+    size > threshold`.
+
+    A two-second clip is a few hundred kilobytes. Multipart earns its overhead on a large file,
+    where per-part retry is worth an initiate round trip plus a presign and a complete call. It buys
+    nothing on a file that fits in one request.
+    """
     user, _, entry = await _entry(session)
 
     response = await client.post(
@@ -123,7 +131,78 @@ async def test_video_always_assumes_multipart_however_small(
         },
         headers=auth_headers(user),
     )
-    assert response.json()["multipart"] is True
+    body = response.json()
+    assert body["multipart"] is False
+    assert body["parts"] is None
+    assert body["upload_url"].startswith("https://")
+    # Null on the single-PUT path is normal, and the client stores it without reading it.
+    assert body["chunk_bytes"] is None
+
+
+async def test_a_large_video_still_goes_multipart(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """The half of the old rule that was right. Size is now the only thing that decides, so this
+    is the same predicate a large photo meets."""
+    user, _, entry = await _entry(session)
+
+    response = await client.post(
+        "/v1/media/upload-url",
+        json={
+            "entry_id": str(entry.id),
+            "kind": "video",
+            "filename": "long.mov",
+            "bytes": 64 * 1024 * 1024,
+            "content_type": "video/quicktime",
+        },
+        headers=auth_headers(user),
+    )
+    body = response.json()
+    assert body["multipart"] is True
+    assert body["upload_url"] is None
+    assert len(body["parts"]) == 8, "64MB at the 8MB chunk size"
+
+
+async def test_the_threshold_is_the_only_rule_and_it_does_not_care_about_kind(
+    client: AsyncClient, session: AsyncSession, bucket: str
+) -> None:
+    """One predicate for every kind. A rule that special-cased one kind is how a two-second clip
+    ended up doing four round trips."""
+    user, _, entry = await _entry(session)
+    settings = get_settings()
+
+    for kind, filename, content_type in [
+        ("photo", "a.heic", "image/heic"),
+        ("audio", "a.m4a", "audio/m4a"),
+        ("video", "a.mov", "video/quicktime"),
+    ]:
+        under = await client.post(
+            "/v1/media/upload-url",
+            json={
+                "entry_id": str(entry.id),
+                "media_id": str(uuid.uuid4()),
+                "kind": kind,
+                "filename": filename,
+                "bytes": settings.multipart_threshold_bytes,
+                "content_type": content_type,
+            },
+            headers=auth_headers(user),
+        )
+        assert under.json()["multipart"] is False, f"{kind} at exactly the threshold"
+
+        over = await client.post(
+            "/v1/media/upload-url",
+            json={
+                "entry_id": str(entry.id),
+                "media_id": str(uuid.uuid4()),
+                "kind": kind,
+                "filename": filename,
+                "bytes": settings.multipart_threshold_bytes + 1,
+                "content_type": content_type,
+            },
+            headers=auth_headers(user),
+        )
+        assert over.json()["multipart"] is True, f"{kind} one byte over"
 
 
 async def test_completing_a_single_put_marks_the_row(
@@ -162,6 +241,10 @@ async def test_completing_a_multipart_upload_without_etags_is_a_409(
     client: AsyncClient, session: AsyncSession, bucket: str
 ) -> None:
     user, _, entry = await _entry(session)
+    # **Sized over the threshold deliberately.** This test needs a genuinely multipart row, and
+    # before phase 87 it got one from a 1KB video because video always assumed multipart. Size is
+    # now the only rule, so asking for multipart means asking for a large file — otherwise this
+    # silently became a test about the single-PUT path, which cannot 409 for missing etags.
     created = (
         await client.post(
             "/v1/media/upload-url",
@@ -169,12 +252,13 @@ async def test_completing_a_multipart_upload_without_etags_is_a_409(
                 "entry_id": str(entry.id),
                 "kind": "video",
                 "filename": "clip.mov",
-                "bytes": 1024,
+                "bytes": 32 * 1024 * 1024,
                 "content_type": "video/quicktime",
             },
             headers=auth_headers(user),
         )
     ).json()
+    assert created["multipart"] is True, "precondition: this test is about the multipart path"
 
     response = await client.post(
         f"/v1/media/{created['media_id']}/complete", json={}, headers=auth_headers(user)

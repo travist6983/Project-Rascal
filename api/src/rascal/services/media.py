@@ -48,9 +48,23 @@ def build_key(child_id: uuid.UUID, entry_id: uuid.UUID, media_id: uuid.UUID, fil
     return f"children/{child_id}/entries/{entry_id}/{media_id}{suffix}"
 
 
-def wants_multipart(kind: MediaKind, size: int, settings: Settings) -> bool:
-    """Video always assumes multipart; everything else crosses over at the threshold."""
-    return kind == "video" or size > settings.multipart_threshold_bytes
+def wants_multipart(size: int, settings: Settings) -> bool:
+    """Size decides, for every kind.
+
+    **Video no longer assumes multipart regardless of size**, settled Aug 18, 2026 by the owner.
+    The old rule cost a two-second clip — a few hundred kilobytes — the whole multipart dance: an
+    initiate round trip to storage, a presign per part, a part upload, and a complete call, to move
+    less than one chunk. Multipart earns that overhead on a large file, where it buys per-part retry
+    on a flaky connection. It buys nothing on a file that fits in one request.
+
+    Nothing about the client had to change for this: it branches on whether the response carried
+    `parts`, never on the kind (`MediaCoordinator.beginUpload`), so a small video now takes the
+    single-PUT path by following the server rather than by being told separately.
+
+    `kind` is gone from the signature rather than left unused, so there is no parameter implying a
+    rule that no longer exists.
+    """
+    return size > settings.multipart_threshold_bytes
 
 
 async def retype_owning_entry(session: AsyncSession, media: Media) -> None:
@@ -109,7 +123,7 @@ async def plan_upload(
         thumb_key=None,
     )
 
-    if not wants_multipart(kind, size, settings):
+    if not wants_multipart(size, settings):
         media.s3_upload_id = None
         session.add(media)
         await session.flush()
