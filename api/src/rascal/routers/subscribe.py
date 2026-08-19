@@ -10,12 +10,20 @@ table and this router creates no rows.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, status
+import logging
+from urllib.parse import urlencode
+
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import Field, field_validator
 
+from rascal.config import Settings
 from rascal.deps import SettingsDep
 from rascal.schemas.common import ApiModel
-from rascal.services import marketing, turnstile
+from rascal.services import marketing, subscribe_token, turnstile
+from rascal.services.mail import send
+
+log = logging.getLogger("rascal.subscribe")
 
 router = APIRouter(tags=["marketing"])
 
@@ -60,16 +68,88 @@ class SubscribeResponse(ApiModel):
     summary="Join the mailing list",
 )
 async def subscribe(
-    payload: SubscribeRequest, request: Request, settings: SettingsDep
+    payload: SubscribeRequest,
+    request: Request,
+    settings: SettingsDep,
+    background: BackgroundTasks,
 ) -> SubscribeResponse:
-    """Verify the human, then hand the address to Resend. Store nothing.
+    """Verify the human, add an unsubscribed contact, then mail them a link to confirm.
 
-    `202` rather than `201`: nothing was created here, and the subscription is not real until
-    they click Resend's confirmation. Saying `created` would be a claim this service cannot make.
+    `202` rather than `201`: nothing was created *here*, and the subscription is not real until
+    they click. Saying `created` would be a claim this service cannot make.
+
+    **The mail goes out after the response**, the same shape `POST /auth/email/start` uses and
+    for the same reason — a provider being slow must not become a browser waiting on a form,
+    and delivery must not be able to change the answer.
     """
     await turnstile.verify(payload.turnstile_token, settings, remote_ip=_client_ip(request))
-    await marketing.add_contact(marketing.normalise(payload.email), settings)
+    address = marketing.normalise(payload.email)
+    await marketing.add_contact(address, settings)
+    background.add_task(_deliver_confirmation, settings, address)
     return SubscribeResponse()
+
+
+async def _deliver_confirmation(settings: Settings, address: str) -> None:
+    """Send one confirmation link, after the response has gone out.
+
+    **Swallows its failure deliberately**, exactly as `_deliver_sign_in_link` does: there is no
+    caller left to tell, and letting it escape would put a traceback in the logs for ordinary
+    provider flakiness. The contact is already on the list as unsubscribed, so a failure here
+    costs a confirmation rather than the signup — they can submit the form again.
+    """
+    token = subscribe_token.create(address, settings)
+    link = f"{settings.subscribe_confirm_link_base}?{urlencode({'token': token})}"
+    try:
+        await send(
+            settings,
+            # **Transactional, not marketing** — D3a. This is the message that *establishes*
+            # consent, so gating it on consent would be circular: nobody could ever opt in.
+            stream="transactional",
+            to=address,
+            subject="Confirm your Vellum subscription",
+            text=(
+                "Tap to confirm you want the daily question from Vellum.\n\n"
+                f"{link}\n\n"
+                f"The link works for {settings.subscribe_confirm_ttl_days} days. If you did "
+                "not ask for this, ignore it — nothing will be sent to you."
+            ),
+        )
+    except Exception:
+        # No address in the log line — an address in a log is the address leaving the system by
+        # a path nobody audited.
+        log.warning("confirmation link could not be delivered", exc_info=True)
+
+
+@router.get(
+    "/subscribe/confirm",
+    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    summary="Confirm a subscription from an emailed link",
+    response_class=RedirectResponse,
+)
+async def confirm(settings: SettingsDep, token: str = Query(max_length=4096)) -> RedirectResponse:
+    """Apply a confirmation and send the browser back to the site.
+
+    **Always a redirect, never JSON, including on failure.** A person opening this has clicked a
+    link in their mail client; showing them `{"error": …}` would be showing an API response to
+    somebody who has no idea they are talking to an API. The outcome travels as a query
+    parameter so the page can say the right sentence.
+
+    **Unauthenticated by necessity** — the token is the credential, and holding it is the proof
+    that the address receives mail. That is the whole of what double opt-in asks.
+    """
+    site = settings.marketing_site_url.rstrip("/")
+    try:
+        address = subscribe_token.read(token, settings)
+        await marketing.confirm_contact(address, settings)
+    except subscribe_token.ConfirmTokenInvalid:
+        return RedirectResponse(f"{site}/?confirmed=0", status_code=status.HTTP_303_SEE_OTHER)
+    except marketing.MarketingUnavailable:
+        # Resend is down or unconfigured. **Distinct from a bad token**, because this one is
+        # ours and is worth retrying — the link is still good.
+        log.warning("a confirmation could not be applied")
+        return RedirectResponse(f"{site}/?confirmed=retry", status_code=status.HTTP_303_SEE_OTHER)
+
+    return RedirectResponse(f"{site}/?confirmed=1", status_code=status.HTTP_303_SEE_OTHER)
 
 
 def _client_ip(request: Request) -> str | None:

@@ -60,7 +60,7 @@ def _show(as_of: dt.date | None) -> int:
     day = as_of or dt.datetime.now(dt.UTC).date()
     copy = load()
     index, prompt = copy.prompt_for(day.timetuple().tm_yday)
-    _, plain = broadcast.render(prompt, copy.footer)
+    _, plain = broadcast.render(prompt, copy.footer, get_settings().marketing_site_url)
     print(f"date    : {day}")
     print(f"prompt  : {index} of {len(copy.pool)}")
     print(f"subject : {prompt}")

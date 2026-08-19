@@ -1225,14 +1225,53 @@ a caller.
 
 `202` rather than `201`: **nothing is created here.** The list is Resend's per `decisions.md` open
 item 12(4) — there is no `subscribers` table — and the subscription is not real until they click
-Resend's confirmation. Double opt-in is the provider's, and this service never sees that
-transition.
+the confirmation link.
+
+**Double opt-in is ours, not the provider's — corrected Aug 18, 2026 by phase 88.** This section
+said Resend ran it. **It does not**: a contact posted to Resend's contacts API is live
+immediately, no confirmation mail is generated, and there is no pending state. That was believed
+from documentation until the first real signup landed `Subscribed` with an empty inbox, while the
+marketing page promised a link to click. The contact is now created **unsubscribed**, and the
+route below is the only thing that flips it. A broadcast expands to subscribed contacts only, so
+an unconfirmed address is never mailed.
 
 | Failure | |
 |---|---|
 | `422` `validation_failed`, `field: "turnstile_token"` | The token was absent, expired or already spent. **Absent is a rejection, never a skip** |
 | `422` `validation_failed`, `field: "email"` | Not the shape of an address |
 | `503` | Turnstile is unconfigured or unreachable, or the list is. **Never a silent success** |
+
+Delivery of the confirmation mail happens **after** the response and cannot change it — the same
+shape `POST /auth/email/start` uses. A send that fails costs a confirmation, not the signup.
+
+---
+
+**`GET /v1/subscribe/confirm?token=…`** — opened from an email client, by a person, in a browser.
+
+→ `303`, always. **Never JSON, including on failure.** Someone arriving here clicked a link in
+their mail; showing them `{"error": …}` would show an API response to somebody who does not know
+they are talking to an API. The outcome travels as a query parameter on `MARKETING_SITE_URL` so
+the page can say the right sentence.
+
+| Redirect | When |
+|---|---|
+| `…/?confirmed=1` | Confirmed. The contact is now subscribed |
+| `…/?confirmed=0` | Unknown, malformed, expired, or minted for another purpose — **one answer for all four**, because telling them apart would say whether a link ever existed |
+| `…/?confirmed=retry` | Resend is down or unconfigured. **Distinct from a bad link**: this failure is ours and the link is still good |
+
+**Unauthenticated by necessity** — the token *is* the credential, and holding it is the proof
+that the address receives mail, which is the whole of what double opt-in asks.
+
+**The token is a signed JWT carrying the address, and nothing is stored.** It is not a row and
+there is nothing to look it up in; see `services/subscribe_token.py`. It carries a `typ` claim
+distinct from an access token's, so one secret's signatures are not interchangeable across
+purposes. Two consequences worth stating rather than discovering:
+
+- **Unconfirmed and unsubscribed are the same state at Resend** and cannot be told apart. Correct
+  for sending — neither gets mail — and wrong for counting.
+- **A link confirms every time it is opened**, for its whole life. Somebody who confirms,
+  unsubscribes, then reopens the original mail is resubscribed. Single use would require state,
+  which is the thing this design avoids; `SUBSCRIBE_CONFIRM_TTL_DAYS` bounds it instead.
 
 **Turnstile is the entire protection.** There is no rate limit on this route, by the owner's call
 of Aug 16, 2026 (open item 12(1)) — so a missing `TURNSTILE_SECRET_KEY` **refuses** rather than
@@ -1273,7 +1312,8 @@ protection at all, and by decision this endpoint carries no rate limit to fall b
 
 **The endpoint would forward to Resend and store nothing locally. That is a decision, not an
 omission.** There is no `subscribers` table, by design — see open item 12(4) and `data-model.md`.
-Resend owns double opt-in, suppression, unsubscribe and sending reputation. **The named trigger
+Resend owns suppression, unsubscribe and sending reputation; **double opt-in is ours as of phase
+88**, and costs no rows — the confirmation is a signed link, not a record. **The named trigger
 for changing this is the first moment a subscriber can also be a user**, which is post-launch;
 until then the endpoint is a thin forward and nothing here needs to know about `users`.
 

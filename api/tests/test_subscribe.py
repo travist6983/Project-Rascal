@@ -9,13 +9,16 @@ write endpoint stands wide open.
 
 from __future__ import annotations
 
+import json
+import uuid
+
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from rascal.config import get_settings
 from rascal.main import create_app
-from rascal.services import marketing, turnstile
+from rascal.services import marketing, subscribe_token, tokens, turnstile
 
 BODY = {"email": "parent@example.com", "turnstile_token": "tok", "source": "home"}
 
@@ -53,6 +56,15 @@ def stub_contacts(monkeypatch):
 
     monkeypatch.setattr(marketing, "add_contact", _add)
     return added
+
+
+async def _get(settings, path):
+    """Same double override as `_post`, for the confirmation link a browser opens."""
+    app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        return await client.get(path, follow_redirects=False)
 
 
 async def _post(settings, body=BODY, headers=None):
@@ -205,7 +217,146 @@ async def test_the_allowlist_is_never_a_wildcard() -> None:
     assert all(origin.startswith("https://") for origin in settings.marketing_origins)
 
 
-# --- helpers ---------------------------------------------------------------------------------
+# --- Double opt-in, phase 88 -----------------------------------------------------------------
+#
+# **The bug these cover is a belief, not a line of code.** `services/marketing.py` documented
+# Resend as running double opt-in; it does not. The first real signup, Aug 18 2026, landed as
+# `Subscribed` with no confirmation mail anywhere, while the marketing page promised a link to
+# click. Every test below asserts the half that was missing rather than the half that worked.
+
+
+@pytest.mark.asyncio
+async def test_a_new_contact_starts_unsubscribed_because_that_is_the_whole_gate(
+    monkeypatch, stub_turnstile
+) -> None:
+    """**The single most important assertion in this file.**
+
+    If this flips back to `False`, signups go live without confirming and nothing else in the
+    suite notices — the route still answers `202` and the contact still appears at Resend.
+    """
+    sent: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["payload"] = json.loads(request.content)
+        return httpx.Response(201, json={"object": "contact", "id": "c-1"})
+
+    _install(monkeypatch, handler)
+    await marketing.add_contact("parent@example.com", _settings())
+
+    assert sent["payload"]["unsubscribed"] is True
+
+
+@pytest.mark.asyncio
+async def test_confirming_flips_the_contact_and_addresses_it_by_email(monkeypatch) -> None:
+    """Keyed by address, because holding a contact id would mean storing one."""
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        seen["payload"] = json.loads(request.content)
+        return httpx.Response(200, json={"object": "contact", "id": "c-1"})
+
+    _install(monkeypatch, handler)
+    await marketing.confirm_contact("parent@example.com", _settings())
+
+    assert seen["method"] == "PATCH"
+    assert seen["url"].endswith("/audiences/aud-1/contacts/parent%40example.com")
+    assert seen["payload"] == {"unsubscribed": False}
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_address_survives_the_round_trip() -> None:
+    settings = _settings()
+    token = subscribe_token.create("parent@example.com", settings)
+
+    assert subscribe_token.read(token, settings) == "parent@example.com"
+
+
+@pytest.mark.asyncio
+async def test_a_token_signed_with_another_secret_is_refused() -> None:
+    """The signature is the only thing standing between a link and a forged subscription."""
+    forged = subscribe_token.create("victim@example.com", _settings(jwt_secret="not-ours"))
+
+    with pytest.raises(subscribe_token.ConfirmTokenInvalid):
+        subscribe_token.read(forged, _settings())
+
+
+@pytest.mark.asyncio
+async def test_an_access_token_cannot_open_a_confirmation_link() -> None:
+    """Same secret, different purpose. **The `typ` claim is what keeps them apart** — without
+    it, one key's signatures are interchangeable across every use the service has for them."""
+    settings = _settings()
+    access, _ = tokens.create_access_token(uuid.uuid4(), settings)
+
+    with pytest.raises(subscribe_token.ConfirmTokenInvalid):
+        subscribe_token.read(access, settings)
+
+
+@pytest.mark.asyncio
+async def test_an_expired_link_is_refused_like_any_other_bad_one() -> None:
+    """Expiry and forgery give the same answer, so neither says whether a link ever existed."""
+    settings = _settings(subscribe_confirm_ttl_days=-1)
+    stale = subscribe_token.create("parent@example.com", settings)
+
+    with pytest.raises(subscribe_token.ConfirmTokenInvalid):
+        subscribe_token.read(stale, _settings())
+
+
+@pytest.mark.asyncio
+async def test_a_good_click_confirms_and_redirects_to_the_site(monkeypatch) -> None:
+    confirmed: list[str] = []
+
+    async def _confirm(email, settings):
+        confirmed.append(email)
+
+    monkeypatch.setattr(marketing, "confirm_contact", _confirm)
+    settings = _settings()
+    token = subscribe_token.create("parent@example.com", settings)
+
+    response = await _get(settings, f"/v1/subscribe/confirm?token={token}")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=1"
+    assert confirmed == ["parent@example.com"]
+
+
+@pytest.mark.asyncio
+async def test_a_bad_link_redirects_rather_than_showing_a_browser_json(monkeypatch) -> None:
+    """**A person opening this has clicked a link in their mail client.** Handing them
+    `{"error": ...}` shows an API response to somebody who does not know they are talking to
+    one, so every outcome here is a redirect."""
+    called: list[str] = []
+
+    async def _confirm(email, settings):
+        called.append(email)
+
+    monkeypatch.setattr(marketing, "confirm_contact", _confirm)
+
+    response = await _get(_settings(), "/v1/subscribe/confirm?token=not-a-token")
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=0"
+    assert called == [], "a bad token must never reach the list"
+
+
+@pytest.mark.asyncio
+async def test_resend_being_down_is_told_apart_from_a_bad_link(monkeypatch) -> None:
+    """The link is still good; ours is the thing that broke. A retry is worth offering."""
+
+    async def _confirm(email, settings):
+        raise marketing.MarketingUnavailable("nope")
+
+    monkeypatch.setattr(marketing, "confirm_contact", _confirm)
+    settings = _settings()
+    token = subscribe_token.create("parent@example.com", settings)
+
+    response = await _get(settings, f"/v1/subscribe/confirm?token={token}")
+
+    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=retry"
+
+
+# --- helpers -----------------------------------------------------------------------------
 
 
 def _install(monkeypatch, handler) -> None:
