@@ -13,8 +13,8 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<!-- **Literal, not `$(PRODUCT_NAME)`.** That variable resolves to this target's name,
 	     "RascalWidget", which is what the widget gallery would have shown a parent. It reads
-	     "Vellum" now, matching the app and the share extension — the gallery groups by the app's
-	     display name, so all three have to say the same thing. -->
+	     "Vellum" now, matching the app, its debug variant and the share extension — the gallery
+	     groups by the app's display name, so **all four** have to say the same thing. -->
 	<key>CFBundleDisplayName</key>
 	<string>Vellum</string>
 	<key>CFBundleExecutable</key>

@@ -159,6 +159,19 @@ nonisolated protocol GoogleAuthorizing: Sendable {
 }
 
 nonisolated struct LiveGoogleAuthorizer: GoogleAuthorizing {
+
+    /// Whether the browser session is ephemeral. **False, deliberately** — the reasons are at the
+    /// assignment below, and they have not changed.
+    ///
+    /// Named rather than left as a literal because it is a product decision with a real trade on
+    /// both sides, and it was raised again in the phase that added this constant. Setting it `true`
+    /// would suppress the system alert that reads *"Vellum" Wants to Use "accounts.google.com" to
+    /// Sign In* — **and that suppression is unverified.** It is a reasonable belief about current
+    /// iOS, not an observed fact, and nobody has checked it on a device. Flipping a documented
+    /// decision on an unverified belief is the wrong order, so this is one constant and one test
+    /// rather than a change: if the trade is ever taken, it is taken here, once, on purpose.
+    static let prefersEphemeralSession = false
+
     func authorize(url: URL, callbackScheme: String) async throws -> URL {
         // **The session is held for the length of the flow, deliberately.**
         // `ASWebAuthenticationSession` is not retained by the system once `start()` returns;
@@ -187,7 +200,15 @@ nonisolated struct LiveGoogleAuthorizer: GoogleAuthorizing {
             // accounts could never see the picker, and it would also drop the session cookie
             // that makes a second sign-in a single tap. Nothing about this archive is stored in
             // Google's cookie jar.
-            session.prefersEphemeralWebBrowserSession = false
+            //
+            // The counter-argument, recorded because it was raised and rejected rather than
+            // overlooked: `true` is believed to suppress the *"…Wants to Use
+            // "accounts.google.com" to Sign In"* alert, which arrives at the most fragile moment
+            // of onboarding. Against that, an ephemeral session cannot see an existing Google
+            // login, so the parent types a password — once per device, which is arguably the
+            // better trade. It stays false because the suppression is **unverified on a device**
+            // and the two reasons above are not.
+            session.prefersEphemeralWebBrowserSession = Self.prefersEphemeralSession
             session.presentationContextProvider = PresentationAnchor.shared
             holder.session = session
             if !session.start() {

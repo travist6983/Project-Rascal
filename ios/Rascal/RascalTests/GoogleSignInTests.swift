@@ -263,3 +263,45 @@ private final class LockedBox<T>: @unchecked Sendable {
         lock.withLock { stored = newValue }
     }
 }
+
+// MARK: - Phase 82: the name in every system dialog, and the browser session's one decision
+
+/// The alert a parent sees at sign-in reads *"Vellum" Wants to Use "accounts.google.com" to Sign In*,
+/// and the name in it is `CFBundleDisplayName` — there is no API to change what that alert calls the
+/// app. The same name appears in the microphone, photo library and notification prompts. So the name
+/// is not a sign-in concern at all; it is one string leaking into every system dialog.
+@MainActor
+@Suite("Phase 82 — the name in system dialogs")
+struct BundleDisplayNameTests {
+
+    @Test("the app's display name is the product name, not the codename or the target name")
+    func displayNameIsVellum() throws {
+        // Unit tests run in the app's host process, so `Bundle.main` here is the app bundle — which
+        // makes this the built artefact's own answer rather than a re-reading of the source plist.
+        // That distinction is the whole point: a doc claimed this was "verified out of the built
+        // bundles" on Aug 12, for a name that has changed twice since.
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+
+        #expect(name == "Vellum")
+        // The codename and the Xcode target name are the two things that have actually leaked here.
+        #expect(name != "Rascal", "the codename reached every system alert for as long as it was set")
+        #expect(name != "Dogear", "superseded Aug 17, 2026")
+    }
+}
+
+/// One decision, named so it can be asserted and so a future change happens once, on purpose.
+@Suite("Phase 82 — the browser session stays shared, deliberately")
+struct EphemeralSessionDecisionTests {
+
+    /// **This test exists to make a rejection explicit, not to lock a value forever.**
+    ///
+    /// Flipping it to `true` would suppress the sign-in alert — believed, not observed. Against
+    /// that: an ephemeral session drops the account picker for a parent with two Google accounts,
+    /// and drops the cookie that makes a second sign-in one tap. Those two are established. The
+    /// suppression is not. If somebody verifies it on a device and takes the trade, this test is
+    /// the thing that has to change with it, which is the point.
+    @Test("the Google flow uses a shared browser session, and that is a recorded decision")
+    func sessionIsNotEphemeral() {
+        #expect(LiveGoogleAuthorizer.prefersEphemeralSession == false)
+    }
+}

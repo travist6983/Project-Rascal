@@ -20,9 +20,13 @@
 	     without touching the target, the Swift module, the bundle id or the App Group, none of
 	     which a parent ever sees and all of which cost signing work to move.
 
-	     The widget and the share extension carry the same string in their own plists. All three
-	     have to agree: iOS groups the widget gallery by the app's display name, and a widget
-	     reading "Vellum" under a heading reading something else is worse than either alone. -->
+	     The widget and the share extension carry the same string in their own plists, and so does
+	     Info-Debug.plist. **All four have to agree** — this file, Info-Debug.plist,
+	     RascalWidget-Info.plist and RascalShare-Info.plist. Three of these comments said "all
+	     three" and undercounted the debug variant, which is the copy of this file most likely to
+	     drift precisely because it is maintained by hand. iOS groups the widget gallery by the
+	     app's display name, and a widget reading "Vellum" under a heading reading something else
+	     is worse than either alone. -->
 	<key>CFBundleDisplayName</key>
 	<string>Vellum</string>
 	<key>CFBundleExecutable</key>
