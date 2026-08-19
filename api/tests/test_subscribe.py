@@ -341,6 +341,25 @@ async def test_a_bad_link_redirects_rather_than_showing_a_browser_json(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_a_missing_token_redirects_instead_of_showing_fastapis_422(monkeypatch) -> None:
+    """**A required query parameter answers `422 application/json` before the handler runs** —
+    the raw-JSON page this route exists to avoid. Reachable: link scanners and some mail clients
+    truncate at the `?`, as does a half-copied paste. Found against the deployed endpoint."""
+    called: list[str] = []
+
+    async def _confirm(email, settings):
+        called.append(email)
+
+    monkeypatch.setattr(marketing, "confirm_contact", _confirm)
+
+    response = await _get(_settings(), "/v1/subscribe/confirm")
+
+    assert response.status_code == 303, "a missing token must not reach FastAPI's validator"
+    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=0"
+    assert called == []
+
+
+@pytest.mark.asyncio
 async def test_resend_being_down_is_told_apart_from_a_bad_link(monkeypatch) -> None:
     """The link is still good; ours is the thing that broke. A retry is worth offering."""
 

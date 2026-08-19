@@ -236,6 +236,20 @@ class Settings(DatabaseSettings):
     # this to true is the entire difference, and there is no code change behind it.
     marketing_email_enabled: bool = False
 
+    # **The hour the daily prompt goes out, in `broadcast_timezone`.** 8am, because the prompt
+    # asks a parent to notice something *today* and one that lands at 8pm has already missed it.
+    #
+    # **The machine runs hourly and this decides which run acts** — `jobs/notify.py` established
+    # that shape and says why: *"hourly is the floor Fly gives, not the resolution this wants."*
+    # A `--schedule daily` machine fires roughly when it was created, which would tie the send
+    # time to the minute somebody happened to run `fly machine run`.
+    #
+    # **A run outside the hour writes no ledger row**, which is the property that matters: a row
+    # claims the day, so an off-hour run that recorded `skipped` would silently cancel that day's
+    # send.
+    broadcast_send_hour: int = 8
+    broadcast_timezone: str = "America/Detroit"
+
     # Browser origins allowed to call the subscribe route. **A list from the first commit**,
     # because a scalar is a thing a second origin has to migrate off — and the marketing site
     # will have a custom domain beside its github.io one. Never `*`, and applied to that route

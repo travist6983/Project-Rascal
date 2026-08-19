@@ -346,8 +346,18 @@ undone from the database.**
 **Added to this runbook Aug 18, 2026, and it had zero mentions here before that.** The job is
 `python -m rascal.jobs.broadcast`, shipped in phase 69 on Aug 17.
 
-**Create it the same way as §4c with `--schedule daily` and `-- python -m rascal.jobs.broadcast`,
-but read this first, because arming it is a decision and not a step.**
+**Create it `--schedule hourly`, not daily** — corrected Aug 18, 2026 by phase 90, and the
+reason is the same one §4b gives for the notify machine. A `--schedule daily` machine fires
+roughly whenever it happened to be created, which would tie the send time to the minute somebody
+ran `fly machine run`. So the machine runs hourly and **the job decides which run acts**:
+`BROADCAST_SEND_HOUR` (8) in `BROADCAST_TIMEZONE` (`America/Detroit`).
+
+**A run outside that hour writes no ledger row**, and that is the property to preserve if this is
+ever changed. A row claims the day, so an off-hour run recording `skipped` would silently cancel
+that day's send rather than defer it.
+
+**Read the rest of this section before creating it, because arming it is a decision and not a
+step.**
 
 `MARKETING_EMAIL_ENABLED` defaults false and is **deliberately kept separate from the mail
 credentials** so that configuring `MAIL_API_KEY` to make `POST /v1/subscribe` work cannot start
