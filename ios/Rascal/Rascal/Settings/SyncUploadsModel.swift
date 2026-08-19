@@ -92,13 +92,17 @@ final class SyncUploadsModel {
     /// Both screens read this. One model, one set of fetches, so the Settings row and this screen
     /// cannot print two different totals.
     func refresh() {
-        counts = SyncCounts.read(context: context, store: store)
-        rows = Self.readRows(context: context, store: store)
+        // **One fetch, then two views of it.** The counts and the per-file list are the same set
+        // of rows read two ways, so reading the table twice was twice the work on the main actor
+        // — and, worse, two chances for the number and the list to disagree between fetches while
+        // a background upload delegate writes.
+        let media = SyncCounts.outstandingMedia(in: context)
+        counts = SyncCounts.read(outstandingMedia: media, context: context, store: store)
+        rows = Self.readRows(from: media, store: store)
     }
 
-    static func readRows(context: ModelContext, store: StagingStore) -> [SyncUploadRow] {
-        ((try? context.fetch(FetchDescriptor<Media>())) ?? [])
-            .filter { $0.deletedAt == nil && !$0.isComplete }
+    static func readRows(from media: [Media], store: StagingStore) -> [SyncUploadRow] {
+        media
             .sorted { $0.createdAt < $1.createdAt }
             .map { row in
                 SyncUploadRow(
@@ -140,8 +144,10 @@ final class SyncUploadsModel {
     /// could not move the rows its own copy named.
     @discardableResult
     static func prepareRetry(in context: ModelContext, store: StagingStore) -> Int {
-        let stalled = ((try? context.fetch(FetchDescriptor<Media>())) ?? []).filter { row in
-            row.deletedAt == nil && row.state == .failed && SyncCounts.hasStagedBytes(row, in: store)
+        // Through the same one predicate as everything else, so "outstanding" cannot mean two
+        // things depending on which function asked.
+        let stalled = SyncCounts.outstandingMedia(in: context).filter { row in
+            row.state == .failed && SyncCounts.hasStagedBytes(row, in: store)
         }
         guard !stalled.isEmpty else { return 0 }
         for row in stalled { row.resetForManualRetry() }

@@ -48,9 +48,28 @@ struct SyncCounts: Equatable, Sendable {
     /// presented the sum as one number.
     @MainActor
     static func read(context: ModelContext, store: StagingStore = StagingStore()) -> SyncCounts {
-        let media = ((try? context.fetch(FetchDescriptor<Media>())) ?? [])
-            .filter { $0.deletedAt == nil && !$0.isComplete }
+        read(outstandingMedia: outstandingMedia(in: context), context: context, store: store)
+    }
 
+    /// Every media row that is not complete and not deleted, in one fetch.
+    ///
+    /// Exposed so a caller that needs both the counts *and* the rows reads the table once. The
+    /// counts and the per-file list are two views of the same set, and fetching twice to build
+    /// them was two chances to disagree as well as twice the work — on the main actor, on every
+    /// foreground.
+    @MainActor
+    static func outstandingMedia(in context: ModelContext) -> [Media] {
+        ((try? context.fetch(FetchDescriptor<Media>())) ?? [])
+            .filter { $0.deletedAt == nil && !$0.isComplete }
+    }
+
+    /// The arithmetic, over a set somebody already has in hand.
+    @MainActor
+    static func read(
+        outstandingMedia media: [Media],
+        context: ModelContext,
+        store: StagingStore = StagingStore()
+    ) -> SyncCounts {
         var counts = SyncCounts(
             unsyncedEntries: (try? context.fetchCount(EntrySync.unsyncedDescriptor())) ?? 0,
             pendingDeletions: (try? context.fetchCount(EntrySync.pendingDeletionDescriptor())) ?? 0
