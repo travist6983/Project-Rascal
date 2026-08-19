@@ -126,7 +126,9 @@ async def _deliver_confirmation(settings: Settings, address: str) -> None:
     summary="Confirm a subscription from an emailed link",
     response_class=RedirectResponse,
 )
-async def confirm(settings: SettingsDep, token: str = Query(max_length=4096)) -> RedirectResponse:
+async def confirm(
+    settings: SettingsDep, token: str | None = Query(default=None, max_length=4096)
+) -> RedirectResponse:
     """Apply a confirmation and send the browser back to the site.
 
     **Always a redirect, never JSON, including on failure.** A person opening this has clicked a
@@ -136,8 +138,19 @@ async def confirm(settings: SettingsDep, token: str = Query(max_length=4096)) ->
 
     **Unauthenticated by necessity** — the token is the credential, and holding it is the proof
     that the address receives mail. That is the whole of what double opt-in asks.
+
+    **`token` is optional so that a missing one is a redirect too.** Required, FastAPI's own
+    validation answers `422 application/json` before this function runs — the exact raw-JSON
+    page the paragraph above exists to prevent, and reachable in practice: link scanners and
+    some mail clients truncate a URL at the `?`, and so does a half-copied paste. Found against
+    the deployed route by the marketing lane, which tested the endpoint rather than the
+    description of it. Absent and invalid get the same answer for the same reason the other four
+    cases were collapsed into one.
     """
     site = settings.marketing_site_url.rstrip("/")
+    if token is None:
+        return RedirectResponse(f"{site}/?confirmed=0", status_code=status.HTTP_303_SEE_OTHER)
+
     try:
         address = subscribe_token.read(token, settings)
         await marketing.confirm_contact(address, settings)

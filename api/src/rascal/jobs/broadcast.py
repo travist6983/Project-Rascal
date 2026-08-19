@@ -22,16 +22,36 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+import zoneinfo
 
 from rascal.config import get_settings
 from rascal.db import get_sessionmaker
 from rascal.logging_config import configure_logging
-from rascal.services import broadcast
+from rascal.services import broadcast, prompt_tokens
 from rascal.services.email_copy import load
 
 
-async def _run(as_of: dt.date | None) -> int:
+def _local_now(settings) -> dt.datetime:
+    """Now, where the reader is. **The send date is a local date, not a UTC one** — a prompt for
+    "today" has to mean the subscriber's today, and at 8am Detroit those differ for four hours
+    of every UTC day."""
+    return dt.datetime.now(zoneinfo.ZoneInfo(settings.broadcast_timezone))
+
+
+async def _run(as_of: dt.date | None, *, force: bool) -> int:
     settings = get_settings()
+
+    # **Checked before anything touches the database.** A row claims the day, so an off-hour run
+    # that wrote one would cancel that day's send rather than defer it.
+    if as_of is None and not force:
+        local = _local_now(settings)
+        if local.hour != settings.broadcast_send_hour:
+            print(
+                f"broadcast: not the send hour — it is {local:%H:%M %Z}, "
+                f"sending at {settings.broadcast_send_hour:02d}:00. Nothing written."
+            )
+            return 0
+        as_of = local.date()
     async with get_sessionmaker()() as session:
         try:
             result = await broadcast.run_broadcast(session, settings, as_of=as_of)
@@ -55,15 +75,32 @@ async def _run(as_of: dt.date | None) -> int:
     return 0
 
 
-def _show(as_of: dt.date | None) -> int:
-    """Render a day and print it. Touches neither the database nor the network."""
+async def _show(as_of: dt.date | None) -> int:
+    """Render a day and print it. **Never sends, and never writes a ledger row.**
+
+    It reads the database now, which it did not before phase 90 — the prompt comes from the
+    seeded library rather than from a pool in the copy file, so there is nowhere else to get it.
+    The property that actually matters is unchanged and is the reason this flag exists: **no
+    network call and no row**, so it is safe to run against production at any time.
+    """
     day = as_of or dt.datetime.now(dt.UTC).date()
+    settings = get_settings()
     copy = load()
-    index, prompt = copy.prompt_for(day.timetuple().tm_yday)
-    _, plain = broadcast.render(prompt, copy.footer, get_settings().marketing_site_url)
+    async with get_sessionmaker()() as session:
+        picked = await broadcast.pick_prompt(session, day.timetuple().tm_yday)
+        total = await broadcast.daily_prompt_count(session)
+    if picked is None:
+        print("broadcast: the library has no daily prompt to send")
+        return 1
+    index, chosen = picked
+    body = prompt_tokens.render(chosen.body, name=broadcast.NAME_STANDIN, pronouns=None)
+    _, plain = broadcast.render(
+        body, copy.footer, settings.marketing_site_url, chosen.kind, chosen.completion_mode
+    )
     print(f"date    : {day}")
-    print(f"prompt  : {index} of {len(copy.pool)}")
-    print(f"subject : {prompt}")
+    print(f"prompt  : {index + 1} of {total}")
+    print(f"kind    : {chosen.kind} / {chosen.completion_mode}")
+    print(f"subject : {body}")
     print(f"---\n{plain}")
     return 0
 
@@ -81,12 +118,18 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print the rendered email for the date and exit. No database, no network.",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Send now regardless of the hour. For a deliberate hand-run; the ledger still "
+        "allows only one send per day.",
+    )
     args = parser.parse_args(argv)
 
     configure_logging()
     if args.show:
-        return _show(args.date)
-    return asyncio.run(_run(args.date))
+        return asyncio.run(_show(args.date))
+    return asyncio.run(_run(args.date, force=args.force))
 
 
 if __name__ == "__main__":

@@ -18,13 +18,27 @@ import datetime as dt
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
+from tests.factories import make_prompt
 
 from rascal.config import Settings, get_settings
 from rascal.models import EmailBroadcast
-from rascal.services import broadcast
+from rascal.models.prompt import Prompt
+from rascal.services import broadcast, prompt_tokens
 from rascal.services.email_copy import EmailCopy, EmailCopyError, WelcomeEmail, load
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+async def library(session):
+    """**`run_broadcast` reads the seeded library as of phase 90**, so a truncated database has
+    nothing to send and every send test would fail on an empty library rather than on its own
+    subject. Two kinds, so a test can tell the card is following the prompt."""
+    a = await make_prompt(session, kind="question", completion_mode="text", body="A question?")
+    b = await make_prompt(session, kind="photo", completion_mode="media", body="Take a photo.")
+    await session.commit()
+    return [a, b]
+
 
 #: The footer's site link. A literal here rather than the setting, so a test that asserts the
 #: rendered link would fail if the default ever moved silently.
@@ -96,7 +110,9 @@ def test_the_real_pool_is_the_thirty_the_owner_wrote() -> None:
 
 
 def test_both_bodies_are_rendered_because_text_is_a_deliverability_signal() -> None:
-    html, plain = broadcast.render("What did they say today?", _copy().footer, SITE)
+    html, plain = broadcast.render(
+        "What did they say today?", _copy().footer, SITE, "question", "text"
+    )
     assert "What did they say today?" in html
     assert "What did they say today?" in plain
     assert html.strip().startswith("<!doctype html>")
@@ -104,28 +120,30 @@ def test_both_bodies_are_rendered_because_text_is_a_deliverability_signal() -> N
 
 def test_the_unsubscribe_is_resends_token_and_appears_in_both_bodies() -> None:
     """**Resend owns the unsubscribe for a broadcast**, so ours must not also be in there."""
-    html, plain = broadcast.render("a prompt?", _copy().footer, SITE)
+    html, plain = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")
     assert broadcast.UNSUBSCRIBE_TOKEN in html
     assert broadcast.UNSUBSCRIBE_TOKEN in plain
 
 
 def test_nothing_in_the_email_can_watch_the_reader() -> None:
     """No image, so no tracking pixel — on a product sold on privacy that is not a detail."""
-    html, _ = broadcast.render("a prompt?", _copy().footer, SITE)
+    html, _ = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")
     assert "<img" not in html.lower()
     assert "http://" not in html
 
 
 def test_the_email_is_well_under_gmails_clipping_threshold() -> None:
     """Gmail clips above ~102KB, and what it clips is the bottom, where the unsubscribe is."""
-    html, _ = broadcast.render("a prompt?" * 20, _copy().footer, SITE)
+    html, _ = broadcast.render("a prompt?" * 20, _copy().footer, SITE, "question", "text")
     assert len(html.encode()) < 100_000
 
 
 # --------------------------------------------------------------------- dry run
 
 
-async def test_a_dry_run_writes_a_skipped_row_and_calls_nothing(session: AsyncSession) -> None:
+async def test_a_dry_run_writes_a_skipped_row_and_calls_nothing(
+    library, session: AsyncSession
+) -> None:
     result = await broadcast.run_broadcast(
         session, get_settings(), as_of=dt.date(2026, 8, 10), copy=_copy()
     )
@@ -140,7 +158,7 @@ async def test_a_dry_run_writes_a_skipped_row_and_calls_nothing(session: AsyncSe
     assert row.sent_at is None
 
 
-async def test_the_dry_run_says_which_thing_is_missing(session: AsyncSession) -> None:
+async def test_the_dry_run_says_which_thing_is_missing(library, session: AsyncSession) -> None:
     """'Dry run' alone is not actionable; the owner needs to know which switch is off."""
     result = await broadcast.run_broadcast(
         session, get_settings(), as_of=dt.date(2026, 8, 10), copy=_copy()
@@ -182,7 +200,7 @@ def test_a_verified_domain_is_required_even_with_the_flag_on() -> None:
 # ------------------------------------------------------------------ idempotency
 
 
-async def test_a_second_run_for_the_same_day_refuses(session: AsyncSession) -> None:
+async def test_a_second_run_for_the_same_day_refuses(library, session: AsyncSession) -> None:
     """The property that stops a list being mailed twice."""
     day = dt.date(2026, 8, 10)
     await broadcast.run_broadcast(session, get_settings(), as_of=day, copy=_copy())
@@ -192,7 +210,7 @@ async def test_a_second_run_for_the_same_day_refuses(session: AsyncSession) -> N
 
 
 async def test_a_dry_run_consumes_the_day(
-    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    library, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """**Deliberate, and worth stating.**
 
@@ -231,7 +249,7 @@ async def test_the_unique_index_rejects_a_duplicate_day(session: AsyncSession) -
         await session.flush()
 
 
-async def test_different_days_are_fine(session: AsyncSession) -> None:
+async def test_different_days_are_fine(library, session: AsyncSession) -> None:
     for day in (dt.date(2026, 8, 10), dt.date(2026, 8, 11)):
         await broadcast.run_broadcast(session, get_settings(), as_of=day, copy=_copy())
 
@@ -243,7 +261,7 @@ async def test_different_days_are_fine(session: AsyncSession) -> None:
 
 
 async def test_when_live_it_sends_once_and_records_what_resend_said(
-    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    library, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The success path, with the network stubbed rather than reached."""
     calls: list[str] = []
@@ -270,7 +288,7 @@ async def test_when_live_it_sends_once_and_records_what_resend_said(
 
 
 async def test_a_failed_send_records_why_and_does_not_free_the_day(
-    session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+    library, session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """**A failure must not retry into a double send.**
 
@@ -313,7 +331,7 @@ async def test_the_ledger_holds_no_recipient(session: AsyncSession) -> None:
         assert forbidden not in columns
 
 
-async def test_the_row_records_the_index_not_only_the_text(session: AsyncSession) -> None:
+async def test_the_row_records_the_index_not_only_the_text(library, session: AsyncSession) -> None:
     """The owner can edit the pool; a row that stored only text could not be placed afterwards."""
     result = await broadcast.run_broadcast(
         session, get_settings(), as_of=dt.date(2026, 8, 10), copy=_copy()
@@ -378,3 +396,101 @@ def test_an_empty_footer_is_fatal(tmp_path) -> None:
     with pytest.raises(EmailCopyError, match="footer"):
         load(path)
     load.cache_clear()
+
+
+# --- The prompt card, phase 90 ---------------------------------------------------------------
+
+
+def test_the_prompt_is_drawn_as_the_card_it_is_everywhere_else() -> None:
+    """Kind chip, body, completion line — the three pieces the site and the app both show.
+
+    **The card is the one piece of Vellum's design a subscriber meets before installing
+    anything**, so a bare serif paragraph read as a newsletter rather than as the product.
+    """
+    html, _ = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")
+
+    assert "Question" in html
+    assert "Wrote it" in html
+    assert broadcast.PERIWINKLE_SOFT in html, "the card is missing its tint"
+    assert broadcast.PERIWINKLE_BORDER in html, "a tinted card gets the hairline for that fill"
+    assert broadcast.PERIWINKLE_DEEP in html
+
+
+def test_the_plain_part_carries_the_same_three_pieces() -> None:
+    """It is a deliverability signal before it is a courtesy, so it must not become a stub."""
+    _, text = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")
+
+    assert text.index("QUESTION") < text.index("a prompt?") < text.index("Wrote it")
+
+
+def test_the_card_never_claims_a_prompt_number() -> None:
+    """**None of the thirty pool prompts is in `seeds/prompts.yaml`** — zero of thirty match a
+    body — so the site's per-kind `#31` has no meaning here. A number would be invented."""
+    html, text = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")
+
+    assert "#" not in text
+    assert "#" not in html.replace("border-radius", "").split("<body")[1].replace(
+        broadcast.CANVAS, ""
+    ).replace(broadcast.INK, "").replace(broadcast.INK_MUTED, "").replace(
+        broadcast.PERIWINKLE_SOFT, ""
+    ).replace(broadcast.PERIWINKLE_BORDER, "").replace(broadcast.PERIWINKLE_DEEP, "").replace(
+        broadcast.CHIP_BG, ""
+    ).replace(broadcast.RULE, ""), (
+        "the only # left in the body should be a colour, and every colour was stripped"
+    )
+
+
+async def test_the_card_follows_the_prompt_rather_than_a_constant(library, session) -> None:
+    """**The assertion the first draft of this phase would have failed.**
+
+    While the send drew from the thirty-question pool, `Question`/`Wrote it` were hardcoded and
+    correct. Sending the real library means five kinds a day, and a photo mission labelled
+    *Question* would be a lie drawn in the product's own type.
+    """
+    html, text = broadcast.render("Take a photo.", _copy().footer, SITE, "photo", "media")
+
+    assert "Photo" in html and "Captured it" in html
+    assert broadcast.TERRACOTTA_SOFT in html, "a photo mission is terracotta, not periwinkle"
+    assert broadcast.PERIWINKLE_SOFT not in html
+    assert text.index("PHOTO") < text.index("Take a photo.") < text.index("Captured it")
+
+
+async def test_every_kind_in_the_library_can_be_drawn(session) -> None:
+    """A kind with no entry in `KIND_STYLE` would silently render as a question."""
+    kinds = set(
+        (
+            await session.scalars(sa.select(Prompt.kind).where(Prompt.active.is_(True)).distinct())
+        ).all()
+    )
+    if not kinds:
+        pytest.skip("no seeded library in this database")
+
+    assert kinds <= set(broadcast.KIND_STYLE), (
+        f"unstyled prompt kinds would render as questions: {kinds - set(broadcast.KIND_STYLE)}"
+    )
+
+
+async def test_the_send_draws_from_the_library_and_respects_cadence(session) -> None:
+    """**Cadence is respected even though age is not**, and the asymmetry is deliberate: cadence
+    is a property of the prompt, age is a property of a reader this list does not have."""
+    daily = await make_prompt(session, cadence="daily", body="Daily one?")
+    await make_prompt(session, cadence="monthly", body="Monthly one?")
+    await session.commit()
+
+    picked = {(await broadcast.pick_prompt(session, day))[1].body for day in range(1, 8)}
+
+    assert picked == {daily.body}, "a monthly prompt must never go out in a daily send"
+
+
+async def test_tokens_are_rendered_before_the_body_is_ever_sent(session) -> None:
+    """**119 of the 133 bodies carry tokens.** An unrendered `{them}` in a marketing email is
+    the failure the marketing site's own generator calls Critical, on the page whose whole job
+    is proving the prompts are well written."""
+    await make_prompt(session, cadence="daily", body="Photograph {their} hands, {name}.")
+    await session.commit()
+
+    _, chosen = await broadcast.pick_prompt(session, 1)
+    rendered = prompt_tokens.render(chosen.body, name=broadcast.NAME_STANDIN, pronouns=None)
+
+    assert "{" not in rendered
+    assert "their hands" in rendered
