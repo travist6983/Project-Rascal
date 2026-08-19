@@ -32,6 +32,37 @@ The trade is real and worth naming: reviewing on a phone means reviewing in the 
 which is worse than a purpose-built screen would be. It is not worse enough to justify
 building the screen.
 
+## The four Aug 4 batches were tokenised on Aug 18, before anybody read them
+
+**Read this before reviewing them.** They were generated on Aug 4 and the library was tokenised on
+Aug 13, so all four batches were written in literal `he/him/his` — which meant that approving a row
+approved copy that could not be seeded. 79 of the 80 rows carried a gendered word. Rewriting them
+first was cheaper than approving them twice.
+
+Every Prompt cell now uses the thirteen tokens, and all 80 render clean in he/him, she/her, they/them
+and null — 320 renderings, no surviving brace, no invented token, no subject-verb disagreement, no
+literal gendered word left. `{name}` appears at most once per body, per the library's own rule.
+
+**Three things were deliberately NOT fixed, because they are copy edits rather than tokenisation, and
+they are yours to judge.** They predate the rewrite and all three are in `sleep-routine`:
+
+- *"What did he ask for a glass of water, a hug, or a check for monsters tonight?"* — ungrammatical
+  as generated, in every pronoun column. It is missing a dash after "for". Two independent reviewers
+  called it the worst row in the batch.
+- *"...has to be in the bed tonight"* — should be "in bed" or "in the bed with them". This is the one
+  row of the 80 that contains no token at all, so it never refers to the child.
+- *"...doing lately — reading, a screen, talking to {themself}"* — the list is not parallel; the
+  flanking items are gerunds and the middle one is a noun.
+
+**The `Why` column still says "he" in eight cells.** That is intentional: the rewrite was scoped to
+the Prompt column, `Why` is reviewer scaffolding, and step 5 deletes the file. But if you paste a
+`Why` into a commit message, tokenise it as you go.
+
+**One known cost, decided and not a defect.** `{they_are}` and `{they_have}` have no contracted
+forms, so they render *"she is scared"* and *"he has a phone"* where a person would say *"she's"* and
+*"he's"*. It is slightly stilted across sixteen rows. Adding `{they_re}` and `{they_ve}` would widen
+a wire contract three clients implement, which the library rejects explicitly — so this stays.
+
 ## Reviewing one
 
 1. Delete the rows you do not want. Leave the ones you do.
