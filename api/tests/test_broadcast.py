@@ -26,6 +26,10 @@ from rascal.services.email_copy import EmailCopy, EmailCopyError, WelcomeEmail, 
 
 pytestmark = pytest.mark.asyncio
 
+#: The footer's site link. A literal here rather than the setting, so a test that asserts the
+#: rendered link would fail if the default ever moved silently.
+SITE = "https://getvellumapp.com"
+
 
 def _copy(
     pool: tuple[str, ...] = ("first prompt?", "second prompt?", "third prompt?"),
@@ -92,7 +96,7 @@ def test_the_real_pool_is_the_thirty_the_owner_wrote() -> None:
 
 
 def test_both_bodies_are_rendered_because_text_is_a_deliverability_signal() -> None:
-    html, plain = broadcast.render("What did they say today?", _copy().footer)
+    html, plain = broadcast.render("What did they say today?", _copy().footer, SITE)
     assert "What did they say today?" in html
     assert "What did they say today?" in plain
     assert html.strip().startswith("<!doctype html>")
@@ -100,21 +104,21 @@ def test_both_bodies_are_rendered_because_text_is_a_deliverability_signal() -> N
 
 def test_the_unsubscribe_is_resends_token_and_appears_in_both_bodies() -> None:
     """**Resend owns the unsubscribe for a broadcast**, so ours must not also be in there."""
-    html, plain = broadcast.render("a prompt?", _copy().footer)
+    html, plain = broadcast.render("a prompt?", _copy().footer, SITE)
     assert broadcast.UNSUBSCRIBE_TOKEN in html
     assert broadcast.UNSUBSCRIBE_TOKEN in plain
 
 
 def test_nothing_in_the_email_can_watch_the_reader() -> None:
     """No image, so no tracking pixel — on a product sold on privacy that is not a detail."""
-    html, _ = broadcast.render("a prompt?", _copy().footer)
+    html, _ = broadcast.render("a prompt?", _copy().footer, SITE)
     assert "<img" not in html.lower()
     assert "http://" not in html
 
 
 def test_the_email_is_well_under_gmails_clipping_threshold() -> None:
     """Gmail clips above ~102KB, and what it clips is the bottom, where the unsubscribe is."""
-    html, _ = broadcast.render("a prompt?" * 20, _copy().footer)
+    html, _ = broadcast.render("a prompt?" * 20, _copy().footer, SITE)
     assert len(html.encode()) < 100_000
 
 

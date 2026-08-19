@@ -202,6 +202,28 @@ class Settings(DatabaseSettings):
     # lives. Unset means the route refuses rather than accepting an address it cannot store.
     resend_audience_id: str | None = None
 
+    # --- Double opt-in (phase 87) ---------------------------------------------------------
+    #
+    # **Where the marketing site lives.** One setting, two consumers: the confirmation link
+    # sends a browser back here after the click, and the daily broadcast's footer links here.
+    #
+    # It replaces a hardcoded `SITE_URL = "https://travist6983.github.io"` that sat in
+    # `services/broadcast.py` and went stale the day the custom domain landed — every prompt
+    # email's footer would have pointed at a URL that now only redirects. A constant that names
+    # somebody else's deployment target is a constant that rots silently.
+    marketing_site_url: str = "https://getvellumapp.com"
+
+    # Where the confirmation link points. Its own setting rather than derived from anything,
+    # for the reason `email_sign_in_link_base` is: the host that mail links to and the host the
+    # API answers on are the same today and are not the same thing.
+    subscribe_confirm_link_base: str = "https://rascal-api.fly.dev/v1/subscribe/confirm"
+
+    # **Short on purpose, and not for secrecy.** The token is signed, so age does not weaken it.
+    # It is short because a confirmation link stays good for its whole life — see
+    # `services/subscribe_token.py` — and the expiry is the only thing bounding a stale link
+    # that is reopened after an unsubscribe.
+    subscribe_confirm_ttl_days: int = 7
+
     # **The switch that lets the daily broadcast actually send, and it defaults to off.**
     #
     # Open item 12 says it in every line that touches this work: *no marketing email sends

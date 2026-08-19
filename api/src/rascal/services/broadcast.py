@@ -41,7 +41,10 @@ BROADCASTS_ENDPOINT = "https://api.resend.com/broadcasts"
 UNSUBSCRIBE_TOKEN = "{{{RESEND_UNSUBSCRIBE_URL}}}"
 
 #: Where `[site]` in the footer points.
-SITE_URL = "https://travist6983.github.io"
+#: **Was a hardcoded `https://travist6983.github.io` until phase 87.** It went stale the day the
+#: custom domain landed, and nothing failed: every prompt email's footer would simply have linked
+#: to a URL that now only redirects. It reads from `settings.marketing_site_url` now, so the site
+#: has one address in this service rather than two that can disagree.
 
 #: Palette from `docs/design-system.md`. Inlined rather than imported because an email is not
 #: the app, and a stylesheet cannot be shared with a medium that has no stylesheets.
@@ -71,7 +74,7 @@ class AlreadySent(Exception):
     """This day already has a row. Not an error — the unique index doing its job."""
 
 
-def render(prompt: str, footer: str) -> tuple[str, str]:
+def render(prompt: str, footer: str, site_url: str) -> tuple[str, str]:
     """The prompt as HTML and as plain text.
 
     **Both parts, always.** A `text/plain` alternative is a deliverability signal rather than a
@@ -84,7 +87,7 @@ def render(prompt: str, footer: str) -> tuple[str, str]:
     bottom — and the bottom is the unsubscribe.
     """
     footer_html = (
-        footer.replace("[site]", f'<a href="{SITE_URL}" style="color:{INK_MUTED}">Vellum</a>')
+        footer.replace("[site]", f'<a href="{site_url}" style="color:{INK_MUTED}">Vellum</a>')
         .replace(
             "[unsubscribe]",
             f'<a href="{UNSUBSCRIBE_TOKEN}" style="color:{INK_MUTED}">unsubscribe</a>',
@@ -122,7 +125,7 @@ def render(prompt: str, footer: str) -> tuple[str, str]:
 </body>
 </html>"""
 
-    text_footer = footer.replace("[site]", SITE_URL).replace("[unsubscribe]", UNSUBSCRIBE_TOKEN)
+    text_footer = footer.replace("[site]", site_url).replace("[unsubscribe]", UNSUBSCRIBE_TOKEN)
     text = f"{prompt}\n\n---\n\n{text_footer}\n"
     return html, text
 
@@ -191,7 +194,7 @@ async def run_broadcast(
         await session.rollback()
         raise AlreadySent(f"{day} was claimed concurrently") from exc
 
-    html, plain = render(prompt, text.footer)
+    html, plain = render(prompt, text.footer, settings.marketing_site_url)
 
     if not live:
         reason = why_not_live(settings)
