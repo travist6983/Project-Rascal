@@ -169,13 +169,34 @@ class TestTheScopedDivergenceForTheAlertBody:
         assert "{" not in NEUTRAL_ALERT_BODY
 
     def test_it_logs_a_warning_naming_the_prompt(self, caplog: pytest.LogCaptureFixture) -> None:
-        """The prompt id is the whole point of the log line: it makes the body findable."""
+        """Naming the body is the whole point of the log line: it makes the fallback traceable."""
         with caplog.at_level(logging.WARNING, logger="rascal.prompt_tokens"):
-            render_alert_body("{foo}", name="Ada", pronouns=None, prompt_id="abc-123")
+            render_alert_body(
+                "{foo}", name="Ada", pronouns=None, prompt_id="abc-123", assignment_id="asg-1"
+            )
         assert len(caplog.records) == 1
         record = caplog.records[0]
         assert record.levelno == logging.WARNING
         assert record.prompt_id == "abc-123"
+        assert record.assignment_id == "asg-1"
+
+    def test_a_parent_authored_body_is_still_traceable(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """**The gap this phase closes.** `assignments.prompt_id` is nullable — a parent-authored
+        `custom_body` has no prompt, and it is the body most likely to contain a hand-typed brace.
+        Logging only the prompt id meant the single most likely case named nothing at all."""
+        with caplog.at_level(logging.WARNING, logger="rascal.prompt_tokens"):
+            render_alert_body(
+                "Ask {them} about {thier} day",
+                name="Ada",
+                pronouns="he/him",
+                prompt_id=None,
+                assignment_id="asg-42",
+            )
+        record = caplog.records[0]
+        assert record.prompt_id is None, "there genuinely is no prompt for a custom body"
+        assert record.assignment_id == "asg-42", "so this is what makes it findable"
 
     def test_a_clean_body_logs_nothing(self, caplog: pytest.LogCaptureFixture) -> None:
         with caplog.at_level(logging.WARNING, logger="rascal.prompt_tokens"):

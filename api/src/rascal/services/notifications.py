@@ -265,7 +265,11 @@ async def run_notifications(
                 assignment.resolved_body,
                 name=child.name,
                 pronouns=child.pronouns,
+                # Both, because `prompt_id` is nullable — a parent-authored `custom_body` has no
+                # prompt, and it is the body most likely to carry a hand-typed brace. The
+                # assignment id is always present, so the fallback is always traceable.
                 prompt_id=assignment.prompt_id,
+                assignment_id=assignment.id,
             ),
             title=_first_name(child.name),
             assignment_id=assignment.id,
