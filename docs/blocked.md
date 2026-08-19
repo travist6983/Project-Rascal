@@ -1710,12 +1710,50 @@ Cloudflare, Resend, or a registrar.
 ### Every value this errand produces, and exactly where it goes (Aug 18, 2026)
 
 Written because the steps above say *what to create* and stop short of *where the result lands*,
-and the second half is where an errand stalls at a keyboard. **Nothing in the marketing or email
-path works until these exist: none of `MAIL_API_KEY`, `RESEND_AUDIENCE_ID`, `TURNSTILE_SECRET_KEY`
-or `MARKETING_EMAIL_ENABLED` is set on `rascal-api` as of Aug 18, 2026** — checked, not assumed.
+and the second half is where an errand stalls at a keyboard.
 
-**Turnstile is the one step with no prerequisite.** It needs no domain and no DNS, so it can be
-done in isolation and it is what makes the signup form stop saying *"signups are not open yet."*
+> ### ~~None of these is set~~ — **the errand ran on the evening of Aug 18, 2026. Six of seven values are deployed.**
+>
+> `fly secrets list --app rascal-api`, run Aug 19, 2026, shows all six marketing values **Deployed**:
+> `MAIL_PROVIDER`, `MAIL_API_KEY`, `MAIL_FROM`, `TURNSTILE_SECRET_KEY`, `RESEND_AUDIENCE_ID` and
+> `MARKETING_ORIGINS`. `MARKETING_EMAIL_ENABLED` is **absent, deliberately** — see below. Verified
+> against the platform, not inferred from a commit.
+>
+> The domain is `getvellumapp.com`: registered, on GitHub Pages, HTTPS enforced, apex not project
+> path. `mail.getvellumapp.com` is verified at Resend — a subdomain, never the apex, as step 5
+> required. **The first real email this service has ever sent reached the owner's inbox**, not spam.
+>
+> So the paragraph this note replaces was true when written and became false within about two
+> hours. The steps below are kept rather than struck, because the *order* is still the record of how
+> it is done — and a future domain move repeats it.
+>
+> **`MARKETING_ORIGINS` was missing from the table entirely**, and it became load-bearing the moment
+> the site moved to the apex: its default was the `github.io` origin, and the browser now sends
+> `https://getvellumapp.com`. It holds both. A value-and-destination table that omits the one value
+> CORS depends on is the table's own failure mode, not an oversight in the errand.
+>
+> **The site key is public by design and its being committed is correct, not a leak.** Cloudflare
+> issues two: the *site* key belongs in markup where the browser can read it, and the *secret* key
+> is the one `rascal-api` holds. `Rascal-Marketing`'s `site.js` already carries that explanation in
+> a comment above the constant — read it there rather than re-deriving it, so the file and this page
+> cannot drift into disagreeing about whether a committed key is a problem. Written here because a
+> key visible in a public repo is exactly the shape that gets a security issue filed against a
+> correct configuration.
+>
+> **The one thing that actually went wrong, and it was this file's fault.** Two of those secrets were
+> set to placeholder text: `TURNSTILE_SECRET_KEY` held a literal ellipsis, and `RESEND_AUDIENCE_ID`
+> held `…`, which surfaced as `/audiences/%E2%80%A6/contacts → 422` in a Fly log. The commands in the
+> table below are written to be copy-pasteable **and** contain fill-in-the-blanks that are also valid
+> shell, so pasting one verbatim succeeds and deploys the blank. Both are corrected.
+>
+> **The rule that follows, and it generalises past this page:** a runbook command meant to be pasted
+> must not contain a placeholder that the shell will accept. Use an obviously-invalid marker that
+> fails loudly — `PASTE_KEY_HERE` — or a `$VARIABLE` the shell refuses when unset. A quiet 422 in a
+> log is the expensive version of a syntax error.
+
+**Turnstile was the one step with no prerequisite.** It needed no domain and no DNS, which is why it
+could be done in isolation — and it is what made the signup form stop saying *"signups are not open
+yet."* Done: site key `0x4AAAAAAEUwlZkn4ah9zsvA` committed and deployed.
 
 | # | What you create | Where the value goes |
 |---|---|---|
@@ -1740,11 +1778,46 @@ neither has ever run against the deployed API. Then run
 address**, because the Resend Broadcasts API has never been called by this service and its
 two-step create-then-send shape is implemented from documentation rather than observation.
 
-**One item on this page is still open and is not in the table:** the Resend key currently in the
-local `.env` went through a chat transcript and **has not been rotated** — confirmed by the owner
-Aug 18, 2026. It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but a key that has
-been through a transcript is not a key. Rotate it before step 3 rather than after, so the key that
-reaches Fly is the one that was never exposed.
+**Of those two, the first is done.** `POST /v1/subscribe` has now been exercised from the real origin
+— that signup is what revealed that Resend's contacts API does **not** do double opt-in, which phase
+88 then fixed. So CORS and a genuine Turnstile verification have both run against the deployed API
+for the first time.
+
+**The second has not, and the machine for it does not exist.** `fly machine list --app rascal-api`,
+Aug 19, 2026, returns four: two `app` running uvicorn, one running `python -m rascal.jobs.scheduler`,
+one running `python -m rascal.jobs.notify`. **There is no broadcast machine**, so §4d of
+`runbook-deploy.md` is still accurate that it was never created. The broadcast dry run against an
+audience containing only the owner's own address is therefore still ahead, and it remains the right
+first call: the Resend Broadcasts API has never been invoked by this service, and its two-step
+create-then-send shape is implemented from documentation rather than from observation.
+
+**One item on this page is still open, is not in the table, and got worse rather than better:** the
+Resend key that went through a chat transcript and **has not been rotated** — confirmed by the owner
+Aug 18, 2026.
+
+The original entry excused it: *"It is inert (`MAIL_PROVIDER` is `console` and nothing reads it), but
+a key that has been through a transcript is not a key. Rotate it before step 3 rather than after, so
+the key that reaches Fly is the one that was never exposed."*
+
+**That mitigation has expired.** `MAIL_PROVIDER` and `MAIL_API_KEY` are both `Deployed` on
+`rascal-api` as of Aug 19, and the service has sent a real email through Resend — so the provider is
+no longer `console`, something does read the key, and step 3 has already happened. The advice was
+"rotate before step 3"; step 3 ran first.
+
+**So the open question is one the owner can answer in a word, and nobody else can:** is the key now
+deployed on Fly the exposed one, or a fresh one minted during the errand? A digest is all
+`fly secrets list` shows, so this cannot be checked from outside — the value is write-only by design,
+which is correct and also why this has to be asked rather than verified.
+
+- If it is the exposed key: mint a new one at Resend, `fly secrets set --app rascal-api
+  MAIL_API_KEY='<new>'`, then revoke the old one at Resend so the transcript copy stops working.
+- If it is already fresh: strike this item, and note that the exposed key still wants revoking at
+  Resend even though nothing uses it.
+
+**The general shape is worth keeping even after this is closed.** A risk note that carries its own
+mitigation — *"it is inert, so this is not urgent yet"* — has a shelf life measured by whether the
+mitigation still holds, and nothing re-reads it on the day it stops holding. This one was written
+about a `console` provider roughly two hours before the provider became `resend`.
 
 ---
 
