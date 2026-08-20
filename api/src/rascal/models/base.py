@@ -104,4 +104,8 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     # it carries `updated_at` because an override is edited in place when the console
     # changes its mind, and the trigger is how every other table in this list gets one.
     "prompt_library_overrides",
+    # Phase 97. Marketing output, following `email_broadcasts` rather than the user-data
+    # tables: `updated_at` because a draft is edited in place, no `deleted_at` because
+    # discarding one is a status rather than a disappearance.
+    "social_assets",
 )

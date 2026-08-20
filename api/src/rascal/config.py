@@ -303,6 +303,44 @@ class Settings(DatabaseSettings):
     billing_cache_seconds: int = 300
     billing_timeout_seconds: float = 12.0
 
+    # --- The social studio (phase 97) ------------------------------------------------------
+    #
+    # **`anthropic_api_key` is an ordinary `sk-ant-api…` key and is NOT `anthropic_admin_key`
+    # above.** They are different kinds of key from the same console and neither works in the
+    # other's place: the admin key reads organisation billing and cannot call `/v1/messages`;
+    # this one calls `/v1/messages` and cannot read billing. Two settings rather than one
+    # because collapsing them would mean a 401 whose message named the wrong thing.
+    #
+    # `scripts/generate_prompts.py` has read this same variable since phase 46, so a checkout
+    # that can already generate prompt candidates can already run the studio.
+    anthropic_api_key: str | None = None
+
+    #: Overridable because the right model for this changes faster than this file does. The
+    #: default is Opus rather than the Sonnet the candidate generator picks: that script writes
+    #: hundreds of rows a human filters, this one writes a handful that go out under the
+    #: product's name.
+    anthropic_model: str = "claude-opus-5"
+
+    # --- Pixel renderers -------------------------------------------------------------------
+    #
+    # **Anthropic has no image or video endpoint on any model**, so photographs and footage
+    # need a second vendor and there is no configuration that makes the key above produce one.
+    # All optional; unset means the Studio shows a card naming the variable rather than a
+    # button that fails. The brand-card renderer needs none of these — it draws in the browser.
+    openai_api_key: str | None = None
+    replicate_api_token: str | None = None
+    #: Version strings rather than model names: Replicate pins by version, and a name would
+    #: silently start rendering something else the day the model was updated.
+    replicate_image_model: str | None = None
+    replicate_video_model: str | None = None
+
+    #: How many mission-library bodies may appear in social posts before the studio refuses.
+    #: **This is a leak budget, not a rate limit.** D7 keeps the library out of anything
+    #: public "whole or in generated slices" and calls it the one asset a competitor would
+    #: want; the risk from posting prompts is cumulative and invisible, so it is counted and
+    #: capped rather than trusted. Raise it deliberately, having looked at the number.
+    social_featured_prompt_cap: int = 24
+
     # --- APNs ----------------------------------------------------------------------------
     #
     # All optional, and unset is the state this repository has always been in: the key comes

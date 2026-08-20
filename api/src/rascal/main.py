@@ -25,6 +25,7 @@ from rascal.routers import (
     media,
     moments,
     prompts,
+    social,
     subscribe,
     sync,
     today,
@@ -97,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(sync.router, prefix=API_PREFIX)
     app.include_router(prompts.router, prefix=API_PREFIX)
     app.include_router(admin.router, prefix=API_PREFIX)
+    app.include_router(social.router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
     app.include_router(subscribe.router, prefix=API_PREFIX)
     # The admin console's own HTML, at /admin. Not under /v1 and not JSON: it is a page

@@ -36,6 +36,8 @@ EXPECTED_TABLES = {
     "prompt_suppressions",
     # phase 96. Admin decisions about the seeded library that survive a re-seed.
     "prompt_library_overrides",
+    # Phase 97. The social studio's output.
+    "social_assets",
 }
 
 EXPECTED_INDEXES = {
@@ -98,6 +100,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "devices",
     "prompt_suppressions",
     "prompt_library_overrides",
+    "social_assets",
 }
 
 
