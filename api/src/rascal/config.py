@@ -256,6 +256,53 @@ class Settings(DatabaseSettings):
     # alone rather than globally: this is the first browser client this API has ever had.
     marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
 
+    # --- The admin console's cost panel (phase 96) -----------------------------------------
+    #
+    # **Every one of these is optional, and unset is the shipped state.** They are read-only
+    # credentials for somebody else's billing API, and the panel's whole design is that a
+    # missing one produces a card that names the environment variable and where to get the
+    # key — never a 500, and never a blank space that reads as "$0 spent".
+    #
+    # They are deliberately *not* reused from anywhere else in this service. `MAIL_API_KEY`
+    # is the exception and is not duplicated here: the Resend card reads the key the mailer
+    # already has, because a second copy of one credential is a second thing to rotate.
+    #
+    # Read-only is a property to preserve when minting these. Nothing in the console writes
+    # to a provider, so a token with write scope buys nothing and costs a blast radius.
+
+    #: An Anthropic **Admin** key — `sk-ant-admin…`, minted at console.anthropic.com under
+    #: Settings → Admin keys, not a normal `sk-ant-api…` key. Only an admin key may read
+    #: `/v1/organizations/cost_report`; an ordinary API key answers 401 there, which is the
+    #: confusing failure this comment exists to pre-empt.
+    anthropic_admin_key: str | None = None
+
+    #: A Fly.io API token — `fly tokens create readonly` is enough for the machine inventory,
+    #: which is what this card is actually for. Fly does not expose per-app spend over the
+    #: API, so the card reports machines, regions and schedules rather than inventing a
+    #: dollar figure. See `services/billing/fly.py`.
+    fly_api_token: str | None = None
+    fly_app_name: str = "rascal-api"
+
+    #: Neon's API key (console.neon.tech → Account settings → API keys) and the project it
+    #: should read. Neon reports consumption — storage bytes, compute seconds, egress — and
+    #: not dollars, so that is what the card shows.
+    neon_api_key: str | None = None
+    neon_project_id: str | None = None
+
+    #: What object storage costs per GB-month, in cents, on the plan we are actually on.
+    #: **Unset means the card shows bytes and no estimate**, which is the honest default:
+    #: Tigris has no billing API, so any figure here is one somebody typed, and a made-up
+    #: number on a costs page is worse than a blank one.
+    storage_price_cents_per_gb_month: int | None = None
+
+    #: How long a provider's answer is reused before the console asks again. These are other
+    #: people's rate limits, and a dashboard left open in a tab must not poll five APIs on
+    #: every render. In-process rather than in Postgres on purpose: the data is cosmetic, a
+    #: second Fly machine holding a slightly different cache costs nothing, and a cache table
+    #: would be schema for a screen.
+    billing_cache_seconds: int = 300
+    billing_timeout_seconds: float = 12.0
+
     # --- APNs ----------------------------------------------------------------------------
     #
     # All optional, and unset is the state this repository has always been in: the key comes

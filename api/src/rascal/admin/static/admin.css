@@ -1,0 +1,901 @@
+/* Vellum admin console.
+ *
+ * The palette, radii, shadow and type ramp are lifted from docs/design-system.md rather than
+ * re-picked, so the console looks like the product rather than like a tool bolted to it. Two
+ * deliberate departures, both because this is a dense data screen and the app is not:
+ *
+ *   1. `--series-sage` is #2E7D4F, not the app's #4B7A4F. The app's sage is a *card fill* and
+ *      reads gray as a chart mark — it fails the chroma floor at 0.084 against a 0.1 minimum
+ *      and lands 6.0 ΔE from terracotta-deep under deuteranopia. The chart palette here was
+ *      run through the validator until every adjacent pair clears; the card fills are
+ *      untouched.
+ *   2. Rounded type stops at the card title. A rounded 13px numeral in a table reads as a toy.
+ *
+ * Light only, like the app. The palette has no dark variant and inventing one for this screen
+ * would be the first place the two drift.
+ */
+
+:root {
+  --terracotta: #c05a2b;
+  --terracotta-soft: #fbede2;
+  --terracotta-deep: #9a431e;
+  --periwinkle: #5566d6;
+  --periwinkle-soft: #e9ebfb;
+  --periwinkle-border: #daddf7;
+  --periwinkle-deep: #3f4fb0;
+
+  --ink: #23253c;
+  --ink-muted: #6e6a63;
+  --ink-faint: #b4ada3;
+
+  --canvas: #fdfaf4;
+  --surface: #fffdf9;
+  --border: #ede5da;
+  --chip: #f4eee5;
+
+  --sage-fill: #e8f0e6;
+  --sage-border: #d8e4d5;
+  --sage-ink: #4b7a4f;
+
+  /* Validated chart series. Adjacent pairs all clear the CVD floor against --surface. */
+  --series-1: #c05a2b;
+  --series-2: #5566d6;
+  --series-3: #2e7d4f;
+  --series-4: #9a6bb5;
+
+  --danger: #a8342a;
+  --warn: #96631a;
+
+  --radius-card: 20px;
+  --radius-row: 18px;
+  --radius-inset: 14px;
+  --shadow: 0 2px 8px rgba(35, 37, 60, 0.04);
+
+  --rounded: ui-rounded, "SF Pro Rounded", "Nunito", -apple-system, BlinkMacSystemFont, sans-serif;
+  --text: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* `hidden` is how every panel, drawer and toast on this page is shown and hidden, and the UA
+   stylesheet implements it as a low-specificity `display: none` that ANY `display` declaration
+   on the element silently beats. `.panel` sets `display: flex`, so without this the tab bar
+   highlights the new tab and leaves the old panel on screen — which is what it did. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--rounded);
+  margin: 0;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--chip);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* --- Type roles ----------------------------------------------------------------------- */
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.card-note {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 6px 0 0;
+  max-width: 62ch;
+}
+
+/* --- Buttons -------------------------------------------------------------------------- */
+
+.btn {
+  font-family: var(--rounded);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.btn:hover {
+  background: var(--chip);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--periwinkle);
+  outline-offset: 2px;
+}
+.btn-primary {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+  color: #fffdf9;
+}
+.btn-primary:hover {
+  background: var(--terracotta-deep);
+  border-color: var(--terracotta-deep);
+}
+.btn-quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ink-muted);
+}
+.btn-quiet:hover {
+  background: var(--chip);
+  color: var(--ink);
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: #e8d3d0;
+}
+.btn-danger:hover {
+  background: #f9eeec;
+}
+
+/* --- Sign in -------------------------------------------------------------------------- */
+
+.signin {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Gradients are reserved for emotional beats. A sign-in screen is the one moment in this
+     console that qualifies — it is the welcome screen's job, on the welcome screen's wash. */
+  background: linear-gradient(135deg, #fde8dc 0%, #f7dde8 50%, #fbf6ef 100%);
+}
+body[data-view="console"] .signin {
+  display: none;
+}
+
+.signin-card {
+  width: min(460px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 32px;
+}
+
+.wordmark {
+  color: var(--ink);
+  height: 30px;
+}
+.wordmark svg {
+  height: 100%;
+  width: auto;
+  display: block;
+}
+.wordmark-sm {
+  height: 19px;
+}
+
+.signin-eyebrow {
+  font-family: var(--rounded);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--terracotta);
+  margin: 18px 0 6px;
+}
+.signin-title {
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 10px;
+}
+.signin-body {
+  color: var(--ink-muted);
+  font-size: 14px;
+  margin: 0 0 20px;
+}
+.signin-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin: 10px 0 0;
+}
+#dev-login {
+  width: 100%;
+  padding: 12px;
+}
+.signin-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 14px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+.signin-or::before,
+.signin-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.signin-token {
+  display: flex;
+  gap: 8px;
+}
+.signin-token input {
+  flex: 1;
+  min-width: 0;
+}
+.signin-error {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-inset);
+  background: #f9eeec;
+  border: 1px solid #e8d3d0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+input,
+select,
+textarea {
+  font-family: var(--text);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--periwinkle);
+  outline-offset: 1px;
+}
+textarea {
+  font-family: var(--text);
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* --- Shell ---------------------------------------------------------------------------- */
+
+body[data-view="signin"] .shell {
+  display: none;
+}
+
+.shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 0;
+  background: color-mix(in srgb, var(--canvas) 92%, transparent);
+  backdrop-filter: saturate(1.4) blur(8px);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar-tag {
+  font-family: var(--rounded);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--terracotta);
+}
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.stamp {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--chip);
+  padding: 3px;
+  border-radius: 999px;
+}
+.tab {
+  font-family: var(--rounded);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.tab.is-on {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.chip-plain {
+  background: var(--chip);
+  color: var(--ink-muted);
+}
+.chip-ok {
+  background: var(--sage-fill);
+  border-color: var(--sage-border);
+  color: var(--sage-ink);
+}
+.chip-warn {
+  background: #fbf1dd;
+  border-color: #efe0c2;
+  color: var(--warn);
+}
+.chip-bad {
+  background: #f9eeec;
+  border-color: #e8d3d0;
+  color: var(--danger);
+}
+.chip-peri {
+  background: var(--periwinkle-soft);
+  border-color: var(--periwinkle-border);
+  color: var(--periwinkle-deep);
+}
+
+.banner {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-row);
+  background: #f9eeec;
+  border: 1px solid #e8d3d0;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.panel {
+  padding-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* --- Cards ---------------------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px;
+}
+
+/* --- Hero ----------------------------------------------------------------------------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 18px;
+}
+@media (max-width: 760px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+}
+.hero-figure,
+.hero-chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+.hero-figure {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.hero-number.is-none {
+  font-size: 26px;
+  letter-spacing: -0.4px;
+  color: var(--ink-faint);
+}
+.hero-number {
+  font-family: var(--rounded);
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1.5px;
+  margin: 10px 0 0;
+  font-variant-numeric: proportional-nums;
+}
+.hero-sub {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 8px 0 0;
+}
+.chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.range {
+  display: flex;
+  gap: 2px;
+  background: var(--chip);
+  border-radius: 999px;
+  padding: 2px;
+}
+.range-btn {
+  font-family: var(--rounded);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+}
+.range-btn.is-on {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.chart {
+  margin-top: 12px;
+}
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.chart-empty {
+  font-size: 13px;
+  color: var(--ink-faint);
+  padding: 24px 0;
+  text-align: center;
+}
+
+/* --- Stat tiles ----------------------------------------------------------------------- */
+
+/* Three across rather than `auto-fit`. Six tiles under `auto-fit` land 5 + 1 at a desktop
+   width, and one orphan on its own row reads as a bug in the layout rather than as the sixth
+   number. Three and three is balanced at every width this is read at. */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 940px) {
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .tiles {
+    grid-template-columns: 1fr;
+  }
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tile-value {
+  font-family: var(--rounded);
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.tile-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+  min-height: 1.2em;
+}
+.tile-spark {
+  margin-top: 6px;
+}
+
+/* --- Tables --------------------------------------------------------------------------- */
+
+.table-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: 0 12px 8px 0;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 11px 12px 11px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr.is-clickable {
+  cursor: pointer;
+}
+tbody tr.is-clickable:hover td {
+  background: var(--terracotta-soft);
+}
+tbody tr.is-off td {
+  color: var(--ink-faint);
+}
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.body-cell {
+  min-width: 300px;
+  max-width: 640px;
+}
+.token {
+  color: var(--periwinkle-deep);
+  background: var(--periwinkle-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+/* --- Provider cards ------------------------------------------------------------------- */
+
+.provider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.provider-amount {
+  font-family: var(--rounded);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+.provider-amount.is-none {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+}
+.metric-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.metric-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  transform: translateY(-1px);
+}
+.metric-label {
+  color: var(--ink-muted);
+  flex: 1;
+  min-width: 0;
+}
+.metric-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.metric-detail {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+.setup {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border-radius: var(--radius-inset);
+  background: var(--periwinkle-soft);
+  border: 1px solid var(--periwinkle-border);
+  color: var(--periwinkle-deep);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.provider-link {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--periwinkle-deep);
+}
+
+/* --- Ops ------------------------------------------------------------------------------ */
+
+.flags,
+.jobs {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.flag {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border);
+}
+.flag:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.flag-key {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+.flag-means {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+.job-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  align-items: baseline;
+}
+.job-line span:first-child {
+  color: var(--ink-muted);
+}
+
+.heat-cell {
+  transition: opacity 0.1s ease;
+}
+.heat-cell:hover {
+  opacity: 0.75;
+}
+
+/* --- Drawer --------------------------------------------------------------------------- */
+
+.drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(35, 37, 60, 0.42);
+}
+.drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(620px, 100%);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 22px;
+  overflow-y: auto;
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.drawer-title {
+  font-size: 22px;
+  font-weight: 600;
+}
+.drawer-warning {
+  padding: 12px 14px;
+  border-radius: var(--radius-inset);
+  background: #fbf1dd;
+  border: 1px solid #efe0c2;
+  color: var(--warn);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.field > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.field-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 15px;
+  border-radius: var(--radius-inset);
+  background: var(--terracotta-soft);
+  border: 1px solid var(--border);
+}
+.preview-row {
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.preview-row b {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 1px;
+}
+.preview-bad {
+  background: #f9eeec;
+  border-color: #e8d3d0;
+  color: var(--danger);
+  font-size: 13px;
+  padding: 10px 13px;
+  border-radius: var(--radius-inset);
+  border: 1px solid #e8d3d0;
+}
+.form-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+.drawer-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.filters input[type="search"] {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* --- Overlays ------------------------------------------------------------------------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  z-index: 80;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13.5px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(35, 37, 60, 0.22);
+  max-width: min(560px, 90vw);
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 7px 10px;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(35, 37, 60, 0.2);
+  white-space: nowrap;
+}
+.tooltip b {
+  font-variant-numeric: tabular-nums;
+}
