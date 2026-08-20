@@ -84,6 +84,7 @@
         <nav class="tabs" role="tablist" aria-label="Sections">
           <button class="tab" role="tab" data-tab="today">Today</button>
           <button class="tab" role="tab" data-tab="library">Library</button>
+          <button class="tab" role="tab" data-tab="studio">Studio</button>
           <button class="tab" role="tab" data-tab="costs">Costs</button>
           <button class="tab" role="tab" data-tab="ops">Ops</button>
         </nav>
@@ -167,6 +168,91 @@
             </select>
           </div>
           <div id="library" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <!-- Studio -------------------------------------------------------------------- -->
+      <section id="panel-studio" class="panel" role="tabpanel" hidden>
+        <div id="studio-state" class="card"></div>
+
+        <div class="studio">
+          <article class="card chat-card">
+            <p class="label">Art direction</p>
+            <p class="card-note">
+              Claude knows the product, the voice and the rules, and does not have the mission
+              library — that stays out of anything public, so featuring a prompt is something you
+              do deliberately from the Library tab.
+            </p>
+            <div id="chat-log" class="chat-log"></div>
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="chat-input"
+                rows="2"
+                placeholder="Five angles for launch week, for someone who already has 40,000 photos of their kid…"
+              ></textarea>
+              <button class="btn btn-primary" type="submit">Send</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <p class="label">Make a set</p>
+            <form id="concepts-form" class="form">
+              <label class="field">
+                <span>Brief</span>
+                <textarea id="c-brief" rows="2" required
+                  placeholder="Why backdating matters — a photo from 2019 belongs in 2019"></textarea>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span>Platform</span>
+                  <select id="c-platform"></select>
+                </label>
+                <label class="field">
+                  <span>How many</span>
+                  <select id="c-count">
+                    <option>3</option><option selected>4</option><option>6</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Feature a library prompt</span>
+                <select id="c-prompt"><option value="">Nothing attached</option></select>
+              </label>
+              <p id="c-ledger" class="card-note"></p>
+              <p id="c-error" class="form-error" role="alert" hidden></p>
+              <button class="btn btn-primary" type="submit">Write concepts</button>
+            </form>
+
+            <div class="field-row studio-video">
+              <label class="field">
+                <span>…or a video shot list</span>
+                <input id="v-brief" placeholder="30 seconds on what a camera roll can't do" />
+              </label>
+              <button id="v-go" class="btn" type="button">Shot list</button>
+            </div>
+          </article>
+        </div>
+
+        <div id="concepts" class="cards"></div>
+
+        <article class="card">
+          <div class="chart-head">
+            <div>
+              <p class="label">Saved posts</p>
+              <p class="card-note">
+                Nothing here posts anywhere. Generate, look at it, download the file, put it out
+                yourself. `published` is you recording that you did.
+              </p>
+            </div>
+            <select id="a-filter">
+              <option value="">Everything</option>
+              <option value="draft">Drafts</option>
+              <option value="approved">Approved</option>
+              <option value="exported">Exported</option>
+              <option value="published">Published</option>
+            </select>
+          </div>
+          <div id="assets" class="asset-grid"></div>
         </article>
       </section>
 
@@ -268,6 +354,71 @@
             </button>
           </div>
         </form>
+      </aside>
+    </div>
+
+    <!-- Post composer -------------------------------------------------------------------- -->
+    <div id="composer" class="drawer" hidden>
+      <div class="drawer-scrim" data-close-composer></div>
+      <aside class="drawer-panel drawer-wide" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+        <header class="drawer-head">
+          <h2 id="composer-title" class="drawer-title">Compose</h2>
+          <button class="btn btn-quiet" data-close-composer aria-label="Close">Close</button>
+        </header>
+        <div class="composer-body">
+          <div class="composer-preview">
+            <canvas id="card-canvas"></canvas>
+            <p id="card-note" class="card-note"></p>
+          </div>
+          <form id="composer-form" class="form">
+            <div class="field-row">
+              <label class="field">
+                <span>Template</span>
+                <select id="m-template"></select>
+              </label>
+              <label class="field">
+                <span>Palette</span>
+                <select id="m-palette"></select>
+              </label>
+              <label class="field">
+                <span>Platform</span>
+                <select id="m-platform"></select>
+              </label>
+            </div>
+            <label class="field">
+              <span>Eyebrow</span>
+              <input id="m-eyebrow" maxlength="40" placeholder="Optional" />
+            </label>
+            <label class="field">
+              <span>Headline</span>
+              <textarea id="m-headline" rows="2" maxlength="400"></textarea>
+            </label>
+            <label class="field">
+              <span>Subhead</span>
+              <textarea id="m-subhead" rows="2" maxlength="600"></textarea>
+            </label>
+            <label class="field">
+              <span>Caption</span>
+              <textarea id="m-caption" rows="4" maxlength="4000"></textarea>
+            </label>
+            <label class="field">
+              <span>Alt text — required before export</span>
+              <textarea id="m-alt" rows="2" maxlength="1000"
+                placeholder="What is visibly in the image, for somebody who cannot see it."></textarea>
+            </label>
+            <label class="field">
+              <span>Hashtags</span>
+              <input id="m-tags" placeholder="vellum, parenting" />
+            </label>
+            <p id="m-error" class="form-error" role="alert" hidden></p>
+            <div class="drawer-actions">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" id="m-png" class="btn">Download PNG</button>
+              <button type="button" id="m-webm" class="btn">Download WebM</button>
+              <button type="button" id="m-export" class="btn btn-quiet">Mark exported</button>
+            </div>
+          </form>
+        </div>
       </aside>
     </div>
 

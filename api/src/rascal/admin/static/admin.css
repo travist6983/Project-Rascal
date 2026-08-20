@@ -899,3 +899,232 @@ tbody tr.is-off td {
 .tooltip b {
   font-variant-numeric: tabular-nums;
 }
+
+/* --- Studio --------------------------------------------------------------------------- */
+
+.studio {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 18px;
+}
+@media (max-width: 940px) {
+  .studio {
+    grid-template-columns: 1fr;
+  }
+}
+
+.chat-card {
+  display: flex;
+  flex-direction: column;
+}
+.chat-log {
+  flex: 1;
+  min-height: 260px;
+  max-height: 440px;
+  overflow-y: auto;
+  margin: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-empty {
+  color: var(--ink-faint);
+  font-size: 13px;
+  margin: auto 0;
+  text-align: center;
+}
+.turn {
+  padding: 11px 14px;
+  border-radius: var(--radius-row);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-width: 92%;
+}
+.turn-user {
+  align-self: flex-end;
+  background: var(--periwinkle-soft);
+  border: 1px solid var(--periwinkle-border);
+  color: var(--periwinkle-deep);
+}
+.turn-assistant {
+  align-self: flex-start;
+  background: var(--terracotta-soft);
+  border: 1px solid var(--border);
+}
+.turn-thinking::after {
+  content: "▍";
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+.chat-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.chat-form textarea {
+  flex: 1;
+  resize: vertical;
+}
+
+.studio-video {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  align-items: flex-end;
+}
+
+.provider-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.provider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  cursor: help;
+}
+.provider-pill.is-on {
+  background: var(--sage-fill);
+  border-color: var(--sage-border);
+  color: var(--sage-ink);
+}
+.ledger-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--chip);
+  overflow: hidden;
+  margin-top: 10px;
+  max-width: 420px;
+}
+.ledger-bar span {
+  display: block;
+  height: 100%;
+  background: var(--terracotta);
+  border-radius: 999px;
+}
+
+.concept {
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+.concept:hover {
+  border-color: var(--terracotta);
+}
+.concept-angle {
+  font-family: var(--rounded);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 8px 0 6px;
+}
+.concept-headline {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink);
+  margin: 0 0 8px;
+}
+.concept-caption {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  margin: 0;
+}
+.concept-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.asset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  padding: 13px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.asset:hover {
+  border-color: var(--terracotta);
+}
+.asset canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  display: block;
+  border: 1px solid var(--border);
+}
+.asset-line {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  margin: 9px 0 0;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.drawer-wide {
+  width: min(1080px, 100%);
+}
+.composer-body {
+  display: grid;
+  grid-template-columns: minmax(240px, 380px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .composer-body {
+    grid-template-columns: 1fr;
+  }
+}
+.composer-preview {
+  position: sticky;
+  top: 0;
+}
+.composer-preview canvas {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-inset);
+  border: 1px solid var(--border);
+  display: block;
+}
+
+/* Tones as data attributes, not inline styles. The page's CSP is `style-src 'self'` with no
+   `unsafe-inline`, so a `style=` attribute in generated markup is dropped without a warning —
+   which is how the ledger bar came to draw a full budget when the budget was empty. */
+.metric-dot[data-tone="ok"] {
+  background: var(--sage-ink);
+}
+.metric-dot[data-tone="warn"] {
+  background: var(--warn);
+}
+.metric-dot[data-tone="bad"] {
+  background: var(--danger);
+}
+.metric-dot[data-tone="plain"],
+.metric-dot:not([data-tone]) {
+  background: var(--ink-faint);
+}
+.ledger-note {
+  margin-top: 16px;
+}
+.ledger-bar span {
+  width: 0;
+}

@@ -18,6 +18,8 @@
 // `Authorization` header keeps the console exactly as privileged as the iOS app: it holds a
 // token and attaches it on purpose.
 
+import * as cards from "/admin/static/cards.js";
+
 const TOKEN_KEY = "vellum.admin.token";
 let token = localStorage.getItem(TOKEN_KEY) || "";
 
@@ -30,6 +32,10 @@ const state = {
   library: null,
   filters: {},
   editing: null,
+  studio: null,
+  chat: [],
+  concepts: [],
+  composing: null,
 };
 
 // --- API ------------------------------------------------------------------------------------
@@ -847,7 +853,7 @@ function renderCosts(data) {
         ? `<ul class="metric-list">${provider.metrics
             .map(
               (m) => `<li class="metric">
-                <span class="metric-dot" style="background:${toneColor(m.tone)}"></span>
+                <span class="metric-dot" data-tone="${escape(m.tone)}"></span>
                 <span class="metric-label">${escape(m.label)}${
                   m.detail ? `<span class="metric-detail">${escape(m.detail)}</span>` : ""
                 }</span>
@@ -937,6 +943,424 @@ function renderOps(data) {
       : '<p class="card-note">The daily broadcast has never written a ledger row.</p>');
 }
 
+
+// --- Studio -------------------------------------------------------------------------------
+//
+// The honest shape of this screen, stated once: Claude writes the words and picks the layout,
+// `cards.js` draws the pixels, and a third-party provider renders a photograph if one is
+// configured. There is no Anthropic image endpoint, so a "generate image" button wired to the
+// Anthropic key would be a spinner attached to nothing.
+//
+// Nothing here posts anywhere. Generate, review, download.
+
+function renderStudioState(state) {
+  state && (window.__studio = state);
+  const ledger = state.library_ledger;
+  const pct = Math.min(100, (ledger.featured / Math.max(1, ledger.cap)) * 100);
+  $("studio-state").innerHTML =
+    `<div class="chart-head"><div>
+       <p class="label">The studio</p>
+       <p class="card-note">${escape(state.director.cannot)}</p>
+     </div></div>
+     <div class="provider-strip">${state.renderers
+       .map(
+         (r) => `<span class="provider-pill ${r.configured ? "is-on" : ""}" title="${escape(
+           r.configured ? r.note : r.setup,
+         )}"><span class="metric-dot" data-tone="${
+           r.configured ? "ok" : "plain"
+         }"></span>${escape(r.label)}</span>`,
+       )
+       .join("")}</div>
+     ${
+       state.director.configured
+         ? ""
+         : `<div class="setup">${escape(state.director.setup)}</div>`
+     }
+     <p class="card-note ledger-note">
+       <strong>${ledger.featured} of ${ledger.library_size}</strong> library prompts have been put
+       into posts, against a cap of ${ledger.cap}. ${escape(ledger.why)}
+     </p>
+     <div class="ledger-bar"><span id="ledger-fill"></span></div>`;
+  // Set through the CSSOM rather than a `style=` attribute: the page's CSP is
+  // `style-src 'self'` with no `unsafe-inline`, which blocks the attribute silently. The fill
+  // then inherited its track's width and an empty budget drew as a full one.
+  $("ledger-fill").style.width = `${pct}%`;
+
+  fillSelect($("c-platform"), state.platforms, "instagram");
+  $("c-platform").value = "instagram";
+  fillSelect($("m-template"), state.templates, "quote");
+  fillSelect($("m-palette"), state.palettes, "cream");
+  fillSelect($("m-platform"), state.platforms, "instagram");
+  $("c-ledger").textContent = ledger.remaining
+    ? `${ledger.remaining} more prompts may be featured before the cap.`
+    : "The cap is reached. Raise SOCIAL_FEATURED_PROMPT_CAP to feature another.";
+}
+
+async function loadStudio() {
+  const state = await api("/social/studio");
+  state.director.configured || banner("");
+  renderStudioState(state);
+  state.__loaded = true;
+  window.__studio = state;
+
+  // The prompt picker is the only route by which a library body reaches a post, and it is
+  // deliberately a manual choice rather than something the model can reach for.
+  if (!state.__prompts) {
+    const library = await api("/admin/library?active=true&limit=400");
+    const select = $("c-prompt");
+    select.replaceChildren();
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Nothing attached";
+    select.append(blank);
+    for (const prompt of library.prompts) {
+      const option = document.createElement("option");
+      option.value = prompt.id;
+      option.textContent =
+        prompt.body.length > 78 ? `${prompt.body.slice(0, 78)}…` : prompt.body;
+      select.append(option);
+    }
+  }
+  await loadAssets();
+}
+
+function pushTurn(role, text) {
+  const log = $("chat-log");
+  if (log.querySelector(".chat-empty")) log.replaceChildren();
+  const node = document.createElement("div");
+  node.className = `turn turn-${role}`;
+  node.textContent = text;
+  log.append(node);
+  log.scrollTop = log.scrollHeight;
+  return node;
+}
+
+async function sendChat(event) {
+  event.preventDefault();
+  const input = $("chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  state.chat.push({ role: "user", content: text });
+  pushTurn("user", text);
+
+  const node = pushTurn("assistant", "");
+  node.classList.add("turn-thinking");
+  let reply = "";
+  try {
+    // `fetch` with a ReadableStream rather than EventSource: EventSource cannot set an
+    // Authorization header, and this API takes bearer tokens like every other route.
+    const response = await fetch("/v1/social/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ messages: state.chat }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new ApiError(response.status, payload);
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      reply += decoder.decode(value, { stream: true });
+      node.textContent = reply;
+      $("chat-log").scrollTop = $("chat-log").scrollHeight;
+    }
+    state.chat.push({ role: "assistant", content: reply });
+  } catch (error) {
+    node.textContent = error.message;
+  } finally {
+    node.classList.remove("turn-thinking");
+  }
+}
+
+async function writeConcepts(event) {
+  event.preventDefault();
+  const error = $("c-error");
+  error.hidden = true;
+  const button = event.target.querySelector("button[type=submit]");
+  button.disabled = true;
+  button.textContent = "Thinking…";
+  try {
+    const result = await api("/social/concepts", {
+      method: "POST",
+      body: JSON.stringify({
+        brief: $("c-brief").value.trim(),
+        count: Number($("c-count").value),
+        platform: $("c-platform").value,
+        featured_prompt_id: $("c-prompt").value || null,
+      }),
+    });
+    state.concepts = result.concepts.map((concept) => ({
+      ...concept,
+      platform: $("c-platform").value,
+      model: result.model,
+      featured_prompt_id: result.featured_prompt_id,
+    }));
+    renderConcepts();
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Write concepts";
+  }
+}
+
+function renderConcepts() {
+  const mount = $("concepts");
+  mount.replaceChildren();
+  state.concepts.forEach((concept, index) => {
+    const card = document.createElement("article");
+    card.className = "card concept";
+    card.innerHTML =
+      `<p class="label">${escape(concept.template)} · ${escape(concept.palette)}</p>
+       <p class="concept-angle">${escape(concept.angle)}</p>
+       <p class="concept-headline">${escape(concept.headline)}</p>
+       <p class="concept-caption">${escape(concept.caption)}</p>
+       <div class="concept-meta">${(concept.hashtags || [])
+         .slice(0, 4)
+         .map((tag) => `<span class="chip chip-plain">${escape(tag)}</span>`)
+         .join("")}</div>`;
+    card.addEventListener("click", () => openComposer(state.concepts[index]));
+    mount.append(card);
+  });
+}
+
+async function writeShotList() {
+  const brief = $("v-brief").value.trim();
+  if (!brief) return;
+  const button = $("v-go");
+  button.disabled = true;
+  button.textContent = "Writing…";
+  try {
+    const result = await api("/social/shot-list", {
+      method: "POST",
+      body: JSON.stringify({ brief, seconds: 30 }),
+    });
+    // Saved immediately rather than shown and discarded: a shot list is the thing somebody
+    // takes out to a park with a phone, and it should survive closing the tab.
+    const asset = await api("/social/assets", {
+      method: "POST",
+      body: JSON.stringify({
+        platform: "instagram_story",
+        format: "video",
+        angle: result.premise,
+        headline: result.title,
+        caption: result.shots
+          .map((s, i) => `${i + 1}. (${s.seconds}s) ${s.visual}\n   “${s.on_screen_text}”`)
+          .join("\n"),
+        shot_list: { shots: result.shots },
+        caption_track: result.caption_track,
+        duration_seconds: result.duration_seconds,
+        model: result.model,
+      }),
+    });
+    toast(`Shot list saved — ${result.shots.length} shots, ${result.duration_seconds}s.`);
+    await loadAssets();
+    openComposer(null, asset);
+  } catch (err) {
+    banner(err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Shot list";
+  }
+}
+
+async function loadAssets() {
+  const filter = $("a-filter").value;
+  const { assets } = await api(`/social/assets${filter ? `?status=${filter}` : ""}`);
+  const mount = $("assets");
+  mount.replaceChildren();
+  if (!assets.length) {
+    mount.innerHTML = '<p class="chart-empty">Nothing saved yet.</p>';
+    return;
+  }
+  for (const asset of assets) {
+    const node = document.createElement("div");
+    node.className = "asset";
+    const canvas = document.createElement("canvas");
+    const [w, h] = cards.SIZES[asset.platform] || cards.SIZES.generic;
+    canvas.width = 320;
+    canvas.height = Math.round((320 * h) / w);
+    cards.drawCard(canvas.getContext("2d"), specOf(asset), canvas.width, canvas.height, 1);
+    node.append(canvas);
+    const line = document.createElement("p");
+    line.className = "asset-line";
+    line.innerHTML =
+      `<span class="chip chip-${
+        { published: "ok", exported: "peri", discarded: "plain" }[asset.status] || "plain"
+      }">${escape(asset.status)}</span>` +
+      `<span>${escape(asset.platform)}</span>` +
+      (asset.featured_body ? '<span class="chip chip-warn">library prompt</span>' : "");
+    node.append(line);
+    node.addEventListener("click", () => openComposer(null, asset));
+    mount.append(node);
+  }
+}
+
+/** The renderer's view of an asset or a concept — the one shape `cards.js` understands. */
+const specOf = (source) => ({
+  template: source.template || "quote",
+  palette: source.palette || "cream",
+  eyebrow: source.eyebrow || "",
+  headline: source.headline || "",
+  subhead: source.subhead || "",
+});
+
+function openComposer(concept, asset) {
+  const source = asset || concept || {};
+  state.composing = {
+    id: asset?.id || null,
+    platform: source.platform || "instagram",
+    featured_prompt_id: source.featured_prompt_id || null,
+    format: source.format || "card",
+    angle: source.angle || "",
+    image_prompt: source.image_prompt || "",
+    model: source.model || null,
+  };
+  $("composer-title").textContent = asset ? "Edit post" : "Compose";
+  $("m-template").value = source.template || "quote";
+  $("m-palette").value = source.palette || "cream";
+  $("m-platform").value = source.platform || "instagram";
+  $("m-eyebrow").value = source.eyebrow || "";
+  $("m-headline").value = source.headline || "";
+  $("m-subhead").value = source.subhead || "";
+  $("m-caption").value = source.caption || "";
+  $("m-alt").value = source.alt_text || "";
+  $("m-tags").value = (source.hashtags || []).join(", ");
+  $("m-error").hidden = true;
+  $("m-webm").hidden = !cards.canRecord();
+  $("card-note").textContent = cards.canRecord()
+    ? "WebM records the card settling in — an animated post, not generated footage."
+    : "This browser cannot record WebM from a canvas. PNG still works.";
+  $("composer").hidden = false;
+  paintPreview();
+}
+
+const closeComposer = () => {
+  $("composer").hidden = true;
+  state.composing = null;
+};
+
+function composerSpec() {
+  return {
+    template: $("m-template").value,
+    palette: $("m-palette").value,
+    eyebrow: $("m-eyebrow").value.trim(),
+    headline: $("m-headline").value.trim(),
+    subhead: $("m-subhead").value.trim(),
+  };
+}
+
+function paintPreview() {
+  const canvas = $("card-canvas");
+  const platform = $("m-platform").value;
+  const [w, h] = cards.SIZES[platform] || cards.SIZES.generic;
+  // Drawn at a preview scale rather than full size and shrunk with CSS: a 1080x1920 canvas in
+  // a drawer is four megabytes of pixels redrawn on every keystroke.
+  canvas.width = 380;
+  canvas.height = Math.round((380 * h) / w);
+  cards.drawCard(canvas.getContext("2d"), composerSpec(), canvas.width, canvas.height, 1);
+}
+
+function composerPayload() {
+  const spec = composerSpec();
+  return {
+    platform: $("m-platform").value,
+    format: state.composing.format,
+    angle: state.composing.angle || null,
+    template: spec.template,
+    palette: spec.palette,
+    headline: spec.headline || null,
+    subhead: spec.subhead || null,
+    caption: $("m-caption").value.trim() || null,
+    alt_text: $("m-alt").value.trim() || null,
+    hashtags: $("m-tags")
+      .value.split(",")
+      .map((tag) => tag.trim().replace(/^#/, ""))
+      .filter(Boolean),
+    image_prompt: state.composing.image_prompt || null,
+  };
+}
+
+async function saveComposer(event) {
+  event.preventDefault();
+  const error = $("m-error");
+  error.hidden = true;
+  try {
+    if (state.composing.id) {
+      await api(`/social/assets/${state.composing.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(composerPayload()),
+      });
+    } else {
+      const created = await api("/social/assets", {
+        method: "POST",
+        body: JSON.stringify({
+          ...composerPayload(),
+          featured_prompt_id: state.composing.featured_prompt_id,
+          model: state.composing.model,
+        }),
+      });
+      state.composing.id = created.id;
+    }
+    toast("Saved.");
+    await Promise.all([loadAssets(), loadStudio()]);
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  }
+}
+
+async function markExported() {
+  const error = $("m-error");
+  error.hidden = true;
+  if (!state.composing.id) {
+    error.hidden = false;
+    error.textContent = "Save it first.";
+    return;
+  }
+  try {
+    await api(`/social/assets/${state.composing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "exported", alt_text: $("m-alt").value.trim() || null }),
+    });
+    toast("Marked exported. Posting it is still your job — nothing here posts.");
+    await loadAssets();
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  }
+}
+
+const slug = () =>
+  ($("m-headline").value.trim() || "vellum")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48) || "vellum";
+
+async function downloadPng() {
+  const blob = await cards.toPngBlob(composerSpec(), $("m-platform").value);
+  cards.download(blob, `${slug()}.png`);
+}
+
+async function downloadWebm() {
+  const button = $("m-webm");
+  button.disabled = true;
+  button.textContent = "Recording…";
+  try {
+    const blob = await cards.recordCard(composerSpec(), $("m-platform").value, 4);
+    cards.download(blob, `${slug()}.webm`);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Download WebM";
+  }
+}
+
 // --- Loading ------------------------------------------------------------------------------
 
 let currentTab = "today";
@@ -949,6 +1373,8 @@ async function load(tab = currentTab) {
       renderToday(state.snapshot);
     } else if (tab === "library") {
       await loadLibrary();
+    } else if (tab === "studio") {
+      await loadStudio();
     } else if (tab === "costs") {
       renderCosts(await api("/admin/costs"));
     } else if (tab === "ops") {
@@ -1079,7 +1505,36 @@ for (const node of document.querySelectorAll("[data-close]")) {
   node.addEventListener("click", closeDrawer);
 }
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !$("drawer").hidden) closeDrawer();
+  if (event.key !== "Escape") return;
+  if (!$("composer").hidden) closeComposer();
+  else if (!$("drawer").hidden) closeDrawer();
 });
+
+
+$("chat-form").addEventListener("submit", sendChat);
+$("chat-input").addEventListener("keydown", (event) => {
+  // Enter sends, shift+enter breaks the line. A chat box that needs a mouse to send is a chat
+  // box nobody uses twice.
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    $("chat-form").requestSubmit();
+  }
+});
+$("concepts-form").addEventListener("submit", writeConcepts);
+$("v-go").addEventListener("click", writeShotList);
+$("a-filter").addEventListener("change", () => loadAssets().catch((e) => banner(e.message)));
+$("composer-form").addEventListener("submit", saveComposer);
+$("m-png").addEventListener("click", downloadPng);
+$("m-webm").addEventListener("click", downloadWebm);
+$("m-export").addEventListener("click", markExported);
+for (const id of ["m-template", "m-palette", "m-platform", "m-eyebrow", "m-headline", "m-subhead"]) {
+  $(id).addEventListener("input", paintPreview);
+  $(id).addEventListener("change", paintPreview);
+}
+for (const node of document.querySelectorAll("[data-close-composer]")) {
+  node.addEventListener("click", closeComposer);
+}
+$("chat-log").innerHTML =
+  '<p class="chat-empty">Ask for angles, a caption, a rewrite, or an opinion on an idea.</p>';
 
 if (token) signedIn();
