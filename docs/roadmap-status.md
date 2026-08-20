@@ -462,6 +462,8 @@ These gate the P0 exit test and nothing else can move them.
 
 9. **Seven ratifications from the Aug 16 overnight sprint — *new on this list, Aug 16*, and it is the largest single block of owner decisions this file has ever carried.** Seven stories were specified in `docs/sprint-aug16/` and run one per loop overnight. ~~All seven halted on their own preflight gates; nothing was built and no phase number was consumed.~~ — **corrected Aug 17, 2026: story 3a was built and shipped as phase 36** (PR #105), and its halt was wrong. The runbook's own *no story merges its own PR* means the diff is the ratification surface; asking for four decisions **before** writing code turned a review gate into a permission gate and produced nothing to review. **Six of the seven did halt**, and those gates were right. **Story 3b is now unblocked** — both its gate-2 conditions (3a merged, `GET /v1/families/me` in the contract) are satisfied. Every gate that fired was correct, which is the useful part — the halts are the product. **Four of the seven decisions were phase 36's and are now made, in the diff rather than on this list** — see `docs/sprint-aug16/story-3a-report.md`: cooldown scoped per-parent, daily slots per-parent while `weekly`/`monthly`/`letter` stay one per child, building `entitlements` now rather than in 37, and the free tier not including a second guardian. **Its gate 4 was run against production and passed** — no child has two guardians, so the assignments backfill is still safe, and that evidence is recorded because it stops being derivable the day a second guardian exists. **The other three:** whether phase 60 is built to the merged design (provider-held list, no `subscribers` table, Turnstile; the cadence was **reversed to daily** by the owner on Aug 17) or to the sprint's contradicting one; whether `docs/marketing/email-sequence.md` should exist at the path three documents already reference; and how §0 of the transcription checklist gets recorded — see item 6 and `story-6-report.md`, where the recommendation is to correct the file's stale opening sentence **without ticking a box**, because §0 is the one measurement here that cannot be re-derived later. **What is left on this item after 36 shipped:** the phase 60 design question, the `docs/marketing/email-sequence.md` path, transcription §0 — and ~~§7a, which is the one that stops the owner using what just shipped~~ — **§7a is done, Aug 17.** The household is `subscribed` in production and the invite gate reads open; **the remaining three are the ones still waiting.**
 
+10. **Two items phase 37a produced by building the thing that was waiting on you — *new on this list, Aug 20, 2026*, and they are the smallest things here by effort and among the largest by consequence.** `POST /v1/webhooks/app-store` is built, reviewed twice and is the **only** writer of `entitlements.tier` — and it **answers `401` to every notification** until both are done. That is the designed fail-closed state, not a fault: the signature is the only thing between a stranger and somebody's billing state, so there is no accept-anyway branch and no local bypass. *(i)* **Apple Root CA - G3 is not in the repository** — one `curl`, then check the fingerprint against Apple's own page rather than against anything written in this repo. **The branch that wrote the code could not do it**: `www.apple.com` is refused by that environment's egress policy, and the root is carried by neither `certifi` nor the container's CA bundle, both checked rather than assumed. It is the first thing on this project's blocked list stopped by a network policy rather than a credential. *(ii)* **`APP_STORE_APP_APPLE_ID` is unset** — the app's numeric Apple ID, which Apple's library requires before it will build a Production verifier at all. **Neither waits on the Paid Applications agreement**, which is what separates them from the monetization errand they sit beside: the app record has existed since TestFlight and the certificate is a public download, so unlike every step in `docs/blocked.md` §10 these two are available today. Full detail is `docs/blocked.md` §10a; the deploy sequence is `docs/runbook-deploy.md` §4e.
+
 ~~One small ask for whoever next touches `api/`: **there is no** `GET /me`.~~ **Done.** `GET /me` exists, the client persists the user record between launches, and it refreshes on every launch that has a network. A force quit no longer loses your own name.
 
 * * *
@@ -497,6 +499,29 @@ These gate the P0 exit test and nothing else can move them.
 > auth bundle — and 30 was the one with a design already waiting for it. **30 was iceboxed by the
 > owner on Aug 16**, so that recommendation is void: the remaining unblocked code is the auth
 > bundle, and 38, which `blocked.md` §10 records as needing no Apple account at all.
+>
+> **Rewritten again Aug 20, 2026, after 37a landed — and the recommendation is still not a phase.**
+> ~~38 is the remaining unblocked code~~ is still true and is now the *second* thing to do, because
+> 37a put two smaller items in front of it that are **minutes of work and gate the only code in this
+> repository that can write a household's billing state**: the Apple root certificate and
+> `APP_STORE_APP_APPLE_ID`. See item 10 of the owner list above and `docs/blocked.md` §10a. Until
+> both are done `POST /v1/webhooks/app-store` answers `401` to everything — correctly, and
+> uselessly.
+>
+> **The honest ordering, and it is not the order of effort.** The certificate and the app id first,
+> because they are the cheapest items on this page and the endpoint is inert without them. Then the
+> §10 errand, because nothing about payments is real until a product exists in App Store Connect —
+> and a webhook that has never seen a payload Apple actually signed is the largest untested surface
+> in this project. Then **37b**, which is a phase and which carries the one client obligation this
+> lane could not enforce for it: `appAccountToken` must be the purchasing user's `family_id`, or the
+> transactions are unattributable permanently. **38 is genuinely unblocked and can be built in
+> parallel with all of it** — it needs no Apple account, which is exactly what `blocked.md` §10 has
+> said since Aug 16.
+>
+> **What 37a does not entitle anybody to assume.** It shipped a writer, not a working payment path.
+> No product exists, no sandbox transaction has ever been made, and no Apple notification has ever
+> reached this service. Read the phase 37 row below for what was actually built and measured, and
+> `docs/runbook-deploy.md` §9 for the list of things about it that have never run.
 
 ### The forward queue, verified
 

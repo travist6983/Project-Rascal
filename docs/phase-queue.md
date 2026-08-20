@@ -148,6 +148,16 @@ iOS build, and it is the one nobody here can do.
 
 ## Blocked on you, not on code
 
+- **Put Apple Root CA - G3 in the repository.** One `curl`, and `POST /v1/webhooks/app-store`
+  answers `401` to every notification until it is done — deliberately, because the alternative to
+  a trust anchor is accepting unverified billing payloads. The command and the fingerprint check
+  are in `docs/blocked.md` §10a and in `api/src/rascal/certs/appstore/README.md`. **The branch that
+  wrote the code could not do this**: `www.apple.com` is refused by that environment's egress
+  policy, and the root is in neither `certifi` nor the system CA bundle.
+- **Read `APP_STORE_APP_APPLE_ID` off App Store Connect** and set it as a Fly secret. Apple's
+  library refuses to build a Production verifier without it. **This one does not wait on the Paid
+  Applications agreement** — the app record has existed since TestFlight — so unlike the rest of
+  `docs/blocked.md` §10 it is available today.
 - Read the **79 prompt candidates**. They were generated before `decisions.md` settled the tone as
   warm and cheerful on Aug 11 — read for warmth as well as accuracy. All 79 are `question` kind.
 - Run a **restore drill**. The machinery is tested; the act has never been performed. Use the
@@ -207,6 +217,15 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 ## The build queue
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
+
+- **37b — StoreKit, the client half.** `Product.products(for:)`, the paywall, the purchase flow,
+  restore. **37a shipped the server half on Aug 20, 2026**, so a purchase now has somewhere real to
+  land: `entitlements.tier` has exactly one writer and it is Apple's notification, per D5.
+  **One obligation, and it is unforgiving: `appAccountToken` must carry the purchasing user's
+  `family_id`.** It is the only channel Apple has for carrying one, and a transaction made without
+  it is unattributable permanently — there is no later fix, server-side or otherwise.
+  `docs/api-contract.md` states it as a named client requirement. Still downstream of the P0
+  behavioural gate, and of the two errands above.
 
 - **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
   **Three errors were live in this bullet until Aug 18, 2026, and they compounded.** *(i)* It was
