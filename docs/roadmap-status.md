@@ -54,6 +54,87 @@ Everything in this file was checked by running something — the test suites, th
 > below now carries its own grep.
 
 * * *
+
+## Phase 97 — the social studio, Aug 19, 2026 (local only, nothing deployed, nothing posted)
+
+A Studio tab in the admin console. Full write-up in `docs/reports/phase-97-social-studio.md`;
+three things belong here.
+
+**The request was image generation, video generation and captioning "via our anthropic key",
+and one of those cannot be done that way.** Anthropic has no image or video endpoint on any
+model — Claude is text-and-vision in, text out. Rather than build a button that spins, the
+split is explicit: Claude does art direction, copy, captions, alt text, image briefs and shot
+lists, and pixels come from a **canvas card renderer that needs no vendor at all** or from a
+provider port that is unconfigured until somebody adds a key. For a warm typographic brand
+whose posts are sentences, the card renderer is not a fallback — it hits the palette exactly,
+costs nothing per image, and cannot drift off-brand.
+
+**It ships with a cap on the mission library, and that is the part worth reading twice.** D7
+keeps the library out of anything public *"whole or in generated slices"* and calls it the one
+asset a competitor would actually want. A social generator that features prompts is a machine
+for producing those slices — publicly, permanently, one post at a time, which is a leak nobody
+notices because no single post looks like a problem. So Claude never sees the library, the body
+is read server-side from a prompt id the owner picks, and `SOCIAL_FEATURED_PROMPT_CAP` refuses
+past 24 distinct prompts. **This is the first thing in the project that could have leaked that
+asset by accident, and the counter is on screen.**
+
+**Nothing posts anything.** No platform integration, no scheduler, no publish route — the same
+gate open item 12 puts on marketing email, plus the plainer point that an automation which
+posts on its own is one bad generation away from doing so under the product's name.
+
+**Figures re-derived Aug 19, 2026, second pass:** **891 tests pass, 1 skipped** (was 862 after
+phase 96). **74 operations across 64 paths**, up eight. Migration `0018_social_assets`, up and
+down. Zero new dependencies — the model call is raw `httpx`, matching
+`scripts/generate_prompts.py`, which has called `/v1/messages` from this repo since phase 46.
+
+**Three bugs the browser found that no test would have.** `.panel { display: flex }` silently
+beat the UA stylesheet's `[hidden] { display: none }`, so tabs left the old panel on screen.
+`requestAnimationFrame` does not fire in a background tab, so the WebM recorder hung with the
+button stuck on "Recording…" — it is driven by `setInterval` with a hard deadline now. And the
+page's own `style-src 'self'` CSP silently drops `style=` attributes in generated markup, so
+the D7 ledger bar inherited its track's width and **drew an empty budget as a full one**.
+
+* * *
+
+## Phase 96 — the admin console, Aug 19, 2026 (local only, nothing deployed)
+
+`/admin`, behind `users.is_admin`: a business snapshot, a mission-library editor, a five-vendor
+cost panel, and a scheduler grid. Full write-up in `docs/reports/phase-96-admin-console.md`;
+three things belong in this file rather than that one.
+
+**The scheduler grid is the instrument this document has asked for four revisions running.** It
+reads a slot × day table of what the daily job *produced* and flags any daily slot that served
+nothing across the window — *"verify a scheduled job by reading what it produced, not by reading
+the deploy that was supposed to update it."* Against the local database it already flags
+`mission_b` as silent for a fortnight. **That is local churn until somebody points the same panel
+at production**, and doing so is now a page load rather than a psql session. Recorded as a
+question, not a finding.
+
+**Editing the library needed a schema change, and the reason is worth carrying.** `seed_prompts` is
+`fly.toml`'s release command and reconciles `prompts` against `prompts.yaml` totally, `active`
+included. A console that edits a seeded *body* does not merely lose the edit on the next deploy —
+`content_hash` moves, the edited row is retired as absent from the file, and the original body is
+re-inserted, so the archive serves exactly the copy the edit replaced. Migration `0017` adds
+`prompt_library_overrides`, applied last in the seed transaction. Six of the sixteen new library
+tests re-run the seeder after the edit, because the response body is correct in every one of these
+cases and the damage lands an hour later.
+
+**The phase-number rule has a fourth blind spot and `phase-queue.md` now carries the fourth
+command.** The three prescribed measurements returned 95; 95 was already spent by the *content* of
+`docs/decisions-log.md` under a commit subject that names no phase. `grep -rhoiE 'phase[- ][0-9]+'
+docs/` is the missing check.
+
+**Figures re-derived Aug 19, 2026:** **862 tests pass, 1 skipped** (was 757 in 47 files on Aug 18;
+39 of the difference is this phase). **66 operations across 57 paths**, up nine. **233 prompts in
+the table, 133 active** — the 100 inactive are phase 24's literal bodies, retired and still
+resolving every foreign key that points at them.
+
+**Live tonight with no new credentials:** the Tigris card reads **90 MB across 56 objects** from the
+real bucket, and the Resend card reports **`mail.getvellumapp.com` verified** and
+`RESEND_AUDIENCE_ID` unset — which is also the reason `POST /v1/subscribe` currently refuses.
+Anthropic, Fly and Neon each need one read-only credential and say so on the card.
+
+* * *
 ## The headline
 **The app is on TestFlight, against a deployed API.** Sign in with Apple runs against a real Apple-signed token, media uploads land in a production bucket from a phone in the world, and 55 pull requests have merged.
 
@@ -510,6 +591,7 @@ knowing that the book's blocker bottoms out in a one-line change nobody has made
 | **81** | The Settings sync surface | ○ **allocated Aug 18, 2026 — not started** | iOS lane. Collapse to one status row plus a pushed `SyncScreen`; **one count from one source**; and make *Retry now* actually act and report rather than appearing to |
 | **82** | `CFBundleDisplayName` and the ephemeral web session | ○ **allocated Aug 18, 2026 — not started** | iOS lane. `Rascal` leaks into system dialogs where the product name belongs, and `prefersEphemeralWebBrowserSession` is unset. **Carries a docs-adjacent fix already found and assigned rather than left open**: `RascalShare-Info.plist:22-23` says *"All three read 'Vellum'"* and there are **four** — the same off-by-one `phase-queue.md` carried, living in a source comment |
 | **83** | The server renders pronoun tokens for the APNs alert body | ○ **allocated Aug 18, 2026 — not started** | API lane, and **the other half of 82 by subject but deliberately not by phase**. A lock screen currently reads *"Take a photo of {them} eating something {they} said {they} hated."* — raw tokens, on the one surface a parent cannot dismiss without reading. **Split from 82 because `CLAUDE.md`'s two-lane rule is not a style preference**: an agent in `ios/` never edits `api/`, and CI is path-scoped, so a single phase spanning both lanes is one whose CI can only ever half-run. **Alert body only** — the durable prompt text stays tokenised on the wire, per the pronoun contract |
+| **95** | Settle the Aug 18 decisions proposal — dismissal strikes, and a seal editable until it opens | ✅ **shipped Aug 19, 2026 — docs only, no code** | Docs lane. Two of the three proposed rows added to `decisions.md` Settled; open item 14 struck as built by 65–67. The account-deletion row was **not** applied: it was drafted against a stale tree and would have re-opened a settled item and called deployed code unbuilt. Its one live finding survives — **there is no Sign in with Apple REST token-revocation call anywhere in `api/`**, which Apple requires as part of account deletion, and it needs a phase. **This ledger stops at 83 while 84–94 have merged**, so the number came from `git log --all`, the branch list and `gh pr list` as `phase-queue.md`'s own recipe says, not from this table. |
 
 #### Item 24 contradicted a decision settled on Aug 11 — resolved by the owner Aug 12, shipped Aug 13
 

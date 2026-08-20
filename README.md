@@ -160,6 +160,63 @@ Commit both files. A test regenerates the YAML from the markdown and fails if th
 Tone rules for new prompts are at the top of `docs/mission-library.md`: specific over
 sentimental, second person, imperative for missions, never sanctimonious.
 
+### …or from the admin console
+
+`make dev`, then <http://localhost:8000/admin> → **Sign in with dev-login**. The Library tab edits
+bodies with a live three-column pronoun preview and refuses a token no client can render.
+
+**The markdown is still the tidier path when you have the repo open**, and the console says so on
+every seeded prompt it opens. Editing a *seeded* body there cannot be a plain update: `make seed`
+runs on every deploy and reconciles the table against `prompts.yaml`, so the console **forks** it
+instead — a new `source: "user"` prompt carries the new words and the original is retired through
+`prompt_library_overrides`, the one table the re-seed reads rather than overwrites. `Hand back to
+the seed file` undoes that and returns the prompt to whatever the markdown says.
+
+---
+
+## The admin console
+
+<http://localhost:8000/admin>. Requires `users.is_admin`; `dev-login`'s fixture user has it.
+
+| Tab | What it answers |
+|---|---|
+| Today | Households, kids, entries per day, completion rate, bytes stored, newest accounts |
+| Library | Every prompt with served/completed counts, filters, and the editor |
+| Studio | Art direction, post concepts, brand cards, shot lists — see below |
+| Costs | Anthropic, Fly, Neon, Tigris and Resend — see `.env.example` for the four optional keys |
+| Ops | Did the scheduler run, which switches are on, the job ledgers and the deletion queue |
+
+Three static files under `api/src/rascal/admin/static/`, no build step and no dependency. It holds
+no credential — it asks the same API the app does, with a bearer token in `localStorage`.
+
+**It returns counts and never archive content.** No entry body, caption, transcript, child name or
+object key is reachable through any admin route, and a test asserts it.
+
+**The Ops tab reads what the scheduler produced**, not whether its deploy was green — the check PR
+#57 did not have. A daily slot that served nothing across the window is flagged in red.
+
+### The Studio
+
+Set `ANTHROPIC_API_KEY` (an ordinary `sk-ant-api…` key — *not* the `sk-ant-admin…` one the cost
+panel uses) and the Studio tab will:
+
+- **talk to an art director** who knows the product, the voice and the rules,
+- **write post concepts** — angle, headline, caption, alt text, hashtags and an image brief,
+- **draw the card** on a canvas in the Vellum palette and export it as a **PNG** at any platform
+  size, or as a **WebM** of the card settling in,
+- **write a shot list** for a short vertical video, with a WebVTT caption track.
+
+**Claude does not generate images or video** — there is no such endpoint on any Anthropic model.
+The cards are drawn locally by `admin/static/cards.js`, which is why they need no vendor, cost
+nothing per image, and cannot drift off-brand. For photographs, set `OPENAI_API_KEY` or
+`REPLICATE_API_TOKEN` and Claude's image brief goes to whichever is configured.
+
+**Nothing posts anything.** Generate, look at it, download the file, put it out yourself.
+
+**Featuring a mission-library prompt is capped.** D7 keeps the library out of anything public,
+so Claude never sees it, the body is read server-side from a prompt id you pick, and the Studio
+counts how much of the library has been shown against `SOCIAL_FEATURED_PROMPT_CAP`.
+
 ---
 
 ## Layout

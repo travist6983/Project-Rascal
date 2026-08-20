@@ -15,9 +15,14 @@ from rascal.services.seeding import SEEDS_PATH, seed_prompts
 async def _run(path: Path) -> int:
     async with get_sessionmaker()() as session:
         result = await seed_prompts(session, path)
+    # `overridden` is printed even when it is zero. This runs as `fly.toml`'s release command,
+    # so its output is the only record a deploy leaves of whether the admin console's
+    # decisions survived — a number that appears only when it is interesting is a number
+    # nobody learns to look for.
     print(
         f"prompts: {result.inserted} inserted, {result.updated} updated, "
-        f"{result.unchanged} unchanged, {result.retired} retired "
+        f"{result.unchanged} unchanged, {result.retired} retired, "
+        f"{result.overridden} held by an override "
         f"({result.total} in the library)"
     )
     return 0

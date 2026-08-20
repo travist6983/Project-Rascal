@@ -611,6 +611,116 @@ Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusi
 
 ---
 
+## `prompt_library_overrides`
+
+**Phase 96, Aug 19, 2026.** One admin decision about one seeded prompt, in the only place a
+re-seed will not overwrite it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `content_hash` | text PK | `sha256(kind, cadence, body)` — the seed loader's own key |
+| `active` | boolean | The value `seed_prompts` must write instead of the file's |
+| `note` | text NULL | Why, in the admin's words. Free text, deliberately unconstrained |
+| `created_by_user_id` | uuid FK NULL | → `users`, `ON DELETE SET NULL` |
+| `created_at` | timestamptz | |
+| `updated_at` | timestamptz | `set_updated_at()` trigger |
+
+**Why the table exists.** `api/seeds/prompts.yaml` is on `fly.toml`'s `release_command`, so every
+deploy reconciles `prompts` against the file *totally* — the upsert writes the file's `active`
+and the retirement sweep deactivates every `source = 'seeded'` row the file no longer lists. That
+is correct for a library authored in `docs/mission-library.md` and it silently undoes anything the
+admin console does. Retiring a seeded prompt from the console lasts until the next deploy. Editing
+one is worse: the body is part of `content_hash`, so the edited row is a row the file does not
+contain — it gets retired — **and the original body is re-inserted**, leaving the archive serving
+exactly the copy the edit replaced.
+
+`services/seeding._apply_overrides` runs **last** in the seed transaction, after the upsert and
+after the retirement sweep. An override is therefore the final word by construction rather than by
+whichever statement happened to be written second.
+
+**Keyed on `content_hash`, not on `prompts.id`.** The hash is the identity the file and the table
+already agree on; a row id is a thing a re-seed can legitimately replace, and an override naming
+one would stop matching the moment its row was rebuilt.
+
+**Editing a seeded body is a fork, and both halves are required.** `PATCH /v1/prompts/{id}` on a
+`source = 'seeded'` row inserts a new `source = 'user'` prompt carrying the new words — the one
+source `seed_prompts` promises never to touch — and writes an override retiring the original's
+hash. Insert alone leaves both copies serving. Override alone leaves a retired prompt and nothing
+in its place. The original row is never deleted: assignments and entries point at it and must keep
+resolving for as long as the archive exists.
+
+**No `deleted_at`, and that is not a second exception to rule 5.** The mission library is content,
+not user data — `prompts` itself carries no soft delete and does not sync — so withdrawing an
+override is a real `DELETE`, which is precisely what hands the decision back to
+`mission-library.md`. The only rule-5 exception remains `deletion_requests`.
+
+**An override for a `content_hash` no row has is not an error.** That is a prompt retired from the
+console and later deleted from the markdown: the decision outlives the row, and keeping it costs
+nothing if the body ever comes back.
+
+---
+
+## `social_assets`
+
+**Phase 97, Aug 19, 2026.** What the admin console's social studio produced. Marketing output,
+not user data.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `platform` | text | `instagram` \| `instagram_story` \| `x` \| `threads` \| `facebook` \| `linkedin` \| `generic`, `text` + named CHECK |
+| `status` | text | `draft` \| `approved` \| `exported` \| `published` \| `discarded` |
+| `format` | text | `card` \| `photo` \| `video` |
+| `angle`, `template`, `palette`, `headline`, `subhead` | text NULL | The card |
+| `caption`, `alt_text` | text NULL | The post. **`alt_text` is not the caption** |
+| `hashtags` | text[] | |
+| `image_prompt` | text NULL | A brief for a photographic renderer, written whether or not one is configured |
+| `shot_list` | jsonb NULL | Video: what the model wrote |
+| `caption_track` | text NULL | WebVTT, derived from the shot list |
+| `duration_seconds` | integer NULL | |
+| `render_provider`, `render_key` | text NULL | A key, never a URL — same rule as `media` |
+| `featured_prompt_id` | uuid FK NULL | → `prompts`, `ON DELETE SET NULL` |
+| `featured_body` | text NULL | **The D7 ledger.** See below |
+| `model`, `created_by_user_id`, `published_at` | | |
+| `created_at`, `updated_at` | timestamptz | `set_updated_at()` trigger |
+
+**No `deleted_at`, and it is not a second exception to rule 5.** Rule 5 covers user-data
+tables — the ones `/sync` carries and a client must learn deletions from. This is marketing
+content the owner writes about the product, and it follows the table it most resembles:
+`email_broadcasts`, also marketing output, also `updated_at` with no soft delete. Discarding a
+draft is `status = 'discarded'`, which carries more than a tombstone would and is what the
+counter below depends on. The only rule-5 exception remains `deletion_requests`.
+
+### `featured_body` is the load-bearing column
+
+`docs/decisions.md` D7 keeps the mission library out of anything public *"whole or in generated
+slices"* and calls it **the one asset in this project a competitor would actually want.** A
+studio that can put a prompt on a card is a machine for producing exactly those slices —
+publicly, permanently, one at a time. That is the shape of leak nobody notices until it is
+complete, because no single post looks like a problem.
+
+Three things hold it and none of them is "remember not to":
+
+1. **Claude never sees the library.** No tool, no context, and `services/social/brand.py` tells
+   it not to invent lines that read like one.
+2. **Featuring a body is explicit.** The API takes a `featured_prompt_id` and reads the body
+   itself; a caller-supplied `featured_body` is ignored, or the ledger would be counting
+   something other than the library.
+3. **Every body is counted against `SOCIAL_FEATURED_PROMPT_CAP`.** Distinct prompts, not posts
+   — three posts about one prompt disclose one prompt. `ix_social_assets_featured_prompt_id`
+   is partial on `status <> 'discarded'`, so a concept nobody used never counted.
+
+`featured_body` snapshots the words rather than trusting the foreign key alone: the library
+editor can fork a prompt, and the row `featured_prompt_id` points at may no longer hold what
+went out.
+
+### Nothing here posts anything
+
+There is no social-network integration, no scheduler, and no route that reaches a platform.
+`published` is the owner recording that they posted it somewhere else.
+
+---
+
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
 **Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:

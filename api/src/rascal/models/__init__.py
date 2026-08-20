@@ -10,7 +10,9 @@ from rascal.models.device import Device, NotificationSend
 from rascal.models.email_broadcast import EmailBroadcast
 from rascal.models.entry import Entry, EntryTag, Media, Tag
 from rascal.models.family import Entitlement, Family, GuardianInvite
+from rascal.models.library_override import PromptLibraryOverride
 from rascal.models.prompt import Prompt, PromptSuppression
+from rascal.models.social import SocialAsset
 from rascal.models.user import (
     Credential,
     EmailSignInToken,
@@ -40,9 +42,11 @@ __all__ = [
     "Media",
     "NotificationSend",
     "Prompt",
+    "PromptLibraryOverride",
     "PromptSuppression",
     "RateLimitEvent",
     "RefreshToken",
+    "SocialAsset",
     "Tag",
     "User",
 ]

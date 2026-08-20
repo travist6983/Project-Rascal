@@ -256,6 +256,121 @@ class Settings(DatabaseSettings):
     # alone rather than globally: this is the first browser client this API has ever had.
     marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
 
+    # --- The admin console's cost panel (phase 96) -----------------------------------------
+    #
+    # **Every one of these is optional, and unset is the shipped state.** They are read-only
+    # credentials for somebody else's billing API, and the panel's whole design is that a
+    # missing one produces a card that names the environment variable and where to get the
+    # key — never a 500, and never a blank space that reads as "$0 spent".
+    #
+    # They are deliberately *not* reused from anywhere else in this service. `MAIL_API_KEY`
+    # is the exception and is not duplicated here: the Resend card reads the key the mailer
+    # already has, because a second copy of one credential is a second thing to rotate.
+    #
+    # Read-only is a property to preserve when minting these. Nothing in the console writes
+    # to a provider, so a token with write scope buys nothing and costs a blast radius.
+
+    #: An Anthropic **Admin** key — `sk-ant-admin…`, minted at console.anthropic.com under
+    #: Settings → Admin keys, not a normal `sk-ant-api…` key. Only an admin key may read
+    #: `/v1/organizations/cost_report`; an ordinary API key answers 401 there, which is the
+    #: confusing failure this comment exists to pre-empt.
+    anthropic_admin_key: str | None = None
+
+    #: A Fly.io API token — `fly tokens create readonly` is enough for the machine inventory,
+    #: which is what this card is actually for. Fly does not expose per-app spend over the
+    #: API, so the card reports machines, regions and schedules rather than inventing a
+    #: dollar figure. See `services/billing/fly.py`.
+    fly_api_token: str | None = None
+    fly_app_name: str = "rascal-api"
+
+    #: Neon's API key (console.neon.tech → Account settings → API keys) and the project it
+    #: should read. Neon reports consumption — storage bytes, compute seconds, egress — and
+    #: not dollars, so that is what the card shows.
+    neon_api_key: str | None = None
+    neon_project_id: str | None = None
+
+    #: What object storage costs per GB-month, in cents, on the plan we are actually on.
+    #: **Unset means the card shows bytes and no estimate**, which is the honest default:
+    #: Tigris has no billing API, so any figure here is one somebody typed, and a made-up
+    #: number on a costs page is worse than a blank one.
+    storage_price_cents_per_gb_month: int | None = None
+
+    #: How long a provider's answer is reused before the console asks again. These are other
+    #: people's rate limits, and a dashboard left open in a tab must not poll five APIs on
+    #: every render. In-process rather than in Postgres on purpose: the data is cosmetic, a
+    #: second Fly machine holding a slightly different cache costs nothing, and a cache table
+    #: would be schema for a screen.
+    billing_cache_seconds: int = 300
+    billing_timeout_seconds: float = 12.0
+
+    # --- Looking at production from a laptop (phase 98) ------------------------------------
+    #
+    # **A second connection for the admin console's read routes, and nothing else.**
+    #
+    # The obvious way to point the console at Neon is to change `DATABASE_URL`, and it is a
+    # trap. That variable is read by `make migrate`, `make seed`, `make reset-db` — which runs
+    # `alembic downgrade base` — and `make test`, which drops and recreates `<db>_test`. Aimed
+    # at Neon, every one of those becomes a command that destroys the archive, sitting in a
+    # Makefile one tab-completion away. `dev_login_email_domains` above describes the other
+    # half of the same hazard.
+    #
+    # So the console gets its own address and nothing else in the service learns it. Unset —
+    # the shipped state — the console reads whatever `DATABASE_URL` points at, exactly as
+    # before.
+    #
+    # **Set it and the console becomes read-only**, in three independent ways: the connection
+    # sets `default_transaction_read_only=on` so Postgres refuses writes outright, the write
+    # routes refuse before they reach a session, and the top bar says which database is on
+    # screen. Use a read-only Neon role as well; that is the belt, this is the braces.
+    #
+    # Paste the string Neon gives you. `postgres://`, `postgresql://` and `postgresql+psycopg://`
+    # are all accepted — `services/readonly_db.normalise` rewrites the scheme, because the
+    # failure it prevents names neither the setting nor the fix.
+    admin_read_database_url: str | None = None
+
+    @property
+    def admin_reads_elsewhere(self) -> bool:
+        """Whether the console is looking at a database this process cannot write to."""
+        return bool(self.admin_read_database_url)
+
+    # --- The social studio (phase 97) ------------------------------------------------------
+    #
+    # **`anthropic_api_key` is an ordinary `sk-ant-api…` key and is NOT `anthropic_admin_key`
+    # above.** They are different kinds of key from the same console and neither works in the
+    # other's place: the admin key reads organisation billing and cannot call `/v1/messages`;
+    # this one calls `/v1/messages` and cannot read billing. Two settings rather than one
+    # because collapsing them would mean a 401 whose message named the wrong thing.
+    #
+    # `scripts/generate_prompts.py` has read this same variable since phase 46, so a checkout
+    # that can already generate prompt candidates can already run the studio.
+    anthropic_api_key: str | None = None
+
+    #: Overridable because the right model for this changes faster than this file does. The
+    #: default is Opus rather than the Sonnet the candidate generator picks: that script writes
+    #: hundreds of rows a human filters, this one writes a handful that go out under the
+    #: product's name.
+    anthropic_model: str = "claude-opus-5"
+
+    # --- Pixel renderers -------------------------------------------------------------------
+    #
+    # **Anthropic has no image or video endpoint on any model**, so photographs and footage
+    # need a second vendor and there is no configuration that makes the key above produce one.
+    # All optional; unset means the Studio shows a card naming the variable rather than a
+    # button that fails. The brand-card renderer needs none of these — it draws in the browser.
+    openai_api_key: str | None = None
+    replicate_api_token: str | None = None
+    #: Version strings rather than model names: Replicate pins by version, and a name would
+    #: silently start rendering something else the day the model was updated.
+    replicate_image_model: str | None = None
+    replicate_video_model: str | None = None
+
+    #: How many mission-library bodies may appear in social posts before the studio refuses.
+    #: **This is a leak budget, not a rate limit.** D7 keeps the library out of anything
+    #: public "whole or in generated slices" and calls it the one asset a competitor would
+    #: want; the risk from posting prompts is cumulative and invisible, so it is counted and
+    #: capped rather than trusted. Raise it deliberately, having looked at the number.
+    social_featured_prompt_cap: int = 24
+
     # --- APNs ----------------------------------------------------------------------------
     #
     # All optional, and unset is the state this repository has always been in: the key comes

@@ -1096,6 +1096,128 @@ with a comment thread, an audit trail, and an undo. Approving a batch is a commi
 
 The library is content. It's authored and reviewed server-side, never generated at request time and never authored on-device.
 
+### Editing it — phase 96, Aug 19, 2026
+
+All four require `users.is_admin`.
+
+**`POST /prompts/preview`** `{body, name}` → one body rendered as all three pronoun columns plus
+`unknown_tokens`. **The one place the server renders a token**, and it is an authoring tool rather
+than a serving path: bodies still go out with tokens intact and every client still substitutes at
+the last moment. It exists because a body can be grammatical in one column and broken in another —
+`{they_have}` against a hand-written "has" — and the author is usually picturing one child.
+
+**`PATCH /prompts/{id}`** → `{prompt, action, superseded_prompt_id}`. Partial; anything omitted is
+left alone.
+
+> **An edited body is a new prompt, not an update.** `content_hash` is
+> `sha256(kind, cadence, body)` and `seed_prompts` keys on it, so editing a **seeded** body in
+> place would be undone by the next deploy — the row would be retired as absent from
+> `prompts.yaml` and the original re-inserted. Changing `kind`, `cadence` or `body` on a seeded
+> prompt therefore **forks** it: a new `source: "user"` prompt carries the new words, the original
+> is retired through `prompt_library_overrides`, and `action` comes back `superseded` with
+> `superseded_prompt_id` naming the row left behind. That row is never deleted — assignments and
+> entries point at it. Everything else, and every edit to a `user` or `llm` prompt, is `updated`
+> in place.
+
+**`PUT /prompts/{id}/active`** `{active, note}` → the prompt. For a seeded prompt this writes an
+override row as well as the column; the column alone does not survive a deploy.
+
+**`DELETE /prompts/{id}/override`** → the prompt. Removes the override, handing the decision back
+to `docs/mission-library.md`. The `active` column is left where it is until the next seed run.
+
+`422 validation_failed` on a body containing a token outside `constants.PROMPT_TOKENS`; `409
+conflict` when the resulting `(kind, cadence, body)` already exists.
+
+---
+
+## Admin console
+
+**`/admin`** serves an HTML page — the only non-JSON route in the service, and the only exception
+to *"the Fly app serves JSON and nothing else"* in D7. It is not the marketing site: it has one
+reader, it is behind a bearer token, and hosting it anywhere else would need CORS and a second
+origin to save nothing. See `routers/admin_ui.py` for the full argument. The page holds no
+credential and can read nothing without a token, which is why it is unauthenticated and mounted in
+every environment.
+
+Every route below requires `users.is_admin` and returns **counts and operational metadata only** —
+no entry title or body, no caption, no transcript, no child's name, no object key. That is a
+deliberate line rather than an oversight: a console that can page through a family's archive is a
+different product with a different threat model. `tests/test_admin.py` plants distinctive strings
+in an archive and asserts none of them appears in any admin response.
+
+| Route | Returns |
+|---|---|
+| `GET /admin/snapshot?days=` | `{overview, growth, themes, signups}` — the whole first screen in one request |
+| `GET /admin/library` | The library with per-prompt served/completed counts, `content_hash`, and override state |
+| `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
+| `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
+
+`growth.days` is **gap-filled** — every day in the range is present with zeros. A missing day and a
+zero day are different facts and only the server knows which is which.
+
+`ops.scheduler` reads **what the daily job produced**, not whether its deploy was green: a slot ×
+day grid of assignment counts, with `silent: true` on any daily slot that served nothing across the
+window. That is the instrument PR #57 did not have.
+
+`ops.database` names **which database the numbers came from**, on every load rather than only
+when it is unusual — a console that identifies its source only in the surprising case is one
+you have to remember to distrust. `{reading: "local" | "remote", host, read_only, note}`, host
+only and never a credential.
+
+**`ADMIN_READ_DATABASE_URL` points the console's read routes at another database** — Neon, from
+a laptop — without `DATABASE_URL` learning that address, because `make reset-db` runs
+`alembic downgrade base` against it. The connection issues
+`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on connect, so Postgres refuses writes
+whatever the role permits. While it is set, **every console write refuses with 403** — showing
+production and saving to localhost is worse than either alone — and an unreachable target
+answers with a sentence naming the setting rather than a driver error carrying the host, the
+resolved IPs and the failing username.
+
+`costs` fans out to five vendors concurrently, cached in-process for `BILLING_CACHE_SECONDS`. Only
+Anthropic publishes a cost API, so it is the only provider with `amount_cents`; Fly, Neon, Tigris
+and Resend report the consumption their bills are computed from and `providers_without_pricing`
+names them. **An unconfigured provider is a `status: "unconfigured"` card carrying the environment
+variable to set and where the key comes from** — never an error, and never a blank that reads as
+zero spend.
+
+---
+
+## Social studio
+
+Phase 97. Admin only, and **nothing here posts anything** — there is no platform integration,
+no scheduler, and no route that reaches the internet. Assets are generated, reviewed and
+downloaded; `status: "published"` is the owner recording that they put it out themselves.
+
+> **Claude does not generate images or video.** There is no such endpoint on any Anthropic
+> model. The studio uses the key for what it genuinely does — art direction, copy, captions,
+> alt text, image briefs and shot lists — and pixels come from one of two places: a brand-card
+> template drawn on a canvas in the browser, which needs no vendor and no key, or a
+> third-party renderer that is unconfigured until somebody adds one.
+
+| Route | Returns |
+|---|---|
+| `GET /social/studio` | Which renderers are configured, the D7 ledger, and the templates, palettes and platform sizes a concept may name |
+| `POST /social/chat` | **Streams `text/plain`.** The whole conversation goes up each time — nothing stores a thread |
+| `POST /social/concepts` | `n` post concepts, schema-enforced: angle, template, palette, headline, subhead, caption, alt text, hashtags, image brief |
+| `POST /social/shot-list` | A shot list plus a WebVTT caption track for a short vertical video |
+| `GET\|POST /social/assets`, `PATCH /social/assets/{id}` | Saved posts |
+| `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
+
+**`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
+spends its status code the moment headers are sent, so an exception inside the generator
+cannot become a 422 — it becomes a truncated body the browser reports as a network error.
+A missing key is therefore an ordinary error response; anything that fails mid-stream writes
+its reason into the body as text instead.
+
+**`featured_prompt_id` on `POST /social/assets` is the only way a mission-library body reaches
+a post.** The body is read server-side from that id and never accepted as text, and using one
+consumes a unit of the cap in `GET /social/studio` — see `docs/data-model.md`'s
+`social_assets`, and D7 for why there is a cap at all.
+
+**Alt text is required to move an asset to `exported` or `published`**, and the check is at
+that moment rather than at creation: a rule enforced while somebody is still typing is a rule
+that gets switched off.
+
 ---
 
 ## Debug (local only)

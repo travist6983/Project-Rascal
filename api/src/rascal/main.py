@@ -12,6 +12,8 @@ from rascal.db import get_session
 from rascal.errors import register_error_handlers
 from rascal.logging_config import configure_logging
 from rascal.routers import (
+    admin,
+    admin_ui,
     auth,
     children,
     debug,
@@ -23,6 +25,7 @@ from rascal.routers import (
     media,
     moments,
     prompts,
+    social,
     subscribe,
     sync,
     today,
@@ -94,8 +97,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(moments.router, prefix=API_PREFIX)
     app.include_router(sync.router, prefix=API_PREFIX)
     app.include_router(prompts.router, prefix=API_PREFIX)
+    app.include_router(admin.router, prefix=API_PREFIX)
+    app.include_router(social.router, prefix=API_PREFIX)
     app.include_router(webhooks.router, prefix=API_PREFIX)
     app.include_router(subscribe.router, prefix=API_PREFIX)
+    # The admin console's own HTML, at /admin. Not under /v1 and not JSON: it is a page
+    # rather than an endpoint, and it reads this API over the same bearer auth any client
+    # uses. Mounted in every environment on purpose — see routers/admin_ui.py.
+    app.include_router(admin_ui.router)
+    admin_ui.mount(app)
+
     # No prefix: Apple fetches the association file from the root of the domain and will not
     # follow a redirect to find it, so `/v1` is not available to these two.
     app.include_router(wellknown.router)

@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <!-- No external origin is reachable from this page. Everything it needs is same-origin,
+         which is one of the reasons the console is served from the API rather than a CDN. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
+    <title>Vellum — admin</title>
+    <link rel="stylesheet" href="/admin/static/admin.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23FDFAF4'/%3E%3Cpath d='M8 9l8 15 8-15' fill='none' stroke='%23C05A2B' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body data-view="signin">
+    <!-- Sign in ------------------------------------------------------------------------- -->
+    <main id="signin" class="signin">
+      <div class="signin-card">
+        <div class="wordmark" aria-label="Vellum">
+          <svg viewBox="0 -126 531.5 126" role="img" aria-hidden="true">
+            <path
+              d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="19.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+        <p class="signin-eyebrow">Admin</p>
+        <h1 class="signin-title">Everything that runs this thing.</h1>
+        <p class="signin-body">
+          The console reads the same API the app does, over the same bearer token. It needs an
+          account with <code>is_admin</code> set.
+        </p>
+
+        <button id="dev-login" class="btn btn-primary">Sign in with dev-login</button>
+        <p class="signin-note">
+          Local only. <code>dev-login</code> is mounted when
+          <code>ENVIRONMENT=local</code> and does not exist in a production build.
+        </p>
+
+        <div class="signin-or"><span>or paste an access token</span></div>
+        <form id="token-form" class="signin-token">
+          <label class="sr-only" for="token-input">Access token</label>
+          <input
+            id="token-input"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="eyJhbGciOi…"
+          />
+          <button class="btn" type="submit">Use token</button>
+        </form>
+        <p id="signin-error" class="signin-error" role="alert" hidden></p>
+      </div>
+    </main>
+
+    <!-- Console ------------------------------------------------------------------------- -->
+    <div id="console" class="shell" hidden>
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="wordmark wordmark-sm" aria-label="Vellum">
+            <svg viewBox="0 -126 531.5 126" role="img" aria-hidden="true">
+              <path
+                d="M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="19.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+          <span class="topbar-tag">admin</span>
+          <span id="env-chip" class="chip chip-plain"></span>
+          <span id="db-chip" class="chip chip-plain" title=""></span>
+        </div>
+        <nav class="tabs" role="tablist" aria-label="Sections">
+          <button class="tab" role="tab" data-tab="today">Today</button>
+          <button class="tab" role="tab" data-tab="library">Library</button>
+          <button class="tab" role="tab" data-tab="studio">Studio</button>
+          <button class="tab" role="tab" data-tab="costs">Costs</button>
+          <button class="tab" role="tab" data-tab="ops">Ops</button>
+        </nav>
+        <div class="topbar-right">
+          <span id="stamp" class="stamp"></span>
+          <button id="refresh" class="btn btn-quiet" title="Reload every panel">Refresh</button>
+          <button id="signout" class="btn btn-quiet">Sign out</button>
+        </div>
+      </header>
+
+      <div id="banner" class="banner" role="alert" hidden></div>
+
+      <!-- Today --------------------------------------------------------------------- -->
+      <section id="panel-today" class="panel" role="tabpanel">
+        <div class="hero">
+          <div class="hero-figure">
+            <p class="label">Moments kept</p>
+            <p id="hero-entries" class="hero-number">—</p>
+            <p id="hero-sub" class="hero-sub"></p>
+          </div>
+          <div class="hero-chart">
+            <div class="chart-head">
+              <p class="label">Entries written each day</p>
+              <div class="range" role="group" aria-label="Time range">
+                <button class="range-btn" data-days="30">30d</button>
+                <button class="range-btn is-on" data-days="60">60d</button>
+                <button class="range-btn" data-days="120">120d</button>
+              </div>
+            </div>
+            <div id="chart-entries" class="chart"></div>
+          </div>
+        </div>
+
+        <div id="tiles" class="tiles"></div>
+
+        <div class="grid-2">
+          <article class="card">
+            <p class="label">What the archive is made of</p>
+            <p class="card-note">Live entries by what they actually contain.</p>
+            <div id="chart-types" class="chart"></div>
+          </article>
+          <article class="card">
+            <p class="label">Themes people finish</p>
+            <p class="card-note">
+              Completed assignments by the theme of the prompt that asked. Freeform entries
+              answered no prompt and correctly do not appear.
+            </p>
+            <div id="chart-themes" class="chart"></div>
+          </article>
+        </div>
+
+        <article class="card">
+          <p class="label">Newest accounts</p>
+          <p class="card-note">
+            Enough to start a support conversation, and nothing about anybody's archive.
+          </p>
+          <div id="signups" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <!-- Library ------------------------------------------------------------------- -->
+      <section id="panel-library" class="panel" role="tabpanel" hidden>
+        <article class="card">
+          <div class="chart-head">
+            <div>
+              <p class="label">The mission library</p>
+              <p id="library-count" class="card-note"></p>
+            </div>
+            <button id="new-prompt" class="btn btn-primary">Write a prompt</button>
+          </div>
+          <div class="filters">
+            <input id="f-q" type="search" placeholder="Search bodies…" />
+            <select id="f-kind"><option value="">Every kind</option></select>
+            <select id="f-cadence"><option value="">Every cadence</option></select>
+            <select id="f-theme"><option value="">Every theme</option></select>
+            <select id="f-source"><option value="">Every source</option></select>
+            <select id="f-active">
+              <option value="">Active and retired</option>
+              <option value="true">Active only</option>
+              <option value="false">Retired only</option>
+            </select>
+          </div>
+          <div id="library" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <!-- Studio -------------------------------------------------------------------- -->
+      <section id="panel-studio" class="panel" role="tabpanel" hidden>
+        <div id="studio-state" class="card"></div>
+
+        <div class="studio">
+          <article class="card chat-card">
+            <p class="label">Art direction</p>
+            <p class="card-note">
+              Claude knows the product, the voice and the rules, and does not have the mission
+              library — that stays out of anything public, so featuring a prompt is something you
+              do deliberately from the Library tab.
+            </p>
+            <div id="chat-log" class="chat-log"></div>
+            <form id="chat-form" class="chat-form">
+              <textarea
+                id="chat-input"
+                rows="2"
+                placeholder="Five angles for launch week, for someone who already has 40,000 photos of their kid…"
+              ></textarea>
+              <button class="btn btn-primary" type="submit">Send</button>
+            </form>
+          </article>
+
+          <article class="card">
+            <p class="label">Make a set</p>
+            <form id="concepts-form" class="form">
+              <label class="field">
+                <span>Brief</span>
+                <textarea id="c-brief" rows="2" required
+                  placeholder="Why backdating matters — a photo from 2019 belongs in 2019"></textarea>
+              </label>
+              <div class="field-row">
+                <label class="field">
+                  <span>Platform</span>
+                  <select id="c-platform"></select>
+                </label>
+                <label class="field">
+                  <span>How many</span>
+                  <select id="c-count">
+                    <option>3</option><option selected>4</option><option>6</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field">
+                <span>Feature a library prompt</span>
+                <select id="c-prompt"><option value="">Nothing attached</option></select>
+              </label>
+              <p id="c-ledger" class="card-note"></p>
+              <p id="c-error" class="form-error" role="alert" hidden></p>
+              <button class="btn btn-primary" type="submit">Write concepts</button>
+            </form>
+
+            <div class="field-row studio-video">
+              <label class="field">
+                <span>…or a video shot list</span>
+                <input id="v-brief" placeholder="30 seconds on what a camera roll can't do" />
+              </label>
+              <button id="v-go" class="btn" type="button">Shot list</button>
+            </div>
+          </article>
+        </div>
+
+        <div id="concepts" class="cards"></div>
+
+        <article class="card">
+          <div class="chart-head">
+            <div>
+              <p class="label">Saved posts</p>
+              <p class="card-note">
+                Nothing here posts anywhere. Generate, look at it, download the file, put it out
+                yourself. `published` is you recording that you did.
+              </p>
+            </div>
+            <select id="a-filter">
+              <option value="">Everything</option>
+              <option value="draft">Drafts</option>
+              <option value="approved">Approved</option>
+              <option value="exported">Exported</option>
+              <option value="published">Published</option>
+            </select>
+          </div>
+          <div id="assets" class="asset-grid"></div>
+        </article>
+      </section>
+
+      <!-- Costs --------------------------------------------------------------------- -->
+      <section id="panel-costs" class="panel" role="tabpanel" hidden>
+        <div class="hero hero-costs">
+          <div class="hero-figure">
+            <p class="label">Known spend, last 30 days</p>
+            <p id="hero-spend" class="hero-number">—</p>
+            <p id="hero-spend-sub" class="hero-sub"></p>
+          </div>
+          <div class="hero-chart">
+            <p class="label">Anthropic, daily</p>
+            <div id="chart-spend" class="chart"></div>
+          </div>
+        </div>
+        <div id="providers" class="cards"></div>
+      </section>
+
+      <!-- Ops ----------------------------------------------------------------------- -->
+      <section id="panel-ops" class="panel" role="tabpanel" hidden>
+        <article class="card">
+          <p class="label">Did the scheduler actually run?</p>
+          <p class="card-note">
+            Read from what the job <em>produced</em>, not from whether its deploy was green. A
+            daily slot showing nothing across the whole window is the shape of the defect PR
+            #57 found — a feature that shipped, deployed green, and served nothing for weeks.
+          </p>
+          <div id="scheduler" class="chart"></div>
+        </article>
+        <div class="grid-2">
+          <article class="card">
+            <p class="label">Switches</p>
+            <p class="card-note">What each one gates, so a false is readable six months later.</p>
+            <div id="flags" class="flags"></div>
+          </article>
+          <article class="card">
+            <p class="label">Jobs and queues</p>
+            <div id="jobs" class="jobs"></div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <!-- Prompt editor -------------------------------------------------------------------- -->
+    <div id="drawer" class="drawer" hidden>
+      <div class="drawer-scrim" data-close></div>
+      <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+        <header class="drawer-head">
+          <h2 id="drawer-title" class="drawer-title">Edit prompt</h2>
+          <button class="btn btn-quiet" data-close aria-label="Close">Close</button>
+        </header>
+        <div id="drawer-warning" class="drawer-warning" hidden></div>
+        <form id="prompt-form" class="form">
+          <label class="field">
+            <span>Body</span>
+            <textarea id="p-body" rows="4" required maxlength="2000"></textarea>
+          </label>
+          <div id="preview" class="preview"></div>
+          <div class="field-row">
+            <label class="field">
+              <span>Kind</span>
+              <select id="p-kind"></select>
+            </label>
+            <label class="field">
+              <span>Cadence</span>
+              <select id="p-cadence"></select>
+            </label>
+            <label class="field">
+              <span>Completion</span>
+              <select id="p-completion"></select>
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span>Theme</span>
+              <input id="p-theme" list="theme-list" required maxlength="100" />
+              <datalist id="theme-list"></datalist>
+            </label>
+            <label class="field">
+              <span>Min age (months)</span>
+              <input id="p-min" type="number" min="0" max="300" required />
+            </label>
+            <label class="field">
+              <span>Max age (months)</span>
+              <input id="p-max" type="number" min="0" max="300" required />
+            </label>
+          </div>
+          <label class="field">
+            <span>Seasonal months</span>
+            <input id="p-months" placeholder="10, 11, 12 — blank means any month" />
+          </label>
+          <p id="form-error" class="form-error" role="alert" hidden></p>
+          <div class="drawer-actions">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" id="p-retire" class="btn btn-danger" hidden></button>
+            <button type="button" id="p-release" class="btn btn-quiet" hidden>
+              Hand back to the seed file
+            </button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
+    <!-- Post composer -------------------------------------------------------------------- -->
+    <div id="composer" class="drawer" hidden>
+      <div class="drawer-scrim" data-close-composer></div>
+      <aside class="drawer-panel drawer-wide" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+        <header class="drawer-head">
+          <h2 id="composer-title" class="drawer-title">Compose</h2>
+          <button class="btn btn-quiet" data-close-composer aria-label="Close">Close</button>
+        </header>
+        <div class="composer-body">
+          <div class="composer-preview">
+            <canvas id="card-canvas"></canvas>
+            <p id="card-note" class="card-note"></p>
+          </div>
+          <form id="composer-form" class="form">
+            <div class="field-row">
+              <label class="field">
+                <span>Template</span>
+                <select id="m-template"></select>
+              </label>
+              <label class="field">
+                <span>Palette</span>
+                <select id="m-palette"></select>
+              </label>
+              <label class="field">
+                <span>Platform</span>
+                <select id="m-platform"></select>
+              </label>
+            </div>
+            <label class="field">
+              <span>Eyebrow</span>
+              <input id="m-eyebrow" maxlength="40" placeholder="Optional" />
+            </label>
+            <label class="field">
+              <span>Headline</span>
+              <textarea id="m-headline" rows="2" maxlength="400"></textarea>
+            </label>
+            <label class="field">
+              <span>Subhead</span>
+              <textarea id="m-subhead" rows="2" maxlength="600"></textarea>
+            </label>
+            <label class="field">
+              <span>Caption</span>
+              <textarea id="m-caption" rows="4" maxlength="4000"></textarea>
+            </label>
+            <label class="field">
+              <span>Alt text — required before export</span>
+              <textarea id="m-alt" rows="2" maxlength="1000"
+                placeholder="What is visibly in the image, for somebody who cannot see it."></textarea>
+            </label>
+            <label class="field">
+              <span>Hashtags</span>
+              <input id="m-tags" placeholder="vellum, parenting" />
+            </label>
+            <p id="m-error" class="form-error" role="alert" hidden></p>
+            <div class="drawer-actions">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" id="m-png" class="btn">Download PNG</button>
+              <button type="button" id="m-webm" class="btn">Download WebM</button>
+              <button type="button" id="m-export" class="btn btn-quiet">Mark exported</button>
+            </div>
+          </form>
+        </div>
+      </aside>
+    </div>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="tooltip" class="tooltip" role="presentation" hidden></div>
+
+    <script type="module" src="/admin/static/admin.js"></script>
+  </body>
+</html>
