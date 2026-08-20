@@ -1168,6 +1168,44 @@ zero spend.
 
 ---
 
+## Social studio
+
+Phase 97. Admin only, and **nothing here posts anything** — there is no platform integration,
+no scheduler, and no route that reaches the internet. Assets are generated, reviewed and
+downloaded; `status: "published"` is the owner recording that they put it out themselves.
+
+> **Claude does not generate images or video.** There is no such endpoint on any Anthropic
+> model. The studio uses the key for what it genuinely does — art direction, copy, captions,
+> alt text, image briefs and shot lists — and pixels come from one of two places: a brand-card
+> template drawn on a canvas in the browser, which needs no vendor and no key, or a
+> third-party renderer that is unconfigured until somebody adds one.
+
+| Route | Returns |
+|---|---|
+| `GET /social/studio` | Which renderers are configured, the D7 ledger, and the templates, palettes and platform sizes a concept may name |
+| `POST /social/chat` | **Streams `text/plain`.** The whole conversation goes up each time — nothing stores a thread |
+| `POST /social/concepts` | `n` post concepts, schema-enforced: angle, template, palette, headline, subhead, caption, alt text, hashtags, image brief |
+| `POST /social/shot-list` | A shot list plus a WebVTT caption track for a short vertical video |
+| `GET\|POST /social/assets`, `PATCH /social/assets/{id}` | Saved posts |
+| `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
+
+**`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
+spends its status code the moment headers are sent, so an exception inside the generator
+cannot become a 422 — it becomes a truncated body the browser reports as a network error.
+A missing key is therefore an ordinary error response; anything that fails mid-stream writes
+its reason into the body as text instead.
+
+**`featured_prompt_id` on `POST /social/assets` is the only way a mission-library body reaches
+a post.** The body is read server-side from that id and never accepted as text, and using one
+consumes a unit of the cap in `GET /social/studio` — see `docs/data-model.md`'s
+`social_assets`, and D7 for why there is a cap at all.
+
+**Alt text is required to move an asset to `exported` or `published`**, and the check is at
+that moment rather than at creation: a rule enforced while somebody is still typing is a rule
+that gets switched off.
+
+---
+
 ## Debug (local only)
 
 Registered only when `ENVIRONMENT == "local"`, same gating as `dev-login`. These exist

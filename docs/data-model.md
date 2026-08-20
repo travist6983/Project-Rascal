@@ -660,6 +660,67 @@ nothing if the body ever comes back.
 
 ---
 
+## `social_assets`
+
+**Phase 97, Aug 19, 2026.** What the admin console's social studio produced. Marketing output,
+not user data.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `platform` | text | `instagram` \| `instagram_story` \| `x` \| `threads` \| `facebook` \| `linkedin` \| `generic`, `text` + named CHECK |
+| `status` | text | `draft` \| `approved` \| `exported` \| `published` \| `discarded` |
+| `format` | text | `card` \| `photo` \| `video` |
+| `angle`, `template`, `palette`, `headline`, `subhead` | text NULL | The card |
+| `caption`, `alt_text` | text NULL | The post. **`alt_text` is not the caption** |
+| `hashtags` | text[] | |
+| `image_prompt` | text NULL | A brief for a photographic renderer, written whether or not one is configured |
+| `shot_list` | jsonb NULL | Video: what the model wrote |
+| `caption_track` | text NULL | WebVTT, derived from the shot list |
+| `duration_seconds` | integer NULL | |
+| `render_provider`, `render_key` | text NULL | A key, never a URL — same rule as `media` |
+| `featured_prompt_id` | uuid FK NULL | → `prompts`, `ON DELETE SET NULL` |
+| `featured_body` | text NULL | **The D7 ledger.** See below |
+| `model`, `created_by_user_id`, `published_at` | | |
+| `created_at`, `updated_at` | timestamptz | `set_updated_at()` trigger |
+
+**No `deleted_at`, and it is not a second exception to rule 5.** Rule 5 covers user-data
+tables — the ones `/sync` carries and a client must learn deletions from. This is marketing
+content the owner writes about the product, and it follows the table it most resembles:
+`email_broadcasts`, also marketing output, also `updated_at` with no soft delete. Discarding a
+draft is `status = 'discarded'`, which carries more than a tombstone would and is what the
+counter below depends on. The only rule-5 exception remains `deletion_requests`.
+
+### `featured_body` is the load-bearing column
+
+`docs/decisions.md` D7 keeps the mission library out of anything public *"whole or in generated
+slices"* and calls it **the one asset in this project a competitor would actually want.** A
+studio that can put a prompt on a card is a machine for producing exactly those slices —
+publicly, permanently, one at a time. That is the shape of leak nobody notices until it is
+complete, because no single post looks like a problem.
+
+Three things hold it and none of them is "remember not to":
+
+1. **Claude never sees the library.** No tool, no context, and `services/social/brand.py` tells
+   it not to invent lines that read like one.
+2. **Featuring a body is explicit.** The API takes a `featured_prompt_id` and reads the body
+   itself; a caller-supplied `featured_body` is ignored, or the ledger would be counting
+   something other than the library.
+3. **Every body is counted against `SOCIAL_FEATURED_PROMPT_CAP`.** Distinct prompts, not posts
+   — three posts about one prompt disclose one prompt. `ix_social_assets_featured_prompt_id`
+   is partial on `status <> 'discarded'`, so a concept nobody used never counted.
+
+`featured_body` snapshots the words rather than trusting the foreign key alone: the library
+editor can fork a prompt, and the row `featured_prompt_id` points at may no longer hold what
+went out.
+
+### Nothing here posts anything
+
+There is no social-network integration, no scheduler, and no route that reaches a platform.
+`published` is the owner recording that they posted it somewhere else.
+
+---
+
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
 **Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:

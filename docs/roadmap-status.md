@@ -55,6 +55,47 @@ Everything in this file was checked by running something — the test suites, th
 
 * * *
 
+## Phase 97 — the social studio, Aug 19, 2026 (local only, nothing deployed, nothing posted)
+
+A Studio tab in the admin console. Full write-up in `docs/reports/phase-97-social-studio.md`;
+three things belong here.
+
+**The request was image generation, video generation and captioning "via our anthropic key",
+and one of those cannot be done that way.** Anthropic has no image or video endpoint on any
+model — Claude is text-and-vision in, text out. Rather than build a button that spins, the
+split is explicit: Claude does art direction, copy, captions, alt text, image briefs and shot
+lists, and pixels come from a **canvas card renderer that needs no vendor at all** or from a
+provider port that is unconfigured until somebody adds a key. For a warm typographic brand
+whose posts are sentences, the card renderer is not a fallback — it hits the palette exactly,
+costs nothing per image, and cannot drift off-brand.
+
+**It ships with a cap on the mission library, and that is the part worth reading twice.** D7
+keeps the library out of anything public *"whole or in generated slices"* and calls it the one
+asset a competitor would actually want. A social generator that features prompts is a machine
+for producing those slices — publicly, permanently, one post at a time, which is a leak nobody
+notices because no single post looks like a problem. So Claude never sees the library, the body
+is read server-side from a prompt id the owner picks, and `SOCIAL_FEATURED_PROMPT_CAP` refuses
+past 24 distinct prompts. **This is the first thing in the project that could have leaked that
+asset by accident, and the counter is on screen.**
+
+**Nothing posts anything.** No platform integration, no scheduler, no publish route — the same
+gate open item 12 puts on marketing email, plus the plainer point that an automation which
+posts on its own is one bad generation away from doing so under the product's name.
+
+**Figures re-derived Aug 19, 2026, second pass:** **891 tests pass, 1 skipped** (was 862 after
+phase 96). **74 operations across 64 paths**, up eight. Migration `0018_social_assets`, up and
+down. Zero new dependencies — the model call is raw `httpx`, matching
+`scripts/generate_prompts.py`, which has called `/v1/messages` from this repo since phase 46.
+
+**Three bugs the browser found that no test would have.** `.panel { display: flex }` silently
+beat the UA stylesheet's `[hidden] { display: none }`, so tabs left the old panel on screen.
+`requestAnimationFrame` does not fire in a background tab, so the WebM recorder hung with the
+button stuck on "Recording…" — it is driven by `setInterval` with a hard deadline now. And the
+page's own `style-src 'self'` CSP silently drops `style=` attributes in generated markup, so
+the D7 ledger bar inherited its track's width and **drew an empty budget as a full one**.
+
+* * *
+
 ## Phase 96 — the admin console, Aug 19, 2026 (local only, nothing deployed)
 
 `/admin`, behind `users.is_admin`: a business snapshot, a mission-library editor, a five-vendor

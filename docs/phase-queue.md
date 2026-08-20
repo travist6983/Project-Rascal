@@ -8,8 +8,8 @@ stays short. If a line stops being true, delete it — a queue that carries fini
 exact failure `roadmap-status.md` has now made six revisions running.
 
 ~~*Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. The highest number used is
-78, so a genuinely new phase takes 79*~~ — **struck Aug 19, 2026. The highest number used is 96 and
-it is taken by the admin console; a genuinely new phase takes 97.**
+78, so a genuinely new phase takes 79*~~ — **struck Aug 19, 2026. The highest number used is 97 —
+96 is the admin console and 97 the social studio; a genuinely new phase takes 98.**
 
 **Sixth instance, and this one broke the remedy rather than the count.** Phase 96 ran all three
 commands below, got 95, and 95 was already spent — by the *content* of `docs/decisions-log.md`,
@@ -306,6 +306,15 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   key comes from — Tigris and Resend already work off credentials this repo has. And **the
   scheduler grid says `mission_b` has served nothing for a fortnight locally**; the same panel
   against production is the "read the rows" check `roadmap-status.md` keeps asking for.
+
+- ~~**97 — the social studio.**~~ **Shipped Aug 19, 2026.** A Studio tab: Claude as art
+  director, schema-enforced post concepts, brand cards drawn on a canvas and exported as PNG or
+  WebM, and shot lists with a WebVTT caption track. **Two things to know before using it.**
+  It needs `ANTHROPIC_API_KEY` — the ordinary `sk-ant-api…` kind, not the admin key the cost
+  panel wants — and **Claude generates no images or video**, because no Anthropic model has
+  such an endpoint; the cards are drawn locally and photographs need `OPENAI_API_KEY` or
+  `REPLICATE_API_TOKEN`. **Nothing posts anywhere.** Featuring a mission-library prompt is
+  counted and capped at 24 per D7; the Studio shows the running total.
 
 ## Iceboxed
 
