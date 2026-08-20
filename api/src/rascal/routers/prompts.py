@@ -15,7 +15,7 @@ from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 
 from rascal.constants import Cadence, PromptKind, PromptSource
-from rascal.deps import AdminUser, CurrentUser, SessionDep
+from rascal.deps import AdminUser, CurrentUser, LocalWrites, SessionDep
 from rascal.errors import ErrorCode, RascalError
 from rascal.models import Prompt
 from rascal.schemas.admin import (
@@ -102,7 +102,9 @@ async def list_prompts(
         "and never authored on-device."
     ),
 )
-async def create_prompt(payload: PromptCreate, session: SessionDep, user: AdminUser) -> PromptOut:
+async def create_prompt(
+    payload: PromptCreate, session: SessionDep, user: AdminUser, _: LocalWrites
+) -> PromptOut:
     # The same token check `seeding._validate` runs over the YAML. The console is the other
     # way a body enters the library, and a `{thier}` typed here renders as literal braces on a
     # card, in an export, and in a printed book, for as long as the archive exists.
@@ -166,7 +168,11 @@ async def preview_prompt(payload: PromptPreviewIn, user: AdminUser) -> PromptPre
     ),
 )
 async def patch_prompt(
-    prompt_id: uuid.UUID, payload: PromptUpdate, session: SessionDep, user: AdminUser
+    prompt_id: uuid.UUID,
+    payload: PromptUpdate,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
 ) -> PromptEditOut:
     result = await edit_prompt(session, prompt_id, payload.model_dump(exclude_unset=True), user)
     return PromptEditOut(
@@ -187,7 +193,11 @@ async def patch_prompt(
     ),
 )
 async def set_prompt_active(
-    prompt_id: uuid.UUID, payload: PromptActiveIn, session: SessionDep, user: AdminUser
+    prompt_id: uuid.UUID,
+    payload: PromptActiveIn,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
 ) -> PromptOut:
     prompt = await set_active(session, prompt_id, payload.active, user, payload.note)
     return PromptOut.model_validate(prompt)
@@ -205,6 +215,6 @@ async def set_prompt_active(
     ),
 )
 async def delete_prompt_override(
-    prompt_id: uuid.UUID, session: SessionDep, user: AdminUser
+    prompt_id: uuid.UUID, session: SessionDep, user: AdminUser, _: LocalWrites
 ) -> PromptOut:
     return PromptOut.model_validate(await clear_override(session, prompt_id))

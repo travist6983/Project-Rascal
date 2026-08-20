@@ -303,6 +303,36 @@ class Settings(DatabaseSettings):
     billing_cache_seconds: int = 300
     billing_timeout_seconds: float = 12.0
 
+    # --- Looking at production from a laptop (phase 98) ------------------------------------
+    #
+    # **A second connection for the admin console's read routes, and nothing else.**
+    #
+    # The obvious way to point the console at Neon is to change `DATABASE_URL`, and it is a
+    # trap. That variable is read by `make migrate`, `make seed`, `make reset-db` — which runs
+    # `alembic downgrade base` — and `make test`, which drops and recreates `<db>_test`. Aimed
+    # at Neon, every one of those becomes a command that destroys the archive, sitting in a
+    # Makefile one tab-completion away. `dev_login_email_domains` above describes the other
+    # half of the same hazard.
+    #
+    # So the console gets its own address and nothing else in the service learns it. Unset —
+    # the shipped state — the console reads whatever `DATABASE_URL` points at, exactly as
+    # before.
+    #
+    # **Set it and the console becomes read-only**, in three independent ways: the connection
+    # sets `default_transaction_read_only=on` so Postgres refuses writes outright, the write
+    # routes refuse before they reach a session, and the top bar says which database is on
+    # screen. Use a read-only Neon role as well; that is the belt, this is the braces.
+    #
+    # Paste the string Neon gives you. `postgres://`, `postgresql://` and `postgresql+psycopg://`
+    # are all accepted — `services/readonly_db.normalise` rewrites the scheme, because the
+    # failure it prevents names neither the setting nor the fix.
+    admin_read_database_url: str | None = None
+
+    @property
+    def admin_reads_elsewhere(self) -> bool:
+        """Whether the console is looking at a database this process cannot write to."""
+        return bool(self.admin_read_database_url)
+
     # --- The social studio (phase 97) ------------------------------------------------------
     #
     # **`anthropic_api_key` is an ordinary `sk-ant-api…` key and is NOT `anthropic_admin_key`

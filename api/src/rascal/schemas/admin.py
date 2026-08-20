@@ -88,6 +88,7 @@ class AdminSnapshot(ApiModel):
 
 class AdminOps(ApiModel):
     environment: str
+    database: dict[str, Any]
     flags: list[dict[str, Any]]
     scheduler: dict[str, Any]
     jobs: dict[str, Any]

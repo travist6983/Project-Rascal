@@ -22,7 +22,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Query, status
 from fastapi.responses import StreamingResponse
 
-from rascal.deps import AdminUser, SessionDep, SettingsDep
+from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
 from rascal.errors import ErrorCode, RascalError
 from rascal.schemas.social import (
     ChatIn,
@@ -48,7 +48,7 @@ router = APIRouter(prefix="/social", tags=["social"])
     ),
 )
 async def studio_state(
-    session: SessionDep, user: AdminUser, settings: SettingsDep
+    session: AdminReadSession, user: AdminUser, settings: SettingsDep
 ) -> dict[str, Any]:
     ledger = await studio.featured_body_ledger(session, settings)
     return {
@@ -154,7 +154,7 @@ async def shot_list(payload: ShotListIn, user: AdminUser, settings: SettingsDep)
 
 @router.get("/assets", summary="Saved posts, newest first")
 async def list_assets(
-    session: SessionDep,
+    session: AdminReadSession,
     user: AdminUser,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 60,
@@ -174,7 +174,11 @@ async def list_assets(
     ),
 )
 async def create_asset(
-    payload: SocialAssetIn, session: SessionDep, user: AdminUser, settings: SettingsDep
+    payload: SocialAssetIn,
+    session: SessionDep,
+    user: AdminUser,
+    settings: SettingsDep,
+    _: LocalWrites,
 ) -> dict[str, Any]:
     asset = await studio.create_asset(
         session, settings, payload.model_dump(exclude_unset=True), user
@@ -196,6 +200,7 @@ async def patch_asset(
     payload: SocialAssetUpdate,
     session: SessionDep,
     user: AdminUser,
+    _: LocalWrites,
 ) -> dict[str, Any]:
     asset = await studio.update_asset(session, asset_id, payload.model_dump(exclude_unset=True))
     return studio.as_dict(asset)
@@ -216,6 +221,7 @@ async def render_asset(
     session: SessionDep,
     user: AdminUser,
     settings: SettingsDep,
+    _: LocalWrites,
 ) -> dict[str, Any]:
     asset = await studio.update_asset(session, asset_id, {})
     prompt = payload.prompt or asset.image_prompt

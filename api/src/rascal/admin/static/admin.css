@@ -1128,3 +1128,20 @@ tbody tr.is-off td {
 .ledger-bar span {
   width: 0;
 }
+
+/* Read-only mode. The console is showing a database this process cannot write to, so the
+   controls that would fail are hidden rather than left to explain themselves after a click. */
+body[data-readonly="true"] #new-prompt,
+body[data-readonly="true"] .drawer-actions .btn-primary,
+body[data-readonly="true"] .drawer-actions .btn-danger,
+body[data-readonly="true"] #p-release,
+body[data-readonly="true"] #m-export,
+body[data-readonly="true"] #concepts-form button[type="submit"],
+body[data-readonly="true"] #v-go {
+  display: none;
+}
+body[data-readonly="true"] tbody tr.is-clickable,
+body[data-readonly="true"] .concept,
+body[data-readonly="true"] .asset {
+  cursor: default;
+}

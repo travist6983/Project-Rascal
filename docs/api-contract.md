@@ -1159,6 +1159,20 @@ zero day are different facts and only the server knows which is which.
 day grid of assignment counts, with `silent: true` on any daily slot that served nothing across the
 window. That is the instrument PR #57 did not have.
 
+`ops.database` names **which database the numbers came from**, on every load rather than only
+when it is unusual — a console that identifies its source only in the surprising case is one
+you have to remember to distrust. `{reading: "local" | "remote", host, read_only, note}`, host
+only and never a credential.
+
+**`ADMIN_READ_DATABASE_URL` points the console's read routes at another database** — Neon, from
+a laptop — without `DATABASE_URL` learning that address, because `make reset-db` runs
+`alembic downgrade base` against it. The connection issues
+`SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on connect, so Postgres refuses writes
+whatever the role permits. While it is set, **every console write refuses with 403** — showing
+production and saving to localhost is worse than either alone — and an unreachable target
+answers with a sentence naming the setting rather than a driver error carrying the host, the
+resolved IPs and the failing username.
+
 `costs` fans out to five vendors concurrently, cached in-process for `BILLING_CACHE_SECONDS`. Only
 Anthropic publishes a cost API, so it is the only provider with `amount_cents`; Fly, Neon, Tigris
 and Resend report the consumption their bills are computed from and `providers_without_pricing`

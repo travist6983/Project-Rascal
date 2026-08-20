@@ -884,6 +884,7 @@ const toneColor = (tone) =>
 function renderOps(data) {
   $("env-chip").textContent = data.environment;
   $("env-chip").className = `chip ${data.environment === "prod" ? "chip-bad" : "chip-plain"}`;
+  renderDatabaseChip(data.database);
 
   heatGrid($("scheduler"), data.scheduler.span, data.scheduler.slots);
   const silent = data.scheduler.slots.filter((s) => s.silent).map((s) => s.slot);
@@ -1361,6 +1362,29 @@ async function downloadWebm() {
   }
 }
 
+/**
+ * Which database the numbers came from, on every screen.
+ *
+ * Shown always, not only when it is unusual. Six rows of local fixtures look exactly like six
+ * real customers until something says which they are — that ambiguity is what sent somebody
+ * looking for their wife's account in a database she had never touched.
+ */
+function renderDatabaseChip(database) {
+  const chip = $("db-chip");
+  if (!database) {
+    chip.hidden = true;
+    return;
+  }
+  chip.hidden = false;
+  const remote = database.reading === "remote";
+  chip.textContent = remote ? `${database.host} · read-only` : `local · ${database.host}`;
+  chip.className = `chip ${remote ? "chip-peri" : "chip-plain"}`;
+  chip.title = database.note;
+  // Read-only mode disables every write in the console, so the buttons that would fail go
+  // away rather than waiting to explain themselves after a click.
+  document.body.dataset.readonly = String(remote);
+}
+
 // --- Loading ------------------------------------------------------------------------------
 
 let currentTab = "today";
@@ -1411,7 +1435,9 @@ function signedIn() {
   $("console").hidden = false;
   // Ops first: it is the cheapest call and it is what fills the environment chip, so the
   // top bar is never briefly wrong about which database is being looked at.
-  api("/admin/ops").then(renderOps).catch(() => {});
+  api("/admin/ops")
+    .then(renderOps)
+    .catch(() => {});
   showTab("today");
 }
 

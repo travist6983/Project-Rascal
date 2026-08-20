@@ -22,9 +22,9 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from rascal.config import Settings
-from rascal.deps import AdminUser, SessionDep, SettingsDep
+from rascal.deps import AdminReadSession, AdminUser, SettingsDep
 from rascal.schemas.admin import AdminCosts, AdminOps, AdminSnapshot
-from rascal.services import admin_metrics, billing
+from rascal.services import admin_metrics, billing, readonly_db
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
     ),
 )
 async def snapshot(
-    session: SessionDep,
+    session: AdminReadSession,
     user: AdminUser,
     days: Annotated[int, Query(ge=7, le=365)] = 60,
 ) -> AdminSnapshot:
@@ -62,7 +62,7 @@ async def snapshot(
     ),
 )
 async def library(
-    session: SessionDep,
+    session: AdminReadSession,
     user: AdminUser,
     kind: str | None = None,
     cadence: str | None = None,
@@ -96,9 +96,10 @@ async def library(
         "nothing for weeks while every other instrument in the project reported success."
     ),
 )
-async def ops(session: SessionDep, user: AdminUser, settings: SettingsDep) -> AdminOps:
+async def ops(session: AdminReadSession, user: AdminUser, settings: SettingsDep) -> AdminOps:
     return AdminOps(
         environment=settings.environment,
+        database=_database(settings),
         flags=_flags(settings),
         scheduler=await admin_metrics.scheduler_health(session),
         jobs=await admin_metrics.ops(session),
@@ -129,6 +130,31 @@ async def costs(user: AdminUser, settings: SettingsDep, refresh: bool = False) -
             if report.status == "ok" and report.amount_cents is None
         ],
     )
+
+
+def _database(settings: Settings) -> dict[str, object]:
+    """Which database the numbers on screen came from.
+
+    Reported on every load rather than only when it is unusual. A console that names its source
+    only in the surprising case is a console you have to remember to distrust — and the whole
+    reason this block exists is that six rows of local fixtures are indistinguishable from six
+    real customers until somebody says which they are.
+    """
+    if not settings.admin_read_database_url:
+        return {
+            "reading": "local",
+            "host": readonly_db.describe(settings.database_url),
+            "read_only": False,
+            "note": "Reading the database this process writes to.",
+        }
+    return {
+        "reading": "remote",
+        "host": readonly_db.describe(settings.admin_read_database_url),
+        "read_only": True,
+        "note": "Reading ADMIN_READ_DATABASE_URL over a connection Postgres refuses writes "
+        "on. Library and Studio edits are disabled while this is set — they would save to "
+        "your local database while showing you this one.",
+    }
 
 
 def _flags(settings: Settings) -> list[dict[str, object]]:

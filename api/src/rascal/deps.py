@@ -12,13 +12,14 @@ sends you debugging the wrong thing.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import Depends, Path, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.config import Settings, get_settings
@@ -26,6 +27,7 @@ from rascal.constants import GuardianRole
 from rascal.db import get_session
 from rascal.errors import ErrorCode, RascalError, not_authorized, not_found
 from rascal.models import Assignment, Child, Entry, Guardian, Media, User
+from rascal.services import readonly_db
 from rascal.services.apple import AppleVerifier
 from rascal.services.google import GoogleVerifier
 from rascal.services.tokens import decode_access_token
@@ -94,6 +96,60 @@ async def require_admin(user: CurrentUser) -> User:
 
 
 AdminUser = Annotated[User, Depends(require_admin)]
+
+
+async def admin_read_session(
+    settings: SettingsDep,
+    session: SessionDep,
+) -> AsyncIterator[AsyncSession]:
+    """The session the admin console's *read* routes use.
+
+    Unset `ADMIN_READ_DATABASE_URL` — the shipped state — and this is the ordinary request
+    session, so nothing changes and the test suite's `get_session` override still applies.
+    Set it and the console reads that database instead, over a connection Postgres refuses
+    writes on. See `services/readonly_db.py` for why this is a second connection rather than a
+    different value for `DATABASE_URL`.
+    """
+    if not settings.admin_read_database_url:
+        yield session
+        return
+    try:
+        async for read in readonly_db.session_for(settings.admin_read_database_url):
+            yield read
+    except (readonly_db.Unreachable, SQLAlchemyError) as exc:
+        # A sentence, never the driver's text. SQLAlchemy's OperationalError stringifies to the
+        # host, the port, every resolved IP and the failing username — most of a connection
+        # string, in a response body, on the single likeliest failure: the first paste of a URL.
+        raise RascalError(
+            ErrorCode.INTERNAL_ERROR,
+            f"Could not read {readonly_db.describe(settings.admin_read_database_url)} — "
+            f"{readonly_db.reason(exc)}. Check ADMIN_READ_DATABASE_URL, or unset it to read your "
+            "local database.",
+        ) from None
+
+
+AdminReadSession = Annotated[AsyncSession, Depends(admin_read_session)]
+
+
+async def require_local_writes(settings: SettingsDep) -> None:
+    """Refuse a console write while the console is reading somewhere else.
+
+    Without this the console would show production and save to `localhost`, which is worse
+    than either — an edit that appears to work, against numbers from another database, landing
+    somewhere nobody will look for it. Reading production is a deliberate act, and so is the
+    read-only mode that comes with it.
+    """
+    if settings.admin_reads_elsewhere:
+        raise RascalError(
+            ErrorCode.NOT_AUTHORIZED,
+            "The console is reading "
+            f"{readonly_db.describe(settings.admin_read_database_url or '')} and is read-only "
+            "while it is. Unset ADMIN_READ_DATABASE_URL to edit against your local database, "
+            "or deploy the console so it writes to the same place it reads.",
+        )
+
+
+LocalWrites = Annotated[None, Depends(require_local_writes)]
 
 
 @dataclass(frozen=True)
