@@ -9,7 +9,7 @@ Everything in this module runs *after* `services/app_store.verify_notification` 
 signature. There is no other entry point: the router hands this function a
 `VerifiedNotification`, which cannot be constructed from an unverified payload.
 
-## Three guards, and the table of notification types matters less than any of them
+## Four guards, and the table of notification types matters less than any of them
 
 **1. Ordering.** Apple retries until it gets a 2xx, and retries arrive interleaved with new
 notifications. An `EXPIRED` delivered *after* a `RESUBSCRIBE` will, in the obvious
@@ -18,11 +18,18 @@ to the stored `latest_signed_date` for its `originalTransactionId` may write any
 also makes redelivery of the same notification a no-op, so idempotency falls out of the same
 comparison rather than needing its own mechanism.
 
-**2. Sandbox may never write a Production entitlement.** Anyone with a sandbox tester account
+**2. One `originalTransactionId` belongs to one environment.** A payload disagreeing with the
+row already recorded for that transaction is refused outright rather than recorded, because the
+transaction id is the primary key and there is no second row to put it in. Recording it would
+let a Sandbox payload advance `latest_signed_date` on a Production subscription, after which
+guard 1 makes every legitimate Production notification look stale and the household's tier
+freezes wherever it happened to be, with nothing in any log to say why.
+
+**3. Sandbox may never write a Production entitlement.** Anyone with a sandbox tester account
 can produce real, correctly-signed Sandbox notifications. In production those are recorded and
 touch nothing. Gated on the same `ENVIRONMENT` setting that compiles out `dev-login`.
 
-**3. Never demote a family with no transaction record.** `runbook-deploy.md` §7a wrote the
+**4. Never demote a family with no transaction record.** `runbook-deploy.md` §7a wrote the
 owner's own household `subscribed` by hand and there is no App Store transaction behind it,
 nor will there ever be. A reconciliation that noticed a subscribed family with no receipt and
 set it free would lock the owner out of his own product. So a demotion is refused unless this
@@ -38,6 +45,7 @@ quietly become a one-notification delay instead of a guard.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,10 +143,62 @@ async def apply_notification(
         )
         return "ignored:out-of-order"
 
-    family_id = await _resolve_family(session, note)
+    # **Attribution falls back to the ledger, and that is not a weakening of guard 4.**
+    # `appAccountToken` is attached at purchase time, and the notification that matters most —
+    # the `EXPIRED` a year or two later — is the one furthest from it. Requiring the token on
+    # every payload would mean a household that stops paying keeps `subscribed` forever, which
+    # is the failure that costs money rather than the one that annoys somebody. The row we
+    # fall back to *is* the transaction record guard 4 asks for, so this is the same evidence,
+    # not weaker evidence — and a family with no row (the owner's, per §7a) has nothing to
+    # fall back to.
+    token_family_id = await _resolve_family(session, note)
+    family_id = token_family_id or (existing.family_id if existing is not None else None)
+
+    if (
+        token_family_id is not None
+        and existing is not None
+        and existing.family_id is not None
+        and existing.family_id != token_family_id
+    ):
+        # Apple does have an API for changing a subscription's `appAccountToken`, so this is
+        # reachable rather than impossible — but nothing in this service calls it, so seeing
+        # it means something changed that nobody here decided. The old household keeps
+        # whatever tier it had; sorting that out is a support conversation, not a guess.
+        log.warning(
+            "app store transaction reattributed to a different family",
+            extra={
+                "original_transaction_id": note.original_transaction_id,
+                "from_family_id": str(existing.family_id),
+                "to_family_id": str(token_family_id),
+            },
+        )
+
     effect = tier_effect(note.notification_type, note.subtype)
 
-    # --- Guard 2: sandbox isolation ---------------------------------------------------------
+    # --- Guard 2: one transaction, one environment -------------------------------------------
+    #
+    # **One `originalTransactionId` belongs to one environment**, and a payload from the other
+    # one does not get to touch its row — not the tier, not the attribution, and above all not
+    # `latest_signed_date`. That last one is why this refuses the write outright rather than
+    # recording it: the ordering guard reads that column as a high-water mark, so a Sandbox
+    # payload advancing it would make every subsequent *legitimate* Production notification
+    # look stale, freezing the household's tier wherever it happened to be with nothing in any
+    # log to say why. There is no second row to put it in — the transaction id is the primary
+    # key — so the choice is refuse or corrupt.
+    if existing is not None and existing.environment != note.environment:
+        log.warning(
+            "app store notification refused: it claims a transaction recorded in the other "
+            "environment",
+            extra={
+                "original_transaction_id": note.original_transaction_id,
+                "recorded_environment": existing.environment,
+                "payload_environment": note.environment,
+                "type": note.notification_type,
+            },
+        )
+        return "ignored:environment-mismatch"
+
+    # --- Guard 3: sandbox may never write a Production entitlement ---------------------------
     sandbox_blocked = not may_write_tier(note.environment, service_environment)
     if effect is not None and sandbox_blocked:
         log.warning(
@@ -151,7 +211,7 @@ async def apply_notification(
         )
         effect = None
 
-    # --- Guard 3: never demote a family with no transaction record --------------------------
+    # --- Guard 4: never demote a family with no transaction record --------------------------
     #
     # Evaluated against `existing` — the row as it was *before* this notification — because
     # the row this notification is about to write is not evidence of anything.
@@ -191,7 +251,7 @@ async def apply_notification(
     return f"tier:{effect}"
 
 
-def _outcome(effect: Tier | None, family_id: object, demotion_refused: bool) -> str:
+def _outcome(effect: Tier | None, family_id: uuid.UUID | None, demotion_refused: bool) -> str:
     if demotion_refused:
         return "recorded:demotion-refused"
     if family_id is None:
@@ -199,7 +259,7 @@ def _outcome(effect: Tier | None, family_id: object, demotion_refused: bool) -> 
     return "recorded:no-tier-change"
 
 
-async def _resolve_family(session: AsyncSession, note: VerifiedNotification):
+async def _resolve_family(session: AsyncSession, note: VerifiedNotification) -> uuid.UUID | None:
     """The family this transaction belongs to, or `None`.
 
     **`appAccountToken` is the only channel by which Apple can carry a family id**, so a
@@ -235,7 +295,7 @@ async def _record(
     note: VerifiedNotification,
     *,
     existing: AppStoreTransaction | None,
-    family_id: object,
+    family_id: uuid.UUID | None,
 ) -> None:
     """Upsert the ledger row. `updated_at` is the trigger's job and is never set here."""
     if existing is None:
@@ -259,7 +319,12 @@ async def _record(
     existing.latest_notification_type = note.notification_type
     existing.latest_notification_subtype = note.subtype
     existing.latest_signed_date = note.signed_date
-    existing.expires_date = note.expires_date
+    # **Only when this notification actually carried one.** Not every type carries
+    # `transactionInfo`, and phase 38 schedules against these dates — blanking a known expiry
+    # because one payload was quiet about it is how a household gets treated as never having
+    # had one.
+    if note.expires_date is not None:
+        existing.expires_date = note.expires_date
     existing.raw_payload = note.raw
     # An attribution is never *unset* by a later notification: a renewal that arrived without
     # an `appAccountToken` must not orphan a receipt this service had already attributed.
@@ -269,7 +334,7 @@ async def _record(
 
 async def _write_tier(
     session: AsyncSession,
-    family_id: object,
+    family_id: uuid.UUID,
     effect: Tier,
     note: VerifiedNotification,
 ) -> None:
@@ -300,7 +365,7 @@ async def _write_tier(
     )
 
 
-async def _set_payer(session: AsyncSession, entitlement: Entitlement, family_id: object) -> None:
+async def _set_payer(session: AsyncSession, entitlement: Entitlement, family_id: uuid.UUID) -> None:
     """Record who is paying — **only when the household leaves no room to guess.**
 
     `appAccountToken` carries a *family* id, per the client obligation in

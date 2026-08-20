@@ -210,17 +210,17 @@ async def require_child_access(
     return ChildAccess(child=child, user=user, role=guardian.role)
 
 
-async def require_family_access(
-    session: AsyncSession,
-    user: User,
-    family_id: uuid.UUID,
-) -> uuid.UUID:
+async def require_family_access(user: User, family_id: uuid.UUID) -> uuid.UUID:
     """Authorization for a household-scoped route. **Any member of the household may read.**
 
     Membership is `users.family_id` rather than a `guardians` row, because a household is not
     a child: per D4 the entitlement is a family-level attribute, and a guardian of no children
     — a second parent mid-way through accepting an invite — is still in the household and
     still covered by what it pays for.
+
+    **No `session`**, and the absence is the point rather than an omission: the answer is on
+    the `User` the bearer token already resolved, so this check cannot be made wrong by a
+    stale read and adds no query to a route that is two.
 
     Here rather than in the handler for the reason the module docstring gives: `families/{id}`
     is a forgeable path segment, and an ownership check written inside a handler is one that
@@ -235,11 +235,10 @@ def family_access() -> Callable[..., Coroutine[Any, Any, uuid.UUID]]:
     """`family_id` from the path, checked against the caller's household."""
 
     async def dependency(
-        session: SessionDep,
         user: CurrentUser,
         family_id: Annotated[uuid.UUID, Path()],
     ) -> uuid.UUID:
-        return await require_family_access(session, user, family_id)
+        return await require_family_access(user, family_id)
 
     return dependency
 

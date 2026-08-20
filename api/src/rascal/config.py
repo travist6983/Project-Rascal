@@ -414,14 +414,27 @@ class Settings(DatabaseSettings):
     app_store_bundle_id: str | None = None
 
     @property
-    def resolved_app_store_bundle_id(self) -> str:
-        """The single bundle id App Store payloads are pinned to.
+    def resolved_app_store_bundle_id(self) -> str | None:
+        """The single bundle id App Store payloads are pinned to, or `None` if it is ambiguous.
 
-        Falls back to `resolved_apns_topic` rather than to `apple_bundle_id[0]` directly, so
-        the one place that already refuses to guess between audiences keeps doing the
-        refusing.
+        **Falls back to `apple_bundle_id`, deliberately not to `resolved_apns_topic`.** The two
+        are the same string today and are not the same thing: `APNS_TOPIC` exists so push can
+        be aimed at one audience when the sign-in allowlist names several, and chaining this to
+        it would mean setting the push topic silently re-pointed which app's receipts this
+        service will accept.
+
+        **`None` rather than a startup failure when `APPLE_BUNDLE_ID` names more than one
+        audience**, which is where this differs from `resolved_apns_topic` on purpose. APNs
+        refuses to start because push is configured and a wrong topic silently drops every
+        notification. Nothing here is configured — no product exists in App Store Connect —
+        so hard-failing would take the entire API down the day somebody adds a web Services ID,
+        for a webhook that is already answering 401 for want of a root certificate.
+        `AppStoreVerifier` treats `None` the same way it treats an empty trust store: it builds
+        nothing, says so at ERROR, and refuses every notification.
         """
-        return self.app_store_bundle_id or self.resolved_apns_topic
+        if self.app_store_bundle_id:
+            return self.app_store_bundle_id
+        return self.apple_bundle_id[0] if len(self.apple_bundle_id) == 1 else None
 
     @property
     def apns_configured(self) -> bool:

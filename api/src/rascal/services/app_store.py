@@ -121,6 +121,18 @@ class AppStoreVerifier:
             )
             return
 
+        if self._bundle_id is None:
+            # `APPLE_BUNDLE_ID` names more than one audience and `APP_STORE_BUNDLE_ID` is
+            # unset, so there is nothing to pin a payload to. Refusing everything is the only
+            # safe answer: guessing would accept notifications about a different app.
+            log.error(
+                "APP_STORE_BUNDLE_ID is unset and APPLE_BUNDLE_ID names more than one "
+                "audience, so every notification will be refused with 401. A signed payload "
+                "is pinned to one bundle id and it cannot be guessed from a list.",
+                extra={"apple_bundle_id": settings.apple_bundle_id},
+            )
+            return
+
         for environment in (Environment.SANDBOX, Environment.PRODUCTION):
             try:
                 self._verifiers[environment] = SignedDataVerifier(

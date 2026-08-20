@@ -1608,7 +1608,7 @@ the attribution, because none exists.
 |---|---|---|
 | `SUBSCRIBED` | `INITIAL_BUY`, `RESUBSCRIBE` | → `subscribed`, `lapsed_at` cleared, payer recorded |
 | `DID_RENEW` | any | → `subscribed`, `lapsed_at` cleared |
-| `DID_CHANGE_RENEWAL_STATUS` | `AUTO_RENEW_OFF` / `_ON` | **no change.** Cancelling auto-renew is not lapsing — the household is paid up until `expires_date`, and demoting here bills them for time they do not get |
+| `DID_CHANGE_RENEWAL_STATUS` | `AUTO_RENEW_DISABLED` / `AUTO_RENEW_ENABLED` | **no change.** Cancelling auto-renew is not lapsing — the household is paid up until `expires_date`, and demoting here bills them for time they do not get |
 | `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card |
 | `DID_FAIL_TO_RENEW` | none | → `free`, `lapsed_at` = `signedDate` |
 | `GRACE_PERIOD_EXPIRED` | — | → `free`, `lapsed_at` = `signedDate` |
@@ -1616,7 +1616,11 @@ the attribution, because none exists.
 | `REFUND` | — | → `free`, `lapsed_at` = `signedDate` |
 | `REVOKE` | — | → `free`, `lapsed_at` = `signedDate` |
 | `DID_CHANGE_RENEWAL_PREF` | any | no change — monthly↔annual is a *plan change*, which D5a's single subscription group is what makes true |
+| `REFUND_REVERSED`, `REFUND_DECLINED` | — | **recorded, no change — and this is a known gap, not an oversight.** A reversed refund means the customer should have access back, and this does not give it to them. The row is written, so it is recoverable by hand from `app_store_transactions`; restoring automatically is a decision nobody has made |
+| `TEST` | — | recorded, no change. This is what App Store Connect's *send a test notification* button produces, and it is the first real payload this endpoint will ever receive |
 | anything else | — | recorded, no change, `202` |
+
+**The subtype spellings above are Apple's own**, taken from `appstoreserverlibrary.models.Subtype` rather than from prose. `AUTO_RENEW_OFF` and `AUTO_RENEW_ON` — which an earlier draft of this table used — are **not values Apple sends**, and a branch or a test written against them would never match anything while looking entirely correct. A test pins every notification string this service branches on against Apple's enums.
 
 **`lapsed_at` is Apple's `signedDate`, never "now".** D3's two clocks run from when Apple decided;
 dating a lapse to when we happened to hear about it moves a deletion horizon by however long the
@@ -1644,6 +1648,27 @@ household `subscribed` by hand and there is no Apple transaction behind it. A de
 unless an `app_store_transactions` row already links that family to that `originalTransactionId` —
 and a refused demotion does not record the attribution it was refused for, or the guard would be a
 one-notification delay rather than a guard.
+
+**The accepted cost of that guard, stated plainly**: a household that genuinely lapses on a
+subscription this server never saw begin — bought before the webhook existed, or during an outage
+long enough for Apple to give up retrying the `SUBSCRIBED` — stays `subscribed` until somebody
+reconciles it by hand. That is the deliberate direction to fail in. Over-granting costs a
+subscription; under-granting locks a paying family out of their own archive, and the specific family
+it would lock out first is the owner's.
+
+**Attribution falls back to the ledger when a notification carries no `appAccountToken`.** The token
+is attached at purchase time, and the notification that matters most — the `EXPIRED` a year or two
+later — is the one furthest from that purchase. If the attribution had to arrive on every payload, a
+household that stopped paying would keep `subscribed` forever. The row fallen back to *is* the
+transaction record the guard above asks for, so this is the same evidence rather than weaker
+evidence; a family with no row has nothing to fall back to.
+
+**One `originalTransactionId` belongs to one environment.** A payload whose environment disagrees
+with the row already recorded for that transaction is refused outright — `202`, logged at warning,
+nothing written. Recording it would mean a Sandbox payload advancing `latest_signed_date` on a
+Production subscription, after which every legitimate Production notification would look stale and
+the household's tier would freeze wherever it happened to be. The transaction id is the primary key,
+so there is no second row to put it in: the choice is refuse or corrupt.
 
 This is the **only** path that may set `tier`. A subscribe, a renewal, a cancellation, a billing
 failure and a refund all arrive here, which is what keeps one authority over the answer — and is why

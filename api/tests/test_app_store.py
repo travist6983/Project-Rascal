@@ -271,8 +271,8 @@ async def test_a_forged_inner_transaction_is_refused(app_store_verifier, app_sto
         ("SUBSCRIBED", "RESUBSCRIBE", "subscribed"),
         ("DID_RENEW", None, "subscribed"),
         ("DID_RENEW", "BILLING_RECOVERY", "subscribed"),
-        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_OFF", None),
-        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_ON", None),
+        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_DISABLED", None),
+        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_ENABLED", None),
         ("DID_FAIL_TO_RENEW", "GRACE_PERIOD", None),
         ("DID_FAIL_TO_RENEW", None, "free"),
         ("GRACE_PERIOD_EXPIRED", None, "free"),
@@ -302,7 +302,7 @@ def test_the_notification_table(notification_type, subtype, expected):
         ("SUBSCRIBED", "INITIAL_BUY", "free", "subscribed"),
         ("SUBSCRIBED", "RESUBSCRIBE", "free", "subscribed"),
         ("DID_RENEW", None, "subscribed", "subscribed"),
-        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_OFF", "subscribed", "subscribed"),
+        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_DISABLED", "subscribed", "subscribed"),
         ("DID_FAIL_TO_RENEW", "GRACE_PERIOD", "subscribed", "subscribed"),
         ("DID_CHANGE_RENEWAL_PREF", "UPGRADE", "subscribed", "subscribed"),
     ],
@@ -1042,3 +1042,366 @@ async def test_families_me_and_the_entitlement_route_never_disagree(
     )
 
     assert me.json()["tier"] == entitlement.json()["tier"] == "subscribed"
+
+
+# --- The second pass ---------------------------------------------------------------------------
+#
+# Everything below was found by re-reading the diff against Apple's actual notification
+# vocabulary rather than against the phase's description of it.
+
+
+async def test_a_demotion_still_lands_when_apple_omits_the_app_account_token(
+    app_store_client, session, app_store_chain
+):
+    """**`appAccountToken` is not guaranteed on every notification for a subscription.**
+
+    It is set at purchase time and echoed back, and the notification that matters most here —
+    the `EXPIRED` two years later — is the one furthest from that purchase. If the attribution
+    has to come from the payload every time, a household that stops paying keeps `subscribed`
+    forever, which is the failure that costs money rather than the one that annoys somebody.
+
+    The ledger row written by the `SUBSCRIBED` already records who this subscription belongs
+    to. That row *is* the transaction record, so falling back to it is the same evidence the
+    demotion guard asks for, not a weaker one.
+    """
+    family = await _household(session)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=EARLIER,
+            app_account_token=family.id,
+        ),
+    )
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT,
+            app_account_token=None,
+        ),
+    )
+
+    assert response.status_code == 202
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT
+    # The attribution survives a notification that did not carry one.
+    assert (await _transaction(session, "2000000000000001")).family_id == family.id
+
+
+async def test_a_sandbox_notification_never_advances_a_production_rows_clock(
+    app, session, app_store_settings, app_store_chain
+):
+    """**Denial of entitlement, not just a wrong row.**
+
+    `latest_signed_date` is the ordering guard's high-water mark. If a Sandbox notification
+    could push it forward on a Production subscription's row, every *legitimate* Production
+    notification after it would be ignored as out of order — the household's tier would freeze
+    wherever it happened to be, silently, and nothing Apple sent afterwards would move it.
+    """
+    from httpx import ASGITransport, AsyncClient
+
+    from rascal.config import get_settings
+    from rascal.deps import get_app_store_verifier
+
+    family = await _household(session)
+    await session.commit()
+
+    prod_settings = app_store_settings.model_copy(update={"environment": "prod"})
+    app.dependency_overrides[get_app_store_verifier] = lambda: AppStoreVerifier(prod_settings)
+    app.dependency_overrides[get_settings] = lambda: prod_settings
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        await _post(
+            client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type="SUBSCRIBED",
+                subtype="INITIAL_BUY",
+                signed_date=EARLIER,
+                environment="Production",
+                app_account_token=family.id,
+            ),
+        )
+        assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+        # A Sandbox notification, correctly signed, claiming the same subscription and a much
+        # newer clock.
+        sandbox = await _post(
+            client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type="EXPIRED",
+                # Newer than the Production row's clock, so only the environment check can
+                # stop it. Still inside the fixture chain's validity, which is checked
+                # against the payload's own `signedDate`.
+                signed_date=SIGNED_AT + dt.timedelta(days=365),
+                environment="Sandbox",
+                app_account_token=family.id,
+            ),
+        )
+        assert sandbox.status_code == 202
+
+        row = await _transaction(session, "2000000000000001")
+        assert row.environment == "Production", "the Production row was overwritten"
+        assert row.latest_signed_date == EARLIER, "a Sandbox payload moved the ordering clock"
+
+        # And the household is still reachable by real Production notifications afterwards.
+        await _post(
+            client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type="DID_RENEW",
+                signed_date=SIGNED_AT,
+                environment="Production",
+                app_account_token=family.id,
+            ),
+        )
+        entitlement = await _entitlement(session, family.id)
+        assert entitlement.tier == "subscribed"
+        assert (await _transaction(session, "2000000000000001")).latest_signed_date == SIGNED_AT
+
+
+@pytest.mark.parametrize(
+    ("notification_type", "subtype"),
+    [
+        # **Apple's real spellings.** `AUTO_RENEW_OFF` / `AUTO_RENEW_ON` do not exist in
+        # Apple's vocabulary — `appstoreserverlibrary.models.Subtype` is the list — and a
+        # parametrisation using them would assert the right outcome for a value Apple never
+        # sends, which is worth less than no test because it is counted.
+        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_DISABLED"),
+        ("DID_CHANGE_RENEWAL_STATUS", "AUTO_RENEW_ENABLED"),
+    ],
+)
+async def test_turning_auto_renew_off_does_not_lapse_a_paid_up_household(
+    app_store_client, session, app_store_chain, notification_type, subtype
+):
+    """Cancelling auto-renew is not lapsing: the household is paid up until `expires_date`,
+    and demoting here bills them for time they do not get."""
+    family = await _household(session)
+    await session.commit()
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=EARLIER,
+            app_account_token=family.id,
+            expires_date=LATER,
+        ),
+    )
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type=notification_type,
+            subtype=subtype,
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.status_code == 202
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None
+
+
+async def test_apples_own_test_notification_is_a_no_op(app_store_client, session, app_store_chain):
+    """`TEST` is what App Store Connect's *send a test notification* button produces.
+
+    It is the first real payload this endpoint will ever receive, and it must not do anything
+    to anybody's tier.
+    """
+    family = await _household(session)
+    await session.commit()
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="TEST",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert (await _entitlement(session, family.id)).tier == "free"
+
+
+async def test_a_notification_with_no_transaction_at_all_is_acknowledged(
+    app_store_client, session, app_store_chain
+):
+    """A payload whose `data` carries neither nested JWS — nothing to key the ledger on.
+
+    Acknowledged rather than refused, because a 4xx means Apple tells us about it forever.
+    """
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="RENEWAL_EXTENDED",
+            signed_date=SIGNED_AT,
+            include_transaction_info=False,
+            include_renewal_info=False,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "ignored:no-transaction-id"
+
+
+async def test_a_renewal_without_transaction_info_keeps_the_known_expiry(
+    app_store_client, session, app_store_chain
+):
+    """A notification that carries no `expiresDate` must not erase the one already recorded.
+
+    Phase 38 schedules against these dates. Blanking a known expiry because one notification
+    was quiet about it is how a household gets treated as never having had one.
+    """
+    family = await _household(session)
+    await session.commit()
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=EARLIER,
+            app_account_token=family.id,
+            expires_date=LATER,
+        ),
+    )
+    assert (await _transaction(session, "2000000000000001")).expires_date == LATER
+
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_CHANGE_RENEWAL_STATUS",
+            subtype="AUTO_RENEW_DISABLED",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+            expires_date=None,
+        ),
+    )
+
+    assert (await _transaction(session, "2000000000000001")).expires_date == LATER
+
+
+def test_every_notification_string_this_service_branches_on_is_one_apple_sends():
+    """**Pins the vocabulary against Apple's own enums.**
+
+    A typo in `PROMOTING_NOTIFICATIONS`, `DEMOTING_NOTIFICATIONS`, or the `GRACE_PERIOD`
+    comparison does not raise, does not log, and does not fail any test that uses the same
+    typo in its fixture. It just means that notification never does anything — a household
+    that paid stays `free`, or one that lapsed stays `subscribed`, forever.
+
+    This file's own parametrisations were wrong in exactly that way until Aug 20, 2026: they
+    used `AUTO_RENEW_OFF` and `AUTO_RENEW_ON`, which are not values Apple sends. The behaviour
+    happened to be right — `DID_CHANGE_RENEWAL_STATUS` never changes the tier whatever its
+    subtype — so nothing failed, and two tests were asserting the right outcome for a value
+    that does not exist. This test is what stops that being possible.
+    """
+    from appstoreserverlibrary.models.NotificationTypeV2 import NotificationTypeV2
+    from appstoreserverlibrary.models.Subtype import Subtype
+
+    from rascal.constants import DEMOTING_NOTIFICATIONS, PROMOTING_NOTIFICATIONS
+
+    apple_types = {member.value for member in NotificationTypeV2}
+    apple_subtypes = {member.value for member in Subtype}
+
+    branched_types = set(PROMOTING_NOTIFICATIONS) | set(DEMOTING_NOTIFICATIONS)
+    branched_types.add("DID_FAIL_TO_RENEW")  # handled by subtype in `tier_effect`
+
+    assert branched_types <= apple_types, (
+        "these notification types are not in Apple's vocabulary and can never match: "
+        f"{sorted(branched_types - apple_types)}"
+    )
+    # The one subtype any branch compares against.
+    assert "GRACE_PERIOD" in apple_subtypes
+    # And the ones this file's parametrisations rely on being real.
+    assert {"INITIAL_BUY", "RESUBSCRIBE", "AUTO_RENEW_DISABLED", "AUTO_RENEW_ENABLED"} <= (
+        apple_subtypes
+    )
+
+
+def test_a_refund_that_apple_later_reverses_is_recorded_but_does_not_restore():
+    """**A known gap, pinned so it is a decision rather than a discovery.**
+
+    `REFUND_REVERSED` means Apple reversed a refund it had granted — the customer should have
+    access again. `REFUND_DECLINED` means a refund request was refused, so nothing should have
+    changed. Neither restores `subscribed` here: phase 37a implements the table it was given,
+    where anything outside it is recorded with no tier change.
+
+    **The row is written either way**, so this is recoverable by hand from
+    `app_store_transactions` and is not a lost payment. It is written down as a test because
+    the alternative is somebody finding it while a customer is on the phone.
+    """
+    assert tier_effect("REFUND_REVERSED", None) is None
+    assert tier_effect("REFUND_DECLINED", None) is None
+    assert tier_effect("REFUND", None) == "free"
+
+
+async def test_an_ambiguous_bundle_id_refuses_rather_than_guessing(
+    app_store_settings, app_store_chain
+):
+    """**Two audiences and no `APP_STORE_BUNDLE_ID` means refuse, not pick one.**
+
+    `APPLE_BUNDLE_ID` is an allowlist — the iOS app and, one day, a browser Services ID — and
+    `aud` is the only claim that tells them apart. Guessing `[0]` would accept notifications
+    about whichever app happened to be first in a comma-separated secret.
+
+    **This refuses at the verifier rather than at startup**, which is the opposite of what
+    `APNS_TOPIC` does and is deliberate. Push is configured, so a wrong topic is a silent
+    failure worth refusing to boot over. Nothing here is configured, so hard-failing would take
+    the whole API down the day somebody adds a second audience — for a webhook already
+    answering 401 for want of a root certificate.
+    """
+    ambiguous = app_store_settings.model_copy(
+        update={
+            "apple_bundle_id": [stub.BUNDLE_ID, "com.travisterry.web"],
+            "app_store_bundle_id": None,
+        }
+    )
+    assert ambiguous.resolved_app_store_bundle_id is None
+
+    verifier = AppStoreVerifier(ambiguous)
+    assert verifier.configured is False
+    with pytest.raises(NotificationUnverifiable):
+        verifier.verify(
+            stub.sign_notification(
+                app_store_chain, notification_type="SUBSCRIBED", signed_date=SIGNED_AT
+            )
+        )
+
+
+async def test_the_app_store_bundle_id_does_not_follow_the_apns_topic(app_store_settings):
+    """`APNS_TOPIC` aims push at one audience. It must not also decide whose receipts we take.
+
+    Chaining them would mean a push-configuration change silently re-pointing which app this
+    service accepts billing notifications about — a coupling nobody setting `APNS_TOPIC` would
+    expect, between a delivery detail and an authorization boundary.
+    """
+    settings = app_store_settings.model_copy(
+        update={
+            "apple_bundle_id": [stub.BUNDLE_ID],
+            "app_store_bundle_id": None,
+            "apns_topic": "com.travisterry.something.else",
+        }
+    )
+    assert settings.resolved_apns_topic == "com.travisterry.something.else"
+    assert settings.resolved_app_store_bundle_id == stub.BUNDLE_ID
