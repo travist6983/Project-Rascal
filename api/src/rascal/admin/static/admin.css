@@ -518,6 +518,143 @@ body[data-view="signin"] .shell {
   height: auto;
   overflow: visible;
 }
+/* Markdown from the studio chat. Claude answers in prose and this is the panel where that
+   prose is judged, so it is rendered rather than left with its punctuation showing. */
+.turn .prose-h {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 10px 0 4px;
+  letter-spacing: 0.01em;
+}
+
+.turn p {
+  margin: 0 0 8px;
+}
+
+.turn p:last-child {
+  margin-bottom: 0;
+}
+
+.turn blockquote {
+  margin: 8px 0;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--periwinkle-border);
+  color: var(--ink-soft, inherit);
+}
+
+.turn ul,
+.turn ol {
+  margin: 6px 0 8px;
+  padding-left: 20px;
+}
+
+.turn li {
+  margin-bottom: 3px;
+}
+
+.turn code {
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--border);
+}
+
+.turn hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.treatment {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.shots {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  counter-reset: shot;
+}
+
+.shot {
+  counter-increment: shot;
+  padding: 10px 0 10px 30px;
+  border-top: 1px solid var(--border);
+  position: relative;
+}
+
+.shot::before {
+  content: counter(shot);
+  position: absolute;
+  left: 0;
+  top: 12px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.shot-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 0 0 4px;
+}
+
+.shot-super {
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.shot-visual {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.shot-voice {
+  margin: 0;
+  font-size: 13px;
+  padding-left: 10px;
+  border-left: 2px solid var(--periwinkle-border);
+}
+
+.treatment-track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.vtt {
+  margin: 6px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.concept-open {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--periwinkle-deep);
+  opacity: 0.75;
+}
+
+.concept:hover .concept-open,
+.concept:focus-visible .concept-open {
+  opacity: 1;
+}
+
+.concept:focus-visible,
+.asset:focus-visible {
+  outline: 2px solid var(--periwinkle-deep);
+  outline-offset: 2px;
+}
+
 .chart-picker {
   display: flex;
   gap: 6px;

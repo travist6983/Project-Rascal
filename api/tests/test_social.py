@@ -331,6 +331,44 @@ async def test_the_asset_list_filters_by_status(client: AsyncClient, admin) -> N
     assert [asset["headline"] for asset in listed["assets"]] == ["approved"]
 
 
+async def test_a_card_cannot_be_saved_with_an_undrawable_palette(
+    client: AsyncClient, admin
+) -> None:
+    """`models/social.py` says these are validated against `brand.py`. Now they are.
+
+    The console's own dropdown used to offer a blank option labelled "cream" above the real
+    one — picking it saved `palette: ""`, which no renderer can draw and which nothing
+    refused. The browser bug is fixed; this is the half that stops it recurring from any
+    caller.
+    """
+    for field, bad in (("palette", ""), ("template", ""), ("palette", "chartreuse")):
+        response = await client.post(
+            "/v1/social/assets",
+            json={"headline": "hi", "alt_text": "A card.", field: bad},
+            headers=auth_headers(admin),
+        )
+        assert response.status_code == 422, f"{field}={bad!r} was accepted: {response.text}"
+
+
+async def test_every_palette_and_template_brand_offers_is_actually_accepted(
+    client: AsyncClient, admin
+) -> None:
+    """The mirror of the above: the schema must not be stricter than the renderer."""
+    for palette in brand.PALETTES:
+        for template in brand.TEMPLATES:
+            response = await client.post(
+                "/v1/social/assets",
+                json={
+                    "headline": "hi",
+                    "alt_text": "A card.",
+                    "palette": palette,
+                    "template": template,
+                },
+                headers=auth_headers(admin),
+            )
+            assert response.status_code == 201, f"{palette}/{template}: {response.text}"
+
+
 # --- Captions --------------------------------------------------------------------------------
 
 

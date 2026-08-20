@@ -10,8 +10,9 @@ exact failure `roadmap-status.md` has now made six revisions running.
 ~~*Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. The highest number used is
 78, so a genuinely new phase takes 79*~~ — ~~**struck Aug 19, 2026. The highest number used is 97 —
 96 is the admin console and 97 the social studio; a genuinely new phase takes 98.**~~ — **struck
-again Aug 20, 2026. The highest number used is 100**; 98 is the console's second database, 99 the
-console sign-in, and 100 the extended cost panel. **A genuinely new phase takes 101.**
+again Aug 20, 2026. The highest number used is 101**; 98 is the console's second database, 99 the
+console sign-in, 100 the extended cost panel and 101 the fixes found by driving it. **A genuinely
+new phase takes 102.**
 
 **Seventh instance, and it is a *fifth* blind spot rather than the fourth firing again.** The
 fourth is a number spent by a commit whose subject names no phase; this is the opposite. 98 and 99
