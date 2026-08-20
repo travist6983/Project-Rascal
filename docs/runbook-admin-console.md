@@ -122,9 +122,22 @@ Setting a secret restarts the machines — one deploy, not five, so set them in 
 | `NEON_PROJECT_ID` | console.neon.tech → project → Settings | Costs: which project |
 | `RESEND_AUDIENCE_ID` | resend.com → Audiences | Costs: subscribers. Also unblocks `POST /v1/subscribe` |
 
-**The two Anthropic keys are different kinds of key and neither works in the other's place.**
-`sk-ant-admin…` reads organisation billing and cannot call `/v1/messages`; `sk-ant-api…` is the
-reverse. Using the wrong one produces a 401 that reads like a permissions bug.
+### The two Anthropic keys cannot be the same value
+
+`ANTHROPIC_API_KEY` is an ordinary `sk-ant-api…` key. `ANTHROPIC_ADMIN_KEY` is an
+`sk-ant-admin…` key, provisioned separately. The docs are explicit that the Admin API accepts
+**only** an Admin API key or an `org:admin` OAuth token, so a normal API key cannot read the
+cost report. They are two keys, not one key used twice.
+
+> **Admin keys do not exist on individual accounts.** *"The Admin API is unavailable for
+> individual accounts"*, and only organization members with the admin role can provision one.
+> If Console → Settings has no **Admin keys** section, you are on an individual account and the
+> Anthropic cost card cannot work until you set up an organization
+> (Console → Settings → Organization). **Nothing else in the console depends on it** — the
+> Studio uses `ANTHROPIC_API_KEY`, which every account has.
+
+The `org:admin` OAuth token is the documented alternative to an Admin key, but it is short-lived
+and refreshed interactively, so it is not a value to put in a Fly secret.
 
 ### Optional
 

@@ -86,7 +86,11 @@ async def anthropic_report(client: httpx.AsyncClient, settings: Settings) -> Pro
             LABELS["anthropic"],
             "Set ANTHROPIC_ADMIN_KEY to an admin key (sk-ant-admin…) from "
             "console.anthropic.com → Settings → Admin keys. A normal sk-ant-api… key is "
-            "refused by the cost report — it is a different kind of key, not a scope.",
+            "refused — the Admin API takes an admin key or an org:admin OAuth token, and "
+            "nothing else. Admin keys do not exist on individual accounts: if Settings has "
+            "no Admin keys section, this card cannot work until the account becomes an "
+            "organization (Console → Settings → Organization). Everything else in the console "
+            "is unaffected.",
             ANTHROPIC_CONSOLE,
         )
 
