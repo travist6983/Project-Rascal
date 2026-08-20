@@ -108,4 +108,8 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     # tables: `updated_at` because a draft is edited in place, no `deleted_at` because
     # discarding one is a status rather than a disappearance.
     "social_assets",
+    # Phase 37a. The App Store receipt ledger. Not user data and not synced — no client ever
+    # reads it — but a row is updated in place on every renewal notification for the same
+    # subscription, so it wants the trigger for the same reason `email_broadcasts` does.
+    "app_store_transactions",
 )

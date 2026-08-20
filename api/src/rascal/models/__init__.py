@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rascal.models.app_store import AppStoreTransaction
 from rascal.models.assignment import Assignment
 from rascal.models.base import TABLES_WITH_UPDATED_AT, Base
 from rascal.models.child import Child, Guardian
@@ -24,6 +25,7 @@ from rascal.models.user import (
 
 __all__ = [
     "TABLES_WITH_UPDATED_AT",
+    "AppStoreTransaction",
     "Assignment",
     "Base",
     "Child",

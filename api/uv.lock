@@ -48,6 +48,45 @@ wheels = [
 ]
 
 [[package]]
+name = "app-store-server-library"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "asn1" },
+    { name = "attrs" },
+    { name = "cattrs" },
+    { name = "cryptography" },
+    { name = "pyjwt" },
+    { name = "pyopenssl" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8c/c2/1b2b39f910b6359dd1954dd6e6ae050b1e9e8e57d17f57efb32afdd713eb/app_store_server_library-3.1.2.tar.gz", hash = "sha256:0b9005c93298674c934dfa9bc164cd44bfc3f43a8d0dc3834eaf6f66c3572d45", size = 90451, upload-time = "2026-06-01T18:36:37.376Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/62/f9/1908c439040359869a42ba2f4aa3bb80134cc929e03de1b4d33a6c2d4194/app_store_server_library-3.1.2-py3-none-any.whl", hash = "sha256:8007b3dca89fd08a1123fae2ffdbe7bc72b99a7eabfb0a32e21b45a344159e62", size = 131461, upload-time = "2026-06-01T18:36:35.946Z" },
+]
+
+[[package]]
+name = "asn1"
+version = "3.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "enum-compat" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cc/9b/17b20f2ccdeca7f6e61d201a5bc3bd7cafc3d97889e7b3dd0ef673177cf1/asn1-3.2.0.tar.gz", hash = "sha256:0860ad40bbffd6475d2d54b82f50d9196e31b7cee985812ed9559b40e7d809c7", size = 51343, upload-time = "2026-02-07T16:34:18.223Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/50/fed4dc9ac21c77ddbb7893093d4208c7da8a35b83b13ebb880b1633c3349/asn1-3.2.0-py2.py3-none-any.whl", hash = "sha256:3c1788508d49f4f101c3c6b842b5a6d0fc9f68e2782e891d41af19bf321fedbb", size = 17781, upload-time = "2026-02-07T16:34:16.875Z" },
+]
+
+[[package]]
+name = "attrs"
+version = "26.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9a/8e/82a0fe20a541c03148528be8cac2408564a6c9a0cc7e9171802bc1d26985/attrs-26.1.0.tar.gz", hash = "sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32", size = 952055, upload-time = "2026-03-19T14:22:25.026Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/b4/17d4b0b2a2dc85a6df63d1157e028ed19f90d4cd97c36717afef2bc2f395/attrs-26.1.0-py3-none-any.whl", hash = "sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309", size = 67548, upload-time = "2026-03-19T14:22:23.645Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.43.63"
 source = { registry = "https://pypi.org/simple" }
@@ -73,6 +112,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e1/5f/b33913aab846bc88a2720976435adb944d1ef57b92beed829233fe1953d9/botocore-1.43.63.tar.gz", hash = "sha256:854e45247f00b0732496ea1f0c5d0cf3c31d58b48eb052c31c27ab1087dfddf1", size = 15824662, upload-time = "2026-08-03T19:54:55.233Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/23/ae/8ddbf97a12fba9b6ce50ac1c2209ebd2ab3b240229a1fbe5de66ffcbd05f/botocore-1.43.63-py3-none-any.whl", hash = "sha256:8deed86feacc8f8d2491f1d170562af191f8b33924052d834f4217d5d797e5a9", size = 15509076, upload-time = "2026-08-03T19:54:52.455Z" },
+]
+
+[[package]]
+name = "cattrs"
+version = "26.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a0/ec/ba18945e7d6e55a58364d9fb2e46049c1c2998b3d805f19b703f14e81057/cattrs-26.1.0.tar.gz", hash = "sha256:fa239e0f0ec0715ba34852ce813986dfed1e12117e209b816ab87401271cdd40", size = 495672, upload-time = "2026-02-18T22:15:19.406Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/56/60547f7801b97c67e97491dc3d9ade9fbccbd0325058fd3dfcb2f5d98d90/cattrs-26.1.0-py3-none-any.whl", hash = "sha256:d1e0804c42639494d469d08d4f26d6b9de9b8ab26b446db7b5f8c2e97f7c3096", size = 73054, upload-time = "2026-02-18T22:15:17.958Z" },
 ]
 
 [[package]]
@@ -185,6 +237,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/64/a2/4615c8f7d81a00b1d6e6afe19f694e1543582349fb5f4076f6cb5dc36485/cryptography-50.0.0-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:c87f62a3d3b9888ed0fdde100ec06aa61ca9cd44bad9057d1dff9a516b5f5bb9", size = 4878208, upload-time = "2026-07-31T14:24:45.522Z" },
     { url = "https://files.pythonhosted.org/packages/d2/1a/efcfb02f91407149a0dacffffab791f7e19bf6385f63b3666dc8b5e5c9c8/cryptography-50.0.0-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:65c2c3add92b45fd0709db8594536aea39c2a67af0e27ffcf049c498501140b7", size = 5037050, upload-time = "2026-07-31T14:24:47.697Z" },
     { url = "https://files.pythonhosted.org/packages/57/30/4a22984d4f1bdfb8c054f07a92bc176b97a3134cc1d6c4b3bffb1f3688b4/cryptography-50.0.0-cp39-abi3-win_amd64.whl", hash = "sha256:d24fead1d4d076e1bfb006dcec392074a3cd8d7b4fc8a595aa64073b2b7a96ba", size = 3874135, upload-time = "2026-07-31T14:24:50.085Z" },
+]
+
+[[package]]
+name = "enum-compat"
+version = "0.0.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/46/8ed2368976d934652d8f33f1fdd86f5580fab45e890c90a848e83097a093/enum-compat-0.0.3.tar.gz", hash = "sha256:3677daabed56a6f724451d585662253d8fb4e5569845aafa8bb0da36b1a8751e", size = 1389, upload-time = "2019-10-14T18:48:35.264Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/55/ae/467bc4509246283bb59746e21a1a2f5a8aecbef56b1fa6eaca78cd438c8b/enum_compat-0.0.3-py3-none-any.whl", hash = "sha256:88091b617c7fc3bbbceae50db5958023c48dc40b50520005aa3bf27f8f7ea157", size = 1322, upload-time = "2019-10-14T18:48:37.663Z" },
 ]
 
 [[package]]
@@ -561,6 +622,19 @@ crypto = [
 ]
 
 [[package]]
+name = "pyopenssl"
+version = "26.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/e8/7325d258199b159eb2c03fe32107533e2832e70e63f4fb88a6aa00023201/pyopenssl-26.4.0.tar.gz", hash = "sha256:28dfcce0162b9211413e26dfbfdf1d24317fbeba18fc93c12400a1856b2a0bc7", size = 182046, upload-time = "2026-08-01T19:50:50.512Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/51/ad/2cf6d3fa2fae5c79e1ed9960c0d42badd0f94d81dd12b50604cdc839e648/pyopenssl-26.4.0-py3-none-any.whl", hash = "sha256:f0eb0cb2d581d3ad2b9c489468485e7f2ab6727d08401bcf9d824c3caddf3c1c", size = 56026, upload-time = "2026-08-01T19:50:48.94Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -634,6 +708,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
+    { name = "app-store-server-library" },
     { name = "boto3" },
     { name = "fastapi" },
     { name = "httpx", extra = ["http2"] },
@@ -658,6 +733,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
+    { name = "app-store-server-library", specifier = ">=1.5" },
     { name = "boto3", specifier = ">=1.35" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.28" },

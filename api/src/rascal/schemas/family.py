@@ -35,6 +35,33 @@ class FamilyOut(ApiModel):
     pending_invites: list[InviteOut] = Field(default_factory=list)
 
 
+class EntitlementOut(ApiModel):
+    """What a household is entitled to, and when its media stops being kept.
+
+    Separate from `FamilyOut` rather than folded into it, and both read the same
+    `entitlements` row through `services/guardians.entitlement_for` — so there is one
+    authority over "is this household subscribed" and two shapes of it, not two answers.
+    `FamilyOut` is the household screen (who is here, who has been asked); this is the
+    subscription screen.
+    """
+
+    family_id: uuid.UUID
+    tier: Tier
+    #: When the subscription lapsed. Null on a household that has never subscribed as well as
+    #: on one that currently is — `tier` is what tells those apart.
+    lapsed_at: dt.datetime | None = None
+    #: **A date, computed per request, never stored.** `max(lapsed_at + 24 months,
+    #: last_sign_in_at + 12 months)` per D3, where `last_sign_in_at` is a MAX across the
+    #: household's guardians. Both clocks move, so a client may display this and **must not
+    #: cache it**. Null while `tier` is `subscribed`.
+    eligible_at: dt.date | None = None
+    #: Where original media is stored. **A constant `hot` today**: D3's move to the Tigris
+    #: Archive tier at 90 days lapsed is phase 38, `media` has no `storage_tier` column yet,
+    #: and reporting the field now means the client that will show it does not need a second
+    #: shape later. It is not a read.
+    media_storage_tier: str = "hot"
+
+
 class InviteCreate(ApiModel):
     #: Optional. An invite may be a bare link handed over in person; when present it is only
     #: recorded, because nothing in this phase sends the email.

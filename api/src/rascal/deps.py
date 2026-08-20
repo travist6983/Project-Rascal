@@ -28,6 +28,7 @@ from rascal.db import get_session
 from rascal.errors import ErrorCode, RascalError, not_authorized, not_found
 from rascal.models import Assignment, Child, Entry, Guardian, Media, User
 from rascal.services import readonly_db
+from rascal.services.app_store import AppStoreVerifier
 from rascal.services.apple import AppleVerifier
 from rascal.services.google import GoogleVerifier
 from rascal.services.tokens import decode_access_token
@@ -62,6 +63,19 @@ def get_google_verifier(settings: SettingsDep) -> GoogleVerifier:
     if _google_verifier is None:
         _google_verifier = GoogleVerifier(settings)
     return _google_verifier
+
+
+# One App Store verifier per process. It parses and holds the bundled Apple root certificates,
+# which is real work to redo on every webhook call, and the chain verifier behind it keeps its
+# own cache.
+_app_store_verifier: AppStoreVerifier | None = None
+
+
+def get_app_store_verifier(settings: SettingsDep) -> AppStoreVerifier:
+    global _app_store_verifier
+    if _app_store_verifier is None:
+        _app_store_verifier = AppStoreVerifier(settings)
+    return _app_store_verifier
 
 
 async def current_user(
@@ -194,6 +208,40 @@ async def require_child_access(
         # problem, so this one really is a 404.
         raise not_found("Child")
     return ChildAccess(child=child, user=user, role=guardian.role)
+
+
+async def require_family_access(
+    session: AsyncSession,
+    user: User,
+    family_id: uuid.UUID,
+) -> uuid.UUID:
+    """Authorization for a household-scoped route. **Any member of the household may read.**
+
+    Membership is `users.family_id` rather than a `guardians` row, because a household is not
+    a child: per D4 the entitlement is a family-level attribute, and a guardian of no children
+    — a second parent mid-way through accepting an invite — is still in the household and
+    still covered by what it pays for.
+
+    Here rather than in the handler for the reason the module docstring gives: `families/{id}`
+    is a forgeable path segment, and an ownership check written inside a handler is one that
+    the next route to grow an id in its path will not inherit.
+    """
+    if user.family_id != family_id:
+        raise not_authorized("This household is not yours.")
+    return family_id
+
+
+def family_access() -> Callable[..., Coroutine[Any, Any, uuid.UUID]]:
+    """`family_id` from the path, checked against the caller's household."""
+
+    async def dependency(
+        session: SessionDep,
+        user: CurrentUser,
+        family_id: Annotated[uuid.UUID, Path()],
+    ) -> uuid.UUID:
+        return await require_family_access(session, user, family_id)
+
+    return dependency
 
 
 ChildAccessDependency = Callable[..., Coroutine[Any, Any, ChildAccess]]

@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+import app_store_stub
 import apple_stub
 import google_stub
 
@@ -35,7 +36,12 @@ os.environ.setdefault("ENVIRONMENT", "local")
 
 from rascal import db as db_module  # noqa: E402
 from rascal.config import get_database_settings, get_settings  # noqa: E402
-from rascal.deps import get_apple_verifier, get_google_verifier  # noqa: E402
+from rascal.deps import (  # noqa: E402
+    get_app_store_verifier,
+    get_apple_verifier,
+    get_google_verifier,
+)
+from rascal.services.app_store import AppStoreVerifier  # noqa: E402
 from rascal.services.apple import AppleVerifier  # noqa: E402
 from rascal.services.google import GoogleVerifier  # noqa: E402
 
@@ -239,5 +245,62 @@ def google_app(app: FastAPI, google_keypair, google_settings) -> FastAPI:
 @pytest.fixture
 async def google_client(google_app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=google_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+# --- A local App Store --------------------------------------------------------------------
+#
+# The chain is minted once per session because three ECDSA keypairs per test would dominate
+# the suite's runtime, and nothing any test does mutates it.
+#
+# **The root goes into a directory these fixtures own, and `AppStoreVerifier` is pointed at
+# it.** `src/rascal/certs/appstore/` is empty in the repository — Apple's real root could not
+# be fetched on the branch that wrote this — so a fixture reading the packaged directory would
+# be testing nothing. Pointing the verifier at a directory holding a root the tests minted is
+# what makes "does this chain verify" a real question with a real answer.
+
+
+@pytest.fixture(scope="session")
+def app_store_chain() -> app_store_stub.Chain:
+    """Root -> intermediate -> leaf, with Apple's marker OIDs. See `app_store_stub`."""
+    return app_store_stub.build_chain()
+
+
+@pytest.fixture(scope="session")
+def app_store_certs_dir(app_store_chain, tmp_path_factory) -> Path:
+    """A trust store holding exactly the root the fixtures above mint, and nothing else."""
+    directory = tmp_path_factory.mktemp("appstore-certs")
+    (directory / "TestRootCA.cer").write_bytes(app_store_chain.root_der)
+    return directory
+
+
+@pytest.fixture
+def app_store_settings(app_store_certs_dir):
+    """Settings naming the test trust store and the stub's numeric app id."""
+    return get_settings().model_copy(
+        update={
+            "app_store_root_certs_dir": app_store_certs_dir,
+            "app_store_app_apple_id": app_store_stub.APP_APPLE_ID,
+            "app_store_bundle_id": app_store_stub.BUNDLE_ID,
+        }
+    )
+
+
+@pytest.fixture
+def app_store_verifier(app_store_settings) -> AppStoreVerifier:
+    return AppStoreVerifier(app_store_settings)
+
+
+@pytest.fixture
+def app_store_app(app: FastAPI, app_store_verifier) -> FastAPI:
+    """The real app, trusting the locally-minted root instead of Apple's."""
+    app.dependency_overrides[get_app_store_verifier] = lambda: app_store_verifier
+    return app
+
+
+@pytest.fixture
+async def app_store_client(app_store_app: FastAPI) -> AsyncIterator[AsyncClient]:
+    transport = ASGITransport(app=app_store_app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -389,6 +389,40 @@ class Settings(DatabaseSettings):
     # and `_apns_topic_is_unambiguous` refuses to start. See `resolved_apns_topic`.
     apns_topic: str | None = None
 
+    # --- App Store Server Notifications V2 (phase 37a) -------------------------------------
+    #
+    # **Nothing here has ever been exercised against Apple**, because no subscription product
+    # exists in App Store Connect yet — `docs/blocked.md` §10 is the errand. Unset means the
+    # webhook refuses every notification with 401 rather than accepting an unverified one, and
+    # that is the design: the signature is the only thing standing between a stranger and
+    # somebody's billing state, so there is deliberately no bypass, local or otherwise.
+
+    #: Where the trusted Apple root certificates live, as DER `.cer` files. Defaults to the
+    #: directory packaged inside `rascal` — bundled rather than fetched, because a root
+    #: fetched at request time is a root an attacker who owns your DNS gets to choose.
+    app_store_root_certs_dir: Path | None = None
+
+    #: The app's numeric Apple ID, from App Store Connect. **Required to verify a Production
+    #: notification** — Apple's own library refuses to build a Production verifier without it,
+    #: because bundle id alone does not pin which app a payload is about. Unset is why a
+    #: production deployment answers 401 until the errand in `docs/blocked.md` §10 is run.
+    app_store_app_apple_id: int | None = None
+
+    #: The bundle id a signed payload is checked against. One string, never a list, and
+    #: defaults to `apple_bundle_id` for the same reason `apns_topic` does — a second place to
+    #: get the same value wrong is worse than a default.
+    app_store_bundle_id: str | None = None
+
+    @property
+    def resolved_app_store_bundle_id(self) -> str:
+        """The single bundle id App Store payloads are pinned to.
+
+        Falls back to `resolved_apns_topic` rather than to `apple_bundle_id[0]` directly, so
+        the one place that already refuses to guess between audiences keeps doing the
+        refusing.
+        """
+        return self.app_store_bundle_id or self.resolved_apns_topic
+
     @property
     def apns_configured(self) -> bool:
         """Whether a real APNs client can be built. All three or none — a partial set is a

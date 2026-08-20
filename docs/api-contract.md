@@ -1464,16 +1464,34 @@ nothing in this section authorizes one.
 
 ---
 
-## Monetization — **UNBUILT**
+## Monetization
 
-**No endpoint in this section exists.** Nothing below is implemented, routed, or callable; this
-records the shape D5 requires so that it is settled before it is built. The decisions are D1–D6 in
-`docs/decisions.md`, and the tables are the PROPOSED section of `docs/data-model.md`.
+~~**No endpoint in this section exists.**~~ — **struck Aug 20, 2026. The two routes below are
+built and routed**, as phase 37a: `GET /families/{id}/entitlement` and
+`POST /webhooks/app-store`, on migration `0019_app_store_transactions`. Everything *else* this
+section describes is still unbuilt, and the headings say which is which.
+
+**What is built has never been exercised against Apple**, and that is a different sentence from
+"it works". No subscription product exists in App Store Connect, no sandbox transaction has ever
+been made, and no real Apple notification has ever reached this endpoint — `docs/blocked.md` §10 is
+the errand that changes that. The verification below is tested against synthetic payloads signed by
+a locally-minted chain.
+
+The decisions are D1–D6 in `docs/decisions.md`, and the tables are in `docs/data-model.md`.
 
 ### The entitlement is read from the server, always
 
-**`GET /families/{id}/entitlement`** — any guardian. *Would* return the household's tier and, when
-lapsed, the computed deletion-eligibility date.
+**`GET /families/{id}/entitlement`** — **BUILT.** Any guardian of the household. Returns the
+household's tier and, when lapsed, the computed deletion-eligibility date.
+
+**Authorization is `deps.family_access`**, which compares the path id against the caller's
+`users.family_id`. Another household's id is `403 not_authorized`, never `404` — leaking existence
+is fine here and a wrong 404 sends you debugging the wrong thing.
+
+**`GET /families/me` reports the same `tier` and the two never disagree**, because both read one
+`entitlements` row through one function. That is one authority with two shapes — the household
+screen and the subscription screen — and not two answers to "is this household subscribed", which
+is the bug D4 and D5 exist to prevent.
 
 ```json
 {
@@ -1487,6 +1505,16 @@ lapsed, the computed deletion-eligibility date.
 
 **`eligible_at` is computed per request**, never stored — `max(lapsed_at + 24 months,
 last_sign_in_at + 12 months)`, and both clocks move. A client may display it and must not cache it.
+It is `null` while `tier` is `subscribed`: there is no deletion clock on a paying household.
+
+`last_sign_in_at` is a **`MAX` over `users.last_sign_in_at` across the household's guardians**, not
+the caller's own. A household stays active because *somebody* is opening the app, and reading only
+the caller would start the clock on a family where the other parent uses it daily. There is no
+`last_sign_in_at` column on `entitlements` and one must not be added — see `docs/data-model.md`.
+
+**`media_storage_tier` is the constant `hot` today, not a read.** D3's move to the Tigris Archive
+tier at 90 days lapsed is phase 38 and `media` has no `storage_tier` column yet. The field is
+reported now so the client that will show it does not need a second response shape later.
 
 **The device never decides whether a household is subscribed.** A StoreKit transaction on the phone
 is a receipt, not an entitlement, in exactly the way an Apple identity token is a credential and not
@@ -1528,8 +1556,94 @@ delivered. Nothing reads it yet; phase 38 does.
 
 ### App Store Server Notifications V2
 
-**`POST /webhooks/app-store`** — unauthenticated in the bearer sense and authenticated by signature.
-*Would* accept Apple's V2 notification, verify the signed payload, and write the entitlement.
+**`POST /webhooks/app-store`** — **BUILT.** Unauthenticated in the bearer sense and authenticated
+by signature. Accepts Apple's V2 notification, verifies the signed payload, and writes the
+entitlement.
+
+Body: `{ "signedPayload": "<JWS>" }` → `202`, `{ "status": "..." }`. The status names what the hook
+did — `tier:subscribed`, `ignored:out-of-order`, `recorded:unattributed`,
+`recorded:demotion-refused`, `recorded:no-tier-change` — because the only other way to find out is
+to read the logs of a machine you may not be able to reach.
+
+**Verification is the whole security model.** The `x5c` chain must be exactly three certificates,
+must terminate at the **Apple Root CA - G3** bundled in the repository rather than fetched at
+request time, must carry Apple's marker OIDs on the leaf and the intermediate, must be valid at the
+payload's own `signedDate`, and the leaf must actually sign the payload. Apple's official
+`app-store-server-library` does this; it is not hand-rolled. An unverifiable payload is **`401`**,
+the same rule `POST /webhooks/apple-signin` follows.
+
+**The trust anchor is absent from the repository and the endpoint fails closed until it is not.**
+With no root certificate present every notification is refused with `401`. See
+`api/src/rascal/certs/appstore/README.md` for the one command that fixes it.
+
+**Decoding is nested, and the nesting is where implementations get it wrong.** The outer payload
+carries `notificationType`, `subtype`, `signedDate` and `data`. Inside `data`,
+`signedTransactionInfo` and `signedRenewalInfo` are **themselves JWS strings** and are verified and
+decoded separately — reading `data.transactionInfo` as an object yields nothing, silently, forever.
+Both nested payloads are *verified*, not merely decoded: an outer envelope Apple signed carrying an
+inner transaction Apple did not is the shape of a forged upgrade.
+
+#### The client obligation: `appAccountToken`
+
+**Phase 37b must set `appAccountToken` to the purchasing user's `family_id` on every StoreKit
+purchase.** This is the one thing 37b has to get right on the first build.
+
+Apple's notification does not know what a family is. `appAccountToken` — a UUID the client attaches
+at purchase time and Apple echoes back in `transactionInfo` — is the **only** channel by which one
+can travel. A purchase made without it produces an orphan receipt that no server-side process can
+ever attribute to a household: not a job, not a migration, not a support tool. It is unrecoverable
+without a support conversation with the person who paid, and the transactions already made that way
+stay unattributable forever.
+
+The server's side of this is already built and deliberately forgiving: a missing or malformed
+`appAccountToken` is recorded with a null `family_id` and a warning, never an exception and never a
+4xx. That forgiveness is what keeps Apple from retrying forever; it is not a fallback that recovers
+the attribution, because none exists.
+
+#### What each notification does to `tier`
+
+**This is the only path that may set `entitlements.tier`.** A test asserts it stays the only one.
+
+| `notificationType` | Subtype | Effect |
+|---|---|---|
+| `SUBSCRIBED` | `INITIAL_BUY`, `RESUBSCRIBE` | → `subscribed`, `lapsed_at` cleared, payer recorded |
+| `DID_RENEW` | any | → `subscribed`, `lapsed_at` cleared |
+| `DID_CHANGE_RENEWAL_STATUS` | `AUTO_RENEW_OFF` / `_ON` | **no change.** Cancelling auto-renew is not lapsing — the household is paid up until `expires_date`, and demoting here bills them for time they do not get |
+| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card |
+| `DID_FAIL_TO_RENEW` | none | → `free`, `lapsed_at` = `signedDate` |
+| `GRACE_PERIOD_EXPIRED` | — | → `free`, `lapsed_at` = `signedDate` |
+| `EXPIRED` | any | → `free`, `lapsed_at` = `signedDate` |
+| `REFUND` | — | → `free`, `lapsed_at` = `signedDate` |
+| `REVOKE` | — | → `free`, `lapsed_at` = `signedDate` |
+| `DID_CHANGE_RENEWAL_PREF` | any | no change — monthly↔annual is a *plan change*, which D5a's single subscription group is what makes true |
+| anything else | — | recorded, no change, `202` |
+
+**`lapsed_at` is Apple's `signedDate`, never "now".** D3's two clocks run from when Apple decided;
+dating a lapse to when we happened to hear about it moves a deletion horizon by however long the
+retry took.
+
+**`payer_user_id` is recorded only when the household has one guardian.** `appAccountToken` carries
+a *family* id, so Apple never names a user. With two guardians there is no way to tell which one
+paid, and a wrong payer is worse than a null one — D3a's win-back writes to the payer, so guessing
+means emailing the wrong parent about the other one's cancelled card.
+
+#### Three rules that matter more than the table
+
+**Out-of-order delivery is normal.** Apple retries, and retries arrive interleaved with new
+notifications, so an `EXPIRED` can arrive *after* the `RESUBSCRIBE` that superseded it. Anything
+whose `signedDate` is older than or equal to the stored `latest_signed_date` for its
+`originalTransactionId` is recorded as ignored and writes nothing. Redelivery of the same
+notification is caught by the same comparison, so idempotency needs no separate mechanism.
+
+**Sandbox may never write a Production entitlement.** A sandbox tester account is free to create.
+Under `ENVIRONMENT=prod` a Sandbox notification is recorded and touches neither `tier` nor the
+row's family attribution.
+
+**A family with no transaction record is never demoted.** `runbook-deploy.md` §7a wrote the owner's
+household `subscribed` by hand and there is no Apple transaction behind it. A demotion is refused
+unless an `app_store_transactions` row already links that family to that `originalTransactionId` —
+and a refused demotion does not record the attribution it was refused for, or the guard would be a
+one-notification delay rather than a guard.
 
 This is the **only** path that may set `tier`. A subscribe, a renewal, a cancellation, a billing
 failure and a refund all arrive here, which is what keeps one authority over the answer — and is why

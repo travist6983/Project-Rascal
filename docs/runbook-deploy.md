@@ -578,11 +578,32 @@ Run it against production (Neon), then check `GET /v1/families/me` reports `"tie
 would mean the first person to actually hit the paywall is a paying customer rather than you.
 This way the gate is exercised the first time anybody uses it, which is now.
 
-**Nothing else writes `tier`.** D5 reserves that for App Store Server Notifications V2, which
-is phase 37 and is blocked on an owner account action. Until 37 ships, this statement is the
-only way a household becomes subscribed and the only way one becomes free again. If you later
-find a family on the wrong tier, this is the lever — there is no admin route and there is
-deliberately not going to be one before 37.
+~~**Nothing else writes `tier`.**~~ ~~Until 37 ships, this statement is the only way a
+household becomes subscribed and the only way one becomes free again.~~ — **struck Aug 20,
+2026. Phase 37a shipped the writer**: `POST /v1/webhooks/app-store` sets `tier` from an App
+Store Server Notification, and it is the only code that does.
+
+**This statement is now the override rather than the only way in**, and it is still the lever
+when you find a family on the wrong tier. There is still no admin route, deliberately.
+
+**Your own household is subscribed by one of these and always will be.** There is no App Store
+transaction behind the row §7a wrote on Aug 17, 2026, and there never will be — you did not
+buy the subscription, you wrote the row. That makes it exactly the shape a reconciliation job
+would "fix": notice a subscribed family with no receipt, set it free, and lock you out of your
+own product.
+
+**What protects it is a guard in the webhook, not the absence of one.** A notification that
+would set a family `free` is refused unless `app_store_transactions` already holds a row
+linking that family to that `originalTransactionId` — and a refused demotion does not record
+the attribution it was refused for, so the guard does not degrade into a one-notification
+delay. Your household has no such row, so no notification Apple could send can demote it.
+
+**If you later subscribe for real from your own phone**, the `SUBSCRIBED` notification writes
+the row, the tier stops being hand-maintained, and from then on the normal lifecycle applies —
+including demotion. That is the intended path out of this state, and it needs nothing run here.
+
+**Nothing above has been verified against Apple.** No product exists in App Store Connect yet;
+see `docs/blocked.md` §10.
 
 **Sign in with Apple private relay caveat.** If you signed in with Apple and hid your email,
 `users.email` is a relay address rather than the one you type. Find yourself by

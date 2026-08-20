@@ -48,6 +48,39 @@ MAX_PARENTS_PER_FAMILY: Final = 2
 #: How long an invite link is good for.
 INVITE_EXPIRY_DAYS: Final = 7
 
+# --- App Store Server Notifications V2 -------------------------------------------------------
+
+#: Apple's two worlds. `text` + a named CHECK, the same convention `tier` and `role` follow
+#: — never a Postgres enum.
+#:
+#: **The spelling is Apple's, capitalised.** It is copied off the decoded payload rather than
+#: normalised, because the value that lands in a row and the value a verifier compared against
+#: have to be the same string or the sandbox gate is comparing two different vocabularies.
+AppStoreEnvironment = Literal["Sandbox", "Production"]
+APP_STORE_ENVIRONMENTS: Final = ("Sandbox", "Production")
+
+#: The notification types that move a household **up** to `subscribed`.
+#:
+#: `SUBSCRIBED` covers `INITIAL_BUY` and `RESUBSCRIBE`; `DID_RENEW` covers every subtype.
+PROMOTING_NOTIFICATIONS: Final = ("SUBSCRIBED", "DID_RENEW")
+
+#: The notification types that move a household **down** to `free`, setting `lapsed_at`.
+#:
+#: **`DID_FAIL_TO_RENEW` is deliberately absent and is handled by subtype instead**, because
+#: the same type means opposite things: with `GRACE_PERIOD` Apple is still retrying the card
+#: and the household is paid up, and without a subtype the billing has actually failed.
+DEMOTING_NOTIFICATIONS: Final = (
+    "EXPIRED",
+    "GRACE_PERIOD_EXPIRED",
+    "REFUND",
+    "REVOKE",
+)
+
+#: Deletion eligibility, per D3. Both clocks, and neither is ever stored — see
+#: `services/app_store.py` and `docs/decisions.md` D3.
+LAPSE_ELIGIBILITY_MONTHS: Final = 24
+INACTIVITY_ELIGIBILITY_MONTHS: Final = 12
+
 PromptKind = Literal["question", "photo", "video", "audio", "activity", "measurement", "letter"]
 PROMPT_KINDS: Final = (
     "question",
