@@ -9,13 +9,30 @@ audit trail, and an undo. See docs/decisions-log.md.
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Query, status
 from sqlalchemy import func, select
 
 from rascal.constants import Cadence, PromptKind, PromptSource
 from rascal.deps import AdminUser, CurrentUser, SessionDep
+from rascal.errors import ErrorCode, RascalError
 from rascal.models import Prompt
+from rascal.schemas.admin import (
+    PromptActiveIn,
+    PromptEditOut,
+    PromptPreviewIn,
+    PromptPreviewOut,
+    PromptUpdate,
+)
 from rascal.schemas.prompt import PromptCreate, PromptOut, PromptPage
+from rascal.services.library import (
+    clear_override,
+    edit_prompt,
+    preview,
+    set_active,
+    validate_tokens,
+)
 from rascal.services.seeding import content_hash
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
@@ -86,12 +103,108 @@ async def list_prompts(
     ),
 )
 async def create_prompt(payload: PromptCreate, session: SessionDep, user: AdminUser) -> PromptOut:
-    prompt = Prompt(
-        **payload.model_dump(),
-        source="user",
-        content_hash=content_hash(payload.kind, payload.cadence, payload.body),
-    )
+    # The same token check `seeding._validate` runs over the YAML. The console is the other
+    # way a body enters the library, and a `{thier}` typed here renders as literal braces on a
+    # card, in an export, and in a printed book, for as long as the archive exists.
+    bad = validate_tokens(payload.body)
+    if bad:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            f"{{{bad[0]}}} is not one of the prompt tokens in docs/api-contract.md.",
+            field="body",
+        )
+    if payload.min_age_months > payload.max_age_months:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            "min_age_months cannot exceed max_age_months.",
+            field="min_age_months",
+        )
+    digest = content_hash(payload.kind, payload.cadence, payload.body)
+    if await session.scalar(select(Prompt.id).where(Prompt.content_hash == digest)):
+        raise RascalError(
+            ErrorCode.CONFLICT,
+            "The library already has this exact kind, cadence and body.",
+            field="body",
+        )
+    prompt = Prompt(**payload.model_dump(), source="user", content_hash=digest)
     session.add(prompt)
     await session.flush()
     await session.refresh(prompt)
     return PromptOut.model_validate(prompt)
+
+
+@router.post(
+    "/preview",
+    response_model=PromptPreviewOut,
+    summary="Render one body as all three pronoun columns",
+    description=(
+        "The server renders nothing at serving time — bodies go out with tokens intact and "
+        "every client substitutes at the last moment. This route is an authoring tool and "
+        "the deliberate exception: a body can be grammatical in one column and broken in "
+        "another, and the author is usually picturing one child while writing."
+    ),
+)
+async def preview_prompt(payload: PromptPreviewIn, user: AdminUser) -> PromptPreviewOut:
+    return PromptPreviewOut(
+        **preview(payload.body, payload.name),
+        unknown_tokens=validate_tokens(payload.body),
+    )
+
+
+@router.patch(
+    "/{prompt_id}",
+    response_model=PromptEditOut,
+    summary="Edit a prompt, forking it when the edit moves its identity",
+    description=(
+        "**An edited body is a new prompt, not an update.** `content_hash` is "
+        "`sha256(kind, cadence, body)` and the seed loader keys on it, so editing a seeded "
+        "body in place would be undone by the next deploy — the row would be retired as "
+        "absent from the file and the original re-inserted. Editing one of those three "
+        'fields therefore inserts a `source="user"` prompt carrying the new words and '
+        "retires the original through `prompt_library_overrides`, which is the one thing a "
+        "re-seed will not overwrite. Everything else is edited in place."
+    ),
+)
+async def patch_prompt(
+    prompt_id: uuid.UUID, payload: PromptUpdate, session: SessionDep, user: AdminUser
+) -> PromptEditOut:
+    result = await edit_prompt(session, prompt_id, payload.model_dump(exclude_unset=True), user)
+    return PromptEditOut(
+        prompt=PromptOut.model_validate(result.prompt),
+        action=result.action,
+        superseded_prompt_id=result.superseded_prompt_id,
+    )
+
+
+@router.put(
+    "/{prompt_id}/active",
+    response_model=PromptOut,
+    summary="Retire or revive a prompt, durably",
+    description=(
+        "For a seeded prompt this writes a `prompt_library_overrides` row as well as the "
+        "column. The column alone is not enough: the next `fly deploy` runs the seed as its "
+        "release command and writes the file's `active` back over it within minutes."
+    ),
+)
+async def set_prompt_active(
+    prompt_id: uuid.UUID, payload: PromptActiveIn, session: SessionDep, user: AdminUser
+) -> PromptOut:
+    prompt = await set_active(session, prompt_id, payload.active, user, payload.note)
+    return PromptOut.model_validate(prompt)
+
+
+@router.delete(
+    "/{prompt_id}/override",
+    response_model=PromptOut,
+    summary="Hand this prompt back to the seed file",
+    description=(
+        "Deletes the override row, so the next re-seed restores whatever "
+        "`docs/mission-library.md` says about this prompt. The `active` column is left where "
+        "it is until then, which is the honest state: the console has stopped overriding and "
+        "the file has not been consulted yet."
+    ),
+)
+async def delete_prompt_override(
+    prompt_id: uuid.UUID, session: SessionDep, user: AdminUser
+) -> PromptOut:
+    return PromptOut.model_validate(await clear_override(session, prompt_id))

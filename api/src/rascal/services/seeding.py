@@ -11,6 +11,11 @@ retired one. That is exactly what phase 24 did to all 113 seeded bodies at once,
 retirement lives here rather than in a one-off migration: the next edit to the library needs
 the same thing to happen, and a migration that names 113 hashes would only ever work once.
 
+**One thing outranks the file: `prompt_library_overrides`.** A re-seed is a total
+reconciliation — it writes the file's `active` and retires anything the file dropped — so a
+decision made in the admin console would evaporate on the next deploy. `_apply_overrides`
+runs last, in the same transaction, and gives those rows the final word.
+
 This module reads YAML and nothing else. `docs/mission-library.md` is an authoring surface
 converted by `scripts/mission_library_to_yaml.py`; runtime never parses a markdown table.
 """
@@ -36,7 +41,7 @@ from rascal.constants import (
     PROMPT_SOURCES,
     PROMPT_TOKENS,
 )
-from rascal.models import Prompt
+from rascal.models import Prompt, PromptLibraryOverride
 
 log = logging.getLogger("rascal.seeding")
 
@@ -68,6 +73,10 @@ class SeedResult:
     updated: int
     unchanged: int
     retired: int = 0
+    #: Rows whose `active` this run set from `prompt_library_overrides` rather than from the
+    #: file. Reported separately from `updated` because it is the count that answers "did the
+    #: console's decisions survive this deploy" — see `_apply_overrides`.
+    overridden: int = 0
 
     @property
     def total(self) -> int:
@@ -193,6 +202,8 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
     )
     retired = len((await session.execute(obsolete)).all())
 
+    overridden = await _apply_overrides(session)
+
     await session.commit()
 
     after = await session.scalar(select(func.count()).select_from(Prompt)) or 0
@@ -203,6 +214,7 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
         updated=updated,
         unchanged=len(rows) - len(touched),
         retired=retired,
+        overridden=overridden,
     )
     log.info(
         "seeded prompts",
@@ -211,6 +223,43 @@ async def seed_prompts(session: AsyncSession, path: Path = SEEDS_PATH) -> SeedRe
             "updated": result.updated,
             "unchanged": result.unchanged,
             "retired": result.retired,
+            "overridden": result.overridden,
         },
     )
     return result
+
+
+async def _apply_overrides(session: AsyncSession) -> int:
+    """Let `prompt_library_overrides` have the last word on `active`.
+
+    **Last on purpose, and in the same transaction as everything above it.** The upsert writes
+    the file's `active` and the retirement sweep writes `False` over anything the file dropped;
+    either one would silently undo a decision made in the admin console. Running afterwards
+    makes the override final by construction rather than by whichever statement happened to be
+    written second.
+
+    Only rows that actually differ are written, so a deploy that changes nothing reports
+    `overridden: 0` and churns no `updated_at` — the same property `MUTABLE_FIELDS`'
+    `IS DISTINCT FROM` guard buys for the upsert, and for the same reason: a rewritten row
+    resyncs the library to every client for nothing.
+
+    An override naming a `content_hash` no table row has is not an error. That is the shape of
+    a prompt retired from the console and later deleted from `mission-library.md`: the decision
+    outlives the row, and it costs nothing to keep in case the body comes back.
+    """
+    # A correlated scalar rather than an UPDATE ... FROM join, so the "no override for this
+    # prompt" case is a NULL this statement can test for. Without the `IS NOT NULL` guard,
+    # `active IS DISTINCT FROM NULL` is true for every un-overridden row and the UPDATE would
+    # try to write NULL into a NOT NULL column across the whole library.
+    decided = (
+        select(PromptLibraryOverride.active)
+        .where(PromptLibraryOverride.content_hash == Prompt.content_hash)
+        .scalar_subquery()
+    )
+    statement = (
+        update(Prompt)
+        .where(decided.is_not(None), Prompt.active.is_distinct_from(decided))
+        .values(active=decided)
+        .returning(Prompt.content_hash)
+    )
+    return len((await session.execute(statement)).all())
