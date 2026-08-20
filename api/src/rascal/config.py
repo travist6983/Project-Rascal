@@ -256,7 +256,7 @@ class Settings(DatabaseSettings):
     # alone rather than globally: this is the first browser client this API has ever had.
     marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
 
-    # --- The admin console's cost panel (phase 96) -----------------------------------------
+    # --- The admin console's cost panel (phase 96, extended by phase 100) ------------------
     #
     # **Every one of these is optional, and unset is the shipped state.** They are read-only
     # credentials for somebody else's billing API, and the panel's whole design is that a
@@ -270,11 +270,24 @@ class Settings(DatabaseSettings):
     # Read-only is a property to preserve when minting these. Nothing in the console writes
     # to a provider, so a token with write scope buys nothing and costs a blast radius.
 
-    #: An Anthropic **Admin** key — `sk-ant-admin…`, minted at console.anthropic.com under
+    #: An Anthropic **Admin** key — `sk-ant-admin…`, minted at platform.claude.com under
     #: Settings → Admin keys, not a normal `sk-ant-api…` key. Only an admin key may read
     #: `/v1/organizations/cost_report`; an ordinary API key answers 401 there, which is the
     #: confusing failure this comment exists to pre-empt.
     anthropic_admin_key: str | None = None
+
+    #: A GitHub **fine-grained** personal access token whose only permission is Account
+    #: permissions → **Plan → Read-only**. Not a classic token, and not the repo-scoped token
+    #: CI already holds: this endpoint reads the account's plan rather than a repository.
+    #:
+    #: **A token without Plan:read gets 404, not 403**, which is the whole reason this comment
+    #: exists — a bare "not found" reads as a mistyped username and sends you renaming the
+    #: account instead of regenerating the token.
+    github_billing_token: str | None = None
+
+    #: The personal account the bill belongs to. The path is
+    #: `/users/{account}/settings/billing/usage`, so this is a username, never a repository.
+    github_account: str = "travist6983"
 
     #: A Fly.io API token — `fly tokens create readonly` is enough for the machine inventory,
     #: which is what this card is actually for. Fly does not expose per-app spend over the
@@ -289,14 +302,28 @@ class Settings(DatabaseSettings):
     neon_api_key: str | None = None
     neon_project_id: str | None = None
 
+    #: The Neon organisation the project belongs to. **Required by the v2 consumption endpoint
+    #: and by nothing else** — the project snapshot needs only the project id, so leaving this
+    #: unset costs the daily compute chart and nothing more. Found in the console URL. It is
+    #: deliberately not derived at runtime from `GET /users/me/organizations`: that would be a
+    #: request per render spent parsing a response shape to guess at, in place of one variable.
+    neon_org_id: str | None = None
+
     #: What object storage costs per GB-month, in cents, on the plan we are actually on.
     #: **Unset means the card shows bytes and no estimate**, which is the honest default:
     #: Tigris has no billing API, so any figure here is one somebody typed, and a made-up
     #: number on a costs page is worse than a blank one.
     storage_price_cents_per_gb_month: int | None = None
 
+    #: The Apple Developer Program membership, in cents per year — `9900` at the published US
+    #: price. **The only money Apple charges this project**, and it is not retrievable from any
+    #: API: App Store Connect is free to call and publishes no billing endpoint at all. Unset
+    #: means the card shows the pre-launch sentence and no figure, which is correct until
+    #: somebody types the number they actually paid.
+    apple_membership_cents_per_year: int | None = None
+
     #: How long a provider's answer is reused before the console asks again. These are other
-    #: people's rate limits, and a dashboard left open in a tab must not poll five APIs on
+    #: people's rate limits, and a dashboard left open in a tab must not poll six vendors on
     #: every render. In-process rather than in Postgres on purpose: the data is cosmetic, a
     #: second Fly machine holding a slightly different cache costs nothing, and a cache table
     #: would be schema for a screen.
