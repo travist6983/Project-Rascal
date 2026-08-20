@@ -54,6 +54,46 @@ Everything in this file was checked by running something — the test suites, th
 > below now carries its own grep.
 
 * * *
+
+## Phase 96 — the admin console, Aug 19, 2026 (local only, nothing deployed)
+
+`/admin`, behind `users.is_admin`: a business snapshot, a mission-library editor, a five-vendor
+cost panel, and a scheduler grid. Full write-up in `docs/reports/phase-96-admin-console.md`;
+three things belong in this file rather than that one.
+
+**The scheduler grid is the instrument this document has asked for four revisions running.** It
+reads a slot × day table of what the daily job *produced* and flags any daily slot that served
+nothing across the window — *"verify a scheduled job by reading what it produced, not by reading
+the deploy that was supposed to update it."* Against the local database it already flags
+`mission_b` as silent for a fortnight. **That is local churn until somebody points the same panel
+at production**, and doing so is now a page load rather than a psql session. Recorded as a
+question, not a finding.
+
+**Editing the library needed a schema change, and the reason is worth carrying.** `seed_prompts` is
+`fly.toml`'s release command and reconciles `prompts` against `prompts.yaml` totally, `active`
+included. A console that edits a seeded *body* does not merely lose the edit on the next deploy —
+`content_hash` moves, the edited row is retired as absent from the file, and the original body is
+re-inserted, so the archive serves exactly the copy the edit replaced. Migration `0017` adds
+`prompt_library_overrides`, applied last in the seed transaction. Six of the sixteen new library
+tests re-run the seeder after the edit, because the response body is correct in every one of these
+cases and the damage lands an hour later.
+
+**The phase-number rule has a fourth blind spot and `phase-queue.md` now carries the fourth
+command.** The three prescribed measurements returned 95; 95 was already spent by the *content* of
+`docs/decisions-log.md` under a commit subject that names no phase. `grep -rhoiE 'phase[- ][0-9]+'
+docs/` is the missing check.
+
+**Figures re-derived Aug 19, 2026:** **862 tests pass, 1 skipped** (was 757 in 47 files on Aug 18;
+39 of the difference is this phase). **66 operations across 57 paths**, up nine. **233 prompts in
+the table, 133 active** — the 100 inactive are phase 24's literal bodies, retired and still
+resolving every foreign key that points at them.
+
+**Live tonight with no new credentials:** the Tigris card reads **90 MB across 56 objects** from the
+real bucket, and the Resend card reports **`mail.getvellumapp.com` verified** and
+`RESEND_AUDIENCE_ID` unset — which is also the reason `POST /v1/subscribe` currently refuses.
+Anthropic, Fly and Neon each need one read-only credential and say so on the card.
+
+* * *
 ## The headline
 **The app is on TestFlight, against a deployed API.** Sign in with Apple runs against a real Apple-signed token, media uploads land in a production bucket from a phone in the world, and 55 pull requests have merged.
 

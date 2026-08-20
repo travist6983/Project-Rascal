@@ -7,7 +7,24 @@ If a line needs more than a sentence, the sentence goes in `roadmap-status.md` a
 stays short. If a line stops being true, delete it — a queue that carries finished work is the
 exact failure `roadmap-status.md` has now made six revisions running.
 
-Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. **The highest number used is
+~~*Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. The highest number used is
+78, so a genuinely new phase takes 79*~~ — **struck Aug 19, 2026. The highest number used is 96 and
+it is taken by the admin console; a genuinely new phase takes 97.**
+
+**Sixth instance, and this one broke the remedy rather than the count.** Phase 96 ran all three
+commands below, got 95, and 95 was already spent — by the *content* of `docs/decisions-log.md`,
+committed under the subject `docs: Update decisions log and roadmap status following Aug 18
+proposals`, which names no phase anywhere a `git log` grep can see. **A docs commit can spend a
+number without its message ever saying so**, and none of the three prescribed measurements looks
+inside a file. The fourth command below is the fix and is now part of the rule:
+
+```
+grep -rhoiE 'phase[- ][0-9]+' docs/ | sort -u -t' ' -k2 -n | tail -5   # what the docs already claim
+```
+
+The original header follows, kept because the pattern it records is the point.
+
+**The highest number used was
 78**, so a genuinely new phase takes **79** — and **79 through 83 are already allocated**, and **each now has a row in
 `roadmap-status.md`** — which is the authority `CLAUDE.md` sends you to, and which carried the
 allocation nowhere for the first few hours it existed. **That gap was a fifth instance of this
@@ -39,7 +56,10 @@ all three at once, and it is what allocated 79–83:
 git log --all --pretty=format:'%s%n%b' | grep -oiE 'phase [0-9]+'   # commits, every ref
 git for-each-ref refs/heads refs/remotes | grep -oiE 'phase-[0-9]+'  # branch names
 gh pr list --state all --limit 200 --jq '.[].title'                  # open PRs included
+grep -rhoiE 'phase[- ][0-9]+' docs/                                  # what the docs already claim
 ```
+
+**The fourth line was added Aug 19, 2026 after the first three came back 95 and 95 was gone.**
 
 **A number is taken the moment a branch or a PR carries it, not when it merges.**
 68 unblocked the sprint, 69 built the daily broadcast, 70 went to the icon and wordmark work,
@@ -278,6 +298,14 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   raising, because D3 lets a deletion proceed once one channel reads `delivered`. **Timing: 38 is
   itself downstream of the P0 gate, and its notices are transactional rather than marketing — the
   constraint that binds it is D3's, not this one's.**
+
+- ~~**96 — the admin console.**~~ **Shipped Aug 19, 2026.** `/admin` behind `is_admin`: business
+  snapshot, a prompt-library editor that survives a re-seed, a five-vendor costs panel, and a
+  scheduler grid that reads what the job produced. **Two things it hands you.** The cost cards for
+  Anthropic, Fly and Neon are `unconfigured` and each names the environment variable and where the
+  key comes from — Tigris and Resend already work off credentials this repo has. And **the
+  scheduler grid says `mission_b` has served nothing for a fortnight locally**; the same panel
+  against production is the "read the rows" check `roadmap-status.md` keeps asking for.
 
 ## Iceboxed
 

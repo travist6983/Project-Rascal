@@ -611,6 +611,55 @@ Index `ix_prompt_suppressions_child_id_prompt_id_revoked_at` serves that exclusi
 
 ---
 
+## `prompt_library_overrides`
+
+**Phase 96, Aug 19, 2026.** One admin decision about one seeded prompt, in the only place a
+re-seed will not overwrite it.
+
+| Column | Type | Notes |
+|---|---|---|
+| `content_hash` | text PK | `sha256(kind, cadence, body)` — the seed loader's own key |
+| `active` | boolean | The value `seed_prompts` must write instead of the file's |
+| `note` | text NULL | Why, in the admin's words. Free text, deliberately unconstrained |
+| `created_by_user_id` | uuid FK NULL | → `users`, `ON DELETE SET NULL` |
+| `created_at` | timestamptz | |
+| `updated_at` | timestamptz | `set_updated_at()` trigger |
+
+**Why the table exists.** `api/seeds/prompts.yaml` is on `fly.toml`'s `release_command`, so every
+deploy reconciles `prompts` against the file *totally* — the upsert writes the file's `active`
+and the retirement sweep deactivates every `source = 'seeded'` row the file no longer lists. That
+is correct for a library authored in `docs/mission-library.md` and it silently undoes anything the
+admin console does. Retiring a seeded prompt from the console lasts until the next deploy. Editing
+one is worse: the body is part of `content_hash`, so the edited row is a row the file does not
+contain — it gets retired — **and the original body is re-inserted**, leaving the archive serving
+exactly the copy the edit replaced.
+
+`services/seeding._apply_overrides` runs **last** in the seed transaction, after the upsert and
+after the retirement sweep. An override is therefore the final word by construction rather than by
+whichever statement happened to be written second.
+
+**Keyed on `content_hash`, not on `prompts.id`.** The hash is the identity the file and the table
+already agree on; a row id is a thing a re-seed can legitimately replace, and an override naming
+one would stop matching the moment its row was rebuilt.
+
+**Editing a seeded body is a fork, and both halves are required.** `PATCH /v1/prompts/{id}` on a
+`source = 'seeded'` row inserts a new `source = 'user'` prompt carrying the new words — the one
+source `seed_prompts` promises never to touch — and writes an override retiring the original's
+hash. Insert alone leaves both copies serving. Override alone leaves a retired prompt and nothing
+in its place. The original row is never deleted: assignments and entries point at it and must keep
+resolving for as long as the archive exists.
+
+**No `deleted_at`, and that is not a second exception to rule 5.** The mission library is content,
+not user data — `prompts` itself carries no soft delete and does not sync — so withdrawing an
+override is a real `DELETE`, which is precisely what hands the decision back to
+`mission-library.md`. The only rule-5 exception remains `deletion_requests`.
+
+**An override for a `content_hash` no row has is not an error.** That is a prompt retired from the
+console and later deleted from the markdown: the decision outlives the row, and keeping it costs
+nothing if the body ever comes back.
+
+---
+
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
 **Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:

@@ -1096,6 +1096,76 @@ with a comment thread, an audit trail, and an undo. Approving a batch is a commi
 
 The library is content. It's authored and reviewed server-side, never generated at request time and never authored on-device.
 
+### Editing it — phase 96, Aug 19, 2026
+
+All four require `users.is_admin`.
+
+**`POST /prompts/preview`** `{body, name}` → one body rendered as all three pronoun columns plus
+`unknown_tokens`. **The one place the server renders a token**, and it is an authoring tool rather
+than a serving path: bodies still go out with tokens intact and every client still substitutes at
+the last moment. It exists because a body can be grammatical in one column and broken in another —
+`{they_have}` against a hand-written "has" — and the author is usually picturing one child.
+
+**`PATCH /prompts/{id}`** → `{prompt, action, superseded_prompt_id}`. Partial; anything omitted is
+left alone.
+
+> **An edited body is a new prompt, not an update.** `content_hash` is
+> `sha256(kind, cadence, body)` and `seed_prompts` keys on it, so editing a **seeded** body in
+> place would be undone by the next deploy — the row would be retired as absent from
+> `prompts.yaml` and the original re-inserted. Changing `kind`, `cadence` or `body` on a seeded
+> prompt therefore **forks** it: a new `source: "user"` prompt carries the new words, the original
+> is retired through `prompt_library_overrides`, and `action` comes back `superseded` with
+> `superseded_prompt_id` naming the row left behind. That row is never deleted — assignments and
+> entries point at it. Everything else, and every edit to a `user` or `llm` prompt, is `updated`
+> in place.
+
+**`PUT /prompts/{id}/active`** `{active, note}` → the prompt. For a seeded prompt this writes an
+override row as well as the column; the column alone does not survive a deploy.
+
+**`DELETE /prompts/{id}/override`** → the prompt. Removes the override, handing the decision back
+to `docs/mission-library.md`. The `active` column is left where it is until the next seed run.
+
+`422 validation_failed` on a body containing a token outside `constants.PROMPT_TOKENS`; `409
+conflict` when the resulting `(kind, cadence, body)` already exists.
+
+---
+
+## Admin console
+
+**`/admin`** serves an HTML page — the only non-JSON route in the service, and the only exception
+to *"the Fly app serves JSON and nothing else"* in D7. It is not the marketing site: it has one
+reader, it is behind a bearer token, and hosting it anywhere else would need CORS and a second
+origin to save nothing. See `routers/admin_ui.py` for the full argument. The page holds no
+credential and can read nothing without a token, which is why it is unauthenticated and mounted in
+every environment.
+
+Every route below requires `users.is_admin` and returns **counts and operational metadata only** —
+no entry title or body, no caption, no transcript, no child's name, no object key. That is a
+deliberate line rather than an oversight: a console that can page through a family's archive is a
+different product with a different threat model. `tests/test_admin.py` plants distinctive strings
+in an archive and asserts none of them appears in any admin response.
+
+| Route | Returns |
+|---|---|
+| `GET /admin/snapshot?days=` | `{overview, growth, themes, signups}` — the whole first screen in one request |
+| `GET /admin/library` | The library with per-prompt served/completed counts, `content_hash`, and override state |
+| `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
+| `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
+
+`growth.days` is **gap-filled** — every day in the range is present with zeros. A missing day and a
+zero day are different facts and only the server knows which is which.
+
+`ops.scheduler` reads **what the daily job produced**, not whether its deploy was green: a slot ×
+day grid of assignment counts, with `silent: true` on any daily slot that served nothing across the
+window. That is the instrument PR #57 did not have.
+
+`costs` fans out to five vendors concurrently, cached in-process for `BILLING_CACHE_SECONDS`. Only
+Anthropic publishes a cost API, so it is the only provider with `amount_cents`; Fly, Neon, Tigris
+and Resend report the consumption their bills are computed from and `providers_without_pricing`
+names them. **An unconfigured provider is a `status: "unconfigured"` card carrying the environment
+variable to set and where the key comes from** — never an error, and never a blank that reads as
+zero spend.
+
 ---
 
 ## Debug (local only)
