@@ -21,7 +21,9 @@
 import * as cards from "/admin/static/cards.js";
 
 const TOKEN_KEY = "vellum.admin.token";
+const REFRESH_KEY = "vellum.admin.refresh";
 let token = localStorage.getItem(TOKEN_KEY) || "";
+let refreshToken = localStorage.getItem(REFRESH_KEY) || "";
 
 const $ = (id) => document.getElementById(id);
 const body = document.body;
@@ -50,8 +52,8 @@ class ApiError extends Error {
   }
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(`/v1${path}`, {
+const send = (path, options) =>
+  fetch(`/v1${path}`, {
     ...options,
     headers: {
       "content-type": "application/json",
@@ -59,6 +61,50 @@ async function api(path, options = {}) {
       ...(options.headers || {}),
     },
   });
+
+/**
+ * Rotate the pair. Returns true if there is a usable access token afterwards.
+ *
+ * **Without this the console is unusable in production.** Access tokens last fifteen minutes,
+ * and re-authenticating there is not a button — `dev-login` does not exist, so it is a magic
+ * link, an email, and a token exchange. Being thrown out of a dashboard every quarter of an
+ * hour and made to do that is the difference between a tool and a demo.
+ *
+ * `/auth/refresh` revokes the presented token and issues a new pair, so the new refresh token
+ * must be stored even when only the access token gets used. Dropping it would work once and
+ * fail on the next rotation, which is the worst shape of bug: fine in testing, broken tomorrow.
+ */
+let refreshing = null;
+async function refreshSession() {
+  if (!refreshToken) return false;
+  // One rotation at a time. The dashboard fires several requests per tab switch, and each
+  // getting a 401 would otherwise start its own refresh — the first would succeed and the rest
+  // would present a token the first had already revoked, which reads as a reuse attack.
+  refreshing ??= (async () => {
+    try {
+      const response = await fetch("/v1/auth/refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (!response.ok) return false;
+      const pair = await response.json();
+      keepSession(pair);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+async function api(path, options = {}) {
+  let response = await send(path, options);
+  if (response.status === 401 && refreshToken && !path.startsWith("/auth/")) {
+    if (await refreshSession()) response = await send(path, options);
+  }
   let payload = null;
   if (response.status !== 204) {
     payload = await response.json().catch(() => null);
@@ -1443,7 +1489,9 @@ function signedIn() {
 
 function signOut(message) {
   token = "";
+  refreshToken = "";
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
   body.dataset.view = "signin";
   $("console").hidden = true;
   const error = $("signin-error");
@@ -1451,10 +1499,86 @@ function signOut(message) {
   error.textContent = message || "";
 }
 
+/** Store whatever half of a token pair we were given. */
+function keepSession(pair) {
+  if (pair.access_token) {
+    token = pair.access_token;
+    localStorage.setItem(TOKEN_KEY, token);
+  }
+  if (pair.refresh_token) {
+    refreshToken = pair.refresh_token;
+    localStorage.setItem(REFRESH_KEY, refreshToken);
+  }
+}
+
 function useToken(value) {
-  token = value;
-  localStorage.setItem(TOKEN_KEY, value);
+  keepSession({ access_token: value });
   signedIn();
+}
+
+/**
+ * Exchange a magic-link token for a session.
+ *
+ * The link in the email points at `/signin?token=…`, which is a universal link the iOS app
+ * claims and, on a laptop, a page that says to open it on a phone. That page deliberately does
+ * not carry the token into a web flow — it was written when there was no web client. There is
+ * one now, so the token is taken from the address bar and exchanged here rather than that page
+ * being changed: a parent opening a sign-in link on a laptop should still be told to use their
+ * phone, and only somebody deliberately in the console should land in the console.
+ */
+async function useMagicLink(raw) {
+  const error = $("signin-error");
+  error.hidden = true;
+  // Paste the whole URL or just the token — reading the address bar and copying exactly the
+  // opaque part is a needless way to get this wrong.
+  let value = raw.trim();
+  try {
+    if (value.includes("://")) value = new URL(value).searchParams.get("token") || value;
+  } catch {
+    /* not a URL; treat it as the token */
+  }
+  try {
+    const response = await fetch("/v1/auth/email/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: value }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new ApiError(response.status, payload);
+    keepSession(payload);
+    signedIn();
+  } catch (err) {
+    error.hidden = false;
+    error.textContent =
+      err.status === 401
+        ? "That link is expired, already used, or not valid. Sign-in links last fifteen " +
+          "minutes and work once — request another."
+        : err.message;
+  }
+}
+
+/** Ask for a sign-in link. Always answers 202, whether or not the address matched anything. */
+async function requestMagicLink(address) {
+  const error = $("signin-error");
+  error.hidden = true;
+  try {
+    await fetch("/v1/auth/email/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: address }),
+    });
+    // The API answers 202 either way on purpose — anything else would say whether an address
+    // has an account. So this message has to be true in both cases, and says nothing about
+    // whether anything was sent.
+    error.hidden = false;
+    error.textContent =
+      `If ${address} can sign in to Vellum, a link is on its way. Open it, copy the whole ` +
+      "URL out of the address bar, and paste it below. The page it lands on will tell you to " +
+      "use your iPhone — ignore that, it is for parents rather than for this.";
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  }
 }
 
 $("dev-login").addEventListener("click", async () => {
@@ -1462,7 +1586,8 @@ $("dev-login").addEventListener("click", async () => {
   error.hidden = true;
   try {
     const result = await api("/auth/dev-login", { method: "POST", body: "{}" });
-    useToken(result.access_token);
+    keepSession(result);
+    signedIn();
   } catch (err) {
     error.hidden = false;
     error.textContent =
@@ -1478,6 +1603,17 @@ $("token-form").addEventListener("submit", (event) => {
   if (value) useToken(value);
 });
 
+
+$("link-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const address = $("link-email").value.trim();
+  if (address) requestMagicLink(address);
+});
+$("magic-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const value = $("magic-input").value.trim();
+  if (value) useMagicLink(value);
+});
 $("signout").addEventListener("click", () => signOut(""));
 $("refresh").addEventListener("click", () => load());
 

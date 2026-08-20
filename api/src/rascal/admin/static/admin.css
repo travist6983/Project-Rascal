@@ -1145,3 +1145,7 @@ body[data-readonly="true"] .concept,
 body[data-readonly="true"] .asset {
   cursor: default;
 }
+
+.signin-token-second {
+  margin-top: 8px;
+}

@@ -46,6 +46,34 @@
           <code>ENVIRONMENT=local</code> and does not exist in a production build.
         </p>
 
+        <div class="signin-or"><span>or sign in by email</span></div>
+        <form id="link-form" class="signin-token">
+          <label class="sr-only" for="link-email">Email address</label>
+          <input
+            id="link-email"
+            type="email"
+            autocomplete="username"
+            spellcheck="false"
+            placeholder="you@example.com"
+          />
+          <button class="btn" type="submit">Send link</button>
+        </form>
+        <form id="magic-form" class="signin-token signin-token-second">
+          <label class="sr-only" for="magic-input">Sign-in link or token</label>
+          <input
+            id="magic-input"
+            type="password"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="paste the whole link from the email"
+          />
+          <button class="btn" type="submit">Sign in</button>
+        </form>
+        <p class="signin-note">
+          The link opens a page telling you to use your iPhone — that copy is for parents. Copy
+          the URL out of the address bar and paste it above.
+        </p>
+
         <div class="signin-or"><span>or paste an access token</span></div>
         <form id="token-form" class="signin-token">
           <label class="sr-only" for="token-input">Access token</label>
