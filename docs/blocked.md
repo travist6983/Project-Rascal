@@ -1902,3 +1902,55 @@ should not have been trusting the server's type here in the first place.** This 
 whether the *server's* answer should also be right.
 
 **Whoever takes this owns the `data-model.md` sentence too**, not just the call site.
+
+---
+
+## §15 — The GitHub billing token: an **errand**, not a blocker (Aug 20, 2026)
+
+`GITHUB_BILLING_TOKEN` is unset, so the Actions cost card renders `unconfigured` with a setup
+sentence. **That is a working state and nothing is broken while it lasts** — which is why this is
+an errand rather than a blocker. The other six cards are unaffected.
+
+**What is needed:** a **fine-grained** personal access token on github.com → Settings → Developer
+settings → Fine-grained tokens, with Account permissions → **Plan → Read-only** and nothing else.
+Only the account owner can mint it. Then `flyctl secrets set -a rascal-api GITHUB_BILLING_TOKEN=…`.
+
+**Two things make this easy to get wrong**, both documented in `runbook-admin-console.md`:
+
+- The repo-scoped classic token CI already holds **will not work.** This endpoint reads the
+  *account's plan*, which no amount of `repo` scope grants.
+- **A token missing `Plan: read` answers 404, not 403.** A bare "not found" reads as a mistyped
+  username and sends you checking `GITHUB_ACCOUNT`, which will not be the problem. The card says
+  so on its face for this reason.
+
+**Why this card exists at all:** §0 and §0a above are both *"GitHub Actions is not running —
+account billing"*, and the second one recurred a day after the first was resolved. Neither was
+visible anywhere until CI simply stopped. This is the instrument that was missing. **It cannot
+warn before a halt** — the API exposes no budget or quota, and the card says that too — but a
+dollar figure that moves is better than the nothing there was before.
+
+---
+
+## §16 — App Store Connect: **deferred**, and deliberately not requested yet (Aug 20, 2026)
+
+Not blocked, because nothing is waiting on it. Recorded here so the credential requirement lives
+where credential requirements live, and so the next person costing this out does not rediscover it.
+
+**Nothing App Store Connect can report before launch is a cost.** Revenue, proceeds, downloads,
+impressions and conversion are all built from public App Store activity, and an app that has
+never been released has none. `GET /v1/salesReports` requires at least one unit sold and answers
+404 on an empty period. App Analytics needs an Admin-role `POST /v1/analyticsReportRequests` and
+then one to two days before the first report exists — there is no same-day answer even after
+launch. The API is free to call and publishes no billing endpoint at all, so the Apple card
+carries the Developer Program membership and an honest sentence instead.
+
+**What a future phase would need**, when TestFlight build state and tester counts go on the *Ops*
+panel rather than this one:
+
+- A `.p8` EC private key, its key id, and the issuer id — three new secrets.
+- A **team** key. Individual keys cannot reach Sales and Finance.
+- ES256 JWT signing with `aud: "appstoreconnect-v1"` and a ≤20-minute lifetime. **No new
+  dependency:** `pyjwt[crypto]` is already installed and `services/push.py` already signs an
+  ES256 provider token from a `.p8`, cached against its expiry. That is the pattern to copy.
+
+**Not worth requesting until there is an app on the store**, since the data would be empty.

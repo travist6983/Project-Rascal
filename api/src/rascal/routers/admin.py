@@ -111,9 +111,10 @@ async def ops(session: AdminReadSession, user: AdminUser, settings: SettingsDep)
     response_model=AdminCosts,
     summary="What the vendors are charging, as far as they will say",
     description=(
-        "Five providers, fetched concurrently and cached briefly. Only Anthropic publishes a "
-        "cost API; Fly, Neon and Tigris report the consumption their bills are computed from "
-        "and Resend reports neither, so the total covers what is knowable and says so."
+        "Seven providers, fetched concurrently and cached briefly. Anthropic and GitHub "
+        "publish real cost APIs; Tigris and Apple carry a figure only because a price setting "
+        "names one; Fly, Neon and Resend expose no spend at all, so the total covers what is "
+        "knowable and names the providers outside it."
     ),
 )
 async def costs(user: AdminUser, settings: SettingsDep, refresh: bool = False) -> AdminCosts:

@@ -518,6 +518,30 @@ body[data-view="signin"] .shell {
   height: auto;
   overflow: visible;
 }
+.chart-picker {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.chart-tab {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.chart-tab[data-active="true"] {
+  border-color: var(--periwinkle-border);
+  background: var(--periwinkle-soft);
+  color: var(--periwinkle-deep);
+}
+
 .chart-empty {
   font-size: 13px;
   color: var(--ink-faint);

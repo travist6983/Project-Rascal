@@ -38,6 +38,9 @@ const state = {
   chat: [],
   concepts: [],
   composing: null,
+  // Which provider's series the costs chart is showing. More than one vendor has a series
+  // since phase 100, and they are not all denominated in money.
+  chart: null,
 };
 
 // --- API ------------------------------------------------------------------------------------
@@ -864,19 +867,14 @@ function renderCosts(data) {
   $("hero-spend").textContent = reporting.length ? money(data.total_known_cents) : "not connected";
   $("hero-spend").classList.toggle("is-none", !reporting.length);
   $("hero-spend-sub").textContent = !reporting.length
-    ? "No provider is reporting a figure yet. Anthropic is the only one of the five that " +
-      "publishes a cost API — connect it below and this becomes a real number."
+    ? "No provider is reporting a figure yet. Anthropic and GitHub are the two of seven that " +
+      "publish a cost API — connect either below and this becomes a real number."
     : data.providers_without_pricing.length
       ? `${data.providers_without_pricing.join(", ")} publish no billing API, so their spend is ` +
         "not in this number. Nothing here is estimated on their behalf."
       : "Across every connected provider.";
 
-  const anthropic = data.providers.find((p) => p.key === "anthropic");
-  columnChart(
-    $("chart-spend"),
-    (anthropic?.series || []).map((point) => ({ day: point.day, value: point.cents })),
-    { color: "var(--series-1)", format: (cents) => money(cents) },
-  );
+  renderChartPicker(data);
 
   const mount = $("providers");
   mount.replaceChildren();
@@ -916,6 +914,52 @@ function renderCosts(data) {
         : "");
     mount.append(card);
   }
+}
+
+// A costs chart is not always a chart of money. Anthropic and GitHub report cents; Neon
+// reports compute unit hours and no dollars at all. `series_unit` says which, and the
+// provider is picked rather than hardcoded because there is now more than one.
+function renderChartPicker(data) {
+  const charted = data.providers.filter((p) => (p.series || []).length);
+  state.chart = charted.some((p) => p.key === state.chart) ? state.chart : charted[0]?.key || null;
+  drawSeries(data);
+
+  const picker = $("chart-picker");
+  picker.replaceChildren();
+  if (charted.length < 2) return; // one series needs no chooser, and none needs no row
+  for (const provider of charted) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "chart-tab";
+    // A data attribute, not `style=` — the CSP is `style-src 'self'` with no 'unsafe-inline',
+    // so an inline style is dropped silently. Same pattern as `.metric-dot[data-tone]`.
+    button.dataset.active = String(provider.key === state.chart);
+    button.textContent = provider.label;
+    button.addEventListener("click", () => {
+      state.chart = provider.key;
+      renderChartPicker(data);
+    });
+    picker.append(button);
+  }
+}
+
+function drawSeries(data) {
+  const provider = data.providers.find((p) => p.key === state.chart);
+  $("chart-spend-label").textContent = provider?.series_label || "Nothing charted yet";
+  const isMoney = provider?.series_unit === "cents";
+  columnChart(
+    $("chart-spend"),
+    (provider?.series || []).map((point) => ({
+      day: point.day,
+      value: (isMoney ? point.cents : point.value) || 0,
+    })),
+    {
+      color: isMoney ? "var(--series-1)" : "var(--series-2)",
+      format: isMoney
+        ? (cents) => money(cents)
+        : (value) => `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}`,
+    },
+  );
 }
 
 const toneColor = (tone) =>
