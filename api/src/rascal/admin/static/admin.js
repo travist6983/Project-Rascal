@@ -1454,6 +1454,14 @@ function renderTreatment(source) {
   const shots = (source.shot_list || {}).shots || [];
   const track = source.caption_track || "";
   $("m-treatment").hidden = !shots.length && !track;
+  // The treatment's own runtime, next to its title. Worth showing because the WebM button a
+  // few lines below is hardcoded to four seconds and has nothing to do with this number — a
+  // thirty-second treatment above a four-second export is the confusion this label heads off.
+  const runtime =
+    source.duration_seconds || shots.reduce((total, shot) => total + (shot.seconds || 0), 0);
+  $("m-runtime").textContent = shots.length
+    ? `· ${runtime}s across ${shots.length} shot${shots.length === 1 ? "" : "s"}`
+    : "";
   const list = $("m-shots");
   list.replaceChildren();
   for (const shot of shots) {

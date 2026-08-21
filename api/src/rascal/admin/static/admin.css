@@ -581,6 +581,13 @@ body[data-view="signin"] .shell {
   margin: 12px 0;
 }
 
+.runtime {
+  font-weight: 400;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .treatment {
   margin-top: 18px;
   padding-top: 16px;
