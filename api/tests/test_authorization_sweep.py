@@ -222,3 +222,73 @@ async def test_a_revoked_guardian_loses_access_to_everything(
     for method, url, body in _requests(world):
         response = await _call(client, method, url, body, headers)
         assert response.status_code == 403, f"{method} {url}"
+
+
+# --- The route must not answer "does this exist?" -------------------------------------------
+
+
+async def test_an_id_that_exists_is_indistinguishable_from_one_that_does_not(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """A stranger must not be able to tell a real child from an invented one.
+
+    Every row above proves a stranger is refused. None of them proves the *refusal* says
+    nothing — and a route that answers 403 for a real child and 404 for a made-up one is an
+    enumeration oracle: walk it and you learn which ids are real, which is a membership fact
+    about somebody else's household.
+
+    **The code already behaves correctly and `docs/api-contract.md` used to say it did not.**
+    The contract justified always-403 on the grounds that *"leaking existence is fine here"* —
+    describing a weaker property than the code has. That sentence is the risk this test exists
+    to close: it reads as licence, and the plausible ticket ("a 404 for an unknown id would
+    make debugging clearer") arrives with the contract already agreeing. Nothing else in the
+    suite would have failed.
+    """
+    world = await _populated(session)
+    stranger = world["stranger"]
+    await session.commit()
+    headers = auth_headers(stranger)
+
+    real = uuid.UUID(str(world["child"].id))
+    invented = uuid.uuid4()
+
+    for template in (
+        "/v1/children/{id}/stats",
+        "/v1/children/{id}/moments",
+        "/v1/children/{id}/pool-health",
+        "/v1/children/{id}/prompt-suppressions",
+    ):
+        exists = await client.get(template.format(id=real), headers=headers)
+        does_not = await client.get(template.format(id=invented), headers=headers)
+        assert exists.status_code == does_not.status_code == 403, template
+        assert (
+            exists.json()["error"]["code"] == does_not.json()["error"]["code"] == "not_authorized"
+        ), template
+
+
+async def test_an_invented_household_is_indistinguishable_from_somebody_elses(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The same property on the newest forgeable-id route, which returns billing state.
+
+    `GET /families/{id}/entitlement` takes a household id from the caller and answers with the
+    tier and the computed deletion-eligibility date. `test_app_store.py` pins that another
+    household's id is 403; nothing pinned that an id belonging to *nobody* is the same 403,
+    which is the half that makes it not an oracle.
+    """
+    mine = await make_user(session, display_name="Mine")
+    theirs = await make_user(session, display_name="Theirs")
+    await session.commit()
+    headers = auth_headers(mine)
+
+    somebody_elses = await client.get(
+        f"/v1/families/{theirs.family_id}/entitlement", headers=headers
+    )
+    nobodys = await client.get(f"/v1/families/{uuid.uuid4()}/entitlement", headers=headers)
+
+    assert somebody_elses.status_code == nobodys.status_code == 403
+    assert (
+        somebody_elses.json()["error"]["code"]
+        == nobodys.json()["error"]["code"]
+        == "not_authorized"
+    )

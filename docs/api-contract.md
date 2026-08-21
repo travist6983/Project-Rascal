@@ -413,8 +413,14 @@ with sufficient role — `parent` reads and writes, `viewer` reads only. This li
 FastAPI dependency**, not in handler bodies. Routes that reach a child indirectly (an
 entry id, a media id, an assignment id) resolve the owning child and run the same check.
 
-Failure is `403` with code `not_authorized`. Never `404` — leaking existence is fine here
-and a wrong 404 sends me debugging the wrong thing.
+Failure is `403` with code `not_authorized`. **Never `404`, and the reason is the opposite of
+what this line used to say.** It read *"leaking existence is fine here"* — which described a
+weaker property than the code has and, worse, read as licence to add the 404 branch. An id that
+belongs to nobody and an id that belongs to somebody else return **the same 403 with the same
+code**, so the route cannot be walked to learn which ids are real. That is a membership fact
+about another household and it is not for sale. A wrong 404 would also send you debugging the
+wrong thing, which is the smaller of the two reasons. Pinned by
+`tests/test_authorization_sweep.py::test_an_id_that_exists_is_indistinguishable_from_one_that_does_not`.
 
 ---
 
@@ -1634,8 +1640,11 @@ The decisions are D1–D6 in `docs/decisions.md`, and the tables are in `docs/da
 household's tier and, when lapsed, the computed deletion-eligibility date.
 
 **Authorization is `deps.family_access`**, which compares the path id against the caller's
-`users.family_id`. Another household's id is `403 not_authorized`, never `404` — leaking existence
-is fine here and a wrong 404 sends you debugging the wrong thing.
+`users.family_id`. Another household's id is `403 not_authorized`, never `404` — **and so is an
+id that belongs to nobody**, which is what stops this route being an enumeration oracle over
+household ids. It is the newest route that takes a forgeable id and answers with billing state,
+so the property is pinned rather than assumed:
+`tests/test_authorization_sweep.py::test_an_invented_household_is_indistinguishable_from_somebody_elses`.
 
 **`GET /families/me` reports the same `tier` and the two never disagree**, because both read one
 `entitlements` row through one function. That is one authority with two shapes — the household
