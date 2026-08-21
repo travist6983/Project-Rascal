@@ -11,8 +11,19 @@ exact failure `roadmap-status.md` has now made six revisions running.
 78, so a genuinely new phase takes 79*~~ — ~~**struck Aug 19, 2026. The highest number used is 97 —
 96 is the admin console and 97 the social studio; a genuinely new phase takes 98.**~~ — **struck
 again Aug 20, 2026. The highest number used is 101**; 98 is the console's second database, 99 the
-console sign-in, 100 the extended cost panel and 101 the fixes found by driving it. **A genuinely
-new phase takes 102.**
+console sign-in, 100 the extended cost panel and 101 the fixes found by driving it. ~~**A genuinely
+new phase takes 102.**~~ — **struck a fourth time the same day, Aug 20, 2026, and this one lasted
+hours rather than a day.** 102 was taken within the hour by `api/phase-102-console-tweaks` and PR
+#152, and 103 by the prompt-candidate queue on the same branch. **The highest number used is 103.
+A genuinely new phase takes 104.**
+
+**The fourth strike is the first one this file's own rule predicted.** `:76` already says a number
+is taken the moment a branch or a PR carries it — 102 was carried by both while this paragraph
+still offered it to the next reader. The lag is not the docs audit being late; it is that the
+sentence is written at allocation time and read at allocation time by somebody else, and nothing
+recomputes it in between. **`roadmap-status.md`'s ledger is the only thing that is actually true**,
+and it is out of numeric order there (102 sits above 101), so a reader who tails the table sees 101
+and believes it.
 
 **Seventh instance, and it is a *fifth* blind spot rather than the fourth firing again.** The
 fourth is a number spent by a commit whose subject names no phase; this is the opposite. 98 and 99

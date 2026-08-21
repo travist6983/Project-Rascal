@@ -386,6 +386,39 @@ broadcast machines are not recorded as created anywhere in this repo.** §5's ru
 them — every machine with a non-empty `schedule` is moved onto the deployed image by the deploy
 workflow, so the image-pinning trap in §4b applies to these two the moment they exist.
 
+### 4f. The social publishing job — a fifth scheduled machine
+
+**Added Aug 20, 2026 by phase 104.** The job is `python -m rascal.jobs.social`, same shape as
+§4b, §4c and §4d, **not created or updated by `fly deploy`**:
+
+    fly machine run registry.fly.io/rascal-api:deployment-<id> \
+      --app rascal-api --schedule hourly --region ord \
+      --vm-size shared-cpu-1x --vm-memory 512 --restart no \
+      --env ENVIRONMENT=prod --env S3_REGION=auto \
+      --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+      -- python -m rascal.jobs.social
+
+**This machine is only for *scheduled* posts.** Pressing publish in the console posts inside the
+web request; the machine exists for posts queued for a time, and to pick up an immediate one
+whose request died between queueing and publishing. So a service with no scheduled machine still
+publishes — it just never publishes anything later.
+
+**Arming it is `SOCIAL_PUBLISH_ENABLED=true`, and that is a decision rather than a step**, the
+same shape as §4d. The two Instagram secrets let the console *read* the account; this one lets it
+*post*. Without it every run does the whole job except the two calls to Meta.
+
+Three properties worth knowing:
+
+1. **At most one post per run**, however often it fires. Looking often and posting often are
+   separate things.
+2. **The spacing rule is read from Instagram, not from our database** — the account is shared
+   with the `Rascal-Marketing` repository, whose hourly workflow posts to the same feed and
+   cannot see our rows. A run that says *holding off* is usually the other pipeline.
+3. **`--dry-run` says what is due and calls nothing; `--account` prints which account the
+   credentials control and its recent posts.** Use `--account` first. *"The run was green"* and
+   *"there is a post on the account you are looking at"* are different claims, and the marketing
+   session lost hours to exactly that distinction.
+
 ---
 
 ### 4e. App Store Server Notifications V2 — the endpoint, and the file that is not a secret

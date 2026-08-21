@@ -401,6 +401,14 @@ class Settings(DatabaseSettings):
     #: product's name.
     anthropic_model: str = "claude-opus-5"
 
+    #: The model the console's prompt-candidate generator uses, kept separate from the studio's
+    #: on the owner's call of Aug 20, 2026 (phase 103). Same argument `director.DEFAULT_MODEL`
+    #: makes in the other direction: candidates are volume a human filters on the spot, so
+    #: Sonnet is the right trade, while the studio writes a handful of things that go out under
+    #: the product's name. One setting rather than a shared one so moving either does not move
+    #: the other — which is exactly what a single `ANTHROPIC_MODEL` would have done.
+    anthropic_candidates_model: str = "claude-sonnet-5"
+
     # --- Pixel renderers -------------------------------------------------------------------
     #
     # **Anthropic has no image or video endpoint on any model**, so photographs and footage
@@ -413,6 +421,49 @@ class Settings(DatabaseSettings):
     #: silently start rendering something else the day the model was updated.
     replicate_image_model: str | None = None
     replicate_video_model: str | None = None
+
+    # --- Instagram publishing (phase 104) -------------------------------------------------
+    #
+    # **The account is shared with the marketing repository**, by the owner's decision of
+    # Aug 20, 2026: @getvellum.app, one feed, two publishers. That is the fact that shapes the
+    # settings below. `Rascal-Marketing`'s hourly workflow posts from a committed queue and
+    # this service posts from the console, and neither can see the other's database — so the
+    # spacing and the daily count here are read from **Instagram**, never from our own
+    # `social_publications` rows.
+    # A limit computed from our own rows would be a limit that does not know about half the feed.
+    #
+    # Meta moves the API version and the permission names more often than anything else this
+    # service talks to, which is why the host and version are settings rather than constants:
+    # correcting them is a secret change and not a deploy.
+    #
+    # **`IG_` rather than `INSTAGRAM_` deliberately**: these are the names the marketing
+    # repository's workflow already uses for the same two secrets, and one credential with two
+    # names in two places is how a rotation updates one of them.
+    ig_user_id: str | None = None
+    ig_access_token: str | None = None
+    #: `graph.instagram.com` is the Instagram-Login flow, which needs no Facebook Page.
+    #: `graph.facebook.com` is the Facebook-Login flow. Verified against the live account on
+    #: Aug 20, 2026: the token in use is the Instagram-Login kind and this host answers it.
+    ig_api_host: str = "https://graph.instagram.com"
+    ig_api_version: str = "v25.0"
+
+    # **Credentials do not switch publishing on.** This is `marketing_email_enabled`'s pattern
+    # and it is here for the same reason that one exists: setting a secret must never, by
+    # itself, start reaching the public. Off, every part of the publish path runs except the
+    # two calls to Meta, and the route reports exactly what it would have sent.
+    social_publish_enabled: bool = False
+
+    #: The smallest gap between two posts on the account, whoever made them. Instagram's own
+    #: ceiling is far higher; this is about a feed that reads as written rather than as drained.
+    #: The marketing poster uses 55 minutes for the same reason and the two should agree.
+    social_min_gap_minutes: int = 55
+    #: Meta's documented ceiling is 100 API-published posts per rolling 24 hours — it was 25
+    #: until they raised it, so it is a setting rather than a constant. Counted from the
+    #: account, not from our rows.
+    social_daily_post_limit: int = 100
+    #: How long the URL handed to Meta stays valid. Meta fetches within seconds; this is slack
+    #: for a container that takes a retry, not a window anybody browses in.
+    social_image_url_ttl_seconds: int = 3600
 
     #: How many mission-library bodies may appear in social posts before the studio refuses.
     #: **This is a leak budget, not a rate limit.** D7 keeps the library out of anything

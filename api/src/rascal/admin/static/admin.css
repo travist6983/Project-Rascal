@@ -137,6 +137,23 @@ code {
 .btn:hover {
   background: var(--chip);
 }
+/* A disabled button had no style of its own, so `button.disabled = true` stopped the click and
+   changed nothing a reader could see — a terracotta primary button that ignores you. Console-
+   wide rather than scoped to one screen, because every disabled button here had the same bug. */
+.btn:disabled,
+.btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: var(--surface);
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
+.btn-primary:disabled,
+.btn-primary:disabled:hover {
+  background: var(--surface);
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
 .btn:focus-visible {
   outline: 2px solid var(--periwinkle);
   outline-offset: 2px;
@@ -579,6 +596,13 @@ body[data-view="signin"] .shell {
   border: 0;
   border-top: 1px solid var(--border);
   margin: 12px 0;
+}
+
+.runtime {
+  font-weight: 400;
+  color: var(--ink-faint);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .treatment {
@@ -1242,6 +1266,38 @@ tbody tr.is-off td {
   cursor: pointer;
   transition: border-color 0.12s ease;
 }
+
+/* Prompt candidates (phase 103). Picked state and verdict are data attributes rather than
+   classes toggled in JS, and never inline styles: the console's CSP drops a `style=`
+   attribute silently, so a colour set that way is a bug with no error message. */
+.candidate {
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.candidate[data-picked="true"] {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+.candidate[data-verdict="rejected"] {
+  border-left: 3px solid var(--danger);
+}
+.candidate-body {
+  font-family: var(--rounded);
+  font-size: 15px;
+  line-height: 1.45;
+  margin: 8px 0 6px;
+}
+.candidate-why {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0 0 8px;
+}
+.candidate-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .concept:hover {
   border-color: var(--terracotta);
 }
@@ -1360,6 +1416,7 @@ body[data-readonly="true"] .drawer-actions .btn-danger,
 body[data-readonly="true"] #p-release,
 body[data-readonly="true"] #m-export,
 body[data-readonly="true"] #concepts-form button[type="submit"],
+body[data-readonly="true"] #m-publish,
 body[data-readonly="true"] #v-go {
   display: none;
 }
@@ -1371,4 +1428,96 @@ body[data-readonly="true"] .asset {
 
 .signin-token-second {
   margin-top: 8px;
+}
+
+
+/* Publishing. Set apart from the composer's other actions on purpose — everything above it is
+   reversible and this is not, so it reads as its own decision rather than as one more button
+   in a row. */
+.publish {
+  /* `.composer-body` is a two-column grid and this is its third child, so without the span it
+     lands under the preview in a 380px column — which is where it first shipped, and it made
+     the account line wrap mid-sentence. */
+  grid-column: 1 / -1;
+  /* `.composer-preview` above is `position: sticky`, so once the drawer scrolls it slides down
+     over whatever is in the next grid row — which is this. Stacking above it and painting an
+     opaque background is what stops the card's caption showing through the account line.
+     Transparent here is not "no background", it is "the preview, legibly ruined". */
+  position: relative;
+  z-index: 1;
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+  background: var(--surface);
+}
+.publish-account {
+  margin: 6px 0 0;
+}
+.publish-hold {
+  /* The same treatment `.chip-warn` already uses. `--warn-bg` and `--warn-ink` do not exist —
+     the first version named them with hex fallbacks, which meant it always painted two colours
+     that were in no palette and would not follow one if it changed. */
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-inset);
+  background: #fbf1dd;
+  border: 1px solid #efe0c2;
+  color: var(--warn);
+  font-size: 13px;
+}
+.publish-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.publish-when {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.publish-confirm {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--series-1);
+  border-radius: var(--radius-inset);
+}
+.publish-confirm-text {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+.publish-confirm-caption {
+  margin: 0 0 12px;
+  padding: 10px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  /* The caption is prose and may be long; a fixed height with its own scroll keeps the
+     confirm buttons on screen instead of pushing them below the fold. */
+  font-size: 12px;
+  border-radius: var(--radius-inset);
+  background: var(--canvas);
+}
+.publish-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.publications {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.publications li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.publications .publication-error {
+  color: var(--danger);
 }

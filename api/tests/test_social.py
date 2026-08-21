@@ -45,6 +45,11 @@ ALL_ROUTES = [
     ("GET", "/v1/social/studio", None),
     ("GET", "/v1/social/assets", None),
     ("POST", "/v1/social/assets", {"headline": "hello"}),
+    # Phase 104. `/social/account` and `/social/publications` read a live account and the
+    # publish queue; the publish route reaches a public feed. A stranger who could call any of
+    # them would be reading the product's marketing credentials or posting under its name.
+    ("GET", "/v1/social/account", None),
+    ("GET", "/v1/social/publications", None),
     *MODEL_ROUTES,
 ]
 

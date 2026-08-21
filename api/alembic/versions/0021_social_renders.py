@@ -26,7 +26,7 @@ tombstone would have nowhere to go — the identical reasoning `social_assets` a
 Reversible: the downgrade drops the trigger, both indexes and the table — verified by
 running it. The check constraint goes with the table.
 
-Revision ID: 0020_social_renders
+Revision ID: 0021_social_renders
 Revises: 0019_app_store_transactions
 Create Date: 2026-08-20
 """
@@ -36,8 +36,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0020_social_renders"
-down_revision = "0019_app_store_transactions"
+revision = "0021_social_renders"
+down_revision = "0020_social_publications"
 branch_labels = None
 depends_on = None
 

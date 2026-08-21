@@ -1,11 +1,21 @@
-"""The social studio's API. Admin only, and it publishes nothing.
+"""The social studio's API. Admin only, and since phase 104 it can publish to Instagram.
 
-**Every route generates or stores; none of them posts.** There is no social-network
-integration here, no scheduler, and no `publish` that reaches the internet — an asset is
-written, reviewed, downloaded, and put out by a human somewhere else. `status = "published"`
-is the owner recording that they did it. That is partly the same gate open item 12 puts on
-marketing email, and partly the plainer point that an automation which posts on its own is one
-bad generation away from doing so under the product's name.
+**Superseded Aug 20, 2026.** What stood here was: *"Every route generates or stores; none of
+them posts. There is no social-network integration here, no scheduler, and no `publish` that
+reaches the internet."* That was true of this file until phase 104 and is kept as history
+rather than deleted. The owner asked for direct publishing, and when shown the sentence did not
+recognise it — it was an agent's stance, never a row in `docs/decisions.md`.
+
+**What the old paragraph got right is kept as the design.** An automation that posts on its own
+is one bad generation away from doing so under the product's name, so nothing here posts on its
+own: `SOCIAL_PUBLISH_ENABLED` defaults false and credentials alone do not switch it on, every
+publish is a person pressing a button or a time that person chose, and the scheduled runner
+publishes only rows a person queued. `status = "published"` is still what the owner sets by
+hand for a post made somewhere this service cannot reach.
+
+**The account is shared with the marketing repository**, by the owner's decision — one feed,
+two publishers, no shared database. Spacing and the daily count are therefore read from
+Instagram rather than from our own rows. See `services/social/instagram.py`.
 
 **Claude writes words; it does not make pictures.** There is no image or video endpoint on any
 Anthropic model. `POST /social/concepts` returns copy plus a template choice, and the pixels
@@ -19,22 +29,29 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
 from rascal.errors import ErrorCode, RascalError
-from rascal.models import SocialRender
 from rascal.schemas.social import (
     ChatIn,
     ConceptsIn,
+    PublishIn,
     RenderIn,
     ShotListIn,
     SocialAssetIn,
     SocialAssetUpdate,
 )
-from rascal.services.s3 import presign_get
-from rascal.services.social import brand, director, renderers, renders, studio
+from rascal.services.social import (
+    brand,
+    director,
+    instagram,
+    publishing,
+    renderers,
+    renders,
+    studio,
+)
 
 router = APIRouter(prefix="/social", tags=["social"])
 
@@ -260,6 +277,148 @@ async def render_asset(
     return studio.as_dict(asset)
 
 
+# --- Publishing ---------------------------------------------------------------------------
+#
+# Everything below reaches, or can reach, a public feed. `LocalWrites` is on every write for
+# the usual reason and one extra: publishing while the console reads production and writes
+# locally would put a post on the internet and record it in a database nobody will look at.
+
+
+@router.get(
+    "/account",
+    summary="Which Instagram account the credentials point at, and whether now is a good time",
+    description=(
+        "Two different claims — *the call worked* and *there is a post on the account you are "
+        "looking at* — so the handle is shown next to the button rather than assumed. "
+        "`spacing` is read from Instagram, not from our own rows, because the marketing "
+        "repository posts to this same account and cannot see our database."
+    ),
+)
+async def account(user: AdminUser, settings: SettingsDep) -> dict[str, Any]:
+    if not instagram.configured(settings):
+        return {
+            "configured": False,
+            "publish_enabled": settings.social_publish_enabled,
+            "setup": (
+                "Set IG_USER_ID and IG_ACCESS_TOKEN. Both come from the Meta app that owns "
+                "the Instagram professional account — see docs/blocked.md."
+            ),
+        }
+    who = await instagram.account(settings)
+    space = await instagram.spacing(settings)
+    return {
+        "configured": True,
+        "publish_enabled": settings.social_publish_enabled,
+        "username": who.username,
+        "account_type": who.account_type,
+        "media_count": who.media_count,
+        "last_post_at": space.last_post_at.isoformat() if space.last_post_at else None,
+        "posts_in_last_24h": space.posts_in_last_24h,
+        "blocked_reason": space.blocked_reason,
+    }
+
+
+@router.post(
+    "/assets/{asset_id}/image",
+    summary="Store the card the browser just drew",
+    description=(
+        "Send the JPEG as the raw request body. **JPEG only** — Instagram publishes no other "
+        "format and reports a PNG as a container in `ERROR` rather than as a readable "
+        "message, so the magic number is checked here. Capped at 4MB.\n\n"
+        "This is the one route that takes bytes through the API rather than handing back a "
+        "presigned PUT. A browser cannot PUT to the bucket without a CORS policy on the "
+        "bucket itself, and the bucket holds the archive — see `services/social/publishing.py`."
+    ),
+)
+async def card_upload(
+    asset_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    user: AdminUser,
+    settings: SettingsDep,
+    _: LocalWrites,
+) -> dict[str, str]:
+    asset = await studio.update_asset(session, asset_id, {})  # 404s if it is not there
+
+    # Refuse on the header before reading, not on `len(data)` after. `request.body()` buffers
+    # the whole upload in memory first, so checking the size afterwards means the oversized
+    # request has already cost what it was going to cost.
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > publishing.MAX_CARD_BYTES:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            f"That image is {int(declared) // 1024}KB and the limit is "
+            f"{publishing.MAX_CARD_BYTES // 1024}KB.",
+        )
+    data = await request.body()
+    key = await publishing.store_card(settings, asset_id, data)
+    # Set on the row directly, **not** through `update_asset`, whose `EDITABLE` tuple
+    # deliberately excludes these two: a storage key is written by the code that stored the
+    # bytes and must never be settable by a caller. Routing it through the editor instead
+    # dropped it silently and cost a debugging session — the publish then refused for a
+    # different reason and the missing key never surfaced.
+    asset.render_key = key
+    asset.render_provider = "card"
+    await session.flush()
+    return {"key": key, "bytes": str(len(data))}
+
+
+@router.post(
+    "/assets/{asset_id}/publish",
+    summary="Put this on Instagram, now or at a time",
+    description=(
+        "Omit `scheduled_for` to publish in this request. Supply it to queue the post for the "
+        "scheduled runner. Refuses if the asset has already gone out, if one is already "
+        "queued for it, if the account was posted to too recently **by anyone**, or if "
+        "`SOCIAL_PUBLISH_ENABLED` is false."
+    ),
+)
+async def publish_asset(
+    asset_id: uuid.UUID,
+    payload: PublishIn,
+    session: SessionDep,
+    user: AdminUser,
+    settings: SettingsDep,
+    _: LocalWrites,
+) -> dict[str, Any]:
+    publication = await publishing.queue(
+        session, settings, asset_id, user, scheduled_for=payload.scheduled_for
+    )
+    if payload.scheduled_for is not None:
+        return publishing.as_dict(publication)
+    published = await publishing.run(session, settings, publication)
+    return publishing.as_dict(published)
+
+
+@router.get("/publications", summary="The publish queue and what became of it")
+async def list_publications(
+    session: AdminReadSession,
+    user: AdminUser,
+    asset_id: Annotated[uuid.UUID | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 60,
+) -> dict[str, Any]:
+    rows = await publishing.list_publications(session, asset_id=asset_id, limit=limit)
+    return {"publications": [publishing.as_dict(row) for row in rows]}
+
+
+@router.post(
+    "/publications/{publication_id}/cancel",
+    summary="Take a scheduled post out of the queue",
+    description=(
+        "Legal only before it has gone out. A published post cannot be unpublished from here "
+        "— that is the Instagram app's job, and pretending otherwise would be a lie in a "
+        "button."
+    ),
+)
+async def cancel_publication(
+    publication_id: uuid.UUID,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
+) -> dict[str, Any]:
+    return publishing.as_dict(await publishing.cancel(session, publication_id))
+
+
 @router.post(
     "/assets/{asset_id}/video",
     status_code=status.HTTP_202_ACCEPTED,
@@ -310,23 +469,3 @@ async def render_status(
         # button rather than after the fact.
         "estimate_cents": renders.estimate_cents(settings, renders.shots_of(asset)),
     }
-
-
-@router.get(
-    "/renders/{render_id}/file",
-    summary="A short-lived link to a finished render",
-    description=(
-        "A presigned URL, minted on request and never stored. The column holds an object key "
-        "for exactly this reason: a signed URL written to the database outlives its signature "
-        "and then reads as data loss."
-    ),
-)
-async def render_file(
-    render_id: uuid.UUID, session: AdminReadSession, user: AdminUser, settings: SettingsDep
-) -> dict[str, Any]:
-    render = await session.get(SocialRender, render_id)
-    if render is None or not render.render_key:
-        raise RascalError(
-            ErrorCode.NOT_FOUND, "That render has produced no file.", field="render_id"
-        )
-    return {"url": presign_get(render.render_key, settings), "key": render.render_key}

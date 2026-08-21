@@ -41,9 +41,16 @@ SOCIAL_PLATFORMS: tuple[str, ...] = (
     "generic",
 )
 
-#: `exported` means a file left the console. `published` is set by hand by the owner after
-#: they actually post it — **nothing in this service posts anything**, so `published` is a
-#: record of something that happened elsewhere and never a thing the code causes.
+#: `exported` means a file left the console. `published` used to mean only that the owner had
+#: posted it somewhere by hand.
+#:
+#: **Superseded Aug 20, 2026 by phase 104: this service now posts to Instagram**, at the
+#: owner's direct request, and sets `published` itself when it does. The sentence that stood
+#: here — *"nothing in this service posts anything"* — was an agent's design stance rather than
+#: a decision in `docs/decisions.md`, and the owner did not recognise it when asked. It is kept
+#: as history rather than deleted because a claim about what the code did on a date is a true
+#: statement about that date. `published` still means "this went out", and it is still set by
+#: hand when the owner posts somewhere this service cannot reach.
 SOCIAL_STATUSES: tuple[str, ...] = ("draft", "approved", "exported", "published", "discarded")
 
 #: `card` is drawn in the browser from a template. `photo` and `video` need a third-party
@@ -124,9 +131,101 @@ class SocialAsset(Base):
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    #: Set by hand when the owner posts it somewhere. Nothing in this service writes it as a
-    #: side effect of sending, because nothing in this service sends.
+    #: When this went out. Set by hand for a post the owner made somewhere this service cannot
+    #: reach, and set by `services/social/instagram.py` for one it published itself — phase 104,
+    #: which is why the sentence that used to end this comment is in the note above `published`
+    #: rather than here.
+    #:
+    #: The authoritative record of a publish this service performed is the `social_publications`
+    #: row, which carries the media id, the permalink and the caption that actually went out.
+    #: This column is the answer to "has it gone out at all", cheap to read on the list screen.
     published_at: Mapped[optional_moment]
+    created_at: Mapped[created]
+    updated_at: Mapped[updated]
+
+
+#: Where one attempt got to. `publishing` is a claim held for the length of one attempt, so a
+#: second worker walking the queue steps over a row that is currently mid-flight at Meta.
+PUBLICATION_STATUSES: tuple[str, ...] = (
+    "scheduled",
+    "publishing",
+    "published",
+    "failed",
+    "cancelled",
+)
+
+
+class SocialPublication(Base):
+    """One attempt to put an asset on a platform — scheduled, in flight, done, or failed.
+
+    **The asset says what was written. This says what happened to it.** They are separate rows
+    because an asset stays editable after a post goes out, and a ledger that reads the current
+    draft to tell you what was published is a ledger that rewrites history. `caption`,
+    `alt_text` and `image_key` are therefore snapshots taken at publish time and never read
+    back from the asset.
+
+    **`container_id` is written before the publish call.** Meta's flow is two requests — build
+    a container from a public image URL, then publish it — and the gap between them is the only
+    place in this pipeline where a failure is unrecoverable: a post lands on a public feed and
+    nothing here knows, so the next attempt sends it again. A duplicate on a public feed is the
+    one outcome strangers see and nothing on our side can undo. Recording the container first
+    does not prevent it; it makes it diagnosable, and it lets the next attempt ask Meta about a
+    specific container rather than guessing.
+    """
+
+    __tablename__ = "social_publications"
+    __table_args__ = (
+        one_of("platform", SOCIAL_PLATFORMS, name="platform"),
+        one_of("status", PUBLICATION_STATUSES, name="status"),
+        Index("ix_social_publications_status_scheduled_for", "status", "scheduled_for"),
+        Index("ix_social_publications_asset_id", "asset_id"),
+        # Two rows must never claim one post. The service checks Instagram before publishing
+        # and refuses on an asset that has already gone out — but both of those are decisions
+        # made in Python by one process, and this is the one that survives two.
+        Index(
+            "uq_social_publications_media_id",
+            "media_id",
+            unique=True,
+            postgresql_where=text("media_id IS NOT NULL"),
+        ),
+        # One live attempt per asset, so pressing publish twice cannot queue two posts.
+        Index(
+            "uq_social_publications_live_per_asset",
+            "asset_id",
+            unique=True,
+            postgresql_where=text("status IN ('scheduled', 'publishing')"),
+        ),
+    )
+
+    id: Mapped[uuid_pk]
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("social_assets.id", ondelete="CASCADE"), nullable=False
+    )
+    platform: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, server_default="scheduled")
+
+    #: NULL means "the next time the queue looks", which is what an immediate publish sets.
+    #: UTC, and compared against `now()` — the child-timezone rule is about a child's day and
+    #: there is no child in a marketing post.
+    scheduled_for: Mapped[optional_moment]
+
+    image_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    alt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    container_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    permalink: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: Why the last attempt failed, in the words Meta used. Kept on the row rather than only in
+    #: the log, because the person who needs it is looking at the console rather than at Fly.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+
+    published_at: Mapped[optional_moment]
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[created]
     updated_at: Mapped[updated]
 

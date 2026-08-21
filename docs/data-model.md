@@ -744,10 +744,58 @@ Three things hold it and none of them is "remember not to":
 editor can fork a prompt, and the row `featured_prompt_id` points at may no longer hold what
 went out.
 
-### Nothing here posts anything
+### ~~Nothing here posts anything~~ — struck Aug 20, 2026 by phase 104
 
-There is no social-network integration, no scheduler, and no route that reaches a platform.
-`published` is the owner recording that they posted it somewhere else.
+~~*There is no social-network integration, no scheduler, and no route that reaches a platform.*~~
+That was true until phase 104 and is kept as history rather than deleted. The owner asked for
+publishing straight to Instagram; shown the sentence, he did not recognise it, and it was never
+a row in `decisions.md`. `published` is still what he sets by hand for a post made somewhere
+this service cannot reach — it is no longer *only* that.
+
+## `social_publications`
+
+One row per attempt to put an asset on a platform. Marketing output, so it follows
+`social_assets`: `updated_at` and the trigger, no `deleted_at`.
+
+| Column | Notes |
+|---|---|
+| `asset_id` | → `social_assets`, `ON DELETE CASCADE`. Safe because nothing deletes an asset — discarding is a status |
+| `platform` | `text` + CHECK, the same tuple `social_assets.platform` uses |
+| `status` | `scheduled` · `publishing` · `published` · `failed` · `cancelled` |
+| `scheduled_for` | UTC. **NULL means "as soon as the queue looks"**, which is what an immediate publish writes |
+| `image_key`, `caption`, `alt_text` | **Snapshots**, not references — see below |
+| `container_id` | Written *before* the publish call — see below |
+| `media_id`, `permalink` | What Instagram gave back |
+| `error`, `attempts` | Why the last attempt failed, in the platform's own words |
+
+**Why a table and not four columns on `social_assets`.** A media id and a permalink would have
+fitted. Scheduling needs a queue to scan, a failure needs a reason and a count that the next
+attempt does not erase, and `social_assets.platform` says where a concept is *aimed* while this
+says where it actually *went*. Only Instagram has a publisher today; the table is what keeps the
+second one from being a migration.
+
+**The snapshots are the point.** An asset stays editable after a post goes out. A ledger that
+reads the current draft to tell you what was published is a ledger that rewrites history, so
+what went out is copied here at publish time and never read back from the asset.
+
+**`container_id` is written before `media_publish`, not after.** Meta's flow is two requests and
+the gap between them is the only unrecoverable failure in this pipeline: a crash after the
+publish returns leaves a post on a public feed that no row knows about, and the next attempt
+sends it again. Recording the container first does not prevent that — nothing can — but it turns
+a mystery into a specific container Meta can be asked about.
+
+Two partial unique indexes carry rules the application also enforces, so that they survive two
+processes rather than one: `uq_social_publications_media_id` (`WHERE media_id IS NOT NULL`) means
+two rows can never claim one post, and `uq_social_publications_live_per_asset`
+(`WHERE status IN ('scheduled','publishing')`) means pressing publish twice cannot queue two.
+Both are translated into `409 conflict` in `services/social/publishing.py` — an index doing its
+job should not reach a person as `internal_error`.
+
+**`publishing` is a claim, and claims can be abandoned.** The row is committed before anything
+reaches Meta, so a process that dies mid-flight leaves one behind — and the second index above
+then refuses to queue anything else for that asset, permanently, because cancelling a row that
+might be live at Meta is not something the console may do. `jobs/social.py` settles them at the
+start of every run by asking Instagram whether the post is on the account. It never re-sends.
 
 ---
 

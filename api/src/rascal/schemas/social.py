@@ -8,10 +8,11 @@ worth being strict about, because they are what a browser sends.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from rascal.models.social import SOCIAL_FORMATS, SOCIAL_PLATFORMS, SOCIAL_STATUSES
 from rascal.schemas.common import ApiModel
@@ -130,3 +131,34 @@ class RenderIn(ApiModel):
         max_length=4000,
         description="Overrides the asset's own `image_prompt` for this one render.",
     )
+
+
+class PublishIn(ApiModel):
+    """Post it now, or queue it for a time.
+
+    `scheduled_for` omitted means now — the row is written and published in the same request,
+    which is what the console's button does. A time queues it and the scheduled machine picks
+    it up; the shape is one field rather than two endpoints because "post this" and "post this
+    at six" are the same decision with a different answer to when.
+    """
+
+    scheduled_for: dt.datetime | None = Field(
+        default=None,
+        description=(
+            "UTC. Omit to publish immediately. A time in the past is refused rather than "
+            "silently treated as now — it usually means a timezone was got wrong."
+        ),
+    )
+
+    @field_validator("scheduled_for")
+    @classmethod
+    def _not_in_the_past(cls, value: dt.datetime | None) -> dt.datetime | None:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("scheduled_for must carry a timezone offset.")
+        if value < dt.datetime.now(tz=dt.UTC) - dt.timedelta(minutes=1):
+            raise ValueError(
+                "scheduled_for is in the past. Omit it to post now, or send a future time."
+            )
+        return value
