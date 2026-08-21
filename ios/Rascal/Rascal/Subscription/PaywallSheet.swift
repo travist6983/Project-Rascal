@@ -191,17 +191,31 @@ struct PaywallSheet: View {
     private var purchaseArea: some View {
         switch model.purchase {
         case .idle, .failed:
-            if case .failed(let message) = model.purchase {
-                Text(message)
-                    .typeRole(.metadata)
-                    .foregroundStyle(Color.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+            // **The household became subscribed without this screen buying anything** — a restore
+            // that found something, another guardian subscribing, a purchase completed on another
+            // device arriving through the listener. `canBuy` correctly goes false, and without
+            // this branch the parent is left looking at a greyed-out **Start the free trial** with
+            // no sentence saying why it stopped working. A primary action that disables itself and
+            // reports nothing teaches somebody the screen is decorative.
+            if model.household?.isSubscribed == true {
+                terminal(
+                    "You're subscribed.",
+                    detail: "Everything is shared with the household now.",
+                    action: "Done"
+                )
+            } else {
+                if case .failed(let message) = model.purchase {
+                    Text(message)
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.inkMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button(buyLabel) {
+                    Task { await model.buy() }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!model.canBuy)
             }
-            Button(buyLabel) {
-                Task { await model.buy() }
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(!model.canBuy)
 
         case .purchasing:
             busy("Talking to the App Store")

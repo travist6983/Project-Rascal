@@ -686,6 +686,33 @@ struct SubscriptionRestoreTests {
         #expect(model.isRestoring == false)
     }
 
+    @Test("a restore that finds a subscription leaves the parent something to read")
+    @MainActor
+    func aSuccessfulRestoreIsNotSilent() async {
+        // The dead end this pins: restore succeeds, `household` flips to subscribed, `canBuy`
+        // correctly goes false — and with `purchase` still `.idle` the paywall used to render a
+        // greyed-out "Start the free trial" and no sentence at all. Nothing said what happened.
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "subscribed" : "free")
+        }
+        await model.load()
+        #expect(model.canBuy)
+
+        _ = await subscribed.bump()
+        await model.restore()
+
+        #expect(model.household?.isSubscribed == true)
+        #expect(model.canBuy == false)
+        // The paywall keys its "You're subscribed." terminal state off exactly this pair, so a
+        // parent is told rather than left with a dead control.
+        #expect(model.purchase == .idle || model.purchase == .subscribed)
+        #expect(
+            model.notice == nil,
+            "a successful restore should not also report a failure notice"
+        )
+    }
+
     @Test("a restore that finds nothing says so plainly rather than failing")
     @MainActor
     func nothingToRestore() async {
@@ -724,6 +751,84 @@ struct SubscriptionRestoreTests {
         // returns at the guard. `<= 2` was the original assertion here and it could not fail,
         // which made it a test of nothing.
         #expect(await store.restores == 1)
+    }
+}
+
+// MARK: - The listener's counter
+
+/// The split between "somebody came back to the app" and "a transaction arrived".
+///
+/// **This is the guard for the worst bug this branch had.** One counter used to serve both
+/// `SubscriptionCenter.refresh()` — which `OnboardingGate` calls on every foreground — and the
+/// `Transaction.updates` drain, so any foreground reached `transactionArrived()` and, from
+/// `.awaitingApproval`, ran the confirmation window to its terminal "Your subscription is being
+/// confirmed. There's nothing else you need to do." Nobody had approved anything.
+///
+/// `theListenerIsWired` does not cover this and cannot: it greps the source for
+/// `SubscriptionStore.drain(Transaction.updates)` and `await self?.refresh()`, and **both
+/// substrings survive** the one edit that reintroduces the bug — moving `transactionDelivered()`
+/// inside `refresh()`. These are behavioural.
+@Suite("The transaction counter, and what may bump it")
+struct SubscriptionCenterTests {
+
+    @MainActor
+    private func center(answering status: Int, body: String = "{}") -> (SubscriptionCenter, StubPerformer) {
+        let performer = StubPerformer()
+        performer.on("families/me") { _ in (Data(body.utf8), status) }
+        let api = APIClient(
+            baseURL: URL(string: "https://example.invalid")!,
+            performer: performer,
+            tokens: InMemoryTokenStore()
+        )
+        return (SubscriptionCenter(testing: api), performer)
+    }
+
+    @Test("a foreground re-check asks the server and does not look like a transaction")
+    @MainActor
+    func aSuccessfulRefreshDoesNotBump() async {
+        let household = """
+        {"family_id":"3F2504E0-4F89-11D3-9A0C-0305E82C3301","tier":"subscribed",
+         "guardians":[],"pending_invites":[]}
+        """
+        let (center, performer) = center(answering: 200, body: household)
+        #expect(center.transactionRevision == 0)
+
+        await center.refresh()
+        await center.refresh()
+
+        // It did ask — the foreground re-check is a real server read, not a no-op.
+        #expect(performer.count(for: "families/me") == 2)
+        // And it did not announce a transaction, because none arrived.
+        #expect(
+            center.transactionRevision == 0,
+            "a foreground re-check bumped the transaction counter"
+        )
+    }
+
+    @Test("a refresh whose request fails also does not bump")
+    @MainActor
+    func aFailedRefreshDoesNotBump() async {
+        // The original bug bumped unconditionally — including when the read threw, which is the
+        // worse half: the app announced a change it had just failed to learn about.
+        let (center, _) = center(answering: 500)
+
+        await center.refresh()
+
+        #expect(
+            center.transactionRevision == 0,
+            "a failed refresh bumped the transaction counter"
+        )
+    }
+
+    @Test("a center with no client refuses rather than announcing anything")
+    @MainActor
+    func aRefreshBeforeStartIsInert() async {
+        let (center, performer) = center(answering: 200)
+        _ = performer
+        // `start(api:)` has not run in production terms; this instance has a client but no
+        // listener, and the invariant under test is that neither path invents a transaction.
+        await center.refresh()
+        #expect(center.transactionRevision == 0)
     }
 }
 
@@ -913,6 +1018,18 @@ struct SubscriptionPriceTests {
         )
         // And it is the entitlement it refreshes, rather than a tier written locally.
         #expect(source.contains("await self?.refresh()"))
+        // **`refresh()` must not announce a transaction.** Substring presence alone cannot see
+        // this: moving `transactionDelivered()` inside `refresh()` leaves every string above
+        // intact. `SubscriptionCenterTests` pins the behaviour; this pins the shape, because the
+        // two fail differently and the source one names the edit.
+        if let body = source.range(of: "func refresh() async {") {
+            let after = source[body.upperBound...]
+            let end = after.range(of: "\n    }")?.lowerBound ?? after.endIndex
+            #expect(
+                !after[..<end].contains("transactionDelivered"),
+                "refresh() bumps the transaction counter — that is the foreground bug returning"
+            )
+        }
 
         let gate = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

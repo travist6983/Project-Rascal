@@ -1,4 +1,13 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "fingerprint": "bb4512d1c85f",
+      "file": "ios/Rascal/Rascal/Subscription/PaywallSheet.swift",
+      "rule": "docs/design-system.md Dynamic Type: accessibility-sized layout defects are found by screenshotting, not by reading.",
+      "reason": "The buy button does not truncate \u2014 it wraps. Two independent reviewers (this run's ios-reviewer, and an earlier adversarial pass that filed it CRITICAL) both inferred truncation from PrimaryButtonStyle carrying no lineLimit. SwiftUI Text wraps by default; truncation needs an explicit lineLimit(1) or a hard width constraint, and neither exists. Checked against the committed artifact rather than the code: RascalTests/__Screenshots__/paywall-settings-accessibility5.png renders 'Start the / free trial' across two lines with no ellipsis. Suppressed because two reviewers reaching it independently means a third will.",
+      "added": "2026-08-21",
+      "expires_at": null
+    }
+  ]
 }

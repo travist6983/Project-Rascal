@@ -40,6 +40,19 @@ final class SubscriptionCenter {
 
     private init() {}
 
+    #if DEBUG
+        /// A center holding an API client and **no listener**, for tests.
+        ///
+        /// `shared` is still the one production instance and the rule above is unchanged — a
+        /// second *drain* of `Transaction.updates` is the thing that must not exist. This starts
+        /// none: it exists so a test can assert the counter split without opening a
+        /// process-lifetime stream on a global. Same seam, same reason, as
+        /// `SubscriptionModel.init(previewing:)`.
+        init(testing api: APIClient) {
+            self.api = api
+        }
+    #endif
+
     /// Idempotent. `OnboardingGate` calls this from a `.task` that sits **above** `RootView`'s
     /// `.id(child.id)`, so switching child does not tear the listener down and a second call does
     /// not start a second drain.
