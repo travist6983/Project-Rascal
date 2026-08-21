@@ -1749,8 +1749,21 @@ inner transaction Apple did not is the shape of a forged upgrade.
 
 #### The client obligation: `appAccountToken`
 
-**Phase 37b must set `appAccountToken` to the purchasing user's `family_id` on every StoreKit
-purchase.** This is the one thing 37b has to get right on the first build.
+~~**Phase 37b must set `appAccountToken` to the purchasing user's `family_id` on every StoreKit
+purchase.**~~ — **honoured by the client, Aug 20, 2026.**
+`SubscriptionStore.purchase(_:familyID:)` in `ios/Rascal/Rascal/Subscription/SubscriptionStore.swift`
+is the only call to `Product.purchase(options:)` in the app, and its only option is
+`.appAccountToken(familyID)`. The `familyID` argument is **non-optional**, and the only state that
+carries one is `SubscriptionModel.Phase.ready(_, familyID:)` — so a purchase cannot be started from
+a screen that does not know the household, rather than being started with a substituted token. Two
+tests pin it: one behavioural, that the id reaching the boundary is the one `GET /v1/families/me`
+returned, and one that reads the source and fails if the argument is ever anything but `familyID`.
+
+**What is still unproven, and it is the assumption this whole design rests on:** no sandbox purchase
+has ever been made, because no product exists in App Store Connect (`docs/blocked.md` §10). **The
+round trip — token attached here, echoed by Apple, read by this webhook — has never been observed
+end to end.** Both halves are built against the same field name and nothing has ever carried a value
+between them.
 
 Apple's notification does not know what a family is. `appAccountToken` — a UUID the client attaches
 at purchase time and Apple echoes back in `transactionInfo` — is the **only** channel by which one

@@ -683,8 +683,21 @@ delay. Your household has no such row, so no notification Apple could send can d
 the row, the tier stops being hand-maintained, and from then on the normal lifecycle applies —
 including demotion. That is the intended path out of this state, and it needs nothing run here.
 
+**That path exists in the app as of phase 37b, Aug 20, 2026** — Settings → Membership, or the
+invite's paywall. The two paragraphs above were written by 37a and already said this statement is
+the override rather than the only way in; **37b corrects neither, because both were right.** What
+changes is only that *"if you later subscribe for real from your own phone"* is now something you
+can do rather than something the client could not yet offer.
+
 **Nothing above has been verified against Apple.** No product exists in App Store Connect yet;
 see `docs/blocked.md` §10.
+
+**So this statement is not merely the override today — it is still the only thing that can set a
+tier at all**, and that takes three things rather than one. There is nothing to buy until
+`docs/blocked.md` §10 steps 1–5 are done; and even then `POST /v1/webhooks/app-store` answers `401`
+to every notification until Apple's root certificate and `APP_STORE_APP_APPLE_ID` are in place —
+§10a, deployed per §4e. **A purchase made before those two would be charged, attributed on the
+device, and land nowhere.**
 
 **Sign in with Apple private relay caveat.** If you signed in with Apple and hid your email,
 `users.email` is a relay address rather than the one you type. Find yourself by

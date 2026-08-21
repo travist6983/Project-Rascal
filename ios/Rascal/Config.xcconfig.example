@@ -79,3 +79,16 @@ GOOGLE_CLIENT_ID = 22574619282-vs702oo01a8vne7tsbc6h3ilk6a0sje6.apps.googleuserc
 // No "//" appears in either value, so neither trips the xcconfig comment parser the API_SCHEME
 // note above describes.
 GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.22574619282-vs702oo01a8vne7tsbc6h3ilk6a0sje6
+
+// -- Legal links on the paywall (phase 37b) ------------------------------------------------
+
+// App Review requires Terms of Use and a Privacy Policy on any screen selling a subscription.
+// **The `$()/$()/` is the same escape API_SCHEME uses and it is load-bearing**: an xcconfig
+// treats `//` as a comment, so a URL written plainly would silently truncate to `https:` and
+// the paywall would render a link to nothing.
+//
+// The client renders each link only when its value is non-empty, so an unset key is an absent
+// link rather than a dead one. **An absent one is a release blocker, not a cosmetic gap** —
+// see LegalLinks in PaywallSheet.swift.
+TERMS_URL   = https:$()/$()/getvellumapp.com/terms
+PRIVACY_URL = https:$()/$()/getvellumapp.com/privacy
