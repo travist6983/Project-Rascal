@@ -14,13 +14,14 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Path, status
+from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy import select
 
-from rascal.deps import CurrentUser, SessionDep
+from rascal.deps import CurrentUser, SessionDep, family_access
 from rascal.errors import not_found
 from rascal.models import Guardian, GuardianInvite, User
 from rascal.schemas.family import (
+    EntitlementOut,
     FamilyOut,
     GuardianOut,
     InviteAccepted,
@@ -31,12 +32,14 @@ from rascal.schemas.family import (
 )
 from rascal.services.guardians import (
     accept_invite,
+    eligible_at,
     entitlement_for,
     family_members,
     find_open_invite,
     hash_token,
     invited_children,
     issue_invite,
+    last_sign_in_for,
     revoke_invite,
 )
 
@@ -110,6 +113,35 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
         tier=entitlement.tier,
         guardians=guardians,
         pending_invites=await _pending_invites(session, user.family_id),
+    )
+
+
+@router.get("/{family_id}/entitlement", response_model=EntitlementOut)
+async def read_entitlement(
+    session: SessionDep,
+    family_id: Annotated[uuid.UUID, Depends(family_access())],
+) -> EntitlementOut:
+    """What this household is entitled to. **Any guardian may read it.**
+
+    **`GET /families/me` reports the same `tier` and this route does not second-guess it** —
+    both call `entitlement_for` against the same row, so there is one authority and two
+    shapes. Two routes that computed the answer separately is the bug D4 and D5 exist to
+    prevent; two routes that render one computation is a household screen and a subscription
+    screen.
+
+    `eligible_at` is computed here, per request, from two clocks that both move. See
+    `services/guardians.eligible_at`.
+    """
+    entitlement = await entitlement_for(session, family_id)
+    return EntitlementOut(
+        family_id=family_id,
+        tier=entitlement.tier,
+        lapsed_at=entitlement.lapsed_at,
+        eligible_at=eligible_at(
+            entitlement.tier,
+            entitlement.lapsed_at,
+            await last_sign_in_for(session, family_id),
+        ),
     )
 
 

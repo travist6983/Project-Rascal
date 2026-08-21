@@ -151,9 +151,39 @@ What a household is entitled to. **One row per family, keyed on the family** —
 | `lapsed_at` | timestamptz | nullable; null while subscribed |
 | `updated_at` | timestamptz | |
 
-**Nothing in this codebase writes `tier`.** D5 reserves that for App Store Server Notifications V2, which is phase 37. Until then a family becomes `subscribed` only by the hand-run statement in `docs/runbook-deploy.md`. The absence of a writer is the design, not an oversight — the device never decides whether a household is subscribed, for the same reason it never decides what day it is.
+~~**Nothing in this codebase writes `tier`.**~~ — **corrected Aug 20, 2026 by phase 37a. `POST /v1/webhooks/app-store` writes it, and it is the only thing that does.** D5 reserved that column for App Store Server Notifications V2 and this is that; a test asserts there is exactly one assignment to `.tier` anywhere in `src/`, so a second writer fails the suite rather than quietly appearing. The device still never decides whether a household is subscribed, for the same reason it never decides what day it is — a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into an entitlement.
+
+**Two things that did not change, and the correction is worth stating precisely.** `docs/runbook-deploy.md` §7a is still the manual override — a hand-run SQL statement, now the *override* rather than the only way in, and the owner's own household is `subscribed` by one with no Apple transaction behind it. **And there is still no admin route**, deliberately: nothing in this API can set a tier over HTTP except a payload Apple signed.
+
+**Nothing has ever been verified against Apple.** No product exists in App Store Connect (`docs/blocked.md` §10), so the writer above has been exercised only against synthetic signed payloads.
 
 **`last_sign_in_at` is deliberately not on this table.** It is a denormalisation of `users.last_sign_in_at` that must never be written independently, and a column whose only correct value is a `MAX` over another table — before anything computes that `MAX` — is a column that drifts.
+
+### `app_store_transactions`
+The receipt ledger — **why** a household is entitled to what `entitlements` says it is. Created by migration `0019` as part of phase 37a.
+
+| Column | Type | Notes |
+|---|---|---|
+| `original_transaction_id` | text PK | Apple's stable identifier for one subscription across every renewal and resubscribe. **The natural key, not a surrogate** — a surrogate id beside it would permit two rows about one subscription, which is the state every guard below exists to make unrepresentable |
+| `family_id` | uuid FK | → families, **nullable**, `ON DELETE SET NULL`. Resolved from `appAccountToken`; null for an orphan or unrecognised receipt |
+| `product_id` | text | nullable |
+| `environment` | text | `Sandbox` \| `Production`, `text` + named CHECK |
+| `latest_notification_type` | text | |
+| `latest_notification_subtype` | text | nullable |
+| `latest_signed_date` | timestamptz | Apple's `signedDate` off the **outer** payload. **The ordering key** |
+| `expires_date` | timestamptz | nullable |
+| `raw_payload` | jsonb | the decoded notification, whole, with both nested JWSs replaced by their own claims |
+| `created_at` / `updated_at` | timestamptz | `updated_at` by the `set_updated_at()` trigger |
+
+Indexed on `family_id`, and on `(environment, latest_signed_date)` — both are incident questions.
+
+**This table is the substrate for three guards**, which is the reason it exists at all rather than a place to keep receipts. Idempotency: Apple retries until it gets a 2xx, so the same notification arrives more than once as a matter of course. Ordering: `latest_signed_date` is the high-water mark, and anything older writes nothing. Provenance: a demotion is refused for a family with no row here linking it to that transaction, which is what stops a stray `EXPIRED` from undoing §7a's hand-written row and locking the owner out of his own product.
+
+**`family_id` is nullable and that is load-bearing.** `appAccountToken` is the only channel by which Apple can carry a family id; a purchase made without one is an orphan receipt, and recording it unattributed is strictly better than refusing it — a 4xx means Apple tells us about it forever, and the row is the evidence a support conversation would need. `ON DELETE SET NULL` rather than `CASCADE` because a receipt outlives the household it paid for: a hard account deletion must not take the billing record with it, and Apple will still send a `REFUND` about it.
+
+**`raw_payload` holds the decode, not the JWS.** A stored JWS is a secret-shaped blob nobody will verify a second time; a stored decode is readable at 2am, which is the only time anybody opens this table.
+
+**No `deleted_at`, and this is not a second exception to the soft-delete rule.** That rule governs user data that syncs to a phone. Nothing here syncs, no client can read it, and a tombstone would have nowhere to go. The one deliberate exception to soft deletes remains `deletion_requests`, per phase 66.
 
 ### `guardian_invites`
 An offer to join a household, good for seven days.
@@ -280,7 +310,7 @@ erasure, and neither has a client left to inform.
 - **Auth and infrastructure** — `credentials`, `refresh_tokens`, `email_sign_in_tokens`,
   `idempotency_keys`, `rate_limit_events`, `devices`. A revocation is what `revoked_at` records
   on the two that need it; the rest are ledgers that expire or are pruned.
-- **Membership** — `guardians`, `families`, `entitlements`, `guardian_invites`,
+- **Membership** — `guardians`, `families`, `entitlements`, `app_store_transactions`, `guardian_invites`,
   `deletion_requests`. `guardians` and `guardian_invites` carry `revoked_at`, which is the soft
   delete under another name and for the same reason: a revoked row keeps its unique-key namespace.
 - **`children`** — the one genuinely arguable case. It has no `deleted_at` because until phase 66
@@ -725,7 +755,10 @@ There is no social-network integration, no scheduler, and no route that reaches 
 
 **Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:
 `entitlements` was created by migration `0014` as part of phase 36**, because a household needed a
-tier before monetization needed one. Its live shape is documented above and **differs from the
+tier before monetization needed one. **Staler still since Aug 20, 2026: `app_store_transactions`
+was created by migration `0019` as part of phase 37a, and is documented in the live section
+above** — along with the writer of `entitlements.tier`, which this section's parent used to say
+did not exist. Its live shape is documented above and **differs from the
 proposal below in one way worth knowing: the live table has no `last_sign_in_at`**, deliberately —
 that column is specified below as a `MAX` over `users.last_sign_in_at`, and the live section
 explains why a denormalisation that must never be written independently was not created. Everything

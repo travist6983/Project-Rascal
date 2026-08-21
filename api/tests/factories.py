@@ -28,9 +28,11 @@ from rascal.models import (
 async def make_family(session: AsyncSession, *, tier: str = "free") -> Family:
     """A household and its entitlement, the pair `services.guardians.create_household` makes.
 
-    `tier` is set here rather than through an API because **nothing in this codebase writes
-    it** — D5 reserves that for phase 37's App Store notifications, so a test that needs a
-    subscribed family sets the column, exactly as the documented hand-run statement does.
+    `tier` is set here rather than through an API because **the one thing that writes it is an
+    App Store notification** — phase 37a, per D5 — and standing up a signed payload to arrange a
+    fixture would make every unrelated test depend on the billing stack. A test that needs a
+    subscribed family sets the column, exactly as `docs/runbook-deploy.md` §7a does by hand.
+    Tests that are *about* the writer live in `test_app_store.py` and go through the webhook.
     """
     family = Family()
     session.add(family)

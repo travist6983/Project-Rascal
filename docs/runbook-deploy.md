@@ -151,6 +151,8 @@ fly secrets set --app rascal-api \
 | `TURNSTILE_SECRET_KEY` | Fly secret | **Built, phase 60, and it fails closed.** This row previously called out the defect before the code existed — verification written to skip when the key is unset, turning the spam gate off while everything looked healthy. It does the opposite: **no key is a `503`, and so is no answer from Cloudflare.** Unset therefore means the signup endpoint refuses, visibly, rather than accepting junk quietly. There is deliberately **no `ENVIRONMENT == "local"` bypass** — Cloudflare publishes test keys that always pass, which is what a local run uses, because a second way through the gate is the one that survives into production by accident. `POST /v1/subscribe` still carries no rate limit by decision, so this key remains the entire protection on a public unauthenticated write endpoint. |
 | `RESEND_AUDIENCE_ID` | Fly secret | **Where a subscriber actually lives**, because there is no `subscribers` table — the list is provider-held per open item 12(4). Unset means `POST /v1/subscribe` answers `503` rather than accepting an address it cannot store, which is the same rule as the Turnstile key above and for the same reason: **accepting a signup we cannot keep would make the marketing page look like it worked.** |
 | `MARKETING_ORIGINS` | Fly secret or `fly.toml` | **Built, phase 60. Plural, and it replaces the `MARKETING_ORIGIN` this table used to name** — a list from the first commit, so a custom domain beside the github.io one is a config change rather than a migration off a scalar. Defaults to `https://travist6983.github.io`, which is where D7 puts the marketing site. **Unset or wrong is the quiet failure**: the endpoint keeps working perfectly under `curl` and under every test, while the browser silently refuses the form on the real site — a preflight failure in a console nobody has open. **An empty value means no origin at all, never `*`**: a wildcard is the failure in the other direction and is worse, because any page anywhere may then post to it. |
+| `APP_STORE_APP_APPLE_ID` | Fly secret | **Phase 37a, and unset today.** The app's *numeric* Apple ID from App Store Connect, not the bundle id. Apple's library refuses to build a Production verifier without it, so while it is missing `POST /v1/webhooks/app-store` answers **`401` to every notification** and no entitlement is ever written. The app starts and the health check is green — this failure is visible only in the logs and in a household whose payment did nothing. See `docs/blocked.md` §10a. |
+| `APP_STORE_BUNDLE_ID` | Fly secret, optional | Defaults to `APPLE_BUNDLE_ID` while that names exactly one audience, which is correct today. **Deliberately not chained to `APNS_TOPIC`** — that setting aims push at one audience, and letting it also decide whose receipts we accept would couple a delivery detail to an authorization boundary. Required once `APPLE_BUNDLE_ID` names more than one audience; unset-and-ambiguous fails closed at the verifier (`401`, with an `ERROR` naming the setting) rather than refusing to start, because nothing here is configured yet and taking the API down for it would be worse than the webhook staying shut. |
 
 ### 4a. APNs — the push credentials, and where the `.p8` comes from
 
@@ -386,6 +388,52 @@ workflow, so the image-pinning trap in §4b applies to these two the moment they
 
 ---
 
+### 4e. App Store Server Notifications V2 — the endpoint, and the file that is not a secret
+
+**Nothing here has ever been exercised against Apple**, and none of it can be until
+`docs/blocked.md` §10's errand puts a subscription product in App Store Connect. This section is
+what to do when it does.
+
+**The trust anchor is a repository file, not a secret.** `POST /v1/webhooks/app-store` verifies
+Apple's `x5c` chain against roots bundled inside the image at
+`api/src/rascal/certs/appstore/`, and that directory ships **empty**. Every notification is
+refused with `401` until `AppleRootCA-G3.cer` is committed into it — see `docs/blocked.md` §10a
+for the command and the fingerprint check. A root fetched at request time would be a root
+whoever controls DNS at that moment gets to choose, which is why it is bundled and why this is a
+deploy-time concern rather than a runtime one.
+
+**Then set the endpoint URL in App Store Connect**, on the app's App Information page, for both
+environments:
+
+```
+https://rascal-api.fly.dev/v1/webhooks/app-store
+```
+
+**Apple's own menu wording is not verified here** — the same rule `docs/blocked.md` §10 follows,
+and for the same reason: App Store Connect's navigation changes and a stale click path is worse
+than a described destination.
+
+**Send a test notification from App Store Connect first.** It arrives as `notificationType: TEST`,
+which this service records and deliberately does nothing with — a test that changes somebody's tier
+would be the wrong kind of test. A `202` back is the whole success condition, and it proves the
+chain verified, which is the part nothing in the test suite can prove.
+
+**What to check afterwards**, in this order, because each failure looks like the next one from
+outside:
+
+| Symptom | Almost certainly |
+|---|---|
+| `401` on every notification | No root certificate in `api/src/rascal/certs/appstore/`, or `APP_STORE_APP_APPLE_ID` unset. Both log at `ERROR` on startup, naming themselves |
+| `202` but no row in `app_store_transactions` | Nothing — a `202` always writes a row unless the payload carried no `originalTransactionId`. Check the `status` in the response body |
+| Row written, `family_id` null | The purchase carried no `appAccountToken`. **This is the 37b obligation** and it is not recoverable server-side — see `docs/api-contract.md` |
+| Row written, tier unchanged | Read the `status` field. `ignored:out-of-order`, `recorded:demotion-refused` and `ignored:environment-mismatch` are all deliberate, and all three log at `warning` with the reason |
+
+**The one thing that would be alarming**: a `500`. Every deliberate outcome here is a `202` and
+every verification failure is a `401`, so a `500` is a bug rather than a rejection — and Apple will
+retry it, so it will not be a quiet one.
+
+---
+
 ## 5. Deploy
 
 ```bash
@@ -578,11 +626,32 @@ Run it against production (Neon), then check `GET /v1/families/me` reports `"tie
 would mean the first person to actually hit the paywall is a paying customer rather than you.
 This way the gate is exercised the first time anybody uses it, which is now.
 
-**Nothing else writes `tier`.** D5 reserves that for App Store Server Notifications V2, which
-is phase 37 and is blocked on an owner account action. Until 37 ships, this statement is the
-only way a household becomes subscribed and the only way one becomes free again. If you later
-find a family on the wrong tier, this is the lever — there is no admin route and there is
-deliberately not going to be one before 37.
+~~**Nothing else writes `tier`.**~~ ~~Until 37 ships, this statement is the only way a
+household becomes subscribed and the only way one becomes free again.~~ — **struck Aug 20,
+2026. Phase 37a shipped the writer**: `POST /v1/webhooks/app-store` sets `tier` from an App
+Store Server Notification, and it is the only code that does.
+
+**This statement is now the override rather than the only way in**, and it is still the lever
+when you find a family on the wrong tier. There is still no admin route, deliberately.
+
+**Your own household is subscribed by one of these and always will be.** There is no App Store
+transaction behind the row §7a wrote on Aug 17, 2026, and there never will be — you did not
+buy the subscription, you wrote the row. That makes it exactly the shape a reconciliation job
+would "fix": notice a subscribed family with no receipt, set it free, and lock you out of your
+own product.
+
+**What protects it is a guard in the webhook, not the absence of one.** A notification that
+would set a family `free` is refused unless `app_store_transactions` already holds a row
+linking that family to that `originalTransactionId` — and a refused demotion does not record
+the attribution it was refused for, so the guard does not degrade into a one-notification
+delay. Your household has no such row, so no notification Apple could send can demote it.
+
+**If you later subscribe for real from your own phone**, the `SUBSCRIBED` notification writes
+the row, the tier stops being hand-maintained, and from then on the normal lifecycle applies —
+including demotion. That is the intended path out of this state, and it needs nothing run here.
+
+**Nothing above has been verified against Apple.** No product exists in App Store Connect yet;
+see `docs/blocked.md` §10.
 
 **Sign in with Apple private relay caveat.** If you signed in with Apple and hid your email,
 `users.email` is a relay address rather than the one you type. Find yourself by
@@ -671,3 +740,13 @@ Be suspicious of this file in proportion to this section.
   arrived on a locked phone and deep-linked on tap. `docs/blocked.md` §1a.
 - The hourly schedule *firing on its own*. The machine was created and run once by hand, and
   it exited 0 — but no unattended hourly firing has been observed yet.
+- **Anything Apple-billing, and this is the newest and the largest of these.** Phase 37a shipped
+  `POST /v1/webhooks/app-store` on Aug 20, 2026 — the only writer of `entitlements.tier` — and
+  **no product exists in App Store Connect, no sandbox transaction has ever been made, and no
+  real Apple notification has ever reached this endpoint.** Every payload it has ever seen was
+  minted by the test suite and signed by a locally-generated certificate chain. The verification
+  logic is Apple's own library and the chain rules it enforces are real ones — the test stub was
+  rejected until it carried Apple's marker OIDs — but **Apple's actual bytes have never been
+  through it.** The endpoint currently answers `401` to everything for want of a root
+  certificate, which is the designed fail-closed state rather than a fault. §4e is the sequence
+  when the errand in `docs/blocked.md` §10 clears; §10a is the two items that gate it.

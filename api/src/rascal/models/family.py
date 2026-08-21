@@ -44,11 +44,17 @@ class Entitlement(Base):
     `family_id` is the primary key rather than a foreign key beside a surrogate id. There is
     no shape of this table that can hold two opinions about one household.
 
-    **Nothing in this codebase writes `tier`.** D5 reserves that for App Store Server
-    Notifications V2, which is phase 37. Until then a family becomes `subscribed` only by the
-    hand-run statement in `docs/runbook-deploy.md`, and the absence of a writer is the point
-    rather than an oversight — the device never decides whether a household is subscribed,
-    for the same reason it never decides what day it is.
+    **`tier` has exactly one writer: `services/app_store_events.py`**, reached only from
+    `POST /v1/webhooks/app-store`. D5 reserves the column for App Store Server Notifications V2
+    and phase 37a built that; a test asserts there is exactly one assignment to `.tier` anywhere
+    under `src/`, so a second writer fails the suite rather than quietly appearing.
+
+    `docs/runbook-deploy.md` §7a — a hand-run SQL statement — is the manual override, and the
+    owner's own household is `subscribed` by one with no Apple transaction behind it. **There is
+    no admin route and there is deliberately not going to be one.** The device still never
+    decides whether a household is subscribed, for the same reason it never decides what day it
+    is: a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into
+    an entitlement.
 
     `last_sign_in_at` is deliberately **not** here. `data-model.md` describes it as a
     denormalisation of `users.last_sign_in_at` that must never be written independently, and

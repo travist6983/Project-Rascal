@@ -23,9 +23,16 @@ in each section.
 and set as Fly secrets, the notification job has its scheduled machine, and a real notification
 was delivered to a locked phone and deep-linked on tap. Details and the evidence are in §1a.
 
-**Aug 16, 2026 review — nothing in this file is blocked on a credential any more.** §0, §1, §2,
-§2b and §3 are closed. §10 looked like a blocker and is not: its blocking decision was the price,
-and D1 settled that on Aug 15, so what remains there is an **errand with steps**.
+~~**Aug 16, 2026 review — nothing in this file is blocked on a credential any more.**~~ — **that
+stopped being true on Aug 20, 2026, and §10a is why.** §0, §1, §2, §2b and §3 are still closed, and
+§10 is still an errand rather than a blocker: its blocking decision was the price, and D1 settled
+that on Aug 15.
+
+**What changed is that phase 37a built the thing §10 was waiting for, and building it produced two
+blockers of its own** — one file and one number, both in §10a. Neither needed a decision and neither
+could be done from the branch that found them. **`POST /v1/webhooks/app-store` answers `401` to
+every notification until both are done**, deliberately and by design: it fails closed rather than
+accepting an unverified payload, so the failure is loud rather than a billing hole.
 
 **One thing is blocked on a platform and cannot be engineered around: §9**, on-device photo
 captioning. The grep that proves it lives in the section and is the thing to re-run when a new SDK
@@ -1064,8 +1071,10 @@ These were left out on purpose. Each is a small piece of work if you decide othe
 
 **Everything in the bulleted list immediately below** was on this list on Aug 3 and is now
 closed. **That sentence used to say “everything below” without qualification, and it had quietly
-stopped being true** — three `##` sections further down are not closed: Phase 16 (unrecorded, and
-runnable tonight), §9 (the one genuine platform block) and §10 (an errand). A reader skimming
+stopped being true** — ~~three~~ **four** `##` sections further down are not closed: Phase 16
+(unrecorded, and runnable tonight), §9 (the one genuine platform block), §10 (an errand) and,
+since Aug 20, 2026, **§10a — two items phase 37a produced by building the thing §10 was waiting
+for**, one of them the first entry on this page blocked by a network policy. A reader skimming
 headings after this line would have read all three as resolved, which is the exact defect this
 file records against itself twice. Scoped to its list, Aug 16, 2026.
 
@@ -1513,6 +1522,69 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
 click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
 is worse than a described destination. Nobody on this branch has an App Store Connect session.
 
+
+---
+
+## §10a — The webhook is built and cannot verify anything yet (Aug 20, 2026)
+
+**Phase 37a shipped `POST /v1/webhooks/app-store`, the only code that writes
+`entitlements.tier`.** It is tested, reviewed twice, and **refuses every notification with `401`**
+until the two items below are done. That is the designed behaviour, not a bug: the signature is the
+only thing standing between a stranger and somebody's billing state, so there is no branch that
+accepts an unverified payload and no local bypass.
+
+**Neither of these is the errand in §10, and neither waits on it.** §10 needs the Paid Applications
+agreement before anything else can happen. These two do not: the app record already exists, and the
+certificate is a public download.
+
+### 1. Apple Root CA - G3 is not in the repository
+
+The trust anchor the `x5c` chain must terminate at. Without it the verifier builds nothing and says
+so at `ERROR` on every startup.
+
+```sh
+curl -o api/src/rascal/certs/appstore/AppleRootCA-G3.cer \
+  https://www.apple.com/certificateauthority/AppleRootCA-G3.cer
+```
+
+Then check what arrived before committing it — the subject must be **Apple Root CA - G3**, and it is
+self-signed, so subject and issuer match:
+
+```sh
+openssl x509 -inform DER -in api/src/rascal/certs/appstore/AppleRootCA-G3.cer \
+  -noout -subject -issuer -dates -fingerprint -sha256
+```
+
+**Compare the SHA-256 against the fingerprint Apple publishes** beside the download on
+<https://www.apple.com/certificateauthority/> — against Apple's page, not against a value written
+into this repository, which would be checking a file against itself. Commit it as a binary; it is
+about 500 bytes. `api/src/rascal/certs/appstore/README.md` says the same thing next to the code.
+
+**Why this is filed here rather than done.** The environment phase 37a was built in refuses
+`www.apple.com` at the egress proxy, and the root is carried by neither the Mozilla trust store
+(`certifi`) nor the container's system CA bundle — both were checked, not assumed. There was
+nowhere honest to get the bytes, and fabricating a trust anchor is the one thing this file would
+never record as done. **This is the only item on this page blocked by a network policy rather than
+by a credential**, which is a first, and the effect is the same: the work cannot proceed from here.
+
+### 2. `APP_STORE_APP_APPLE_ID` is unset
+
+The app's **numeric** Apple ID from App Store Connect — not the bundle id. Apple's own library
+refuses to construct a Production verifier without it, because a bundle id alone does not pin which
+app a signed payload is about, so a Production notification cannot verify while it is missing.
+
+It is on the app's page in App Store Connect and takes a minute to read off. Set it as a Fly secret;
+`docs/runbook-deploy.md` §4 has the row.
+
+**This does not wait on the Paid Applications agreement.** The app record has existed since
+TestFlight, so unlike everything in §10 this one is available today.
+
+### What is *not* blocked
+
+Everything else in phase 37a. The table, the four guards, the ordering and sandbox isolation, the
+entitlement read route and 986 passing tests are all in `main`'s history and need nothing from
+anybody. **And nothing here blocks the app**: the webhook is the only route affected, no client
+calls it, and the existing paywall reads `entitlements` exactly as it did before.
 
 ---
 

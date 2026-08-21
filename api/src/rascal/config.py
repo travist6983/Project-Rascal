@@ -416,6 +416,53 @@ class Settings(DatabaseSettings):
     # and `_apns_topic_is_unambiguous` refuses to start. See `resolved_apns_topic`.
     apns_topic: str | None = None
 
+    # --- App Store Server Notifications V2 (phase 37a) -------------------------------------
+    #
+    # **Nothing here has ever been exercised against Apple**, because no subscription product
+    # exists in App Store Connect yet — `docs/blocked.md` §10 is the errand. Unset means the
+    # webhook refuses every notification with 401 rather than accepting an unverified one, and
+    # that is the design: the signature is the only thing standing between a stranger and
+    # somebody's billing state, so there is deliberately no bypass, local or otherwise.
+
+    #: Where the trusted Apple root certificates live, as DER `.cer` files. Defaults to the
+    #: directory packaged inside `rascal` — bundled rather than fetched, because a root
+    #: fetched at request time is a root an attacker who owns your DNS gets to choose.
+    app_store_root_certs_dir: Path | None = None
+
+    #: The app's numeric Apple ID, from App Store Connect. **Required to verify a Production
+    #: notification** — Apple's own library refuses to build a Production verifier without it,
+    #: because bundle id alone does not pin which app a payload is about. Unset is why a
+    #: production deployment answers 401 until the errand in `docs/blocked.md` §10 is run.
+    app_store_app_apple_id: int | None = None
+
+    #: The bundle id a signed payload is checked against. One string, never a list, and
+    #: defaults to `apple_bundle_id` for the same reason `apns_topic` does — a second place to
+    #: get the same value wrong is worse than a default.
+    app_store_bundle_id: str | None = None
+
+    @property
+    def resolved_app_store_bundle_id(self) -> str | None:
+        """The single bundle id App Store payloads are pinned to, or `None` if it is ambiguous.
+
+        **Falls back to `apple_bundle_id`, deliberately not to `resolved_apns_topic`.** The two
+        are the same string today and are not the same thing: `APNS_TOPIC` exists so push can
+        be aimed at one audience when the sign-in allowlist names several, and chaining this to
+        it would mean setting the push topic silently re-pointed which app's receipts this
+        service will accept.
+
+        **`None` rather than a startup failure when `APPLE_BUNDLE_ID` names more than one
+        audience**, which is where this differs from `resolved_apns_topic` on purpose. APNs
+        refuses to start because push is configured and a wrong topic silently drops every
+        notification. Nothing here is configured — no product exists in App Store Connect —
+        so hard-failing would take the entire API down the day somebody adds a web Services ID,
+        for a webhook that is already answering 401 for want of a root certificate.
+        `AppStoreVerifier` treats `None` the same way it treats an empty trust store: it builds
+        nothing, says so at ERROR, and refuses every notification.
+        """
+        if self.app_store_bundle_id:
+            return self.app_store_bundle_id
+        return self.apple_bundle_id[0] if len(self.apple_bundle_id) == 1 else None
+
     @property
     def apns_configured(self) -> bool:
         """Whether a real APNs client can be built. All three or none — a partial set is a

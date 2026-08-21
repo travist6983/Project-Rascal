@@ -11,6 +11,7 @@ with one answer, testable without HTTP.
 
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import hashlib
 import secrets
@@ -20,8 +21,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import (
+    INACTIVITY_ELIGIBILITY_MONTHS,
     INVITE_EXPIRY_DAYS,
     ISSUABLE_INVITE_ROLES,
+    LAPSE_ELIGIBILITY_MONTHS,
     MAX_PARENTS_PER_FAMILY,
     GuardianRole,
 )
@@ -58,6 +61,64 @@ async def entitlement_for(session: AsyncSession, family_id: uuid.UUID) -> Entitl
     if entitlement is None:  # pragma: no cover — created_household guarantees the row
         raise RascalError(ErrorCode.INTERNAL_ERROR, "This household has no entitlement record.")
     return entitlement
+
+
+async def last_sign_in_for(session: AsyncSession, family_id: uuid.UUID) -> dt.datetime | None:
+    """`MAX(users.last_sign_in_at)` across the household's members, or `None`.
+
+    **A MAX over another table, computed on demand and never stored.** `data-model.md`
+    describes a `last_sign_in_at` on `entitlements` as a denormalisation that must never be
+    written independently, and the live table deliberately does not have one — a column whose
+    only correct value is this MAX is a column that drifts, and in this particular table a
+    drifted value deletes photographs.
+
+    `None` when nobody has ever signed in — every guardian's column is null. That is a real
+    state (an account created by an invite that was accepted and never used again), not a
+    missing row, and it means the inactivity clock has not started.
+    """
+    return await session.scalar(
+        select(func.max(User.last_sign_in_at)).where(User.family_id == family_id)
+    )
+
+
+def eligible_at(
+    tier: str, lapsed_at: dt.datetime | None, last_sign_in_at: dt.datetime | None
+) -> dt.date | None:
+    """When a lapsed household's **media** becomes eligible for deletion, per D3.
+
+    `max(lapsed_at + 24 months, last_sign_in_at + 12 months)`, **computed per request and
+    never stored.** Both clocks move: a lapsed parent who opens the app pushes the second one
+    forward, and D3 makes any sign-in inside the warning window cancel deletion outright. A
+    stored deadline would be a date that was true when it was written.
+
+    `None` while the household is `subscribed` — there is no deletion clock on a paying
+    household — and `None` when it has lapsed but nothing recorded when.
+
+    **This computes eligibility and nothing deletes on it.** Phase 38 owns the notice
+    sequence and the job, and D3's hard stop is that deletion may not fire unless a notice was
+    confirmed delivered on some channel. This function is what a client displays and what that
+    phase will schedule against.
+    """
+    if tier == "subscribed" or lapsed_at is None:
+        return None
+    candidates = [_add_months(lapsed_at, LAPSE_ELIGIBILITY_MONTHS)]
+    if last_sign_in_at is not None:
+        candidates.append(_add_months(last_sign_in_at, INACTIVITY_ELIGIBILITY_MONTHS))
+    return max(candidates).date()
+
+
+def _add_months(moment: dt.datetime, months: int) -> dt.datetime:
+    """Calendar months, clamped to the length of the target month.
+
+    `dt.timedelta` has no month, and 365-day arithmetic drifts off a leap year. Both spans
+    here are whole years today, so the clamp only matters for a lapse dated Feb 29 — which is
+    exactly the kind of date that produces one support conversation every four years.
+    """
+    month_index = moment.month - 1 + months
+    year = moment.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(moment.day, calendar.monthrange(year, month)[1])
+    return moment.replace(year=year, month=month, day=day)
 
 
 async def family_members(session: AsyncSession, family_id: uuid.UUID) -> list[User]:
