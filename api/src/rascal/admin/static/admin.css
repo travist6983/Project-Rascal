@@ -137,6 +137,23 @@ code {
 .btn:hover {
   background: var(--chip);
 }
+/* A disabled button had no style of its own, so `button.disabled = true` stopped the click and
+   changed nothing a reader could see — a terracotta primary button that ignores you. Console-
+   wide rather than scoped to one screen, because every disabled button here had the same bug. */
+.btn:disabled,
+.btn:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: var(--surface);
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
+.btn-primary:disabled,
+.btn-primary:disabled:hover {
+  background: var(--surface);
+  color: var(--ink-muted);
+  border-color: var(--border);
+}
 .btn:focus-visible {
   outline: 2px solid var(--periwinkle);
   outline-offset: 2px;
@@ -1202,6 +1219,38 @@ tbody tr.is-off td {
 .concept {
   cursor: pointer;
   transition: border-color 0.12s ease;
+}
+
+/* Prompt candidates (phase 103). Picked state and verdict are data attributes rather than
+   classes toggled in JS, and never inline styles: the console's CSP drops a `style=`
+   attribute silently, so a colour set that way is a bug with no error message. */
+.candidate {
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.candidate[data-picked="true"] {
+  border-color: var(--terracotta);
+  background: var(--terracotta-soft);
+}
+.candidate[data-verdict="rejected"] {
+  border-left: 3px solid var(--danger);
+}
+.candidate-body {
+  font-family: var(--rounded);
+  font-size: 15px;
+  line-height: 1.45;
+  margin: 8px 0 6px;
+}
+.candidate-why {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0 0 8px;
+}
+.candidate-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .concept:hover {
   border-color: var(--terracotta);

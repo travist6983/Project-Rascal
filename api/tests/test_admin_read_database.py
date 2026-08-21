@@ -22,6 +22,8 @@ second Postgres to prove SQLAlchemy connects would be testing SQLAlchemy.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,6 +59,25 @@ CONSOLE_WRITES = [
     ("POST", "/v1/social/assets", {"headline": "hello"}),
     ("PATCH", "/v1/social/assets/{asset}", {"headline": "edited"}),
     ("POST", "/v1/social/assets/{asset}/render", {"provider": "openai_image", "kind": "image"}),
+    (
+        "POST",
+        "/v1/prompts/candidates",
+        {
+            "candidates": [
+                {
+                    "kind": "question",
+                    "body": "What did {they} say about it?",
+                    "theme": "their-words",
+                }
+            ]
+        },
+    ),
+    ("POST", "/v1/social/assets/{asset}/image", None),
+    ("POST", "/v1/social/assets/{asset}/publish", {}),
+    # A publication that does not exist: `LocalWrites` is a dependency, so the refusal happens
+    # before the handler ever looks the row up. Using a real one would test the same thing and
+    # need a fixture to build it.
+    ("POST", "/v1/social/publications/{publication}/cancel", None),
 ]
 
 
@@ -182,7 +203,11 @@ async def test_every_console_write_refuses_while_reading_elsewhere(
     asset = SocialAsset(headline="an existing draft", created_by_user_id=admin.id)
     session.add(asset)
     await session.commit()
-    target = path.replace("{prompt}", str(prompt.id)).replace("{asset}", str(asset.id))
+    target = (
+        path.replace("{prompt}", str(prompt.id))
+        .replace("{asset}", str(asset.id))
+        .replace("{publication}", str(uuid.uuid4()))
+    )
     real = _reading(app)
     try:
         response = await client.request(method, target, json=body, headers=auth_headers(admin))
@@ -203,6 +228,10 @@ NON_PERSISTING = {
     ("POST", "/v1/social/concepts"),
     ("POST", "/v1/social/shot-list"),
     ("POST", "/v1/prompts/preview"),
+    # Reads the library to build a style reference and asks a model for candidates. The
+    # candidates come back in the response body; `POST /v1/prompts/candidates` above is the
+    # one that writes any of them down.
+    ("POST", "/v1/prompts/generate"),
 }
 
 
@@ -230,7 +259,12 @@ def test_the_write_sweep_covers_every_console_write() -> None:
     assert surface, "the sweep found no console routes — it is asserting nothing"
 
     listed = {
-        (method, path.replace("{prompt}", "{prompt_id}").replace("{asset}", "{asset_id}"))
+        (
+            method,
+            path.replace("{prompt}", "{prompt_id}")
+            .replace("{asset}", "{asset_id}")
+            .replace("{publication}", "{publication_id}"),
+        )
         for method, path, _ in CONSOLE_WRITES
     }
     unaccounted = surface - listed - NON_PERSISTING

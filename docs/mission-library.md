@@ -284,6 +284,20 @@ band, and ask for 20 candidates at a time. Reject anything that:
 - couldn't be done in the middle of an ordinary Tuesday
 - assumes a two-parent household, a particular income, or a particular ability
 
+**The review queue this section asks for exists, as of Aug 20, 2026 (phase 103): it is the
+Library tab of the admin console.** The four rules above are implemented as named filters in
+`api/src/rascal/services/candidates.py` and run on both paths — the batch script and the
+console — so a rule changed here should be changed there in the same commit or it is decoration.
+Two rules not in the list above are enforced there too, and both are rejections rather than
+flags: a bare gendered pronoun, and a `{token}` outside the table in *Pronoun and name tokens*.
+
+**Two things this section says are still literally true and are worth not losing.** *"Never at
+request time"* means never for a child: the console generates for an admin who is about to read
+the result, and nothing a child is served was written on demand. And *"feed the generator this
+file"* is true of the script only — `Dockerfile` copies neither `scripts/` nor `docs/`, so the
+console builds its style reference from the `prompts` table instead. The two references describe
+the same library and drift the moment this file is edited without re-seeding.
+
 > **The library used to violate the last rule, and as of Aug 13, 2026 it no longer does.** All 113
 > bodies were written he/him, and four said *his mom* — a gender and a household shape. Every one
 > of them now carries the token table below, and the four household references were rewritten to

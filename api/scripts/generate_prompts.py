@@ -8,17 +8,25 @@ age band, exactly as that file's "Expanding the library" section specifies. Cand
 in `docs/prompt-candidates/<theme>-<date>.md` as a markdown table in the same shape as the
 library, so an accepted row is a copy-paste away from being seeded.
 
-**The review queue is a pull request.** That is the whole design. A branch with a diff is
-already an accept/reject interface with a comment thread, an audit trail, and an undo — and
-it needs no table, no admin UI, and no endpoint. See docs/decisions-log.md.
+**This script's review queue is a pull request, and that has not changed.** A branch with a diff
+is already an accept/reject interface with a comment thread, an audit trail, and an undo, and it
+is the right shape for a theme sweep somebody reads a hundred rows of. This paragraph used to end
+"it needs no table, no admin UI, and no endpoint" — as of phase 103 (Aug 20, 2026) there is an
+admin UI and there are two endpoints, so that sentence is gone rather than left to be read as an
+instruction to delete them. The console is the *interactive* path: one brief, up to twenty-five,
+picked on the spot into a `source='llm'` queue. Both exist on purpose. See docs/decisions-log.md.
 
-**What this script rejects, it rejects in code.** The library's four rejection rules are
-implemented as named filters below and each one is tested, and a fifth filter rejects a bare
-gendered pronoun: the seeded library is he/him and is being tokenised, so no new copy may
-assume a child's gender. They are deliberately literal: they catch the failure modes that are
-textually detectable and they do not pretend to judgment. A human still reads the candidates
-in the PR — the filters exist so that the human is reading twelve plausible prompts rather
-than twenty with eight obvious duds in them.
+**What this script rejects, it rejects in code — and the rules live in `rascal.services.candidates`,
+not in this file.** They moved there in phase 103 and are imported at the top, because
+`api/Dockerfile` copies neither `scripts/` nor `docs/`, so the console's generate route could not
+otherwise run the same rules. Nothing about them changed shape in the move and every one is still
+tested. **Six filters, not five**: the library's four rejection rules, plus a bare gendered
+pronoun, plus a `{token}` outside `constants.PROMPT_TOKENS` — the last added in phase 103, since
+this was the one authoring path with no token check and a misspelled token renders as literal
+braces for as long as the archive exists. They are deliberately literal: they catch the failure
+modes that are textually detectable and they do not pretend to judgment. A human still reads the
+candidates in the PR; the filters exist so that the human is reading twelve plausible prompts
+rather than twenty with eight obvious duds in them.
 
 Nothing here touches the database. Seeding stays what it has always been: edit the markdown,
 re-run `scripts/mission_library_to_yaml.py`, `make seed`.
@@ -31,13 +39,20 @@ import collections
 import datetime as dt
 import json
 import os
-import re
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
 import yaml
+
+from rascal.services.candidates import (
+    DASH,
+    KIND_SHAPES,
+    Candidate,
+    Verdict,
+    _normalize,
+    judge,
+)
 
 API_DIR = Path(__file__).resolve().parents[1]
 REPO = API_DIR.parent
@@ -54,275 +69,23 @@ API_VERSION = "2023-06-01"
 MODEL = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-5"
 MAX_TOKENS = 8192
 
-# What each kind's prompts have to look like, mirrored from the library's own headings.
-KIND_SHAPES: dict[str, dict[str, str]] = {
-    "question": {"cadence": "daily", "completion_mode": "text"},
-    "photo": {"cadence": "daily", "completion_mode": "media"},
-    "video": {"cadence": "daily", "completion_mode": "media"},
-    "audio": {"cadence": "daily", "completion_mode": "media"},
-    "activity": {"cadence": "daily", "completion_mode": "did_it"},
-    "letter": {"cadence": "monthly", "completion_mode": "text"},
-}
-MISSION_KINDS = ("photo", "video", "audio", "activity")
-
-MIN_LENGTH = 12
-MAX_LENGTH = 200
-
-# docs/mission-library.md writes age ranges with an en dash — "24\u2013216". Matching it
-# exactly is what makes an accepted row paste straight into that file. Named rather than
-# written inline so it does not read as a stray non-ASCII character.
-DASH = "\u2013"
-
-
-# --- The rejection rules -------------------------------------------------------------------
+# --- The rejection rules, and the shapes they judge against ---------------------------------
 #
-# docs/mission-library.md, "Expanding the library". Reject anything that:
-#   - uses the words precious, cherish, treasure, or little moments
-#   - describes a feeling instead of an action
-#   - couldn't be done in the middle of an ordinary Tuesday
-#   - assumes a two-parent household, a particular income, or a particular ability
+# **These moved to `rascal.services.candidates` in phase 103 and are imported back here.**
+# They were written for this script and lived in it from phase 46 until the console grew a
+# generate button, at which point the API had to enforce them at request time — and
+# `api/Dockerfile` copies `src`, `alembic.ini`, `alembic` and `seeds` and nothing else, so a
+# running service cannot import this file. Moving them was the only way to keep one rule set
+# rather than two that drift.
 #
-# And one rule that is not from that section: no bare gendered pronoun. docs/mission-library.md,
-# "Pronoun and name tokens" — new prompts refer to the child with the token table in
-# docs/api-contract.md, never with he/him or she/her.
-
-
-def _words(*terms: str) -> re.Pattern[str]:
-    return re.compile(r"\b(?:" + "|".join(terms) + r")\b", re.IGNORECASE)
-
-
-BANNED = _words(
-    "precious",
-    "cherish(?:ed|es|ing)?",
-    "treasure[sd]?",
-    "treasuring",
-    "little moments?",
-)
-
-# The register the library exists to avoid. "Photograph the mess he made, don't clean it
-# first" beats "capture a precious everyday moment", and this is the second one's vocabulary.
-SENTIMENTAL = _words(
-    "savou?r",
-    "soak (?:it )?(?:up|in)",
-    "bask",
-    "take it all in",
-    "be present",
-    "mindful(?:ly)?",
-    "magical",
-    "magic of",
-    "wonder of",
-    "fleeting",
-    "bittersweet",
-    "heartwarming",
-    "grow up so fast",
-    "blink of an eye",
-    "before you know it",
-    "capture the (?:joy|magic|wonder|feeling)",
-    "these days won'?t last",
-)
-
-# A mission is an instruction. This catches the ones that ask you to have a feeling and call
-# it a task. Questions are exempt — "What is he afraid of right now?" is a question *about* a
-# feeling, which is exactly the point of the question set.
-FEELING_NOT_ACTION = re.compile(
-    r"^\s*(?:feel|notice how you|remember how|think about how|imagine how|reflect|"
-    r"appreciate|take a moment)\b|how (?:it|that|this) (?:feels|felt)|"
-    r"\bthe feeling of\b",
-    re.IGNORECASE,
-)
-
-# Assumes a household, an income, or an ability. Narrow on purpose: an aggressive rule here
-# would reject "get on the floor for ten minutes", which is one of the best prompts in the
-# library. This is a tripwire for the obvious cases, not a substitute for reading the PR.
-ASSUMES_HOUSEHOLD = _words(
-    "mom and dad",
-    "mum and dad",
-    "mother and father",
-    "both parents",
-    "your (?:partner|spouse|husband|wife)",
-    "the other parent",
-)
-ASSUMES_INCOME = _words(
-    "buy",
-    "purchase",
-    "afford",
-    "expensive",
-    "restaurant",
-    "vacation",
-    "toy store",
-    "order online",
-)
-ASSUMES_ABILITY = _words("hike", "jog", "sprint", "swim", "bike ride", "cycle")
-
-# Not an ordinary Tuesday: needs a plan, a destination, or an occasion. Skipped when the
-# batch is explicitly seasonal, since the library's seasonal prompts are meant to be occasions.
-NEEDS_AN_OCCASION = _words(
-    "birthday",
-    "party",
-    "vacation",
-    "zoo",
-    "museum",
-    "aquarium",
-    "beach",
-    "road trip",
-    "day trip",
-    "plan a",
-    "arrange",
-    "schedule a",
-    "book a",
-)
-
-# The seeded 113 are written he/him and are being rewritten; nothing new may add to that pile.
-# This is enforced here rather than only asked for in SYSTEM because the whole library goes into
-# every request as the style reference, and a model imitates what it reads.
-#
-# `\b` on both sides is what keeps this honest. It does not fire on the tokens — none of {they},
-# {them}, {their}, {theirs}, {themself}, {They}, {Them}, {Their} or the verb compounds contains
-# he, him, his, she, her or hers as a whole word — and it does not fire on ordinary words that
-# merely contain those letters: shed, history, others, treasurer.
-GENDERED = _words("he", "him", "his", "himself", "she", "her", "hers", "herself")
-
-
-@dataclass(frozen=True)
-class Candidate:
-    body: str
-    theme: str
-    kind: str
-    min_age_months: int
-    max_age_months: int
-    rationale: str = ""
-
-
-@dataclass
-class Verdict:
-    candidate: Candidate
-    reasons: list[str] = field(default_factory=list)
-
-    @property
-    def accepted(self) -> bool:
-        return not self.reasons
-
-
-def _normalize(body: str) -> frozenset[str]:
-    """A prompt reduced to its content words, for near-duplicate detection."""
-    tokens = re.findall(r"[a-z']+", body.lower())
-    stop = {
-        "a",
-        "an",
-        "and",
-        "are",
-        "as",
-        "at",
-        "be",
-        "but",
-        "by",
-        "did",
-        "do",
-        "does",
-        "for",
-        "from",
-        "he",
-        "her",
-        "him",
-        "his",
-        "how",
-        "in",
-        "is",
-        "it",
-        "its",
-        "of",
-        "on",
-        "or",
-        "she",
-        "that",
-        "the",
-        # The pronoun tokens reduce to these, and they sit here for the same reason "his" and
-        # "her" do: which pronoun a prompt uses must not change how similar it looks to another.
-        # A tokenised rewrite of a library prompt is still that prompt.
-        "their",
-        "theirs",
-        "them",
-        "themself",
-        "they",
-        "this",
-        "to",
-        "up",
-        "was",
-        "what",
-        "when",
-        "which",
-        "who",
-        "with",
-        "you",
-        "your",
-    }
-    return frozenset(token for token in tokens if token not in stop)
-
-
-def _too_similar(body: str, existing: list[frozenset[str]]) -> bool:
-    """Jaccard over content words. 0.6 catches a reworded duplicate without eating a variant."""
-    tokens = _normalize(body)
-    if not tokens:
-        return False
-    for other in existing:
-        union = tokens | other
-        if union and len(tokens & other) / len(union) >= 0.6:
-            return True
-    return False
-
-
-def judge(
-    candidate: Candidate, *, existing: list[frozenset[str]], seasonal: bool = False
-) -> Verdict:
-    """Every reason this candidate fails, not just the first. A reviewer wants the whole list."""
-    verdict = Verdict(candidate)
-    body = candidate.body.strip()
-
-    if len(body) < MIN_LENGTH:
-        verdict.reasons.append(f"shorter than {MIN_LENGTH} characters")
-    if len(body) > MAX_LENGTH:
-        verdict.reasons.append(f"longer than {MAX_LENGTH} characters")
-
-    if candidate.kind not in KIND_SHAPES:
-        verdict.reasons.append(f"unknown kind {candidate.kind!r}")
-    elif candidate.kind == "question" and not body.endswith("?"):
-        verdict.reasons.append("a question that is not a question")
-    elif candidate.kind in MISSION_KINDS and body.endswith("?"):
-        verdict.reasons.append("a mission phrased as a question")
-
-    if found := BANNED.findall(body):
-        verdict.reasons.append(f"banned vocabulary: {', '.join(sorted(set(found)))}")
-    if found := SENTIMENTAL.findall(body):
-        verdict.reasons.append(f"sentimental register: {', '.join(sorted(set(found)))}")
-
-    if candidate.kind in MISSION_KINDS and FEELING_NOT_ACTION.search(body):
-        verdict.reasons.append("describes a feeling instead of an action")
-
-    if found := ASSUMES_HOUSEHOLD.findall(body):
-        verdict.reasons.append(f"assumes a household shape: {', '.join(sorted(set(found)))}")
-    if found := ASSUMES_INCOME.findall(body):
-        verdict.reasons.append(f"assumes an income: {', '.join(sorted(set(found)))}")
-    if found := ASSUMES_ABILITY.findall(body):
-        verdict.reasons.append(f"assumes an ability: {', '.join(sorted(set(found)))}")
-
-    if found := GENDERED.findall(body):
-        words = ", ".join(sorted({word.lower() for word in found}))
-        verdict.reasons.append(f"assumes a gender: {words} — use the pronoun tokens")
-
-    if not seasonal and (found := NEEDS_AN_OCCASION.findall(body)):
-        verdict.reasons.append(f"not an ordinary Tuesday: {', '.join(sorted(set(found)))}")
-
-    if not (24 <= candidate.min_age_months < candidate.max_age_months <= 216):
-        verdict.reasons.append(
-            f"age band {candidate.min_age_months}{DASH}{candidate.max_age_months} "
-            f"is outside 24{DASH}216"
-        )
-
-    if _too_similar(body, existing):
-        verdict.reasons.append("too close to a prompt already in the library")
-
-    return verdict
-
+# Nothing here changed shape: the regexes, the thresholds and `judge`'s wording are the ones
+# this script has always used, and `tests/test_generate_prompts.py` is unchanged and still
+# imports these names from this module. Two deliberate differences, both recorded in
+# `docs/decisions-log.md`: `judge` now also rejects a `{token}` outside `PROMPT_TOKENS`, and
+# what this file called `MISSION_KINDS` is `IMPERATIVE_KINDS` there, because
+# `services/scheduler.py` already defines `MISSION_KINDS` in that package with a different
+# meaning. Neither name is imported here any more — `judge` was this file's only caller of
+# both, and the import list above is exactly what is still referenced below.
 
 # --- The library ---------------------------------------------------------------------------
 

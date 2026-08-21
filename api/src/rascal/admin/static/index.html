@@ -179,6 +179,72 @@
         <article class="card">
           <div class="chart-head">
             <div>
+              <p class="label">Write candidates with Claude</p>
+              <p id="g-queue" class="card-note"></p>
+            </div>
+          </div>
+          <p class="card-note">
+            Candidates are written against the library as it is being served, judged by the same
+            filters <code>scripts/generate_prompts.py</code> uses, and kept nowhere until you pick
+            them. Picking one puts it in the queue as a retired prompt — nothing serves it until
+            you open it above and make it active.
+          </p>
+
+          <form id="generate-form" class="form">
+            <div class="field-row">
+              <label class="field">
+                <span>Kind</span>
+                <select id="g-kind"></select>
+              </label>
+              <label class="field">
+                <span>Theme — optional</span>
+                <input id="g-theme" type="text" list="g-themes" placeholder="Any theme" />
+                <datalist id="g-themes"></datalist>
+              </label>
+              <label class="field">
+                <span>How many</span>
+                <select id="g-count">
+                  <option value="1">1</option>
+                  <option value="5" selected>5</option>
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                </select>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Youngest, in months</span>
+                <input id="g-min" type="number" min="0" max="300" value="24" />
+              </label>
+              <label class="field">
+                <span>Oldest, in months</span>
+                <input id="g-max" type="number" min="0" max="300" value="216" />
+              </label>
+            </div>
+            <label class="field">
+              <span>Anything else to aim at — optional</span>
+              <textarea id="g-guidance" rows="2"
+                placeholder="Narrows the brief. It relaxes no rule — the filters run either way."
+              ></textarea>
+            </label>
+            <div class="drawer-actions">
+              <button type="submit" class="btn btn-primary">Write candidates</button>
+              <button type="button" id="g-clear" class="btn btn-quiet">Clear the batch</button>
+            </div>
+            <p id="g-error" class="form-error" hidden></p>
+          </form>
+
+          <p id="g-summary" class="card-note" hidden></p>
+          <div id="candidates" class="cards"></div>
+          <div id="g-actions" class="drawer-actions" hidden>
+            <button id="g-queue-picked" class="btn btn-primary">Queue the picked ones</button>
+            <p id="g-hint" class="card-note" hidden></p>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="chart-head">
+            <div>
               <p class="label">The mission library</p>
               <p id="library-count" class="card-note"></p>
             </div>

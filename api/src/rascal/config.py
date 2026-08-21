@@ -378,6 +378,14 @@ class Settings(DatabaseSettings):
     #: product's name.
     anthropic_model: str = "claude-opus-5"
 
+    #: The model the console's prompt-candidate generator uses, kept separate from the studio's
+    #: on the owner's call of Aug 20, 2026 (phase 103). Same argument `director.DEFAULT_MODEL`
+    #: makes in the other direction: candidates are volume a human filters on the spot, so
+    #: Sonnet is the right trade, while the studio writes a handful of things that go out under
+    #: the product's name. One setting rather than a shared one so moving either does not move
+    #: the other — which is exactly what a single `ANTHROPIC_MODEL` would have done.
+    anthropic_candidates_model: str = "claude-sonnet-5"
+
     # --- Pixel renderers -------------------------------------------------------------------
     #
     # **Anthropic has no image or video endpoint on any model**, so photographs and footage

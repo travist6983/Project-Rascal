@@ -1016,7 +1016,14 @@ These were left out on purpose. Each is a small piece of work if you decide othe
   candidates from is a pull request now: `scripts/generate_prompts.py` writes batches into
   `docs/prompt-candidates/` and the *Prompt candidates* workflow opens a PR with them. A
   branch with a diff is already an accept/reject interface with a comment thread, an audit
-  trail, and an undo.
+  trail, and an undo. — **Half of this was overtaken Aug 20, 2026 by phase 103, and the half
+  that matters here still holds.** The endpoint under this name is still not built and still
+  not planned: approving a candidate is `PUT /prompts/{id}/active`, one prompt at a time, read
+  by a person. What stopped being true is the reasoning — there *is* a review queue now, in the
+  console's Library tab, writing `source='llm'`, `active=false` rows that
+  `scripts/review_candidates.py` reads. The PR flow above is unchanged and is still the batch
+  path. Left rather than struck, because the conclusion is still correct and only its argument
+  moved.
 - ~~**`POST /children/{id}/guardians`.** P2 in the contract, and the guardian invite flow is
   out of scope. … Only the invite mechanism is missing.~~ — **struck Aug 18, 2026. Phase 36 built
   the invite mechanism on Aug 17, and the route named here never existed at all.** Guardians are

@@ -150,11 +150,28 @@ def _explain(response: httpx.Response) -> str:
     return message or response.text[:300] or f"HTTP {response.status_code}"
 
 
-def _base_request(settings: Settings, messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _base_request(
+    settings: Settings,
+    messages: list[dict[str, Any]],
+    *,
+    system: str | None = None,
+    max_tokens: int | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """The request every caller here shares.
+
+    The three keyword arguments are additive and all default to the studio's own values, so
+    `chat()` and the two existing `structured()` callers build byte-identical requests to the
+    ones they built before phase 103. They exist because the prompt-candidate generator is the
+    first caller that is not the studio: it has its own system prompt (the mission library's
+    standard, not the brand brief), needs more room than a concept set, and runs on its own
+    model by the owner's call — `settings.anthropic_candidates_model`, so moving the studio's
+    model does not move the generator's.
+    """
     return {
-        "model": settings.anthropic_model or DEFAULT_MODEL,
-        "max_tokens": MAX_TOKENS,
-        "system": brand.system_prompt(),
+        "model": model or settings.anthropic_model or DEFAULT_MODEL,
+        "max_tokens": max_tokens or MAX_TOKENS,
+        "system": system or brand.system_prompt(),
         "messages": messages,
         # Adaptive rather than a token budget: `budget_tokens` is removed on this model family
         # and returns a 400. Depth is controlled by `effort` instead.
@@ -219,6 +236,10 @@ async def structured(
     settings: Settings,
     instruction: str,
     schema: dict[str, Any],
+    *,
+    system: str | None = None,
+    max_tokens: int | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """One turn, constrained to a JSON schema.
 
@@ -228,7 +249,13 @@ async def structured(
     is cached for a day.
     """
     api_key = _require_key(settings)
-    request = _base_request(settings, [{"role": "user", "content": instruction}])
+    request = _base_request(
+        settings,
+        [{"role": "user", "content": instruction}],
+        system=system,
+        max_tokens=max_tokens,
+        model=model,
+    )
     request["output_config"] = {
         "effort": "medium",
         "format": {"type": "json_schema", "schema": schema},

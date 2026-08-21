@@ -8,11 +8,16 @@ is a solo admin task run occasionally, so this is a CLI rather than a web UI.
     uv run python scripts/review_candidates.py template > decisions.txt
     uv run python scripts/review_candidates.py apply decisions.txt
 
-**Where candidates come from, and where they do not.** `scripts/generate_prompts.py` does not
-feed this tool: it writes markdown worksheets to `docs/prompt-candidates/` and its review queue is
-a pull request, and nothing in it touches the database. No other code in this repo writes
-`source = 'llm'` rows either. So until something does, every command here reads an empty queue and
-reports nothing pending — that is the honest state of the tool, not a failing query.
+**Where candidates come from, and where they do not.** `scripts/generate_prompts.py` still does
+not feed this tool: it writes markdown worksheets to `docs/prompt-candidates/`, its review queue is
+a pull request, and nothing in it touches the database. **What does feed it, as of phase 103 (Aug
+20, 2026), is the admin console**: `POST /v1/prompts/candidates` writes the picked candidates from
+the Library tab as `source='llm'`, `active=false` rows — exactly the queue described above.
+
+This docstring used to end by saying every command here reads an empty queue and reports nothing
+pending, and that this was the honest state of the tool rather than a failing query. That was true
+for as long as it was written and is not any more. **The tool needed no change to read them**,
+which is the strongest thing that can be said for the shape it was given before it had a writer.
 
 **The model flags and never rejects.** A candidate using a banned word, or describing a feeling
 instead of an action, is surfaced with the rule it tripped so that a rejection is a judgment
@@ -20,15 +25,16 @@ rather than a guess. Nothing here decides: the model does not get to reject its 
 certainly does not get to approve them. Every accept and every reject in the decisions file was
 typed by a person.
 
-**Nothing here generates prompts.** Authoring stays server-side with a real model plus review —
-settled, and not up for reinterpretation.
+**Nothing here generates prompts, and nothing here approves one.** Authoring stays server-side
+with a real model plus review — settled, and not up for reinterpretation. Approving is a person
+reading a candidate and calling `PUT /prompts/{id}/active`, or writing `accept` on a line of a
+decisions file and applying it. There is still no bulk approve that skips the reading.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import re
 import sys
 import uuid
 from dataclasses import dataclass
@@ -39,6 +45,7 @@ from sqlalchemy import select
 from rascal.constants import PROMPT_SOURCES, PromptSource
 from rascal.db import get_sessionmaker
 from rascal.models import Prompt
+from rascal.services import candidates
 
 # The `source` a generated candidate carries. `ck_prompts_source` admits `seeded`, `user` and
 # `llm` and nothing else, so a query for a value outside that set matches no row it can ever
@@ -53,32 +60,33 @@ if CANDIDATE_SOURCE not in PROMPT_SOURCES:
         "every candidate would look reviewed."
     )
 
-# --- The tone rules, from docs/mission-library.md -------------------------------------------
-
-# Words the library does not use. From the library's own tone section: the writing names an
-# action and gets out of the way, and these are the words that show up when it stops doing that.
-BANNED_WORDS: tuple[str, ...] = (
-    "precious",
-    "cherish",
-    "cherished",
-    "treasure",
-    "treasured",
-    "little moments",
-)
-
-# A prompt asks for something you can go and do. "Notice how much you love watching him draw"
-# is a feeling; "Film him drawing for two minutes" is an action. The first is not rejected
-# here — it is flagged, because the line between the two is a judgment call and the whole point
-# of this tool is that a human makes it.
-FEELING_OPENERS: tuple[str, ...] = (
-    "notice how",
-    "remember how",
-    "think about how",
-    "reflect on",
-    "savor",
-    "savour",
-    "appreciate",
-)
+# --- The tone rules ------------------------------------------------------------------------
+#
+# **Rewired in phase 103, and it was a real divergence rather than tidying.** This file used to
+# carry its own copy of the library's tone rules — its own `BANNED_WORDS`, its own
+# `FEELING_OPENERS`, and a 180-character length rule — written when nothing could put a row in
+# this queue, so the copy could not disagree with anything in practice.
+#
+# Phase 103 fills the queue, and at that moment the two copies were looking at the same rows
+# and did not agree. `judge` rejects at 200 characters and this flagged at 180, so a body the
+# console accepted arrived here flagged for length with nothing to say it had already been
+# judged. And the private copy was missing every rule that matters most: a bare gendered
+# pronoun, an unknown token, an assumed household, an assumed income.
+#
+# **A rejected body can still be a row, which is exactly why this tool has to know the rules.**
+# The console shows every rejection with its reason and lets a person keep the candidate anyway
+# — the filters are a spam trap, not an editor. So a banned word or a feeling-not-action body
+# does reach this queue, deliberately, carrying a human decision. Re-showing the flag here is
+# not second-guessing that decision: it is the second read, on a different day, that the whole
+# accept/reject file exists for.
+#
+# So the rules come from `rascal.services.candidates` now, the same module the console route
+# and `scripts/generate_prompts.py` read. One rule set, three callers.
+#
+# **What has not changed is the important part: this still flags and never rejects.** `judge`
+# returns reasons and this presents every one of them as something to look at. Nothing here
+# decides — the model does not get to reject its own peers and it certainly does not get to
+# approve them.
 
 
 @dataclass(frozen=True)
@@ -87,25 +95,55 @@ class Flag:
     detail: str
 
 
-def flags_for(body: str) -> list[Flag]:
-    """Every tone rule this candidate trips. Never a verdict — only a reason to look."""
-    found: list[Flag] = []
-    lowered = body.lower()
+def flags_for(prompt: Prompt) -> list[Flag]:
+    """Every rule this candidate trips. Never a verdict — only a reason to look.
 
-    for word in BANNED_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", lowered):
-            found.append(Flag("banned-word", f"uses {word!r}"))
+    Takes the whole row rather than the body, because `judge` reads the kind and the age band
+    too and a body-only check was throwing that away.
 
-    for opener in FEELING_OPENERS:
-        if lowered.startswith(opener) or f". {opener}" in lowered:
-            found.append(Flag("feeling-not-action", f"opens with {opener!r}"))
+    `existing=[]` on purpose: the duplicate rule asks whether a body restates something already
+    in the library, and this row *is* in the library. Running it here would flag every
+    candidate against itself.
+    """
+    candidate = candidates.Candidate(
+        body=prompt.body,
+        theme=prompt.theme,
+        kind=prompt.kind,
+        min_age_months=prompt.min_age_months,
+        max_age_months=prompt.max_age_months,
+    )
+    verdict = candidates.judge(candidate, existing=[], seasonal=bool(prompt.month_tags))
+    return [
+        Flag(_rule_name(reason), reason)
+        for reason in verdict.reasons
+        # `measurement` is a real prompt kind that the generator has no shape for, so `judge`
+        # calls it unknown. True of the generator, misleading as a flag on a row that a person
+        # may have hand-written — and the kind is on screen anyway.
+        if not (reason.startswith("unknown kind") and prompt.kind not in candidates.KIND_SHAPES)
+    ]
 
-    # A prompt a parent has to parse twice is one they skip. The library's own entries run
-    # short; this is a soft signal and deliberately generous.
-    if len(body) > 180:
-        found.append(Flag("length", f"{len(body)} characters"))
 
-    return found
+def _rule_name(reason: str) -> str:
+    """A short slug for the reason, so the template's FLAG lines stay greppable."""
+    for prefix, name in (
+        ("banned vocabulary", "banned-word"),
+        ("sentimental register", "sentimental"),
+        ("describes a feeling", "feeling-not-action"),
+        ("assumes a household", "household"),
+        ("assumes an income", "income"),
+        ("assumes an ability", "ability"),
+        ("assumes a gender", "gendered-pronoun"),
+        ("unknown token", "unknown-token"),
+        ("not an ordinary Tuesday", "needs-an-occasion"),
+        ("age band", "age-band"),
+        ("longer than", "length"),
+        ("shorter than", "length"),
+        ("a question that is not", "shape"),
+        ("a mission phrased as", "shape"),
+    ):
+        if reason.startswith(prefix):
+            return name
+    return "flagged"
 
 
 # --- Reading ---------------------------------------------------------------------------------
@@ -139,13 +177,13 @@ async def cmd_list(args: argparse.Namespace) -> int:
     prompts = await _pending(args.limit)
     shown = 0
     for prompt in prompts:
-        flags = flags_for(prompt.body)
+        flags = flags_for(prompt)
         if args.flagged_only and not flags:
             continue
         print(_render(prompt, flags))
         print()
         shown += 1
-    flagged = sum(1 for p in prompts if flags_for(p.body))
+    flagged = sum(1 for p in prompts if flags_for(p))
     print(f"{shown} shown, {len(prompts)} pending, {flagged} flagged for a closer read.")
     print("Nothing above has been accepted or rejected. That is your call, in a decisions file.")
     return 0
@@ -161,7 +199,7 @@ async def cmd_template(args: argparse.Namespace) -> int:
     print("# One decision per line: accept | reject | skip, then the prompt id.")
     print("# Everything starts as skip. Change the ones you have actually read.")
     for prompt in prompts:
-        for flag in flags_for(prompt.body):
+        for flag in flags_for(prompt):
             print(f"#   FLAG {flag.rule}: {flag.detail}")
         print(f"#   {prompt.body}")
         print(f"skip {prompt.id}")

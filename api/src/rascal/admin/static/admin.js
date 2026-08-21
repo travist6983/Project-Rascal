@@ -37,6 +37,7 @@ const state = {
   studio: null,
   chat: [],
   concepts: [],
+  candidates: [],
   composing: null,
   // Which provider's series the costs chart is showing. More than one vendor has a series
   // since phase 100, and they are not all denominated in money.
@@ -700,6 +701,212 @@ async function loadLibrary() {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(state.filters)) if (value) params.set(key, value);
   renderLibrary(await api(`/admin/library?${params}`));
+  fillChoices($("g-kind"), GENERATABLE_KINDS, "question");
+  // The server's full distinct theme list, not the themes surviving the table's filters. The
+  // page above is capped and filtered; suggesting only what it happens to show would quietly
+  // narrow the generator's vocabulary whenever a filter is set.
+  fillDatalist($("g-themes"), state.library?.themes || []);
+  refreshQueueCount();
+}
+
+// --- Prompt candidates ----------------------------------------------------------------------
+//
+// Generate, pick, queue. Three things here are deliberate and were each a defect in an earlier
+// draft of this screen:
+//
+// 1. **A second batch appends rather than replaces.** `writeConcepts` replaces `state.concepts`
+//    wholesale, which is right for concepts — you are choosing one. Here you are assembling a
+//    set, and a generate that silently discarded the five you had just approved would be the
+//    most expensive misclick on the screen.
+// 2. **A rejected candidate can still be kept.** The filters are a spam trap, not an editor;
+//    `ASSUMES_INCOME` fires on the bare word "buy". The reason is shown and the decision is the
+//    reader's. The server re-checks only the two failures that are permanent and invisible —
+//    a bare gendered pronoun and an unknown token — and refuses those whatever the console says.
+// 3. **The waiting count has its own catch.** It shares no error surface with the form, because
+//    a transient failure counting the queue must not report a generation that worked as failed.
+
+//: The kinds `services/candidates.py` has a shape for. `measurement` is absent from both, and
+//: absent here for that reason rather than by oversight.
+const GENERATABLE_KINDS = ["question", "photo", "video", "audio", "activity", "letter"];
+
+async function refreshQueueCount() {
+  try {
+    const page = await api("/admin/library?source=llm&active=false&limit=1");
+    const waiting = page.total ?? 0;
+    $("g-queue").textContent = waiting
+      ? `${num(waiting)} candidate${waiting === 1 ? "" : "s"} waiting in the queue`
+      : "Nothing waiting in the queue";
+  } catch {
+    // Deliberately silent. This is a nicety beside the form, and the form's own error line
+    // belongs to the generate call.
+    $("g-queue").textContent = "";
+  }
+}
+
+function readGenerateForm() {
+  return {
+    kind: $("g-kind").value,
+    theme: $("g-theme").value.trim() || null,
+    count: Number($("g-count").value),
+    min_age_months: Number($("g-min").value),
+    max_age_months: Number($("g-max").value),
+    guidance: $("g-guidance").value.trim() || null,
+  };
+}
+
+async function writeCandidates(event) {
+  event.preventDefault();
+  const error = $("g-error");
+  error.hidden = true;
+  const button = event.target.querySelector("button[type=submit]");
+  button.disabled = true;
+  button.textContent = "Writing…";
+  try {
+    const result = await api("/prompts/generate", {
+      method: "POST",
+      body: JSON.stringify(readGenerateForm()),
+    });
+    // Append. See note 1 above.
+    const known = new Set(state.candidates.map((c) => c.content_hash));
+    const fresh = result.candidates.filter((c) => !known.has(c.content_hash));
+    for (const candidate of fresh) {
+      // Unpicked. Every candidate arrives needing a decision, including the ones that
+      // passed every filter — 'pick which we like and don't' is the job, and a batch that
+      // arrives pre-picked makes the default action 'queue all five without reading them'.
+      state.candidates.push({ ...candidate, picked: false, model: result.model });
+    }
+    const dropped = result.candidates.length - fresh.length;
+    $("g-summary").hidden = false;
+    $("g-summary").textContent =
+      `${result.accepted} of ${result.candidates.length} passed the filters` +
+      (dropped ? `, ${dropped} already in this batch` : "") +
+      ` · ${result.model}`;
+    renderCandidates();
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Write candidates";
+  }
+}
+
+function renderCandidates() {
+  const mount = $("candidates");
+  mount.replaceChildren();
+
+  state.candidates.forEach((candidate, index) => {
+    const card = document.createElement("article");
+    card.className = "card candidate";
+    card.dataset.picked = String(candidate.picked);
+    card.dataset.verdict = candidate.accepted ? "accepted" : "rejected";
+
+    // The skip leads, because it is why the card is still here. The filter reasons follow and
+    // survive it, so an overridden rejection still shows what it was rejected for.
+    const reasons = [...(candidate.skip ? [candidate.skip] : []), ...(candidate.reasons || [])]
+      .map((reason) => `<span class="chip chip-warn">${escape(reason)}</span>`)
+      .join("");
+
+    card.innerHTML =
+      `<p class="label">${escape(candidate.theme)} · ${escape(candidate.kind)} · ` +
+      `${candidate.min_age_months}\u2013${candidate.max_age_months} months</p>
+       <p class="candidate-body">${markTokens(candidate.body)}</p>
+       <p class="candidate-why">${escape(candidate.rationale || "")}</p>
+       <div class="candidate-meta">${reasons}</div>`;
+
+    const actions = document.createElement("div");
+    actions.className = "drawer-actions";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = candidate.picked ? "btn btn-primary" : "btn btn-quiet";
+    toggle.textContent = candidate.picked ? "Picked" : "Pick";
+    // A rejected candidate is pickable. See note 2 above.
+    toggle.setAttribute(
+      "aria-label",
+      `${candidate.picked ? "Unpick" : "Pick"} "${candidate.body}"`,
+    );
+    toggle.addEventListener("click", () => {
+      state.candidates[index].picked = !state.candidates[index].picked;
+      renderCandidates();
+    });
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "btn btn-quiet";
+    drop.textContent = "Discard";
+    drop.setAttribute("aria-label", `Discard "${candidate.body}"`);
+    drop.addEventListener("click", () => {
+      state.candidates.splice(index, 1);
+      renderCandidates();
+    });
+    actions.append(toggle, drop);
+    card.append(actions);
+    mount.append(card);
+  });
+
+  // The button always names the action it performs. It used to read "Nothing picked" when
+  // disabled, which describes the state rather than the action and reads like a button that
+  // does something — the hint beside it carries the state instead.
+  const picked = state.candidates.filter((candidate) => candidate.picked).length;
+  $("g-actions").hidden = state.candidates.length === 0;
+  $("g-queue-picked").disabled = picked === 0;
+  $("g-queue-picked").textContent = picked
+    ? `Queue ${picked} candidate${picked === 1 ? "" : "s"}`
+    : "Queue the picked ones";
+  $("g-hint").hidden = picked !== 0;
+  $("g-hint").textContent = `Pick the ones worth keeping — ${state.candidates.length} to read through.`;
+}
+
+async function queuePicked() {
+  const picked = state.candidates.filter((candidate) => candidate.picked);
+  if (!picked.length) return;
+  const error = $("g-error");
+  error.hidden = true;
+  const button = $("g-queue-picked");
+  button.disabled = true;
+  button.textContent = "Queueing…";
+  try {
+    const result = await api("/prompts/candidates", {
+      method: "POST",
+      body: JSON.stringify({
+        candidates: picked.map((candidate) => ({
+          kind: candidate.kind,
+          body: candidate.body,
+          theme: candidate.theme,
+          min_age_months: candidate.min_age_months,
+          max_age_months: candidate.max_age_months,
+          month_tags: candidate.month_tags || [],
+          default_unlock_age: candidate.default_unlock_age ?? null,
+        })),
+      }),
+    });
+    // Only the ones that actually landed leave the batch. A skipped body stays on screen with
+    // the reason attached, because "it collided with a row you already have" is something to
+    // read rather than a silent no-op.
+    const queued = new Set(result.inserted.map((prompt) => prompt.body));
+    const skipped = new Map(result.skipped.map((row) => [row.body, row.reason]));
+    state.candidates = state.candidates.filter((candidate) => !queued.has(candidate.body));
+    for (const candidate of state.candidates) {
+      if (skipped.has(candidate.body)) {
+        candidate.picked = false;
+        // Its own field rather than overwriting `reasons`. The filter verdict is the thing this
+        // screen exists to show, and destroying it to say "duplicate" loses it for good — the
+        // batch would have to be regenerated to see why the candidate was flagged.
+        candidate.skip = skipped.get(candidate.body);
+      }
+    }
+    renderCandidates();
+    await loadLibrary();
+    toast(
+      `${result.inserted.length} queued, ${result.queued_total} waiting. ` +
+        "Nothing is being served until you make one active.",
+    );
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = err.message;
+  } finally {
+    button.disabled = false;
+    renderCandidates();
+  }
 }
 
 // --- The prompt editor ---------------------------------------------------------------------
@@ -1904,6 +2111,13 @@ fillSelect($("f-source"), SOURCES, "Every source");
 
 $("new-prompt").addEventListener("click", () => openDrawer(null));
 $("prompt-form").addEventListener("submit", submitPrompt);
+$("generate-form").addEventListener("submit", writeCandidates);
+$("g-queue-picked").addEventListener("click", queuePicked);
+$("g-clear").addEventListener("click", () => {
+  state.candidates = [];
+  $("g-summary").hidden = true;
+  renderCandidates();
+});
 $("p-body").addEventListener("input", refreshPreview);
 $("p-retire").addEventListener("click", toggleRetire);
 $("p-release").addEventListener("click", releaseOverride);
