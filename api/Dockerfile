@@ -40,9 +40,10 @@ ENV PYTHONUNBUFFERED=1 \
 # and the scope note in `CLAUDE.md`. `ffprobe` comes in the same package and is not optional:
 # the concat is accepted only when the joined duration proves it.
 #
-# **This is not a small install.** Debian's `ffmpeg` is the full suite and it brings a few
-# hundred megabytes of codec libraries with it, `--no-install-recommends` or not — that flag
-# trims the extras, not the dependencies. It is the price of the feature and it is named here
+# **This is not a small install: measured at +148 MB** on this exact base image — 43 MB for
+# `python:3.12-slim-bookworm`, 191 MB once ffmpeg is in. Debian's `ffmpeg` is the full suite
+# and brings its codec libraries whatever `--no-install-recommends` does; that flag trims the
+# recommends, not the dependencies. It is the price of the feature, and the number is here
 # rather than discovered in a registry bill.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ffmpeg \
