@@ -1298,7 +1298,7 @@ owner sets by hand for a post made somewhere this service cannot reach.
 | `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
 | `GET /social/account` | Which Instagram account the credentials control, and whether now is a reasonable time to post. Read from Instagram, never from our own rows |
 | `POST /social/assets/{id}/image` | Stores the card the browser drew. **Raw JPEG body**, 4MB cap, magic number checked |
-| `POST /social/assets/{id}/publish` | Publishes now, or queues for `scheduled_for` |
+| `POST /social/assets/{id}/publish` | Publishes now, or queues for `scheduled_for`. **A too-soon `409` leaves the attempt queued** — see below |
 | `GET /social/publications` | The publish queue and what became of each attempt |
 | `POST /social/publications/{id}/cancel` | Takes a scheduled post out of the queue. Never legal after it has gone out |
 
@@ -1341,8 +1341,15 @@ the asset is free again. **It never re-sends** — a container that was built an
 not a post, and re-sending it is precisely the duplicate this design exists to avoid.
 
 A `409 conflict` from the publish route is one of: the asset already went out, an attempt is
-already queued, it is too soon to post, or the caption matched a post another attempt already
-owns. All four are readable sentences, and none of them is a 500.
+already queued, it is too soon to post, the caption matched a post another attempt already owns,
+or another runner claimed the row first. All are readable sentences, and none is a 500.
+
+**One of them is a deferral rather than a refusal, and it is worth reading twice.** *Too soon*
+leaves the attempt **queued**: the row goes back to `scheduled` and the hourly runner publishes
+it once the gap has passed. So a caller that pressed publish, saw a 409 and stopped will get a
+post up to an hour later. The console re-reads `GET /social/publications` after any publish
+error for exactly this reason — the queue on screen is the answer to *"did that do anything"*,
+and the error text alone is not.
 
 **`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
 spends its status code the moment headers are sent, so an exception inside the generator

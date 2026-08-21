@@ -108,6 +108,11 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     # tables: `updated_at` because a draft is edited in place, no `deleted_at` because
     # discarding one is a status rather than a disappearance.
     "social_assets",
+    # Phase 104. One row per attempt to publish an asset. `updated_at` is load-bearing rather
+    # than decorative here: `services/social/publishing.py::reclaim` measures how long a claim
+    # has been unresolved by it, so a missing trigger would mean abandoned claims are never
+    # settled and the assets under them are blocked permanently.
+    "social_publications",
     # Phase 37a. The App Store receipt ledger. Not user data and not synced — no client ever
     # reads it — but a row is updated in place on every renewal notification for the same
     # subscription, so it wants the trigger for the same reason `email_broadcasts` does.

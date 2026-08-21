@@ -330,7 +330,7 @@ async def card_upload(
     settings: SettingsDep,
     _: LocalWrites,
 ) -> dict[str, str]:
-    asset = await studio.update_asset(session, asset_id, {})  # 404s if it is not there
+    await studio.update_asset(session, asset_id, {})  # 404s if it is not there
 
     # Refuse on the header before reading, not on `len(data)` after. `request.body()` buffers
     # the whole upload in memory first, so checking the size afterwards means the oversized
@@ -342,8 +342,23 @@ async def card_upload(
             f"That image is {int(declared) // 1024}KB and the limit is "
             f"{publishing.MAX_CARD_BYTES // 1024}KB.",
         )
+
+    # **Let the connection go before the two slow parts.** The existence check above autobegins
+    # the request transaction and checks a connection out, and `get_session` holds it until the
+    # handler returns — so without this it stays pinned across the browser upload *and* the PUT
+    # to Tigris. The browser half is the worse one: it runs at the client's speed, so a phone on
+    # a train holds a Neon connection for as long as that takes, and connections are the scarce
+    # thing. Same discipline `publishing.run` uses, for the same reason.
+    await session.commit()
+
     data = await request.body()
     key = await publishing.store_card(settings, asset_id, data)
+
+    # Re-fetched because the row above belongs to a transaction that has ended. In principle the
+    # asset could have gone in the meantime and this would 404 after the bytes were stored; in
+    # practice nothing deletes a `social_assets` row — discarding a concept is a status, which is
+    # why that table has no `deleted_at` — so the orphaned-object window is theoretical.
+    asset = await studio.update_asset(session, asset_id, {})
     # Set on the row directly, **not** through `update_asset`, whose `EDITABLE` tuple
     # deliberately excludes these two: a storage key is written by the code that stored the
     # bytes and must never be settable by a caller. Routing it through the editor instead
@@ -360,9 +375,13 @@ async def card_upload(
     summary="Put this on Instagram, now or at a time",
     description=(
         "Omit `scheduled_for` to publish in this request. Supply it to queue the post for the "
-        "scheduled runner. Refuses if the asset has already gone out, if one is already "
-        "queued for it, if the account was posted to too recently **by anyone**, or if "
-        "`SOCIAL_PUBLISH_ENABLED` is false."
+        "scheduled runner. Refuses if the asset has already gone out, if one is already queued "
+        "for it, or if `SOCIAL_PUBLISH_ENABLED` is false.\n\n"
+        "**The too-soon 409 is a deferral, not a refusal.** If the account was posted to too "
+        "recently — by this service or by the marketing repository, which shares the account "
+        "— the attempt stays queued and the scheduled runner publishes it when the gap has "
+        "passed. A caller that reads that 409 as *nothing happened* is wrong; re-read "
+        "`GET /social/publications` after it."
     ),
 )
 async def publish_asset(

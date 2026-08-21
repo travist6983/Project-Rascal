@@ -31,7 +31,7 @@ import uuid
 from typing import Any
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -345,16 +345,16 @@ async def run(
     story = publication.platform == "instagram_story"
     caption = publication.caption or ""
 
-    publication.status = "publishing"
-    publication.attempts = (publication.attempts or 0) + 1
-    publication.error = None
-    # Committed before anything reaches Meta, so the attempt survives the request that made it.
-    await session.commit()
+    if not await _claim(session, publication):
+        raise RascalError(
+            ErrorCode.CONFLICT,
+            "Something else is already publishing this. Nothing was sent twice.",
+        )
 
     try:
         # 1. Is it already up? Asked of Instagram, not of us — see `instagram.find_published`.
         #    Skipped for stories, which carry no caption to match on.
-        if not story:
+        if not story and instagram.searchable(caption):
             already = await instagram.find_published(settings, caption)
             if already is not None:
                 log.warning("asset was already on the account", extra={"asset_id": str(asset.id)})
@@ -405,6 +405,50 @@ async def run(
     return await _record_success(
         session, asset, publication, media_id=media_id, permalink=permalink, published_at=None
     )
+
+
+async def _claim(session: AsyncSession, publication: SocialPublication) -> bool:
+    """Take the row, atomically, or find out somebody else already has it.
+
+    **Reading `scheduled` and then writing `publishing` is not the same thing**, and the gap
+    between them is a double post. Two runners — the hourly machine and a hand-run, which the
+    runbook actively encourages — can both `SELECT` a due row before either has written
+    anything, and then both build a container and both publish. Nothing downstream catches it:
+    the partial unique index guards two *rows* for one asset, and this is one row published
+    twice. `find_published` does not catch it either, because both processes ask Instagram
+    before either has posted.
+
+    So the transition is one statement with the old state in its `WHERE`, and the loser is told
+    plainly rather than left to discover it on the feed. `rowcount` is the whole mechanism.
+
+    The commit is what makes the claim visible to the other runner *and* what ends the
+    transaction: everything after this point is a network call to Meta, and none of them is
+    made with a database transaction open.
+    """
+    result = await session.execute(
+        update(SocialPublication)
+        .where(
+            SocialPublication.id == publication.id,
+            SocialPublication.status == "scheduled",
+        )
+        .values(
+            status="publishing",
+            attempts=SocialPublication.attempts + 1,
+            error=None,
+        )
+    )
+    await session.commit()
+    if result.rowcount != 1:
+        return False
+    # The UPDATE went round the ORM, so the instance in memory still says `scheduled`.
+    await session.refresh(publication)
+    # **And that refresh opens a transaction which would then stay open for the whole exchange
+    # with Meta** — SQLAlchemy begins one on the next statement after a commit, so the careful
+    # commits above would have ended the transaction only for a read to start another one and
+    # hold it across `create_container`, a poll loop of up to thirty seconds, and the publish.
+    # Found by the test that asserts it, not by reading this function.
+    await session.commit()
+    return True
 
 
 async def _record_failure(
@@ -468,13 +512,40 @@ async def _record_success(
     asset.status = "published"
     if asset.published_at is None:
         asset.published_at = now
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        # `uq_social_publications_media_id`, lost between the check above and this write —
+        # two runners resolving the same abandoned claim in the same second. The post is fine
+        # and already recorded by the winner; only this row's account of it is wrong.
+        await session.rollback()
+        raise RascalError(
+            ErrorCode.CONFLICT,
+            f"Instagram post {media_id} was recorded by another attempt while this one was "
+            "writing. Nothing was posted twice.",
+        ) from exc
     return publication
 
 
 #: How long a row may sit in `publishing` before it is treated as abandoned. Generous, because
 #: `wait_for_container` alone can legitimately take half a minute and a slow publish longer.
 STALE_AFTER = dt.timedelta(minutes=15)
+
+#: What the console shows on a claim that cannot be settled from here. Written once and then
+#: left alone: rewriting it every run would keep bumping `updated_at`, and `updated_at` is how
+#: staleness is measured.
+UNRESOLVABLE = (
+    "This attempt was abandoned part-way through and cannot be checked automatically — there is "
+    "no caption distinctive enough to find it by. Look at the account. If the post is there, "
+    "mark this asset published; if it is not, cancel this attempt and queue another."
+)
+
+
+async def _mark_unresolvable(session: AsyncSession, publication: SocialPublication) -> None:
+    if publication.error == UNRESOLVABLE:
+        return
+    publication.error = UNRESOLVABLE
+    await session.commit()
 
 
 async def reclaim(
@@ -505,15 +576,23 @@ async def reclaim(
 
     for publication in stalled:
         caption = publication.caption or ""
-        already = None
-        if caption:
-            try:
-                already = await instagram.find_published(settings, caption)
-            except RascalError:
-                # Instagram is unreachable. Leave the row alone rather than failing a post that
-                # may be live — the next run asks again.
-                log.warning("could not reclaim", extra={"publication_id": str(publication.id)})
-                continue
+
+        # **A claim nobody can check is left standing.** A story carries no caption, and a
+        # caption whose first line is short cannot identify one post in a feed — so for these
+        # there is no question to ask Instagram, and the not-published branch below would be a
+        # guess. Failing the row on a guess prints *"queue it again"* under a post that may be
+        # live, which is the duplicate this whole service exists to avoid, arriving as advice.
+        if not instagram.searchable(caption):
+            await _mark_unresolvable(session, publication)
+            continue
+
+        try:
+            already = await instagram.find_published(settings, caption)
+        except RascalError:
+            # Instagram is unreachable. Leave the row alone rather than failing a post that
+            # may be live — the next run asks again.
+            log.warning("could not reclaim", extra={"publication_id": str(publication.id)})
+            continue
 
         if already is not None:
             asset = await _load_asset(session, publication.asset_id)
@@ -534,9 +613,8 @@ async def reclaim(
         await _record_failure(
             session,
             publication,
-            "This attempt was abandoned part-way through and the post is not on the account."
-            + where
-            + " Nothing was published; queue it again when you are ready.",
+            "This attempt was abandoned part-way through, and the account's most recent posts "
+            "do not carry this caption." + where + " Queue it again when you are ready.",
         )
         resolved.append(publication)
 
@@ -555,10 +633,17 @@ async def cancel(session: AsyncSession, publication_id: uuid.UUID) -> SocialPubl
             "Delete it in the Instagram app if you need it gone.",
         )
     if publication.status == "publishing":
-        raise RascalError(
-            ErrorCode.CONFLICT,
-            "This is mid-publish. Wait for it to finish or fail before cancelling.",
-        )
+        # A fresh claim is genuinely mid-flight and cancelling it would be a guess. A stale one
+        # is the opposite: nothing is running, `reclaim()` could not settle it, and the person
+        # pressing this has the one thing no code here has — they can look at the account. This
+        # is the only way out for a claim that cannot be checked automatically, and without it
+        # the partial unique index blocks the asset permanently.
+        age = dt.datetime.now(tz=dt.UTC) - publication.updated_at
+        if age < STALE_AFTER:
+            raise RascalError(
+                ErrorCode.CONFLICT,
+                "This is mid-publish. Wait for it to finish or fail before cancelling.",
+            )
     publication.status = "cancelled"
     await session.flush()
     await session.refresh(publication)

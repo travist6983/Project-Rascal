@@ -2124,6 +2124,10 @@ async function confirmPublish() {
   } catch (err) {
     hidePublishConfirm();
     showHold(err.message);
+    // **A failure here does not always mean nothing happened.** The too-soon 409 leaves the
+    // attempt queued and the hourly runner posts it later, so showing the message and leaving
+    // a stale queue on screen would say "that did nothing" about something still pending.
+    await loadPublications();
   } finally {
     button.disabled = false;
     button.textContent = "Yes — post it";

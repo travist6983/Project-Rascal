@@ -426,8 +426,13 @@ class Settings(DatabaseSettings):
 
     # **Credentials do not switch publishing on.** This is `marketing_email_enabled`'s pattern
     # and it is here for the same reason that one exists: setting a secret must never, by
-    # itself, start reaching the public. Off, every part of the publish path runs except the
-    # two calls to Meta, and the route reports exactly what it would have sent.
+    # itself, start reaching the public.
+    #
+    # **Unlike that one, off means refuse rather than rehearse.** `publishing._check_publishable`
+    # raises before the duplicate lookup, before spacing and before any container, so nothing is
+    # generated and nothing is reported. `python -m rascal.jobs.social --dry-run` is the
+    # rehearsal and does not depend on this setting. The comment here used to claim the
+    # broadcast job's behaviour; it was describing a sibling rather than this.
     social_publish_enabled: bool = False
 
     #: The smallest gap between two posts on the account, whoever made them. Instagram's own
@@ -438,9 +443,11 @@ class Settings(DatabaseSettings):
     #: until they raised it, so it is a setting rather than a constant. Counted from the
     #: account, not from our rows.
     social_daily_post_limit: int = 100
-    #: How long the URL handed to Meta stays valid. Meta fetches within seconds; this is slack
-    #: for a container that takes a retry, not a window anybody browses in.
-    social_image_url_ttl_seconds: int = 3600
+    # There is no `social_image_url_ttl_seconds` here, and there was: it claimed to govern the
+    # URL handed to Meta and nothing read it. `presign_get` signs with `presign_ttl_seconds`
+    # (an hour), which is the same number and is the one that actually applies — Meta fetches
+    # within seconds of the container call, so the margin is enormous either way. A knob that
+    # does nothing is worse than no knob: somebody eventually turns it to fix something.
 
     #: How many mission-library bodies may appear in social posts before the studio refuses.
     #: **This is a leak budget, not a rate limit.** D7 keeps the library out of anything

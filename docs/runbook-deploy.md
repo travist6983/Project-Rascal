@@ -405,7 +405,13 @@ publishes — it just never publishes anything later.
 
 **Arming it is `SOCIAL_PUBLISH_ENABLED=true`, and that is a decision rather than a step**, the
 same shape as §4d. The two Instagram secrets let the console *read* the account; this one lets it
-*post*. Without it every run does the whole job except the two calls to Meta.
+*post*.
+
+**Unlike §4d, off means refuse rather than rehearse.** The check is the first thing the publish
+path does, so nothing is generated and nothing is reported — a queued row is named as staying
+queued and the run exits 0. **`--dry-run` is the rehearsal**, and it works whatever the flag
+says. This paragraph promised the broadcast job's behaviour before Aug 21, 2026, which would
+have sent somebody looking for a report that was never going to appear.
 
 Three properties worth knowing:
 

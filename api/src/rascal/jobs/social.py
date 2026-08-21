@@ -20,8 +20,13 @@ each other's way through Instagram rather than through a lock neither can hold.
 are indistinguishable from a broken schedule, which is exactly how a marketing run that printed
 *"nothing due"* got read as *"posted successfully"* for several hours.
 
-Nothing goes out unless `SOCIAL_PUBLISH_ENABLED=true`. Without it this does the whole job
-except the two calls to Meta and prints what it would have sent.
+**Nothing goes out unless `SOCIAL_PUBLISH_ENABLED=true`, and with it off this run does not
+rehearse — it refuses.** The check is the first thing `publishing.run` does, before the
+duplicate lookup, before spacing, before any container: a queued row is reported as staying
+queued and the run exits 0. **`--dry-run` is the rehearsal**, and it is the flag-independent
+one. This paragraph used to promise *"the whole job except the two calls to Meta"*, which is
+what `broadcast.py` does and not what this does; an operator who believed it would set the flag
+off expecting a report of what would have gone out.
 """
 
 from __future__ import annotations
