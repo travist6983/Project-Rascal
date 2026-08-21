@@ -24,13 +24,47 @@ that only exists on a laptop is a console that cannot tell you what production i
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
+from starlette.types import Scope
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "admin" / "static"
+
+
+class RevalidatedStatic(StaticFiles):
+    """`StaticFiles` that makes the browser ask before reusing a file.
+
+    The console's HTML is `no-store` and its JavaScript was not, which is the wrong way round:
+    `index.html` holds no behaviour and `admin.js` and `cards.js` hold all of it. Starlette
+    sends `etag` and `last-modified` on a static file and no `Cache-Control` at all, and a
+    browser handed validators with no freshness directive invents one — Chrome's heuristic is a
+    fraction of the file's age. So a console open across an edit keeps executing the previous
+    script and never asks about it. **That is precisely the failure the `no-store` on the HTML
+    was written to prevent, applied to the one file that could not suffer it.**
+
+    `no-cache` rather than `no-store`: the validators are already correct, so the browser still
+    asks and still gets a 304 with no body back. One reader, one long-lived tab — being right
+    about which script is running is worth a conditional request.
+    """
+
+    def file_response(
+        self,
+        full_path: str | os.PathLike[str],
+        stat_result: os.stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        # Set before the caller can turn this into a 304: Starlette's `NotModifiedResponse`
+        # carries `cache-control` through, so the directive survives the revalidation it causes.
+        response.headers["cache-control"] = "no-cache"
+        return response
+
 
 router = APIRouter(tags=["admin"])
 
@@ -46,7 +80,9 @@ async def console() -> FileResponse:
 
     Deliberately uncached: this is one page for one reader, and a stale console after a deploy
     is a worse trade than a fetch. `no-store` rather than a validator, because the thing being
-    avoided is a browser holding a *previous deployment's* JavaScript against a changed API.
+    avoided is a browser holding a *previous deployment's* JavaScript against a changed API —
+    which this header alone never achieved, since the JavaScript is not in this file.
+    `RevalidatedStatic` is the other half.
     """
     return FileResponse(
         STATIC_DIR / "index.html",
@@ -63,6 +99,6 @@ def mount(app: object) -> None:
     """
     app.mount(  # type: ignore[attr-defined]
         "/admin/static",
-        StaticFiles(directory=STATIC_DIR),
+        RevalidatedStatic(directory=STATIC_DIR),
         name="admin-static",
     )

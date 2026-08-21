@@ -412,6 +412,23 @@ async def test_the_console_is_served_and_holds_no_credential(client: AsyncClient
 
 
 async def test_the_console_assets_are_served(client: AsyncClient) -> None:
-    for path in ("/admin/static/admin.css", "/admin/static/admin.js"):
+    for path in ("/admin/static/admin.css", "/admin/static/admin.js", "/admin/static/cards.js"):
         response = await client.get(path)
         assert response.status_code == 200, path
+
+
+async def test_the_console_never_runs_a_previous_deploys_javascript(client: AsyncClient) -> None:
+    """The page is `no-store` and the scripts it loads must be at least `no-cache`.
+
+    Starlette's `StaticFiles` sends `etag` and `last-modified` and no `Cache-Control`, and a
+    browser given validators and no freshness directive invents its own. So an uncached
+    `index.html` guarantees nothing: it is the one console file that contains no behaviour, and
+    the two that do would keep being served out of the browser's cache across a deploy.
+    """
+    page = await client.get("/admin")
+    assert page.headers["cache-control"] == "no-store"
+    for path in ("/admin/static/admin.css", "/admin/static/admin.js", "/admin/static/cards.js"):
+        response = await client.get(path)
+        assert response.headers["cache-control"] == "no-cache", path
+        # The validator has to survive, or "no-cache" costs a full body on every request.
+        assert response.headers.get("etag"), path

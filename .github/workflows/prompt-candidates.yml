@@ -3,7 +3,17 @@ name: Prompt candidates
 # The review queue, as a pull request. `docs/mission-library.md` calls for batch-generating
 # candidates server-side with a real model into "a review queue you approve"; this is that,
 # built out of the thing that is already an accept/reject interface with a comment thread,
-# an audit trail, and an undo. No table, no admin UI, no endpoint.
+# an audit trail, and an undo.
+#
+# This used to end "No table, no admin UI, no endpoint." As of phase 103 (Aug 20, 2026) there
+# is an admin UI and there are two endpoints, and that sentence is exactly what someone would
+# quote while deleting them — so it is gone rather than left to be read literally.
+#
+# **Both paths exist on purpose and this one is unchanged.** This is the batch path: a theme
+# sweep, many candidates, reviewed in a diff, writing markdown worksheets and touching no
+# database. The console is the interactive path: one brief, up to twenty-five, picked on the
+# spot, written into `prompts` as `source='llm'`, `active=false`. They run the *same* filters
+# out of `rascal/services/candidates.py`, so a rule changed in one place changes both.
 #
 # Manual by default. The monthly schedule is commented out rather than deleted so turning it
 # on is one line — but a library that grows on a cron without anyone asking is how you end up

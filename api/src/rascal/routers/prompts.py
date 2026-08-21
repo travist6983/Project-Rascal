@@ -1,10 +1,20 @@
-"""The mission library.
+"""The mission library, and the queue candidates wait in.
 
-`POST /prompts/batch-review` is not absent pending a decision — it is cut. The review queue
-it would have approved candidates from is a pull request: `scripts/generate_prompts.py`
-writes batches into `docs/prompt-candidates/` and the Prompt candidates workflow opens the
-PR. A branch with a diff is already an accept/reject interface with a comment thread, an
-audit trail, and an undo. See docs/decisions-log.md.
+**On the review queue, corrected Aug 20, 2026 (phase 103).** This file used to say the review
+queue was a pull request and that an endpoint for it was cut rather than pending. Half of that
+still holds and is unchanged: `scripts/generate_prompts.py` writes batches into
+`docs/prompt-candidates/`, the Prompt candidates workflow opens the PR, and a branch with a
+diff is an accept/reject interface with a comment thread, an audit trail and an undo. That is
+still the right shape for a theme sweep somebody reads a hundred rows of.
+
+What was wrong was the conclusion drawn from it — that a purpose-built screen was therefore
+not worth building. The owner reversed that on Aug 20, 2026: `POST /prompts/generate` writes
+a batch with a model and `POST /prompts/candidates` puts the kept ones in the queue, which is
+the queue `scripts/review_candidates.py` has read and found empty since it was written.
+
+**There is still no `POST /prompts/batch-review`**, and still no plan for one. Approving a
+candidate is `PUT /prompts/{id}/active` — one prompt, read by a person, one button — because
+a bulk-approve is the one action here whose mistake is invisible until a parent reads it.
 """
 
 from __future__ import annotations
@@ -12,20 +22,31 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
 from rascal.constants import Cadence, PromptKind, PromptSource
-from rascal.deps import AdminUser, CurrentUser, LocalWrites, SessionDep
+from rascal.deps import (
+    AdminReadSession,
+    AdminUser,
+    CurrentUser,
+    LocalWrites,
+    SessionDep,
+    SettingsDep,
+)
 from rascal.errors import ErrorCode, RascalError
 from rascal.models import Prompt
 from rascal.schemas.admin import (
     PromptActiveIn,
+    PromptCandidatesIn,
+    PromptCandidatesOut,
     PromptEditOut,
+    PromptGenerateIn,
     PromptPreviewIn,
     PromptPreviewOut,
     PromptUpdate,
 )
 from rascal.schemas.prompt import PromptCreate, PromptOut, PromptPage
+from rascal.services import prompt_generation
 from rascal.services.library import (
     clear_override,
     edit_prompt,
@@ -59,6 +80,15 @@ async def list_prompts(
     offset: int = Query(default=0, ge=0),
 ) -> PromptPage:
     clauses = []
+    if not user.is_admin:
+        # **The review queue is not library content, and this is the only route that could
+        # hand it to a parent.** A candidate is `source='llm'` with `active=false`: model-
+        # written copy that no person has read yet. `active` is filtered here only when the
+        # caller asks for it, so before this clause `GET /prompts?source=llm&active=false`
+        # returned unreviewed output to any signed-in account — which made the sentence in
+        # `docs/api-contract.md`, "nothing serves it", true of the scheduler and false of the
+        # API. The scheduler was never the only way out.
+        clauses.append(~and_(Prompt.source == "llm", Prompt.active.is_(False)))
     if kind:
         clauses.append(Prompt.kind == kind)
     if cadence:
@@ -218,3 +248,76 @@ async def delete_prompt_override(
     prompt_id: uuid.UUID, session: SessionDep, user: AdminUser, _: LocalWrites
 ) -> PromptOut:
     return PromptOut.model_validate(await clear_override(session, prompt_id))
+
+
+@router.post(
+    "/generate",
+    summary="Write candidates with a model",
+    description=(
+        "Asks Claude for 1, 5, 10 or 25 candidates and runs every one through the mission "
+        "library's own rejection filters. **Persists nothing** — the batch comes back for a "
+        "person to pick from, and `POST /prompts/candidates` is what writes.\n\n"
+        "`theme` is optional, and omitting it is a real mode rather than a default: with no "
+        "theme the age band is the whole brief and the model chooses a theme per candidate.\n\n"
+        "Rejected candidates are returned with their reasons rather than dropped. A batch "
+        "where half the rows trip one filter is telling you the brief needs work, and that "
+        "signal is invisible if the failures are thrown away — and the filters are a spam "
+        "trap rather than an editor, so the console lets a human keep one anyway."
+    ),
+)
+async def generate_candidates(
+    payload: PromptGenerateIn,
+    session: AdminReadSession,
+    user: AdminUser,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    result = await prompt_generation.generate(
+        session,
+        settings,
+        theme=payload.theme,
+        kind=payload.kind,
+        count=payload.count,
+        min_age_months=payload.min_age_months,
+        max_age_months=payload.max_age_months,
+        month_tags=payload.month_tags,
+        default_unlock_age=payload.default_unlock_age,
+        guidance=payload.guidance,
+    )
+    return result.as_dict()
+
+
+@router.post(
+    "/candidates",
+    response_model=PromptCandidatesOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Put picked candidates in the review queue",
+    description=(
+        "Writes each candidate as a prompt with `source='llm'` and **`active=false`**. "
+        "Nothing serves it: the scheduler filters on `active`, so a queued candidate is "
+        "invisible to every child until somebody reads it and calls "
+        "`PUT /prompts/{id}/active`.\n\n"
+        "`seed_prompts` leaves these rows alone — its retirement sweep is filtered to "
+        "`source='seeded'`. The one way a re-seed can reach one is the promotion path: put "
+        "the same body in `docs/mission-library.md` and its `content_hash` matches, which is "
+        "a deliberate act of authoring rather than an accident.\n\n"
+        "A duplicate body is **skipped, not an error** — one repeat must not cost the other "
+        "twenty-four — and the skip names the row it collided with."
+    ),
+)
+async def queue_candidates(
+    payload: PromptCandidatesIn,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
+) -> PromptCandidatesOut:
+    result = await prompt_generation.commit(
+        session, [candidate.model_dump() for candidate in payload.candidates]
+    )
+    # No refresh loop. `commit` has already flushed, which populates the server-side defaults
+    # these rows need; one `session.refresh` per row would be up to twenty-five more sequential
+    # round trips inside the open write transaction, on top of the pre-checks.
+    return PromptCandidatesOut(
+        inserted=[PromptOut.model_validate(prompt) for prompt in result.inserted],
+        skipped=result.skipped,
+        queued_total=result.queued_total,
+    )
