@@ -443,6 +443,10 @@ async def test_error_codes_are_the_documented_ones() -> None:
         "rate_limited",
         "sign_in_link_invalid",
         "conflict",
+        # Phase 104. Documented in the contract's table as 502 — this service worked and the
+        # platform it called did not, which is a different sentence from "something went
+        # wrong here" and the console shows Instagram's own words next to the button.
+        "publish_failed",
         "internal_error",
     }
 

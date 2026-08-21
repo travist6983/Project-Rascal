@@ -32,6 +32,23 @@ The trade is real and worth naming: reviewing on a phone means reviewing in the 
 which is worse than a purpose-built screen would be. It is not worse enough to justify
 building the screen.
 
+**Amended Aug 20, 2026 (phase 103): the owner decided it was, and both now exist.** What is
+above stays true of *this* folder and is not struck — the PR flow is unchanged, the workflow
+still writes worksheets here, and `POST /prompts/batch-review` is still gone from the contract
+rather than deferred in it. What changed is the last sentence of the paragraph before it: a
+purpose-built screen got built, in the console's Library tab.
+
+The two are different jobs rather than two attempts at one. **This folder is the batch path** —
+a theme sweep, dozens of candidates, read in a diff on a laptop, nothing touching the database
+until somebody edits `mission-library.md` and re-seeds. **The console is the interactive path** —
+one brief, up to twenty-five, judged and picked in the same minute, written straight into
+`prompts` as `source='llm'`, `active=false` for `scripts/review_candidates.py` to read.
+
+They share their filters (`rascal/services/candidates.py`) and share nothing else. A candidate
+queued from the console never appears in this folder, and a worksheet row here never becomes a
+row until it is authored into the markdown — which remains the only way anything reaches the
+*seeded* library.
+
 ## The four Aug 4 batches were tokenised on Aug 18, before anybody read them
 
 **Read this before reviewing them.** They were generated on Aug 4 and the library was tokenised on

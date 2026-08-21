@@ -80,8 +80,19 @@ pytest-asyncio + httpx · ruff · Fly.io.
 ## Out of scope for the API lane — stop if you find yourself designing one
 
 Swift or iOS code (that is the other lane, not this one), thumbnail or transcode pipelines,
-LLM prompt generation, the admin prompt review queue, multi-kid UI concerns, observability
-beyond structured logging.
+multi-kid UI concerns, observability beyond structured logging.
+
+~~*LLM prompt generation, the admin prompt review queue*~~ — **both removed Aug 20, 2026 by
+phase 103, on the owner's explicit call, and this list was already wrong about them before that.**
+`scripts/generate_prompts.py` has generated candidates with a real model since phase 46 and has a
+scheduled workflow; `scripts/review_candidates.py` is the review queue and shipped reading a
+`source='llm'`, `active=false` queue that nothing could fill. Phase 103 fills it: `POST
+/v1/prompts/generate` and `POST /v1/prompts/candidates`, the console's Library tab, and
+`services/candidates.py` — which is the *same* rule set the script uses, moved into `src/` because
+`Dockerfile` copies neither `scripts/` nor `docs/`. **What is still out of scope is the thing this
+line was protecting**: nothing generates a prompt at request time for a child, nothing activates a
+candidate, and no bulk-approve endpoint exists — a candidate is `active=false` until a person reads
+it and presses a button. See `decisions.md` and `decisions-log.md` for the reversal.
 
 ~~*push notifications, full-text search*~~ — **both removed from this list Aug 18, 2026, because
 both are built and served in `api/`.** Push: `services/notifications.py`, `jobs/notify.py`, the
@@ -90,7 +101,10 @@ locked phone. Full-text search: migration `0004_full_text_search`, the generated
 columns on `entries` and `media`, two GIN indexes, and `GET /entries?q=` which the contract
 documents as *"full-text search over title, body, caption, and transcript"*. **An out-of-scope
 list that names shipped subsystems is worse than no list**: it reads as permission to remove
-working code, and it is the sentence an agent quotes when it deletes something.
+working code, and it is the sentence an agent quotes when it deletes something. **Three entries
+have now been struck for that reason and two of them named code that already existed when the line
+was written** — so the failure is not that this list goes stale, it is that it gets written from
+intent rather than from the tree. Check `api/` before adding a line here.
 
 **Rate limiting is out of scope for routes that only touch the caller's own data, and
 required for any route that can reach somebody else.** A signed-in parent hammering their own

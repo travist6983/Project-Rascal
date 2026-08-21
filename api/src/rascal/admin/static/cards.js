@@ -95,16 +95,6 @@ function drawLines(ctx, lines, x, y, size, lineHeight) {
   return cursor;
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
 /** The wordmark, as geometry rather than type — the same path the app draws. */
 function wordmark(ctx, x, y, height, color) {
   const path = new Path2D(
@@ -139,12 +129,10 @@ export function drawCard(ctx, spec, width, height, progress = 1) {
   ctx.fillStyle = p.bg;
   ctx.fillRect(0, 0, width, height);
 
-  // A hairline frame, inset. The app's cards carry a 1px border on cream and this is the same
-  // gesture at poster scale — it is what stops a flat colour field reading as a placeholder.
-  ctx.strokeStyle = p.rule;
-  ctx.lineWidth = Math.max(1, 2 * scale);
-  roundRect(ctx, margin * 0.55, margin * 0.55, width - margin * 1.1, height - margin * 1.1, 28 * scale);
-  ctx.stroke();
+  // Every `cursor` below is the top of a block, so the whole function measures in one
+  // direction. Set once, not per-branch: an eyebrow-less card left on the default alphabetic
+  // baseline drew its headline a full ascender above where the layout put it.
+  ctx.textBaseline = "top";
 
   const eased = progress >= 1 ? 1 : 1 - Math.pow(1 - progress, 3);
   ctx.globalAlpha = Math.min(1, eased * 1.15);
@@ -158,7 +146,6 @@ export function drawCard(ctx, spec, width, height, progress = 1) {
   if (spec.eyebrow) {
     ctx.font = font(LABEL, 26 * scale);
     ctx.fillStyle = p.accent;
-    ctx.textBaseline = "top";
     const tracked = String(spec.eyebrow).toUpperCase();
     // Letter-spacing by hand: canvas has `letterSpacing` only in newer Chrome, and the
     // design system's +0.6 tracking on a label is not optional decoration — it is what keeps
@@ -282,6 +269,32 @@ export function renderToCanvas(spec, platform) {
 export async function toPngBlob(spec, platform) {
   const canvas = renderToCanvas(spec, platform);
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+/**
+ * The same card as a JPEG, which is the only thing Instagram will publish.
+ *
+ * **Not a preference and not a size optimisation.** Meta's content-publishing documentation
+ * says JPEG is the only supported image format, and a PNG does not fail in a way anybody could
+ * act on — the container comes back in `ERROR` state rather than with a message naming the
+ * format. So the download button keeps handing you a PNG, which is the better file to keep, and
+ * anything on its way to a feed goes through here.
+ *
+ * Quality 0.92 rather than 1.0: above about 0.95 a JPEG of flat colour and type gains file size
+ * without gaining anything a person can see, and the card is flat colour and type.
+ *
+ * The canvas is opaque — `drawCard` fills the background before it draws anything — so there is
+ * no alpha to lose. A transparent canvas encoded as JPEG comes out with a black background, and
+ * that is the bug this comment exists to stop somebody reintroducing by "simplifying" the fill.
+ */
+export async function toJpegBlob(spec, platform, quality = 0.92) {
+  const canvas = renderToCanvas(spec, platform);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+  // `toBlob` hands back null rather than throwing when it cannot encode. Left alone that
+  // becomes an empty POST body and a server error reading "that is not a JPEG", which sends
+  // the next person to the wrong file entirely.
+  if (!blob) throw new Error("the browser could not encode the card as a JPEG");
+  return blob;
 }
 
 /**

@@ -51,6 +51,13 @@ class ErrorCode(StrEnum):
     # because a client shows it as "this link is no longer good, here is how to get another"
     # rather than as a failed sign-in.
     SIGN_IN_LINK_INVALID = "sign_in_link_invalid"
+    # The console asked to publish and the platform refused, or the service is not configured
+    # to reach it. Distinct from `internal_error` because the cause is almost always outside
+    # this service — an expired token, an image Meta could not fetch, a limit on their side —
+    # and the console shows the platform's own words next to the button rather than "something
+    # went wrong". Never carries a raw provider payload; `services/social/instagram.py`
+    # reduces it to one sentence first.
+    PUBLISH_FAILED = "publish_failed"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -72,6 +79,8 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.SUBSCRIPTION_REQUIRED: 402,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.SIGN_IN_LINK_INVALID: 401,
+    # 502 rather than 500: this service worked and the thing it called did not.
+    ErrorCode.PUBLISH_FAILED: 502,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 
