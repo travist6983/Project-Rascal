@@ -1152,6 +1152,24 @@ in an archive and asserts none of them appears in any admin response.
 | `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
 | `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
 
+`costs.providers` is **seven cards, and only two of them carry a figure the vendor computed.**
+Anthropic (`/v1/organizations/cost_report`) and GitHub (`/users/{account}/settings/billing/usage`)
+return real money. Tigris and Apple carry an `amount_cents` **only** when a price setting names
+one — `STORAGE_PRICE_CENTS_PER_GB_MONTH` and `APPLE_MEMBERSHIP_CENTS_PER_YEAR` — and both cards
+put the variable's name in `detail`, because an estimate that does not say where it came from is
+indistinguishable from a measurement. Fly, Neon and Resend carry no figure at all, and
+`providers_without_pricing` names them so the total on screen can say what it excludes.
+
+A provider that is not configured is `status: "unconfigured"` with a `setup` sentence naming the
+environment variable — **a first-class state, not an error**, so an unconnected vendor is a
+to-do rather than a 500 or a blank that reads as zero spent.
+
+`providers[].series` is a daily chart and **is not always money.** Each point is
+`{day, cents, value}` and the report's `series_unit` says which field to read: `"cents"` for
+Anthropic and GitHub, or the vendor's own unit — `"CU-hours"` for Neon, which publishes no
+dollars anywhere in its API. `series_label` names the axis. A client that assumes `cents` will
+chart `null` for Neon.
+
 `growth.days` is **gap-filled** — every day in the range is present with zeros. A missing day and a
 zero day are different facts and only the server knows which is which.
 
@@ -1173,12 +1191,8 @@ production and saving to localhost is worse than either alone — and an unreach
 answers with a sentence naming the setting rather than a driver error carrying the host, the
 resolved IPs and the failing username.
 
-`costs` fans out to five vendors concurrently, cached in-process for `BILLING_CACHE_SECONDS`. Only
-Anthropic publishes a cost API, so it is the only provider with `amount_cents`; Fly, Neon, Tigris
-and Resend report the consumption their bills are computed from and `providers_without_pricing`
-names them. **An unconfigured provider is a `status: "unconfigured"` card carrying the environment
-variable to set and where the key comes from** — never an error, and never a blank that reads as
-zero spend.
+`costs` fans out to **seven** vendors concurrently, cached in-process for `BILLING_CACHE_SECONDS`.
+The paragraphs above describe which of them carry a figure and which cannot.
 
 ---
 
@@ -1213,6 +1227,14 @@ its reason into the body as text instead.
 a post.** The body is read server-side from that id and never accepted as text, and using one
 consumes a unit of the cap in `GET /social/studio` — see `docs/data-model.md`'s
 `social_assets`, and D7 for why there is a cap at all.
+
+**`template` and `palette` are closed sets, not free strings.** They accept only the values in
+`services/social/brand.py` — `quote`/`prompt`/`stat`/`announcement` and
+`cream`/`terracotta`/`periwinkle`/`sage`/`ink` — and anything else, including `""`, is a 422.
+The renderer lives in the browser and can only draw these; before phase 101 the field was a
+free string and `models/social.py` described a validation that nothing performed, so the
+console's own dropdown could save an empty palette that no card could be drawn from. `GET /social/studio` returns both
+lists, so a client never has to hard-code them.
 
 **Alt text is required to move an asset to `exported` or `published`**, and the check is at
 that moment rather than at creation: a rule enforced while somebody is still typing is a rule

@@ -294,8 +294,9 @@
             <p id="hero-spend-sub" class="hero-sub"></p>
           </div>
           <div class="hero-chart">
-            <p class="label">Anthropic, daily</p>
+            <p class="label" id="chart-spend-label">Anthropic, daily</p>
             <div id="chart-spend" class="chart"></div>
+            <div id="chart-picker" class="chart-picker" role="group" aria-label="Which provider to chart"></div>
           </div>
         </div>
         <div id="providers" class="cards"></div>
@@ -440,6 +441,20 @@
               <input id="m-tags" placeholder="vellum, parenting" />
             </label>
             <p id="m-error" class="form-error" role="alert" hidden></p>
+            <section id="m-treatment" class="treatment" hidden>
+              <p class="label">Shot list</p>
+              <p class="card-note">
+                Written by Claude and stored with the post. Nothing here renders footage — this
+                is the treatment you hand to whoever does.
+              </p>
+              <ol id="m-shots" class="shots"></ol>
+              <div class="treatment-track">
+                <p class="label">Captions · WebVTT</p>
+                <button type="button" id="m-copy-vtt" class="btn btn-quiet">Copy</button>
+              </div>
+              <pre id="m-vtt" class="vtt"></pre>
+            </section>
+
             <div class="drawer-actions">
               <button type="submit" class="btn btn-primary">Save</button>
               <button type="button" id="m-png" class="btn">Download PNG</button>

@@ -56,7 +56,7 @@ async def studio_state(
             "configured": bool(settings.anthropic_api_key),
             "model": settings.anthropic_model,
             "setup": "Set ANTHROPIC_API_KEY to an ordinary sk-ant-api… key from "
-            "console.anthropic.com → API keys. This is not the sk-ant-admin… key the cost "
+            "platform.claude.com → API keys. This is not the sk-ant-admin… key the cost "
             "panel uses: they are different kinds of key and neither works in the other's "
             "place.",
             "cannot": "Claude writes copy, picks the layout and writes the image brief. It "

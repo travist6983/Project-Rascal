@@ -121,7 +121,7 @@ def _require_key(settings: Settings) -> str:
         raise RascalError(
             ErrorCode.VALIDATION_FAILED,
             "ANTHROPIC_API_KEY is not set, so the studio has nobody to ask. It is an ordinary "
-            "sk-ant-api… key from console.anthropic.com → API keys — not the admin key the "
+            "sk-ant-api… key from platform.claude.com → API keys — not the admin key the "
             "cost panel wants, which is a different kind of key.",
             field="anthropic_api_key",
         )

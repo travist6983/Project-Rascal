@@ -83,10 +83,13 @@ cat >> .env <<'EOF'
 # --- Admin console ---
 ANTHROPIC_API_KEY=sk-ant-api...
 ANTHROPIC_ADMIN_KEY=sk-ant-admin...
+GITHUB_BILLING_TOKEN=github_pat_...
+GITHUB_ACCOUNT=travist6983
 FLY_API_TOKEN=FlyV1 ...
 FLY_APP_NAME=rascal-api
 NEON_API_KEY=napi_...
 NEON_PROJECT_ID=...
+NEON_ORG_ID=org-...
 RESEND_AUDIENCE_ID=...
 EOF
 ```
@@ -99,12 +102,14 @@ Restart `make dev` afterwards — settings are read once at startup.
 flyctl secrets set -a rascal-api \
   ANTHROPIC_API_KEY='sk-ant-api...' \
   ANTHROPIC_ADMIN_KEY='sk-ant-admin...' \
+  GITHUB_BILLING_TOKEN='github_pat_...' \
   FLY_API_TOKEN='FlyV1 ...' \
   NEON_API_KEY='napi_...' \
-  NEON_PROJECT_ID='...'
+  NEON_PROJECT_ID='...' \
+  NEON_ORG_ID='org-...'
 ```
 
-Setting a secret restarts the machines — one deploy, not five, so set them in a single command.
+Setting a secret restarts the machines — one deploy, not seven, so set them in a single command.
 `FLY_APP_NAME` already defaults to `rascal-api` and `RESEND_AUDIENCE_ID` is already set there.
 
 > **Never set `ADMIN_READ_DATABASE_URL` on Fly.** It exists so a laptop can read production; in
@@ -115,11 +120,14 @@ Setting a secret restarts the machines — one deploy, not five, so set them in 
 
 | Variable | Where | Unlocks |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | console.anthropic.com → API keys | Studio: chat, concepts, shot lists |
-| `ANTHROPIC_ADMIN_KEY` | console.anthropic.com → Settings → **Admin keys** | Costs: the only real dollar figure |
-| `FLY_API_TOKEN` | `fly tokens create readonly` | Costs: machines, and stale-image detection |
+| `ANTHROPIC_API_KEY` | platform.claude.com → API keys | Studio: chat, concepts, shot lists |
+| `ANTHROPIC_ADMIN_KEY` | platform.claude.com → Settings → **Admin keys** | Costs: dollars, tokens, cache hit rate |
+| `GITHUB_BILLING_TOKEN` | github.com → Settings → Developer settings → Fine-grained tokens → **Account permissions → Plan → Read-only** | Costs: Actions spend, the second real dollar figure |
+| `GITHUB_ACCOUNT` | the username that owns the bill — defaults to `travist6983` | Costs: whose bill |
+| `FLY_API_TOKEN` | `fly tokens create readonly` | Costs: machines, guests, volumes, stale-image detection |
 | `NEON_API_KEY` | console.neon.tech → Account settings → API keys | Costs: storage and compute |
 | `NEON_PROJECT_ID` | console.neon.tech → project → Settings | Costs: which project |
+| `NEON_ORG_ID` | console.neon.tech → in the URL | Costs: the daily compute chart, and nothing else |
 | `RESEND_AUDIENCE_ID` | resend.com → Audiences | Costs: subscribers. Also unblocks `POST /v1/subscribe` |
 
 ### The two Anthropic keys cannot be the same value
@@ -139,6 +147,33 @@ cost report. They are two keys, not one key used twice.
 The `org:admin` OAuth token is the documented alternative to an Admin key, but it is short-lived
 and refreshed interactively, so it is not a value to put in a Fly secret.
 
+### The GitHub billing token is not the token CI uses
+
+Two separate mistakes lead to the same dead end here, and both produce a **404**.
+
+`GITHUB_BILLING_TOKEN` must be a **fine-grained** personal access token whose Account
+permission **Plan** is set to **Read-only**. The repo-scoped classic token that CI holds reads
+repositories; this endpoint reads the *account's plan*, which is a different thing entirely and
+which no amount of `repo` scope grants.
+
+> **A token without `Plan: read` gets 404, not 403.** That is the whole trap. A bare "not
+> found" reads as a mistyped username, and the obvious next move — checking and re-checking
+> `GITHUB_ACCOUNT` — is the wrong one. The card says so on its face for this reason.
+
+**The endpoints that most search results describe no longer exist.**
+`/users/{u}/settings/billing/actions`, `/shared-storage` and `/packages` were removed rather
+than deprecated, along with every field they returned (`total_minutes_used`,
+`included_minutes`, `minutes_used_breakdown`). The current path is
+`/users/{u}/settings/billing/usage`, and it requires the account to be on the enhanced billing
+platform — which is what a **403** here means, as opposed to the 404 above.
+
+**The card shows no minutes-remaining gauge, on purpose.** The billing API exposes no budget,
+no quota and no remaining balance. A $0 budget with "stop usage" enabled rejects every run
+before its first step — which is what halted this repository twice, per `blocked.md` §0 and
+§0a — and nothing in this response would have moved beforehand. A gauge reading *"0 of 2,000
+minutes used"* would have shown green through both. Check
+[the budgets page](https://github.com/settings/billing/budgets), which the card links to.
+
 ### Optional
 
 ```bash
@@ -147,10 +182,17 @@ REPLICATE_API_TOKEN=r8_...               # Studio: images and video
 REPLICATE_IMAGE_MODEL=<version-string>   # Replicate pins by version, not by name
 REPLICATE_VIDEO_MODEL=<version-string>
 STORAGE_PRICE_CENTS_PER_GB_MONTH=2       # Costs: a storage estimate, labelled as yours
+APPLE_MEMBERSHIP_CENTS_PER_YEAR=9900     # Costs: the membership, amortised over twelve months
 SOCIAL_FEATURED_PROMPT_CAP=24            # How many library prompts may go public. See D7
 ```
 
 Brand cards need none of these — they are drawn in the browser.
+
+**The two price settings are the only figures on the costs screen that a vendor did not send.**
+Anthropic and GitHub report money themselves. Tigris and Apple publish no billing API at all,
+so their cards carry a number only because one was typed here — and each says so on its face,
+naming the variable it came from. Unset is the honest default and produces a card with no
+dollar figure rather than one reading `$0.00`.
 
 ---
 

@@ -8,8 +8,21 @@ stays short. If a line stops being true, delete it — a queue that carries fini
 exact failure `roadmap-status.md` has now made six revisions running.
 
 ~~*Synced with `roadmap-status.md` at **Aug 18, 2026 (the docs audit)**. The highest number used is
-78, so a genuinely new phase takes 79*~~ — **struck Aug 19, 2026. The highest number used is 97 —
-96 is the admin console and 97 the social studio; a genuinely new phase takes 98.**
+78, so a genuinely new phase takes 79*~~ — ~~**struck Aug 19, 2026. The highest number used is 97 —
+96 is the admin console and 97 the social studio; a genuinely new phase takes 98.**~~ — **struck
+again Aug 20, 2026. The highest number used is 101**; 98 is the console's second database, 99 the
+console sign-in, 100 the extended cost panel and 101 the fixes found by driving it. **A genuinely
+new phase takes 102.**
+
+**Seventh instance, and it is a *fifth* blind spot rather than the fourth firing again.** The
+fourth is a number spent by a commit whose subject names no phase; this is the opposite. 98 and 99
+were spent by commits whose subjects *do* say `Phase 98:` and `Phase 99:`, and all four prescribed
+commands would have found them — but neither reached `roadmap-status.md`, the file `CLAUDE.md`
+sends you to as the authority. So the ledger sat at 95 while four phases had merged, and a session
+obeying `CLAUDE.md` literally would have taken 96 and collided with the admin console. **The commit log and the ledger disagreed, and
+the ledger is the one people are told to read.** Phase 100 filled 96 through 99 in the same pass
+that added its own row, which is the only remedy that has ever worked: *write the row when you
+take the number, not when you ship.*
 
 **Sixth instance, and this one broke the remedy rather than the count.** Phase 96 ran all three
 commands below, got 95, and 95 was already spent — by the *content* of `docs/decisions-log.md`,

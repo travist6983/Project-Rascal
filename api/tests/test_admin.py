@@ -18,9 +18,11 @@ S3 is `moto`. Nothing here talks to AWS, Anthropic, Fly, Neon or Resend.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import uuid
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from httpx import AsyncClient
 from moto import mock_aws
@@ -44,11 +46,12 @@ ADMIN_GETS = ["/v1/admin/snapshot", "/v1/admin/library", "/v1/admin/ops", "/v1/a
 
 @pytest.fixture(autouse=True)
 def _offline() -> Iterator[None]:
-    """No provider is configured in the suite, so four of five cards never open a socket.
+    """No provider is configured in the suite, so five of seven cards never open a socket.
 
-    The fifth is Tigris, which uses the S3 client media already has — `moto` intercepts it.
-    The cache is cleared on both sides so one test's provider answers cannot satisfy another's
-    assertions.
+    The other two open none either, for different reasons: Tigris uses the S3 client media
+    already has, which `moto` intercepts, and Apple takes no client at all because Apple
+    publishes no billing API to call. The cache is cleared on both sides so one test's
+    provider answers cannot satisfy another's assertions.
     """
     billing.clear_cache()
     s3.get_s3_client.cache_clear()
@@ -301,9 +304,9 @@ async def test_unconfigured_providers_are_a_state_not_an_error(
     assert response.status_code == 200, response.text
     payload = response.json()
     by_key = {provider["key"]: provider for provider in payload["providers"]}
-    assert set(by_key) == {"anthropic", "fly", "neon", "tigris", "resend"}
+    assert set(by_key) == {"anthropic", "github", "fly", "neon", "tigris", "resend", "apple"}
 
-    for key in ("anthropic", "fly", "neon"):
+    for key in ("anthropic", "github", "fly", "neon"):
         assert by_key[key]["status"] == "unconfigured"
         # A card that says "not connected" without naming the variable is a dead end.
         assert by_key[key]["setup"], f"{key} does not say how to connect it"
@@ -340,6 +343,57 @@ async def test_a_configured_price_produces_a_labelled_estimate(
     tigris = next(p for p in payload["providers"] if p["key"] == "tigris")
     assert tigris["amount_cents"] is not None
     assert "STORAGE_PRICE_CENTS_PER_GB_MONTH" in tigris["detail"]
+
+
+async def test_every_ok_card_without_a_figure_says_why(client: AsyncClient, admin, bucket) -> None:
+    """Rule 2, as an executable assertion rather than a paragraph in a docstring.
+
+    A card that is working and carries no dollar figure has to explain the absence. Five of the
+    seven providers are in that position permanently, and a blank where a number should be
+    reads as zero spent rather than as nothing knowable.
+    """
+    payload = (await client.get("/v1/admin/costs", headers=auth_headers(admin))).json()
+    for provider in payload["providers"]:
+        if provider["status"] == "ok" and provider["amount_cents"] is None:
+            assert provider["detail"], f"{provider['key']} shows no figure and does not say why"
+
+
+async def test_no_provider_leaks_its_credential_into_the_response(bucket) -> None:
+    """Provider errors are the one place a key can reach the browser.
+
+    An httpx `RequestError` stringifies to the URL it was fetching, and several of these APIs
+    take their credential in a header built next to that URL — so a transport failure is the
+    realistic path by which a secret ends up in a response body. `_safe_message` exists for
+    exactly this and had no test.
+
+    Driven through an injected transport rather than the route: every provider is configured
+    here, and without one this would make real outbound calls to five vendors.
+    """
+    sentinels = {
+        "anthropic_admin_key": "sk-ant-admin-SENTINEL-A",
+        "github_billing_token": "github_pat_SENTINEL_B",
+        "fly_api_token": "fo1_SENTINEL_C",
+        "neon_api_key": "napi_SENTINEL_D",
+        "neon_org_id": "org-SENTINEL-E",
+        "mail_api_key": "re_SENTINEL_F",
+    }
+    configured = get_settings().model_copy(update=sentinels)
+
+    def explode(request: httpx.Request) -> httpx.Response:
+        # The worst realistic case: the failure message carries the whole request, credential
+        # header and all, which is how a secret gets into a log and then into a response.
+        raise httpx.ConnectError(
+            f"failed connecting to {request.url} with {dict(request.headers)}", request=request
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(explode)) as client:
+        reports = await billing.collect(configured, client=client)
+
+    body = json.dumps([report.as_dict() for report in reports])
+    for name, value in sentinels.items():
+        assert value not in body, f"{name} reached the response body"
+    # And the failures really did happen — otherwise this asserts nothing at all.
+    assert any(report.status == "error" for report in reports)
 
 
 # --- The page itself ------------------------------------------------------------------------------

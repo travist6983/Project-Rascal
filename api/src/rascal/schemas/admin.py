@@ -97,8 +97,9 @@ class AdminOps(ApiModel):
 class AdminCosts(ApiModel):
     providers: list[dict[str, Any]]
     total_known_cents: int = Field(
-        description="Summed across providers that publish a figure. Deliberately not a "
-        "guess at the rest: Fly, Neon and Tigris expose no spend API, so a grand total "
-        "here would be a number nobody can reconcile against an invoice."
+        description="Summed across providers that publish a figure — either from the vendor "
+        "(Anthropic, GitHub) or from a price named in the environment (Tigris, Apple). "
+        "Deliberately not a guess at the rest: Fly, Neon and Resend expose no spend API, so "
+        "a grand total here would be a number nobody can reconcile against an invoice."
     )
     providers_without_pricing: list[str]
