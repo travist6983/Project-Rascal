@@ -433,7 +433,7 @@ def test_social_renders_land_under_their_own_prefix() -> None:
     source = (
         Path(__file__).resolve().parents[1] / "src/rascal/services/social/renderers.py"
     ).read_text()
-    body = source.split("def _store")[1].split("\ndef ")[0]
+    body = source.split("def store(")[1].split("\ndef ")[0]
     # The key expression itself, not the prose around it — the docstring explains the choice
     # by naming `children/`, and a test that greps the whole function fails on its own comment.
     key_line = next(line for line in body.splitlines() if "key = f" in line)

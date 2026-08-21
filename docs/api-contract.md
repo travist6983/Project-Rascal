@@ -1350,6 +1350,8 @@ it once the gap has passed. So a caller that pressed publish, saw a 409 and stop
 post up to an hour later. The console re-reads `GET /social/publications` after any publish
 error for exactly this reason — the queue on screen is the answer to *"did that do anything"*,
 and the error text alone is not.
+| `POST /social/assets/{id}/video` | **202.** Renders the shot list: one generation per shot, joined into one file. Returns a render row to poll |
+| `GET /social/assets/{id}/video` | The newest render attempt, or `null`. `shots_done` counts clips that landed |
 
 **`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
 spends its status code the moment headers are sent, so an exception inside the generator
@@ -1369,6 +1371,10 @@ The renderer lives in the browser and can only draw these; before phase 101 the 
 free string and `models/social.py` described a validation that nothing performed, so the
 console's own dropdown could save an empty palette that no card could be drawn from. `GET /social/studio` returns both
 lists, so a client never has to hard-code them.
+
+**`POST /social/assets/{id}/video` answers 202 and does the work afterwards.** Seven shots are seven generations plus a concatenation and it takes minutes, so the response is a render row and the console polls `GET` for `shots_done` of `shots_total`. **Every reason to refuse is checked before the first clip** — no shot list, no `GEMINI_API_KEY`, no ffmpeg on the machine, or a render already running for that post — because the expensive failure is the one found after paying for six clips. A second render for a post that is already rendering is a 422 rather than a queue: it would buy the same clips twice.
+
+Clips are stored and costed **as they land**, so a job that fails on shot six still reports what it spent, and the clips it bought stay in the bucket. `cost_cents` is derived from `GEMINI_VIDEO_CENTS_PER_SECOND`, a price somebody typed, exactly like the storage estimate on the costs panel.
 
 **Alt text is required to move an asset to `exported` or `published`**, and the check is at
 that moment rather than at creation: a rule enforced while somebody is still typing is a rule
@@ -1750,8 +1756,21 @@ inner transaction Apple did not is the shape of a forged upgrade.
 
 #### The client obligation: `appAccountToken`
 
-**Phase 37b must set `appAccountToken` to the purchasing user's `family_id` on every StoreKit
-purchase.** This is the one thing 37b has to get right on the first build.
+~~**Phase 37b must set `appAccountToken` to the purchasing user's `family_id` on every StoreKit
+purchase.**~~ — **honoured by the client, Aug 20, 2026.**
+`SubscriptionStore.purchase(_:familyID:)` in `ios/Rascal/Rascal/Subscription/SubscriptionStore.swift`
+is the only call to `Product.purchase(options:)` in the app, and its only option is
+`.appAccountToken(familyID)`. The `familyID` argument is **non-optional**, and the only state that
+carries one is `SubscriptionModel.Phase.ready(_, familyID:)` — so a purchase cannot be started from
+a screen that does not know the household, rather than being started with a substituted token. Two
+tests pin it: one behavioural, that the id reaching the boundary is the one `GET /v1/families/me`
+returned, and one that reads the source and fails if the argument is ever anything but `familyID`.
+
+**What is still unproven, and it is the assumption this whole design rests on:** no sandbox purchase
+has ever been made, because no product exists in App Store Connect (`docs/blocked.md` §10). **The
+round trip — token attached here, echoed by Apple, read by this webhook — has never been observed
+end to end.** Both halves are built against the same field name and nothing has ever carried a value
+between them.
 
 Apple's notification does not know what a family is. `appAccountToken` — a UUID the client attaches
 at purchase time and Apple echoes back in `transactionInfo` — is the **only** channel by which one

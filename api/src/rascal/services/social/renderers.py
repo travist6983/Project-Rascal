@@ -135,7 +135,7 @@ def statuses(settings: Settings) -> list[RendererStatus]:
     ]
 
 
-def _store(settings: Settings, data: bytes, *, suffix: str, content_type: str) -> str:
+def store(settings: Settings, data: bytes, *, suffix: str, content_type: str) -> str:
     """Put a rendered asset in the media bucket under its own prefix.
 
     `social/` rather than `children/`: this is marketing output and must never be mistaken for
@@ -172,7 +172,7 @@ async def render_image(
         encoded = response.json()["data"][0]["b64_json"]
         data = base64.b64decode(encoded)
         key = await to_thread.run_sync(
-            lambda: _store(settings, data, suffix=".png", content_type="image/png")
+            lambda: store(settings, data, suffix=".png", content_type="image/png")
         )
         return Rendered(key, provider, "image/png", len(data))
 
@@ -181,7 +181,7 @@ async def render_image(
             raise LookupError("replicate_image")
         data = await _replicate(settings, settings.replicate_image_model, {"prompt": prompt})
         key = await to_thread.run_sync(
-            lambda: _store(settings, data, suffix=".png", content_type="image/png")
+            lambda: store(settings, data, suffix=".png", content_type="image/png")
         )
         return Rendered(key, provider, "image/png", len(data))
 
@@ -193,7 +193,7 @@ async def render_video(settings: Settings, prompt: str) -> Rendered:
         raise LookupError("replicate_video")
     data = await _replicate(settings, settings.replicate_video_model, {"prompt": prompt})
     key = await to_thread.run_sync(
-        lambda: _store(settings, data, suffix=".mp4", content_type="video/mp4")
+        lambda: store(settings, data, suffix=".mp4", content_type="video/mp4")
     )
     return Rendered(key, "replicate_video", "video/mp4", len(data))
 

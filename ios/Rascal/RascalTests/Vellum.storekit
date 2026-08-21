@@ -1,0 +1,77 @@
+{
+  "identifier": "5B2F1A40-7C64-4E1B-9E33-2A9C5D0F1B77",
+  "nonRenewingSubscriptions": [],
+  "products": [],
+  "settings": {
+    "_applicationInternalID": "0",
+    "_developerTeamID": "0",
+    "_failTransactionsEnabled": false,
+    "_lastSynchronizedDate": 0,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [
+    {
+      "id": "21550401",
+      "localizations": [],
+      "name": "Vellum Membership",
+      "subscriptions": [
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "59.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "6740385851",
+          "introductoryOffer": {
+            "internalID": "6740385852",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P2W"
+          },
+          "localizations": [
+            {
+              "description": "One subscription for the whole household.",
+              "displayName": "Yearly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.travisterry.childarchive.subscription.annual",
+          "recurringSubscriptionPeriod": "P1Y",
+          "referenceName": "Vellum Yearly",
+          "subscriptionGroupID": "21550401",
+          "type": "RecurringSubscription"
+        },
+        {
+          "adHocOffers": [],
+          "codeOffers": [],
+          "displayPrice": "5.99",
+          "familyShareable": false,
+          "groupNumber": 1,
+          "internalID": "6740385853",
+          "introductoryOffer": {
+            "internalID": "6740385854",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P2W"
+          },
+          "localizations": [
+            {
+              "description": "One subscription for the whole household.",
+              "displayName": "Monthly",
+              "locale": "en_US"
+            }
+          ],
+          "productID": "com.travisterry.childarchive.subscription.monthly",
+          "recurringSubscriptionPeriod": "P1M",
+          "referenceName": "Vellum Monthly",
+          "subscriptionGroupID": "21550401",
+          "type": "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version": {
+    "major": 4,
+    "minor": 0
+  }
+}

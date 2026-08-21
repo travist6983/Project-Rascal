@@ -799,6 +799,46 @@ start of every run by asking Instagram whether the post is on the account. It ne
 
 ---
 
+## `social_renders`
+
+One row per **attempt** to turn a shot list into a video. Added by phase 103.
+
+```
+id · asset_id → social_assets(id) ON DELETE CASCADE
+status: queued | running | succeeded | failed | cancelled     (CHECK, named)
+provider · model
+shots_total · clip_keys text[] · render_key · error · cost_cents
+started_at · finished_at · created_at · updated_at
+```
+
+### An attempt, not a property of the post
+
+A render takes minutes, can fail on the seventh of seven clips, and can be retried — and the
+retry must not erase what the first attempt already paid for. `social_assets.render_key` holds
+the one artifact a post currently shows; this holds the job that produced it, including the six
+clips that came back before the seventh timed out.
+
+### `clip_keys` is the progress bar
+
+No video API joins clips, so seven shots are seven separate generations and the honest unit of
+progress is **clips landed**, not a percentage. Keys, never URLs — a signed URL in a column
+outlives its signature and then looks like data loss, the same rule `media` and
+`social_assets.render_key` already keep.
+
+### `cost_cents` is written on failure too
+
+The money is spent when a clip is generated, not when the job succeeds. A job that dies at shot
+six has still bought six clips and this says so. A ledger that records only successful spend is
+how a bill becomes a surprise.
+
+### No `deleted_at`, and this is not a second exception to rule 5
+
+The identical reasoning `social_assets` and `app_store_transactions` already record: that rule
+governs user data that syncs to a phone. Nothing here syncs, no client can read it, and a
+tombstone would have nowhere to go.
+
+---
+
 ## PROPOSED — NOT IMPLEMENTED: monetization, lapse and deletion notices
 
 **Almost none of this exists.** ~~No table below has been created.~~ — **stale since Aug 17, 2026:

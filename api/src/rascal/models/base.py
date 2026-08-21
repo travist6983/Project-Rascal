@@ -117,4 +117,5 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     # reads it — but a row is updated in place on every renewal notification for the same
     # subscription, so it wants the trigger for the same reason `email_broadcasts` does.
     "app_store_transactions",
+    "social_renders",
 )

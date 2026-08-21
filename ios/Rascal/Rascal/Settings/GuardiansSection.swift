@@ -7,6 +7,10 @@ import SwiftUI
 /// what they wrote. `docs/decisions.md` open item 13.
 struct GuardiansSection: View {
     @Bindable var model: GuardiansModel
+    /// The paywall's model, owned by `SettingsScreen` so this section and the Membership card
+    /// share one — two `SubscriptionModel`s would be two `GET /v1/families/me` readers and two
+    /// opinions about which plan is selected.
+    @Bindable var subscription: SubscriptionModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -51,7 +55,16 @@ struct GuardiansSection: View {
                 set: { if !$0 { model.upgradeDismissed() } }
             )
         ) {
-            SecondParentUpgradeSheet { model.upgradeDismissed() }
+            // **Phase 37b: this is a purchase now.** Phase 61 shipped the same surface with no
+            // StoreKit behind it deliberately — 37 owned that and a "coming soon" would have been
+            // furniture for months. Its copy is unchanged and lives in `PaywallSheet.Context`.
+            PaywallSheet(model: subscription, context: .secondParent) {
+                model.upgradeDismissed()
+                // The household may be subscribed now, and this section is showing the tier it
+                // had when it loaded. Re-read rather than leave the invite row refusing on a
+                // stale answer.
+                Task { await model.load() }
+            }
         }
     }
 
@@ -141,50 +154,6 @@ struct GuardiansSection: View {
     }
 }
 
-/// The product's first paywall, and it is a door.
-///
-/// Framed as what the subscription **unlocks**, never as what free lacks. No red, no countdown,
-/// no urgency, nothing that implies the parent has fallen short — `docs/design-system.md` copy
-/// rules, which forbid all four outright.
-///
-/// **There is no purchase to route to.** StoreKit is phase 37, and a stubbed flow or a "coming
-/// soon" would be furniture for months. The button explains and dismisses, which is the honest
-/// shape until there is something to buy.
-struct SecondParentUpgradeSheet: View {
-    var onDismiss: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Both of you, one archive")
-                .typeRole(.title)
-                .foregroundStyle(Color.ink)
-
-            Text(
-                "A subscription shares this archive with the other parent. "
-                    + "You keep the same children, the same timeline and the same moments — "
-                    + "and each of you gets your own prompts every day, so you are not answering "
-                    + "the same question twice."
-            )
-            .typeRole(.body)
-            .foregroundStyle(Color.ink)
-
-            Text("One price covers the whole household, however many children there are.")
-                .typeRole(.metadata)
-                .foregroundStyle(Color.inkMuted)
-
-            Spacer(minLength: 0)
-
-            Button("Got it", action: onDismiss)
-                .buttonStyle(PrimaryButtonStyle())
-                .accessibilityHint("Closes this and returns to Settings")
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.canvas)
-        .presentationDetents([.medium])
-    }
-}
-
 /// The system share sheet, holding the one-time invite link.
 struct ShareLinkSheet: UIViewControllerRepresentable {
     let url: URL
@@ -210,6 +179,10 @@ private let _pending = InviteSummary(
     expiresAt: .now.addingTimeInterval(7 * 86_400), createdAt: .now
 )
 
+/// Parked in `.loading`: a preview has no StoreKit session, so the paywall it presents would
+/// spin either way. The sheet is not what these previews are of.
+private let _subscription = SubscriptionModel(previewing: .loading)
+
 private func _family(
     tier: String, guardians: [GuardianSummary], invites: [InviteSummary] = []
 ) -> FamilySummary {
@@ -219,9 +192,12 @@ private func _family(
 }
 
 #Preview("Guardians — solo, free") {
-    GuardiansSection(model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))))
-        .padding(Layout.screenMargin)
-        .background(Color.canvas)
+    GuardiansSection(
+        model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))),
+        subscription: _subscription
+    )
+    .padding(Layout.screenMargin)
+    .background(Color.canvas)
 }
 
 #Preview("Guardians — invitation outstanding") {
@@ -230,7 +206,8 @@ private func _family(
             previewing: .ready(
                 _family(tier: "subscribed", guardians: [_you], invites: [_pending])
             )
-        )
+        ),
+        subscription: _subscription
     )
     .padding(Layout.screenMargin)
     .background(Color.canvas)
@@ -241,22 +218,31 @@ private func _family(
     GuardiansSection(
         model: GuardiansModel(
             previewing: .ready(_family(tier: "subscribed", guardians: [_you, _them]))
-        )
+        ),
+        subscription: _subscription
     )
     .padding(Layout.screenMargin)
     .background(Color.canvas)
 }
 
 #Preview("Guardians — load failed") {
-    GuardiansSection(model: GuardiansModel(previewing: .failed("No connection. Saved here, and it'll sync when you're back.")))
-        .padding(Layout.screenMargin)
-        .background(Color.canvas)
+    GuardiansSection(
+        model: GuardiansModel(
+            previewing: .failed("No connection. Saved here, and it'll sync when you're back.")
+        ),
+        subscription: _subscription
+    )
+    .padding(Layout.screenMargin)
+    .background(Color.canvas)
 }
 
 #Preview("Guardians — solo, free, AX XXL") {
     ScrollView {
-        GuardiansSection(model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))))
-            .padding(Layout.screenMargin)
+        GuardiansSection(
+            model: GuardiansModel(previewing: .ready(_family(tier: "free", guardians: [_you]))),
+            subscription: _subscription
+        )
+        .padding(Layout.screenMargin)
     }
     .background(Color.canvas)
     .environment(\.dynamicTypeSize, .accessibility4)
@@ -269,7 +255,8 @@ private func _family(
                 previewing: .ready(
                     _family(tier: "subscribed", guardians: [_you], invites: [_pending])
                 )
-            )
+            ),
+            subscription: _subscription
         )
         .padding(Layout.screenMargin)
     }

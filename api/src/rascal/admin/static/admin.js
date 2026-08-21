@@ -39,6 +39,12 @@ const state = {
   concepts: [],
   candidates: [],
   composing: null,
+  // The in-flight poll for a video render, so closing the composer stops it.
+  renderPoll: null,
+  // Bumped whenever the poll should stop. `clearTimeout` cannot cancel a poll that is already
+  // awaiting its fetch, and that poll would otherwise reschedule itself after the composer
+  // closed — two loops, one cancellable slot.
+  renderPollEpoch: 0,
   // Which provider's series the costs chart is showing. More than one vendor has a series
   // since phase 100, and they are not all denominated in money.
   chart: null,
@@ -1706,6 +1712,149 @@ function renderTreatment(source) {
   }
   $("m-vtt").textContent = track;
   $("m-vtt").hidden = !track;
+
+  // The render button lives with the shots because that is what it renders. It is hidden for a
+  // post with no treatment: a card has nothing to turn into footage.
+  const seconds = shots.reduce((total, shot) => total + (shot.seconds || 0), 0);
+  $("m-render").hidden = !shots.length;
+  $("m-render-note").textContent = shots.length
+    ? `${shots.length} generations, about ${seconds}s of video. Each shot is generated ` +
+      "separately and joined here — nothing renders thirty seconds in one call."
+    : "";
+  stopRenderPoll();
+  $("m-render-state").hidden = true;
+  // One button element is reused for every post, so its disabled state has to be reset here
+  // or a render started on one post leaves it stuck for the next.
+  $("m-render").disabled = false;
+  if (state.composing?.id) pollRender(state.composing.id, { once: true });
+}
+
+// --- Rendering a treatment ------------------------------------------------------------------
+//
+// Seven generations and a concatenation take minutes, so the button gets a 202 and a row id
+// and everything after that is polling. `shots_done` counts clips that actually landed in the
+// bucket, so the bar is progress rather than an animation.
+
+function stopRenderPoll() {
+  if (state.renderPoll) {
+    clearTimeout(state.renderPoll);
+    state.renderPoll = null;
+  }
+  // Invalidates any poll already in flight: it will see a stale epoch when its fetch returns
+  // and decline to reschedule.
+  state.renderPollEpoch += 1;
+}
+
+function renderStateNode(render) {
+  const box = $("m-render-state");
+  box.hidden = false;
+  box.dataset.state = render.status;
+  box.replaceChildren();
+
+  const line = document.createElement("p");
+  line.className = "card-note";
+  line.style.marginTop = "0";
+  const done = render.shots_done ?? 0;
+  const total = render.shots_total || 0;
+  line.textContent =
+    {
+      queued: "Queued.",
+      running: `Rendering shot ${Math.min(done + 1, total)} of ${total}.`,
+      succeeded: `Done — ${total} shots joined into one file.`,
+      failed: "Failed.",
+      cancelled: "Cancelled.",
+    }[render.status] || render.status;
+  if (render.cost_cents) {
+    // "so far" is only true while it is still spending.
+    const live = render.status === "queued" || render.status === "running";
+    line.textContent += ` ${money(render.cost_cents)} ${live ? "spent so far" : "spent"}.`;
+  }
+  box.append(line);
+
+  if (render.status === "queued" || render.status === "running") {
+    const bar = document.createElement("div");
+    bar.className = "render-bar";
+    const fill = document.createElement("span");
+    // A width is a measurement, not a decoration — CSSOM, which the CSP permits, rather than a
+    // `style=` attribute, which it drops.
+    fill.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+    bar.append(fill);
+    box.append(bar);
+  }
+  if (render.status === "succeeded" && render.render_key) {
+    // Otherwise the one thing this feature pays money to produce is unreachable from the
+    // console that produced it.
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "btn btn-quiet";
+    link.textContent = "Open the film →";
+    link.addEventListener("click", () => openRender(render.id));
+    box.append(link);
+  }
+  if (render.error) {
+    const why = document.createElement("p");
+    why.className = "card-note";
+    why.textContent = render.error;
+    box.append(why);
+  }
+}
+
+async function openRender(renderId) {
+  try {
+    const { url } = await api(`/social/renders/${renderId}/file`);
+    window.open(url, "_blank", "noopener");
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function pollRender(assetId, { once = false } = {}) {
+  const epoch = state.renderPollEpoch;
+  let payload;
+  try {
+    payload = await api(`/social/assets/${assetId}/video`);
+  } catch {
+    return; // a poll that fails is not worth a banner; the next one will say so
+  }
+  // The composer may have closed, or moved to another post, while that request was open.
+  if (epoch !== state.renderPollEpoch || state.composing?.id !== assetId) return;
+
+  const render = payload.render;
+  if (!render) return;
+  renderStateNode(render);
+  const live = render.status === "queued" || render.status === "running";
+  $("m-render").disabled = live;
+  // `once` is the snapshot taken when the composer opens; it still resumes the loop if the
+  // render is live, or the progress box would freeze at whatever it happened to catch.
+  if (live) {
+    state.renderPoll = setTimeout(() => pollRender(assetId), 4000);
+  } else if (render.render_key) {
+    loadAssets().catch(() => {});
+  }
+}
+
+async function startRender() {
+  const assetId = state.composing?.id;
+  if (!assetId) {
+    toast("Save this post first — a render is recorded against a saved post.");
+    return;
+  }
+  $("m-render").disabled = true;
+  try {
+    const render = await api(`/social/assets/${assetId}/video`, { method: "POST" });
+    renderStateNode(render);
+    state.renderPoll = setTimeout(() => pollRender(assetId), 3000);
+  } catch (error) {
+    $("m-render").disabled = false;
+    const box = $("m-render-state");
+    box.hidden = false;
+    box.dataset.state = "failed";
+    box.replaceChildren();
+    const why = document.createElement("p");
+    why.className = "card-note";
+    why.textContent = error.message;
+    box.append(why);
+  }
 }
 
 function openComposer(concept, asset) {
@@ -1743,6 +1892,9 @@ function openComposer(concept, asset) {
 const closeComposer = () => {
   $("composer").hidden = true;
   state.composing = null;
+  // Otherwise the poll keeps running against a post nobody is looking at, forever, and a
+  // second open starts a second one beside it.
+  stopRenderPoll();
 };
 
 function composerSpec() {
@@ -2436,6 +2588,7 @@ $("m-publish-cancel").addEventListener("click", hidePublishConfirm);
 // somebody can change with the composer open.
 $("m-platform").addEventListener("change", refreshPublish);
 $("m-export").addEventListener("click", markExported);
+$("m-render").addEventListener("click", startRender);
 $("m-copy-vtt").addEventListener("click", async () => {
   // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so
   // a success message there is an error-coloured alert pinned to the console until somebody

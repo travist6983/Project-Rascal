@@ -35,6 +35,20 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
+# **ffmpeg, for one feature.** The studio's video render generates a clip per shot and no
+# video API joins them, so the concatenation happens here — see `services/social/stitch.py`
+# and the scope note in `CLAUDE.md`. `ffprobe` comes in the same package and is not optional:
+# the concat is accepted only when the joined duration proves it.
+#
+# **This is not a small install: measured at +148 MB** on this exact base image — 43 MB for
+# `python:3.12-slim-bookworm`, 191 MB once ffmpeg is in. Debian's `ffmpeg` is the full suite
+# and brings its codec libraries whatever `--no-install-recommends` does; that flag trims the
+# recommends, not the dependencies. It is the price of the feature, and the number is here
+# rather than discovered in a registry bill.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root. The process needs to read the image and write nothing.
 RUN groupadd --system --gid 1001 rascal \
     && useradd --system --uid 1001 --gid rascal --create-home rascal

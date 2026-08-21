@@ -1,5 +1,7 @@
 > **⚠️ FINISHED AND SUPERSEDED — this file is a completed review checklist from Aug 13, 2026, not
-> current work. Marked Aug 18, 2026.** All 40 of its boxes are ticked and the phases it names are
+> current work. Marked Aug 18, 2026.** ~~All 40 of its boxes are ticked~~ — **42 as of Aug 21, 2026:
+> a `/rascal-review` run on `ios/phase-37b-storekit` appended two, and both were applied in the same
+> run rather than left open.** The rest of this notice stands. The phases it names are
 > long merged; the figures below (879 iOS tests in 110 suites, 491 API tests) are five days and
 > roughly twenty phases stale — the suites are now 995 in 121 and 757 in 47. **The live queue is
 > `docs/phase-queue.md` and the live status is `docs/roadmap-status.md`.** Kept rather than deleted
@@ -80,3 +82,20 @@ All six were fixed in the same session. The one open item is a deliberate deferr
 
 ## Not covered by this review
 - [ ] Phase 104 (`59d58d0`, Instagram publishing) landed mid-run and was outside the reviewed diff — worth a second pass before merge
+
+* * *
+* * *
+
+> Updated by rascal-review on 2026-08-21 · branch `ios/phase-37b-storekit` · 2 validated findings
+>
+> **Both were fixed in the same run**, so they are appended ticked rather than open — this file's
+> convention. One finding was rejected in validation and is recorded in
+> `.claude/review-history/false-positives.json` rather than here, per that file's own rule: a
+> suppression is for a finding that was *wrong*, never for a real defect being deferred.
+>
+> Verified green after both fixes: **1084 iOS tests in 137 suites**, cold build, zero warnings in
+> the new code. Report: `.claude/reviews/ios-phase-37b-storekit/report.md`.
+
+## High
+- [x] **TEST_COVERAGE** Pin the `refresh()` / `transactionDelivered()` split behaviourally — a `SubscriptionCenterTests` suite over `StubPerformer`, plus a `#if DEBUG init(testing:)` seam so no test opens a process-lifetime drain on `Transaction.updates`. The source-grep guard could not see the one edit that reintroduces the foreground bug — `ios/Rascal/Rascal/Subscription/SubscriptionCenter.swift:46` (confidence: 88) — break-tested: that edit failed 0 tests before, 4 now
+- [x] **DESIGN_SYSTEM** Render the "You're subscribed." terminal state instead of a dead greyed-out buy button when the entitlement lands while the paywall is open — covers restore, another guardian subscribing, and a purchase arriving from another device, not just the restore path that surfaced it — `ios/Rascal/Rascal/Subscription/PaywallSheet.swift:196` (confidence: 85)

@@ -228,3 +228,72 @@ class SocialPublication(Base):
     )
     created_at: Mapped[created]
     updated_at: Mapped[updated]
+
+
+#: A render attempt's life. `cancelled` exists because a job that the machine restarted out
+#: from under is not the same fact as one the vendor refused, and a status that cannot tell
+#: them apart is a status somebody has to go and check the logs about.
+SOCIAL_RENDER_STATUSES: tuple[str, ...] = (
+    "queued",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+)
+
+
+class SocialRender(Base):
+    """One attempt to turn a shot list into a video.
+
+    **An attempt, not a property of the post.** It takes minutes, it can fail on the seventh
+    of seven clips, and the retry must not erase what the first attempt already paid for.
+    `SocialAsset.render_key` holds the artifact a post currently shows; this holds the job.
+    """
+
+    __tablename__ = "social_renders"
+    __table_args__ = (
+        one_of("status", SOCIAL_RENDER_STATUSES, name="status"),
+        Index("ix_social_renders_asset_id_created_at", "asset_id", text("created_at DESC")),
+        # **Unique, not merely indexed.** `preflight` reads for a live render and then inserts,
+        # and two overlapping requests can both pass that read — which pays for the same seven
+        # clips twice. The index makes it impossible rather than unlikely, and doubles as the
+        # "is anything still running" lookup.
+        Index(
+            "uq_social_renders_one_live_per_asset",
+            "asset_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[uuid_pk]
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("social_assets.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(Text, server_default="queued")
+
+    #: Recorded per attempt rather than read from config when displayed. Every video model on
+    #: the Gemini API is preview and the ids move; a render from last month should still be
+    #: able to say what actually made it.
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+
+    shots_total: Mapped[int] = mapped_column(Integer, server_default="0")
+    #: Object keys in shot order, and the length of this is the progress. Seven shots are seven
+    #: generations — nothing stitches them for us — so clips landed is the honest unit.
+    clip_keys: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    render_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: One sentence. Never a stack trace, and never a URL carrying a key.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: Written as clips land, including on a job that later fails. The money is spent when the
+    #: clip is generated, not when the job succeeds, and a ledger that records only successful
+    #: spend is how a bill becomes a surprise.
+    cost_cents: Mapped[int] = mapped_column(Integer, server_default="0")
+
+    started_at: Mapped[optional_moment]
+    finished_at: Mapped[optional_moment]
+    created_at: Mapped[created]
+    updated_at: Mapped[updated]
