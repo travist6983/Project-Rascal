@@ -95,16 +95,6 @@ function drawLines(ctx, lines, x, y, size, lineHeight) {
   return cursor;
 }
 
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
 /** The wordmark, as geometry rather than type — the same path the app draws. */
 function wordmark(ctx, x, y, height, color) {
   const path = new Path2D(
@@ -139,12 +129,10 @@ export function drawCard(ctx, spec, width, height, progress = 1) {
   ctx.fillStyle = p.bg;
   ctx.fillRect(0, 0, width, height);
 
-  // A hairline frame, inset. The app's cards carry a 1px border on cream and this is the same
-  // gesture at poster scale — it is what stops a flat colour field reading as a placeholder.
-  ctx.strokeStyle = p.rule;
-  ctx.lineWidth = Math.max(1, 2 * scale);
-  roundRect(ctx, margin * 0.55, margin * 0.55, width - margin * 1.1, height - margin * 1.1, 28 * scale);
-  ctx.stroke();
+  // Every `cursor` below is the top of a block, so the whole function measures in one
+  // direction. Set once, not per-branch: an eyebrow-less card left on the default alphabetic
+  // baseline drew its headline a full ascender above where the layout put it.
+  ctx.textBaseline = "top";
 
   const eased = progress >= 1 ? 1 : 1 - Math.pow(1 - progress, 3);
   ctx.globalAlpha = Math.min(1, eased * 1.15);
@@ -158,7 +146,6 @@ export function drawCard(ctx, spec, width, height, progress = 1) {
   if (spec.eyebrow) {
     ctx.font = font(LABEL, 26 * scale);
     ctx.fillStyle = p.accent;
-    ctx.textBaseline = "top";
     const tracked = String(spec.eyebrow).toUpperCase();
     // Letter-spacing by hand: canvas has `letterSpacing` only in newer Chrome, and the
     // design system's +0.6 tracking on a label is not optional decoration — it is what keeps
