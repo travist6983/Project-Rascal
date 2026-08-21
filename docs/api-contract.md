@@ -1216,6 +1216,8 @@ downloaded; `status: "published"` is the owner recording that they put it out th
 | `POST /social/shot-list` | A shot list plus a WebVTT caption track for a short vertical video |
 | `GET\|POST /social/assets`, `PATCH /social/assets/{id}` | Saved posts |
 | `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
+| `POST /social/assets/{id}/video` | **202.** Renders the shot list: one generation per shot, joined into one file. Returns a render row to poll |
+| `GET /social/assets/{id}/video` | The newest render attempt, or `null`. `shots_done` counts clips that landed |
 
 **`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
 spends its status code the moment headers are sent, so an exception inside the generator
@@ -1235,6 +1237,10 @@ The renderer lives in the browser and can only draw these; before phase 101 the 
 free string and `models/social.py` described a validation that nothing performed, so the
 console's own dropdown could save an empty palette that no card could be drawn from. `GET /social/studio` returns both
 lists, so a client never has to hard-code them.
+
+**`POST /social/assets/{id}/video` answers 202 and does the work afterwards.** Seven shots are seven generations plus a concatenation and it takes minutes, so the response is a render row and the console polls `GET` for `shots_done` of `shots_total`. **Every reason to refuse is checked before the first clip** — no shot list, no `GEMINI_API_KEY`, no ffmpeg on the machine, or a render already running for that post — because the expensive failure is the one found after paying for six clips. A second render for a post that is already rendering is a 422 rather than a queue: it would buy the same clips twice.
+
+Clips are stored and costed **as they land**, so a job that fails on shot six still reports what it spent, and the clips it bought stay in the bucket. `cost_cents` is derived from `GEMINI_VIDEO_CENTS_PER_SECOND`, a price somebody typed, exactly like the storage estimate on the costs panel.
 
 **Alt text is required to move an asset to `exported` or `published`**, and the check is at
 that moment rather than at creation: a rule enforced while somebody is still typing is a rule

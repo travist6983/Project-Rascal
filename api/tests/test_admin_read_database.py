@@ -57,6 +57,9 @@ CONSOLE_WRITES = [
     ("POST", "/v1/social/assets", {"headline": "hello"}),
     ("PATCH", "/v1/social/assets/{asset}", {"headline": "edited"}),
     ("POST", "/v1/social/assets/{asset}/render", {"provider": "openai_image", "kind": "image"}),
+    # Writes a `social_renders` row before it queues anything, so it is a console write
+    # like any other and must refuse while the console is pointed at production.
+    ("POST", "/v1/social/assets/{asset}/video", None),
 ]
 
 

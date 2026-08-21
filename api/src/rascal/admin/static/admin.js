@@ -38,6 +38,8 @@ const state = {
   chat: [],
   concepts: [],
   composing: null,
+  // The in-flight poll for a video render, so closing the composer stops it.
+  renderPoll: null,
   // Which provider's series the costs chart is showing. More than one vendor has a series
   // since phase 100, and they are not all denominated in money.
   chart: null,
@@ -1490,6 +1492,115 @@ function renderTreatment(source) {
   }
   $("m-vtt").textContent = track;
   $("m-vtt").hidden = !track;
+
+  // The render button lives with the shots because that is what it renders. It is hidden for a
+  // post with no treatment: a card has nothing to turn into footage.
+  const seconds = shots.reduce((total, shot) => total + (shot.seconds || 0), 0);
+  $("m-render").hidden = !shots.length;
+  $("m-render-note").textContent = shots.length
+    ? `${shots.length} generations, about ${seconds}s of video. Each shot is generated ` +
+      "separately and joined here — nothing renders thirty seconds in one call."
+    : "";
+  stopRenderPoll();
+  $("m-render-state").hidden = true;
+  if (state.composing?.id) pollRender(state.composing.id, { once: true });
+}
+
+// --- Rendering a treatment ------------------------------------------------------------------
+//
+// Seven generations and a concatenation take minutes, so the button gets a 202 and a row id
+// and everything after that is polling. `shots_done` counts clips that actually landed in the
+// bucket, so the bar is progress rather than an animation.
+
+function stopRenderPoll() {
+  if (state.renderPoll) {
+    clearTimeout(state.renderPoll);
+    state.renderPoll = null;
+  }
+}
+
+function renderStateNode(render) {
+  const box = $("m-render-state");
+  box.hidden = false;
+  box.dataset.state = render.status;
+  box.replaceChildren();
+
+  const line = document.createElement("p");
+  line.className = "card-note";
+  line.style.marginTop = "0";
+  const done = render.shots_done ?? 0;
+  const total = render.shots_total || 0;
+  line.textContent =
+    {
+      queued: "Queued.",
+      running: `Rendering shot ${Math.min(done + 1, total)} of ${total}.`,
+      succeeded: `Done — ${total} shots joined into one file.`,
+      failed: "Failed.",
+      cancelled: "Cancelled.",
+    }[render.status] || render.status;
+  if (render.cost_cents) line.textContent += ` ${money(render.cost_cents)} spent so far.`;
+  box.append(line);
+
+  if (render.status === "queued" || render.status === "running") {
+    const bar = document.createElement("div");
+    bar.className = "render-bar";
+    const fill = document.createElement("span");
+    // A width is a measurement, not a decoration — CSSOM, which the CSP permits, rather than a
+    // `style=` attribute, which it drops.
+    fill.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
+    bar.append(fill);
+    box.append(bar);
+  }
+  if (render.error) {
+    const why = document.createElement("p");
+    why.className = "card-note";
+    why.textContent = render.error;
+    box.append(why);
+  }
+}
+
+async function pollRender(assetId, { once = false } = {}) {
+  let payload;
+  try {
+    payload = await api(`/social/assets/${assetId}/video`);
+  } catch {
+    return; // a poll that fails is not worth a banner; the next one will say so
+  }
+  const render = payload.render;
+  if (!render) return;
+  renderStateNode(render);
+  const live = render.status === "queued" || render.status === "running";
+  $("m-render").disabled = live;
+  if (live && !once) {
+    state.renderPoll = setTimeout(() => pollRender(assetId), 4000);
+  } else if (!live && render.render_key && state.composing?.id === assetId) {
+    // The finished film is on the post now, so reopening it shows the real artifact.
+    loadAssets().catch(() => {});
+  }
+}
+
+async function startRender() {
+  const assetId = state.composing?.id;
+  if (!assetId) {
+    toast("Save this post first — a render is recorded against a saved post.");
+    return;
+  }
+  $("m-render").disabled = true;
+  try {
+    const render = await api(`/social/assets/${assetId}/video`, { method: "POST" });
+    renderStateNode(render);
+    state.renderPoll = setTimeout(() => pollRender(assetId), 3000);
+  } catch (error) {
+    $("m-render").disabled = false;
+    const box = $("m-render-state");
+    box.hidden = false;
+    box.dataset.state = "failed";
+    box.replaceChildren();
+    const why = document.createElement("p");
+    why.className = "card-note";
+    why.textContent = error.message;
+    box.append(why);
+  }
 }
 
 function openComposer(concept, asset) {
@@ -1526,6 +1637,9 @@ function openComposer(concept, asset) {
 const closeComposer = () => {
   $("composer").hidden = true;
   state.composing = null;
+  // Otherwise the poll keeps running against a post nobody is looking at, forever, and a
+  // second open starts a second one beside it.
+  stopRenderPoll();
 };
 
 function composerSpec() {
@@ -1925,6 +2039,7 @@ $("composer-form").addEventListener("submit", saveComposer);
 $("m-png").addEventListener("click", downloadPng);
 $("m-webm").addEventListener("click", downloadWebm);
 $("m-export").addEventListener("click", markExported);
+$("m-render").addEventListener("click", startRender);
 $("m-copy-vtt").addEventListener("click", async () => {
   // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so
   // a success message there is an error-coloured alert pinned to the console until somebody

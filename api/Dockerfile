@@ -35,6 +35,16 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
+# **ffmpeg, for one feature.** The studio's video render generates a clip per shot and no
+# video API joins them, so the concatenation happens here — see `services/social/stitch.py`
+# and the scope note in `CLAUDE.md`. `ffmpeg` rather than the full `ffmpeg` suite plus codecs
+# is deliberate: this only ever demuxes and concatenates short mp4s, and the image is a
+# production runtime rather than a workstation. `--no-install-recommends` keeps it to about
+# 60 MB instead of pulling in x11 and a desktop's worth of libraries.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root. The process needs to read the image and write nothing.
 RUN groupadd --system --gid 1001 rascal \
     && useradd --system --uid 1001 --gid rascal --create-home rascal

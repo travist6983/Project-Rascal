@@ -19,7 +19,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, BackgroundTasks, Query, status
 from fastapi.responses import StreamingResponse
 
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
@@ -32,7 +32,7 @@ from rascal.schemas.social import (
     SocialAssetIn,
     SocialAssetUpdate,
 )
-from rascal.services.social import brand, director, renderers, studio
+from rascal.services.social import brand, director, renderers, renders, studio
 
 router = APIRouter(prefix="/social", tags=["social"])
 
@@ -256,3 +256,49 @@ async def render_asset(
     await session.flush()
     await session.refresh(asset)
     return studio.as_dict(asset)
+
+
+@router.post(
+    "/assets/{asset_id}/video",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Render the shot list into one video",
+    description=(
+        "Seven shots are seven generations and a concatenation, so this returns **202 with a "
+        "render id to poll** rather than blocking for the minutes it takes. Every reason to "
+        "refuse — no shot list, no key, no ffmpeg, a render already running — is checked "
+        "before the first clip is generated, because the expensive failure is the one "
+        "discovered after paying for six of them."
+    ),
+)
+async def render_video(
+    asset_id: uuid.UUID,
+    background: BackgroundTasks,
+    session: SessionDep,
+    user: AdminUser,
+    settings: SettingsDep,
+    _: LocalWrites,
+) -> dict[str, Any]:
+    asset = await studio.get_asset(session, asset_id)
+    shots = await renders.preflight(session, settings, asset)
+    render = await renders.create(session, settings, asset, shots)
+    # Detached from this request: it outlives the response by minutes. The row is already
+    # committed, so a machine that dies before the task starts leaves a `queued` row rather
+    # than a button that did nothing.
+    background.add_task(renders.run, render.id)
+    return renders.as_dict(render)
+
+
+@router.get(
+    "/assets/{asset_id}/video",
+    summary="How the render is going",
+    description=(
+        "The newest attempt for this post, or `null` if it has never been rendered. "
+        "`shots_done` counts clips that actually landed in the bucket, so it is progress "
+        "rather than a percentage somebody computed."
+    ),
+)
+async def render_status(
+    asset_id: uuid.UUID, session: AdminReadSession, user: AdminUser
+) -> dict[str, Any]:
+    render = await renders.latest_for(session, asset_id)
+    return {"render": renders.as_dict(render) if render else None}

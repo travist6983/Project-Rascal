@@ -79,9 +79,21 @@ pytest-asyncio + httpx · ruff · Fly.io.
 
 ## Out of scope for the API lane — stop if you find yourself designing one
 
-Swift or iOS code (that is the other lane, not this one), thumbnail or transcode pipelines,
-LLM prompt generation, the admin prompt review queue, multi-kid UI concerns, observability
-beyond structured logging.
+Swift or iOS code (that is the other lane, not this one), ~~thumbnail or transcode
+pipelines~~, LLM prompt generation, the admin prompt review queue, multi-kid UI concerns,
+observability beyond structured logging.
+
+**Transcode is struck for one feature and one only, by the owner's call of Aug 20, 2026.** The
+studio's video render generates a clip per shot — no video API on any vendor joins clips — so
+`services/social/stitch.py` shells out to ffmpeg to concatenate them, and the runtime image
+installs it. That is a transcode pipeline by any honest reading and it was authorised
+deliberately rather than argued around; `docs/decisions.md` carries the reasoning.
+
+**It is struck narrowly.** Thumbnails, transcoding *user media*, and anything touching the
+`children/` prefix remain out of scope and are the thing the original line was protecting: an
+archive that re-encodes what a parent uploaded is an archive that can corrupt it. This
+concatenates marketing output that a vendor generated seconds earlier, under `social/`, and
+never reads a family's bytes.
 
 ~~*push notifications, full-text search*~~ — **both removed from this list Aug 18, 2026, because
 both are built and served in `api/`.** Push: `services/notifications.py`, `jobs/notify.py`, the
