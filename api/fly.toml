@@ -141,3 +141,28 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
 #
 # The job is idempotent — the unique index on (child_id, assigned_on, slot) makes a rerun
 # free — so a duplicate firing or a manual re-run costs nothing.
+#
+# --- Social publishing (phase 104) ------------------------------------------------------------
+#
+# A second scheduled machine, created the same way, running `python -m rascal.jobs.social`.
+# Hourly, and the same three flags matter for the same three reasons.
+#
+#   fly machine run registry.fly.io/rascal-api:deployment-<id> \
+#     --app rascal-api --schedule hourly --region ord \
+#     --vm-size shared-cpu-1x --vm-memory 512 --restart no \
+#     --env ENVIRONMENT=prod --env S3_REGION=auto \
+#     --env S3_ENDPOINT_URL=https://fly.storage.tigris.dev \
+#     -- python -m rascal.jobs.social
+#
+# **It publishes at most one post per run and only rows a person queued.** Nothing goes out
+# unless `SOCIAL_PUBLISH_ENABLED=true`, which is a Fly secret rather than anything in this file.
+# A run that finds nothing due exits 0 and says so — "nothing due" and "the schedule is broken"
+# are otherwise the same green tick.
+#
+# Hourly is enough because the spacing rule is roughly an hour anyway, and it is read from
+# Instagram rather than from our own rows: the marketing repository posts to the same account
+# and cannot see this database. Looking more often would not post more often.
+#
+# **This is not needed for immediate publishing**, which happens inside the web request when
+# somebody presses the button. The machine exists for scheduled posts, and to pick up an
+# immediate one whose request died between queueing and publishing.

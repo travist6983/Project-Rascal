@@ -1259,9 +1259,17 @@ The paragraphs above describe which of them carry a figure and which cannot.
 
 ## Social studio
 
-Phase 97. Admin only, and **nothing here posts anything** — there is no platform integration,
-no scheduler, and no route that reaches the internet. Assets are generated, reviewed and
-downloaded; `status: "published"` is the owner recording that they put it out themselves.
+Phase 97, and **phase 104 added publishing to Instagram.** Admin only.
+
+> ~~*nothing here posts anything — there is no platform integration, no scheduler, and no route
+> that reaches the internet*~~ — **struck Aug 20, 2026.** True until phase 104 and kept as
+> history. The owner asked for direct publishing and, shown the sentence, did not recognise it:
+> it was an agent's stance rather than a row in `decisions.md`.
+
+**Nothing posts on its own.** `SOCIAL_PUBLISH_ENABLED` defaults false and credentials alone do
+not switch it on; every publish is a person pressing a button or a time that person chose; the
+scheduled runner only publishes rows a person queued. `status: "published"` is still what the
+owner sets by hand for a post made somewhere this service cannot reach.
 
 > **Claude does not generate images or video.** There is no such endpoint on any Anthropic
 > model. The studio uses the key for what it genuinely does — art direction, copy, captions,
@@ -1277,6 +1285,53 @@ downloaded; `status: "published"` is the owner recording that they put it out th
 | `POST /social/shot-list` | A shot list plus a WebVTT caption track for a short vertical video |
 | `GET\|POST /social/assets`, `PATCH /social/assets/{id}` | Saved posts |
 | `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
+| `GET /social/account` | Which Instagram account the credentials control, and whether now is a reasonable time to post. Read from Instagram, never from our own rows |
+| `POST /social/assets/{id}/image` | Stores the card the browser drew. **Raw JPEG body**, 4MB cap, magic number checked |
+| `POST /social/assets/{id}/publish` | Publishes now, or queues for `scheduled_for` |
+| `GET /social/publications` | The publish queue and what became of each attempt |
+| `POST /social/publications/{id}/cancel` | Takes a scheduled post out of the queue. Never legal after it has gone out |
+
+### Publishing to Instagram
+
+**Instagram does not accept an image upload.** You give Meta a public HTTPS URL, it fetches the
+image itself, and you publish the container it built. The card is drawn on a canvas in the
+browser, so it has to reach the bucket first — and then Meta is handed a **presigned GET**, so
+no object is ever world-readable. Verified against the live account: Meta's fetcher does not
+mind the `X-Amz-*` query string.
+
+**`POST /social/assets/{id}/image` is the one route in this API that takes bytes through the
+service** rather than handing back a presigned PUT. A browser cannot PUT to the bucket without a
+CORS policy on the bucket, and that bucket holds the archive — widening what a browser origin
+may do against it to publish a marketing card is the wrong trade. The card is capped at 4MB and
+checked to start with JPEG's magic number, because Meta reports a PNG as a container in `ERROR`
+rather than as a message naming the format.
+
+**The account is shared with the marketing repository**, by the owner's decision of Aug 20,
+2026 — one feed, two publishers, no shared database. So the minimum gap between posts and the
+24-hour count are both read from `GET /{ig-user-id}/media`: Instagram is the only thing both
+systems can see. A `409 conflict` from the publish route usually means the *other* publisher
+posted recently.
+
+**Publishing twice is the only unrecoverable failure here**, so the order is: refuse if the
+asset already went out or already has a queued attempt, ask Instagram whether the caption is
+already on the account, ask whether it is too soon, build the container and **write its id to
+the row**, then publish. `social_publications` keeps the media id, the permalink, and the
+caption that actually went out.
+
+Each of those writes is **committed as it happens**, not at the end of the request. One
+transaction per request is the rule everywhere else in this API; here it would mean a failure
+rolling back the record of itself, including the container id written specifically to survive
+it. `services/broadcast.py` reached the same conclusion for the same reason.
+
+The cost is a row that a dying process can leave in `publishing`, which the partial unique index
+then makes permanent. `python -m rascal.jobs.social` resolves those at the start of every run by
+asking Instagram whether the post is on the account: found → recorded, not found → failed and
+the asset is free again. **It never re-sends** — a container that was built and not published is
+not a post, and re-sending it is precisely the duplicate this design exists to avoid.
+
+A `409 conflict` from the publish route is one of: the asset already went out, an attempt is
+already queued, it is too soon to post, or the caption matched a post another attempt already
+owns. All four are readable sentences, and none of them is a 500.
 
 **`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
 spends its status code the moment headers are sent, so an exception inside the generator
@@ -1402,10 +1457,16 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `subscription_required` | 402 |
 | `rate_limited` | 429 |
 | `sign_in_link_invalid` | 401 |
+| `publish_failed` | 502 |
 | `internal_error` | 500 |
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
 a `psycopg` message in a client alert is a leak, not a debugging aid.
+
+`publish_failed` is **502 rather than 500** because this service worked and the platform it
+called did not — an expired token, an image Instagram could not fetch, a limit on their side.
+The console shows the platform's own sentence next to the button; what it never shows is a raw
+provider payload or the access token, which `services/social/instagram.py` strips first.
 
 ---
 

@@ -2033,3 +2033,35 @@ panel rather than this one:
   ES256 provider token from a `.p8`, cached against its expiry. That is the pattern to copy.
 
 **Not worth requesting until there is an app on the store**, since the data would be empty.
+
+
+## §17 — the Instagram token expires, and two repositories hold a copy
+
+**Blocked on nobody; this is a diary entry with a date on it.** `IG_ACCESS_TOKEN` is a
+long-lived Instagram token, which Meta issues for about sixty days. The only real timestamp
+either repository has is the creation time of the `Rascal-Marketing` Actions secret —
+**2026-08-20T00:57:19Z** — which puts the lapse at roughly **2026-10-19**.
+
+**Nothing refreshes it and nothing warns.** The first sign will be a failed publish with an auth
+error: `OAuthException 190`. On this side that surfaces as `publish_failed` carrying Meta's own
+sentence; on the marketing side it is a red workflow run.
+
+**Two stores hold the same credential and both must be updated in one sitting** — this service's
+Fly secrets and `.env`, and the marketing repository's Actions secrets. Refreshing one leaves the
+other posting to the same account with a dead token.
+
+What would close this: a refresh, and a note here with the new date. Automating it is worth its
+own phase and is not this one — a calendar reminder and a written date beat a half-built
+refresher that nobody checks.
+
+**Not yet known: which permission the token actually carries.** `docs/social-setup-checklist.md`
+in the marketing repository records that scopes were confirmed in Meta's Access Token Debugger
+but never names them, and neither session can read them from here. The Debugger at
+`developers.facebook.com/tools/debug/accesstoken/` shows the list in seconds; whether the Meta
+app needed review is a question only the owner can answer.
+
+**Also unverified: whether `alt_text` lands.** Both pipelines send it on the container and Meta
+accepts it without complaint, but nobody has opened the Instagram app and looked at a post's
+accessibility info. Meta ignores that field on some flows. Worth checking on the first real post
+from here, and telling the marketing session either way — it has been shipping the field for a
+day with no evidence it does anything.

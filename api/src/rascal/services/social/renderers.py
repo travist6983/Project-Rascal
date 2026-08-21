@@ -18,8 +18,11 @@ reporting the environment variable to set and where the key comes from — the s
 cost panel uses, and for the same reason: a card that says "not connected" without a next step
 is a dead end.
 
-Nothing in this module posts anything anywhere. Assets are generated, reviewed and downloaded;
-publishing is a thing the owner does with the file, on purpose, somewhere else.
+Nothing in *this* module posts anything anywhere, and that remains true — it makes pixels.
+Publishing moved next door in phase 104: `services/social/instagram.py` puts a card on
+Instagram, and `services/social/publishing.py` decides whether to. The sentence that used to
+end this paragraph — *"publishing is a thing the owner does with the file, on purpose,
+somewhere else"* — was true until Aug 20, 2026 and is kept as history.
 """
 
 from __future__ import annotations

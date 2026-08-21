@@ -272,6 +272,32 @@ export async function toPngBlob(spec, platform) {
 }
 
 /**
+ * The same card as a JPEG, which is the only thing Instagram will publish.
+ *
+ * **Not a preference and not a size optimisation.** Meta's content-publishing documentation
+ * says JPEG is the only supported image format, and a PNG does not fail in a way anybody could
+ * act on — the container comes back in `ERROR` state rather than with a message naming the
+ * format. So the download button keeps handing you a PNG, which is the better file to keep, and
+ * anything on its way to a feed goes through here.
+ *
+ * Quality 0.92 rather than 1.0: above about 0.95 a JPEG of flat colour and type gains file size
+ * without gaining anything a person can see, and the card is flat colour and type.
+ *
+ * The canvas is opaque — `drawCard` fills the background before it draws anything — so there is
+ * no alpha to lose. A transparent canvas encoded as JPEG comes out with a black background, and
+ * that is the bug this comment exists to stop somebody reintroducing by "simplifying" the fill.
+ */
+export async function toJpegBlob(spec, platform, quality = 0.92) {
+  const canvas = renderToCanvas(spec, platform);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+  // `toBlob` hands back null rather than throwing when it cannot encode. Left alone that
+  // becomes an empty POST body and a server error reading "that is not a JPEG", which sends
+  // the next person to the wrong file entirely.
+  if (!blob) throw new Error("the browser could not encode the card as a JPEG");
+  return blob;
+}
+
+/**
  * Record the same card as a short WebM.
  *
  * **This is the only video this feature can produce without a vendor**, and it is worth being

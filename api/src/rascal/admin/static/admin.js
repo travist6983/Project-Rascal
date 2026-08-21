@@ -1266,7 +1266,8 @@ function renderOps(data) {
 // configured. There is no Anthropic image endpoint, so a "generate image" button wired to the
 // Anthropic key would be a spinner attached to nothing.
 //
-// Nothing here posts anywhere. Generate, review, download.
+// Instagram posts from here since phase 104, and nothing else does — a post aimed at any other
+// platform is still generate, review, download, put it out yourself.
 
 function renderStudioState(state) {
   state && (window.__studio = state);
@@ -1736,6 +1737,7 @@ function openComposer(concept, asset) {
     : "This browser cannot record WebM from a canvas. PNG still works.";
   $("composer").hidden = false;
   paintPreview();
+  refreshPublish();
 }
 
 const closeComposer = () => {
@@ -1784,8 +1786,8 @@ function composerPayload() {
   };
 }
 
-async function saveComposer(event) {
-  event.preventDefault();
+async function saveComposer(event, { rethrow = false } = {}) {
+  event?.preventDefault?.();
   const error = $("m-error");
   error.hidden = true;
   try {
@@ -1810,6 +1812,9 @@ async function saveComposer(event) {
   } catch (err) {
     error.hidden = false;
     error.textContent = err.message;
+    // A submit shows the message and stops. A save that something else is waiting on has to
+    // fail loudly, or the caller carries on with what it thinks it saved.
+    if (rethrow) throw err;
   }
 }
 
@@ -1826,7 +1831,7 @@ async function markExported() {
       method: "PATCH",
       body: JSON.stringify({ status: "exported", alt_text: $("m-alt").value.trim() || null }),
     });
-    toast("Marked exported. Posting it is still your job — nothing here posts.");
+    toast("Marked exported. For anywhere but Instagram, posting it is still your job.");
     await loadAssets();
   } catch (err) {
     error.hidden = false;
@@ -1856,6 +1861,272 @@ async function downloadWebm() {
   } finally {
     button.disabled = false;
     button.textContent = "Download WebM";
+  }
+}
+
+/* --- Publishing ---------------------------------------------------------------------------
+ *
+ * The console can put a card on Instagram. Three things about the shape of this code, all of
+ * which are the design rather than the implementation:
+ *
+ * **The account is shared with the marketing repository**, which posts to the same feed on its
+ * own schedule and cannot see this database. So "is it too soon to post" is a question for
+ * Instagram, answered by `GET /social/account`, and it is shown before the button rather than
+ * after the click.
+ *
+ * **Publishing is confirmed, and the confirmation shows the thing.** The handle it is going to
+ * and the caption that will go out, because "publish" and "publish *this* to *there*" are
+ * different promises and only the second one is what the button does.
+ *
+ * **The image is uploaded before the publish call.** Instagram does not accept an upload — it
+ * fetches a URL — so the card the browser drew has to exist in the bucket first. It goes as
+ * JPEG, which is the only format Meta will publish.
+ */
+
+/** The publish section's own state. Reset every time the composer opens. */
+const publishState = { account: null, pending: null, generation: 0 };
+
+function assetId() {
+  return state.composing?.id || null;
+}
+
+/**
+ * Instagram is the only platform with a publisher; the section hides for the others.
+ *
+ * **This list is `publishing.PUBLISHABLE` written a second time**, and a test asserts the two
+ * match — the same guard `test_social.py` puts on `cards.js`'s platform sizes. Getting it from
+ * the server instead would need the answer before the first request, which is the one moment
+ * there is nothing to ask.
+ */
+function canPublish() {
+  return ["instagram", "instagram_story"].includes($("m-platform").value);
+}
+
+async function refreshPublish() {
+  const section = $("m-publish");
+  hidePublishConfirm();
+  // A concept that has never been saved has no id, so there is nothing to publish yet.
+  section.hidden = !assetId() || !canPublish();
+  if (section.hidden) return;
+
+  // Open one composer, then another before the first request lands, and the slower response
+  // paints the wrong post's queue underneath the right post's card. Only the newest caller
+  // gets to write to the DOM.
+  const generation = ++publishState.generation;
+  const current = () => generation === publishState.generation;
+
+  $("m-publish-account").textContent = "Checking the account…";
+  $("m-publish-hold").hidden = true;
+  await Promise.all([loadPublishAccount(current), loadPublications(current)]);
+}
+
+async function loadPublishAccount(current = () => true) {
+  try {
+    const account = await api("/social/account");
+    if (!current()) return;
+    publishState.account = account;
+    if (!account.configured) {
+      $("m-publish-account").textContent = account.setup;
+      setPublishEnabled(false);
+      return;
+    }
+    const last = account.last_post_at
+      ? `last post ${new Date(account.last_post_at).toLocaleString()}`
+      : "nothing posted yet";
+    $("m-publish-account").textContent =
+      `@${account.username} · ${account.media_count} posts · ${last} · ` +
+      `${account.posts_in_last_24h} in the last 24h`;
+
+    // Two different reasons the button might not work, and they are not the same sentence.
+    if (!account.publish_enabled) {
+      showHold("Publishing is switched off — SOCIAL_PUBLISH_ENABLED is false. Nothing here can post.");
+      setPublishEnabled(false);
+      return;
+    }
+    if (account.blocked_reason) {
+      showHold(account.blocked_reason);
+      setPublishEnabled(false, { scheduleStillAllowed: true });
+      return;
+    }
+    setPublishEnabled(true);
+  } catch (err) {
+    if (!current()) return;
+    $("m-publish-account").textContent = `Could not reach Instagram — ${err.message}`;
+    setPublishEnabled(false);
+  }
+}
+
+function showHold(message) {
+  const hold = $("m-publish-hold");
+  hold.hidden = false;
+  hold.textContent = message;
+}
+
+/** Scheduling stays available when the only problem is that it is too soon to post *now*. */
+function setPublishEnabled(enabled, { scheduleStillAllowed = false } = {}) {
+  $("m-publish-now").disabled = !enabled;
+  $("m-publish-schedule").disabled = !enabled && !scheduleStillAllowed;
+}
+
+async function loadPublications(current = () => true) {
+  const mount = $("m-publications");
+  mount.replaceChildren();
+  const id = assetId();
+  if (!id) return;
+  let rows = [];
+  try {
+    ({ publications: rows } = await api(`/social/publications?asset_id=${id}`));
+  } catch {
+    return;
+  }
+  if (!current()) return;
+  for (const row of rows) {
+    const li = document.createElement("li");
+    const chip = document.createElement("span");
+    chip.className = `chip chip-${
+      { published: "ok", failed: "warn", cancelled: "plain", scheduled: "peri" }[row.status] ||
+      "plain"
+    }`;
+    chip.textContent = row.status;
+    li.append(chip);
+
+    const when = document.createElement("span");
+    when.textContent = row.published_at
+      ? new Date(row.published_at).toLocaleString()
+      : row.scheduled_for
+        ? `for ${new Date(row.scheduled_for).toLocaleString()}`
+        : "as soon as it can";
+    li.append(when);
+
+    if (row.permalink) {
+      const link = document.createElement("a");
+      link.href = row.permalink;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.textContent = "view";
+      li.append(link);
+    }
+    if (row.error) {
+      const why = document.createElement("span");
+      why.className = "publication-error";
+      why.textContent = row.error;
+      li.append(why);
+    }
+    if (row.status === "scheduled") {
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "btn btn-quiet";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => cancelPublication(row.id));
+      li.append(cancel);
+    }
+    mount.append(li);
+  }
+}
+
+async function cancelPublication(id) {
+  try {
+    await api(`/social/publications/${id}/cancel`, { method: "POST" });
+    toast("Taken out of the queue.");
+    await refreshPublish();
+  } catch (err) {
+    showHold(err.message);
+  }
+}
+
+/**
+ * Put the card where Instagram can be pointed at it.
+ *
+ * The card goes to our own API rather than straight to the bucket. A presigned PUT was the
+ * first version and a browser cannot use one here: the bucket is a different origin, so the
+ * PUT needs a CORS policy on the bucket — and that bucket holds the archive. Confirmed in
+ * Chrome rather than assumed: `TypeError: Failed to fetch`, no request leaving the browser.
+ *
+ * JPEG, because Instagram publishes nothing else and reports a PNG as an unreadable error.
+ */
+async function uploadCard() {
+  const id = assetId();
+  const blob = await cards.toJpegBlob(composerSpec(), $("m-platform").value);
+  const stored = await api(`/social/assets/${id}/image`, {
+    method: "POST",
+    body: blob,
+    headers: { "content-type": "image/jpeg" },
+  });
+  return stored.key;
+}
+
+/** Step one of two. Nothing has happened yet; this only shows what would. */
+function askToPublish(scheduledFor) {
+  const account = publishState.account;
+  const when = scheduledFor
+    ? `on ${new Date(scheduledFor).toLocaleString()}`
+    : "right now";
+  publishState.pending = { scheduledFor };
+  $("m-publish-confirm-text").textContent =
+    `This posts to @${account?.username ?? "the account"} ${when}. ` +
+    "It goes out publicly and cannot be taken down from here.";
+  $("m-publish-confirm-caption").textContent = captionPreview();
+  $("m-publish-confirm").hidden = false;
+  $("m-publish-go").focus();
+}
+
+/**
+ * What the caption will look like once the server composes it.
+ *
+ * **This has to match `publishing._full_caption` exactly.** It is the same string built twice —
+ * here to show you what you are about to post, there to actually post it — and a confirmation
+ * that does not match the post is worse than no confirmation. The rule in both places: strip
+ * whitespace, strip any leading hashes, add exactly one. `replace(/^#/, "")` removed only the
+ * first of them while the server removed all, so `##vellum` disagreed.
+ */
+function captionPreview() {
+  const tags = $("m-tags")
+    .value.split(",")
+    .map((tag) => tag.trim().replace(/^#+/, "").trim())
+    .filter(Boolean)
+    .map((tag) => `#${tag}`)
+    .join(" ");
+  const caption = $("m-caption").value.trim();
+  return tags ? `${caption}\n\n${tags}` : caption;
+}
+
+function hidePublishConfirm() {
+  publishState.pending = null;
+  $("m-publish-confirm").hidden = true;
+}
+
+/** Step two of two. **This is the irreversible one.** */
+async function confirmPublish() {
+  const pending = publishState.pending;
+  if (!pending) return;
+  const button = $("m-publish-go");
+  button.disabled = true;
+  button.textContent = pending.scheduledFor ? "Queueing…" : "Posting…";
+  try {
+    // Save first: the caption about to go out is whatever is in the form, and the server
+    // reads the row rather than the form.
+    await saveComposer(null, { rethrow: true });
+    await uploadCard();
+    const body = pending.scheduledFor
+      ? { scheduled_for: new Date(pending.scheduledFor).toISOString() }
+      : {};
+    const result = await api(`/social/assets/${assetId()}/publish`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    hidePublishConfirm();
+    toast(
+      result.status === "published"
+        ? `Posted. ${result.permalink || ""}`.trim()
+        : "Queued. The scheduled runner will post it.",
+    );
+    await Promise.all([refreshPublish(), loadAssets()]);
+  } catch (err) {
+    hidePublishConfirm();
+    showHold(err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Yes — post it";
   }
 }
 
@@ -2146,6 +2417,20 @@ $("a-filter").addEventListener("change", () => loadAssets().catch((e) => banner(
 $("composer-form").addEventListener("submit", saveComposer);
 $("m-png").addEventListener("click", downloadPng);
 $("m-webm").addEventListener("click", downloadWebm);
+$("m-publish-now").addEventListener("click", () => askToPublish(null));
+$("m-publish-schedule").addEventListener("click", () => {
+  const when = $("m-publish-at").value;
+  if (!when) {
+    showHold("Pick a date and time first, or use Publish now.");
+    return;
+  }
+  askToPublish(when);
+});
+$("m-publish-go").addEventListener("click", confirmPublish);
+$("m-publish-cancel").addEventListener("click", hidePublishConfirm);
+// The publish section only applies to platforms with a publisher, and the platform is a field
+// somebody can change with the composer open.
+$("m-platform").addEventListener("change", refreshPublish);
 $("m-export").addEventListener("click", markExported);
 $("m-copy-vtt").addEventListener("click", async () => {
   // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so

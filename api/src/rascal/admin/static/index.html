@@ -335,8 +335,9 @@
             <div>
               <p class="label">Saved posts</p>
               <p class="card-note">
-                Nothing here posts anywhere. Generate, look at it, download the file, put it out
-                yourself. `published` is you recording that you did.
+                Instagram posts from here, one press at a time — open a post and use
+                <em>Publish to Instagram</em>. Everywhere else is still download the file and put
+                it out yourself; `published` is you recording that you did.
               </p>
             </div>
             <select id="a-filter">
@@ -531,6 +532,40 @@
               <button type="button" id="m-export" class="btn btn-quiet">Mark exported</button>
             </div>
           </form>
+
+          <!-- Publishing ------------------------------------------------------------------
+               Deliberately outside the form and below the actions. Save, Download and Mark
+               exported are all reversible; this one puts something on a public feed and
+               cannot be undone from here, so it does not sit in a row where a mis-aimed
+               click reaches it. -->
+          <section id="m-publish" class="publish" hidden>
+            <p class="label">Publish to Instagram</p>
+            <p id="m-publish-account" class="publish-account note">Checking the account…</p>
+            <p id="m-publish-hold" class="publish-hold" hidden></p>
+
+            <div id="m-publish-controls" class="publish-controls">
+              <button type="button" id="m-publish-now" class="btn btn-primary">Publish now</button>
+              <label class="publish-when">
+                <span class="label">or at</span>
+                <input type="datetime-local" id="m-publish-at" />
+              </label>
+              <button type="button" id="m-publish-schedule" class="btn">Schedule</button>
+            </div>
+
+            <!-- The confirm step. Shows what is about to go out and where, because a
+                 button that says "publish" and a button that says "publish this caption to
+                 this account right now" are different promises. -->
+            <div id="m-publish-confirm" class="publish-confirm" hidden>
+              <p id="m-publish-confirm-text" class="publish-confirm-text"></p>
+              <pre id="m-publish-confirm-caption" class="publish-confirm-caption"></pre>
+              <div class="publish-confirm-actions">
+                <button type="button" id="m-publish-go" class="btn btn-danger">Yes — post it</button>
+                <button type="button" id="m-publish-cancel" class="btn btn-quiet">Cancel</button>
+              </div>
+            </div>
+
+            <ul id="m-publications" class="publications"></ul>
+          </section>
         </div>
       </aside>
     </div>
