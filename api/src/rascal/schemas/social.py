@@ -30,12 +30,18 @@ AssetFormat = Literal["card", "photo", "video"]
 CardTemplate = Literal["quote", "prompt", "stat", "announcement"]
 CardPalette = Literal["cream", "terracotta", "periwinkle", "sage", "ink"]
 
-# The Literals above and the CHECK-constraint tuples in `models/social.py` are the same three
-# sets written twice, so assert it here rather than discovering the drift as a 500 from
-# Postgres on a value Pydantic happily accepted.
+# These three and the CHECK-constraint tuples in `models/social.py` are the same sets written
+# twice, so assert it here rather than discovering the drift as a 500 from Postgres on a value
+# Pydantic happily accepted.
 assert set(Platform.__args__) == set(SOCIAL_PLATFORMS)
 assert set(AssetStatus.__args__) == set(SOCIAL_STATUSES)
 assert set(AssetFormat.__args__) == set(SOCIAL_FORMATS)
+
+# **These two carry no CHECK, by design.** `models/social.py` keeps `template` and `palette` as
+# plain text because the renderer that has to know them lives in JavaScript, so a constraint in
+# Postgres would be a second list to keep in step. That makes `brand.py` the only authority and
+# these asserts the only thing standing between the two copies — and the failure they prevent
+# is not a database error but a card the browser cannot draw, which nothing else would catch.
 assert set(CardTemplate.__args__) == set(TEMPLATES)
 assert set(CardPalette.__args__) == set(PALETTES)
 

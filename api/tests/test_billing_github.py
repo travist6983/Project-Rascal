@@ -134,6 +134,29 @@ async def test_a_daily_series_is_built_from_the_date_field() -> None:
     assert report.series_unit == "cents"
 
 
+async def test_an_unrecognised_shape_is_an_error_not_a_zero() -> None:
+    """A renamed field must not render as a quiet, confident $0.00.
+
+    This card exists because Actions billing halted the repo twice without warning. A card
+    that reports zero because it stopped understanding the response is the same failure with
+    extra steps.
+    """
+    handler = lambda request: httpx.Response(200, json={"usage": [], "total": 0})  # noqa: E731
+    async with _client(handler) as client:
+        report = await github_report(client, _settings())
+    assert report.status == "error"
+    assert report.amount_cents is None
+    assert "usageItems" in report.detail
+
+
+async def test_a_present_but_empty_list_is_a_real_quiet_month() -> None:
+    """The other half: no usage yet is a fact, and reports $0.00 with status ok."""
+    async with _client(_usage([])) as client:
+        report = await github_report(client, _settings())
+    assert report.status == "ok"
+    assert report.amount_cents == 0
+
+
 async def test_a_404_is_a_missing_permission_not_a_missing_user() -> None:
     """GitHub answers a token without `Plan: read` with 404, which reads as a typo'd username."""
     async with _client(_status(404)) as client:

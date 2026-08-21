@@ -1151,10 +1151,32 @@ function pushTurn(role, text) {
 // **Built as DOM nodes, never `innerHTML`.** This is model output rendered in a console that
 // holds a bearer token; the markup surface stays exactly zero, which also means nothing here
 // depends on the CSP allowing anything it currently does not.
-const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g;
+// `\*(?!\s)…(?<!\s)\*` rather than `\*[^*]+\*`: the loose form turns "3 * 4 * 5" into
+// italics, which is the failure you only meet once somebody writes a number in a brief.
+const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\*(?!\s)[^*]+(?<!\s)\*)/g;
 
 function setProse(node, text) {
   node.replaceChildren();
+  // Fences first, and before the blank-line split: a code block may contain a blank line, and
+  // splitting on those would tear it in half. Odd trailing segment means an unclosed fence —
+  // rendering it as code is friendlier than printing the backticks.
+  String(text)
+    .split("```")
+    .forEach((segment, index) => {
+      if (index % 2 === 1) {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.textContent = segment.replace(/^[\w-]*\n/, "").replace(/\n$/, "");
+        pre.append(code);
+        node.append(pre);
+      } else {
+        appendBlocks(node, segment);
+      }
+    });
+  if (!node.childNodes.length) node.textContent = text;
+}
+
+function appendBlocks(node, text) {
   for (const block of String(text).split(/\n{2,}/)) {
     const line = block.trim();
     if (!line) continue;
@@ -1191,31 +1213,28 @@ function setProse(node, text) {
     appendInline(para, line);
     node.append(para);
   }
-  if (!node.childNodes.length) node.textContent = text;
 }
 
 function appendInline(parent, text) {
   const lines = String(text).split("\n");
   lines.forEach((line, i) => {
     if (i) parent.append(document.createElement("br"));
-    for (const piece of line.split(INLINE)) {
-      if (!piece) continue;
-      if (piece.startsWith("**") && piece.endsWith("**") && piece.length > 4) {
-        const el = document.createElement("strong");
-        el.textContent = piece.slice(2, -2);
-        parent.append(el);
-      } else if (piece.startsWith("`") && piece.endsWith("`") && piece.length > 2) {
-        const el = document.createElement("code");
-        el.textContent = piece.slice(1, -1);
-        parent.append(el);
-      } else if (piece.startsWith("*") && piece.endsWith("*") && piece.length > 2) {
-        const el = document.createElement("em");
-        el.textContent = piece.slice(1, -1);
-        parent.append(el);
-      } else {
+    // `String.split` with one capturing group interleaves [text, capture, text, capture, …],
+    // so **the odd indices are exactly the pieces `INLINE` matched**. Deciding from the index
+    // rather than from the piece's first and last characters is what keeps the guards in the
+    // pattern meaningful: `* b *` is refused by the lookahead, and inspecting characters would
+    // have italicised it anyway on the way back out.
+    line.split(INLINE).forEach((piece, index) => {
+      if (!piece) return;
+      if (index % 2 === 0) {
         parent.append(document.createTextNode(piece));
+        return;
       }
-    }
+      const tag = piece.startsWith("**") ? "strong" : piece.startsWith("`") ? "code" : "em";
+      const el = document.createElement(tag);
+      el.textContent = piece.slice(tag === "strong" ? 2 : 1, tag === "strong" ? -2 : -1);
+      parent.append(el);
+    });
   });
 }
 
@@ -1907,8 +1926,16 @@ $("m-png").addEventListener("click", downloadPng);
 $("m-webm").addEventListener("click", downloadWebm);
 $("m-export").addEventListener("click", markExported);
 $("m-copy-vtt").addEventListener("click", async () => {
-  await navigator.clipboard.writeText($("m-vtt").textContent);
-  banner("Caption track copied.");
+  // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so
+  // a success message there is an error-coloured alert pinned to the console until somebody
+  // happens to load the Ops tab. Every other confirmation in this file uses `toast`.
+  try {
+    await navigator.clipboard.writeText($("m-vtt").textContent);
+    toast("Caption track copied.");
+  } catch {
+    // Clipboard permission can be refused, and an unhandled rejection here would be silent.
+    toast("Could not reach the clipboard — select the text and copy it.");
+  }
 });
 for (const id of ["m-template", "m-palette", "m-platform", "m-eyebrow", "m-headline", "m-subhead"]) {
   $(id).addEventListener("input", paintPreview);

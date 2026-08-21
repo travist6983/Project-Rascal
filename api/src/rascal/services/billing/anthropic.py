@@ -175,7 +175,12 @@ async def _fetch(
         if response.status_code != 200:
             return response.status_code
         payload = response.json()
-        buckets.extend(payload.get("data") or [])
+        # Same rule as the GitHub card: a body with no `data` key at all is a shape change,
+        # not a month with no spending. `None` is the caller's signal to say so instead of
+        # rendering $0.00 — which is what the `cost is None` branch above exists for.
+        if not isinstance(payload, dict) or "data" not in payload:
+            return None
+        buckets.extend(payload["data"] or [])
         if not payload.get("has_more"):
             return buckets
         page = payload.get("next_page")
