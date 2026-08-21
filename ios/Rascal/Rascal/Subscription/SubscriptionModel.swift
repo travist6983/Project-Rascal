@@ -91,12 +91,14 @@ final class SubscriptionModel {
     }
 
     #if DEBUG
-        /// A model parked in one state, for previews.
+        /// A model parked in one state, for previews and for rendering.
         ///
-        /// **`.ready` is not reachable from here and that is not an omission** — it carries a
-        /// `SubscriptionOffer`, which holds two `Product`s, and nothing but StoreKit can make one.
-        /// A preview of the full paywall runs against the committed `Vellum.storekit` file; these
-        /// cover the states that do not need it.
+        /// **Every state is reachable from here, including `.ready`** — which was not true when
+        /// this was written and is the whole point of the change that made it true. A
+        /// `SubscriptionOffer` used to hold two `Product`s, and nothing but StoreKit can make one,
+        /// so the full paywall could only be seen with a working store. It now holds `OfferedPlan`
+        /// values, so `SubscriptionScreenshotTests` builds the finished paywall — trial, computed
+        /// saving and all — at every accessibility size, with no store, no session and no taps.
         convenience init(
             previewing phase: Phase,
             household: FamilySummary? = nil,
