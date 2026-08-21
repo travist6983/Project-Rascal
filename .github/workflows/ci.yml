@@ -113,10 +113,33 @@ jobs:
           fi
           pg_dump --version | grep -qE ' 16\.' \
             || { echo "::error::pg_dump is not 16 after setup: $(pg_dump --version)"; exit 1; }
+      # ffmpeg and ffprobe, for the studio's video render. **Without these the stitch tests
+      # `skipif` themselves into silence** — a green run that asserted nothing about the one
+      # part of that feature which has no vendor in it and therefore can be tested properly.
+      # The step below fails the job rather than letting them skip again.
+      - name: Ensure ffmpeg
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
       - run: uv sync --all-groups
         working-directory: api
       - run: uv run pytest -q
+        working-directory: api
+      # A skip here is indistinguishable from a pass in the summary line, and these are the
+      # tests that cover the ffmpeg concat. Assert they actually ran.
+      - name: The ffmpeg tests must not have skipped
+        run: uv run pytest -q tests/test_social_video.py -m "" --no-header -rs 2>&1 | tee /tmp/vid.txt
+        working-directory: api
+      - run: |
+          if grep -qiE "skipped" /tmp/vid.txt; then
+            echo "::error::a video test skipped — ffmpeg is missing or the guard is wrong"
+            grep -i skipped /tmp/vid.txt
+            exit 1
+          fi
         working-directory: api

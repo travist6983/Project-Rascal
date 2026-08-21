@@ -32,6 +32,12 @@ from pathlib import Path
 #: does not hold a worker thread for the life of the process.
 _TIMEOUT_SECONDS = 300
 
+#: How far the joined file may drift from the sum of its parts before the copy is rejected and
+#: the re-encode runs. Container overhead and a final partial frame put a correct join a few
+#: hundredths of a second out; a join that silently dropped or mistimed a clip is out by whole
+#: seconds. Half a second sits between the two with room to spare.
+_TOLERANCE_SECONDS = 0.5
+
 
 class StitchError(RuntimeError):
     """A concat that did not produce a file, carrying a sentence rather than ffmpeg's stderr."""
@@ -75,31 +81,43 @@ def concat(clips: list[bytes]) -> bytes:
         listing.write_text("".join(f"file '{path.name}'\n" for path in paths))
         output = workspace / "out.mp4"
 
+        expected = sum(_duration(path) or 0.0 for path in paths)
         copied = _run(
             [
                 "ffmpeg",
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-nostdin",
                 "-y",
                 "-f",
                 "concat",
                 "-safe",
                 "0",
+                # **Before `-i`, because `-fflags` is a demuxer option.** After it, ffmpeg
+                # applies it to the output muxer, where `+genpts` means nothing at all —
+                # timestamps restart at zero in every clip and the joined file carries
+                # overlapping timelines.
+                "-fflags",
+                "+genpts",
                 "-i",
                 listing.name,
                 "-c",
                 "copy",
-                # Timestamps restart at zero in every clip; without this the joined file
-                # carries seven overlapping timelines and players show the first clip only.
-                "-fflags",
-                "+genpts",
                 output.name,
             ],
             workspace,
         )
+        # **An exit code of zero is not correctness here.** The concat demuxer will happily
+        # stream-copy clips whose codecs do not match — h264 packets and mpeg4 packets written
+        # into one h264 track — and exit 0 having produced a file that plays as garbage after
+        # the first clip. Verified: two deliberately incompatible clips exit 0. So the copy is
+        # accepted only if the joined duration is the sum of the parts, which is the cheapest
+        # property that a mangled join fails.
         if copied and output.exists() and output.stat().st_size:
-            return output.read_bytes()
+            actual = _duration(output)
+            if actual is not None and expected and abs(actual - expected) <= _TOLERANCE_SECONDS:
+                return output.read_bytes()
 
         # Re-encode. Slower and lossy, and still better than handing back nothing.
         output.unlink(missing_ok=True)
@@ -109,6 +127,7 @@ def concat(clips: list[bytes]) -> bytes:
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-nostdin",
                 "-y",
                 "-f",
                 "concat",
@@ -126,6 +145,8 @@ def concat(clips: list[bytes]) -> bytes:
                 "aac",
                 "-b:a",
                 "128k",
+                "-pix_fmt",
+                "yuv420p",
                 # Vertical output stays vertical even if a clip came back the wrong way up.
                 "-vf",
                 "scale=720:1280:force_original_aspect_ratio=decrease,"
@@ -145,11 +166,46 @@ def concat(clips: list[bytes]) -> bytes:
     )
 
 
+def _duration(path: Path) -> float | None:
+    """Seconds, per ffprobe, or `None` if it could not be read.
+
+    `ffprobe` ships in the same Debian `ffmpeg` package the runtime image installs, so this
+    adds no dependency the concat did not already have.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def _run(command: list[str], cwd: Path) -> bool:
     """True when ffmpeg exited cleanly. Never raises on a non-zero exit — the caller decides.
 
     `cwd` is the temporary directory and every path in the command is a bare filename, which is
     what makes `-safe 0` tolerable: the concat list can only name files this function wrote.
+
+    `stdin` is closed rather than inherited. ffmpeg reads the console for interactive keys, and
+    a copy of it inside a web server sharing the process's stdin is a way to lose bytes that
+    belong to something else — `-nostdin` is in both argvs and this is the belt to that brace.
     """
     try:
         # Fixed argv, no shell, and every filename is one this function wrote.
@@ -159,6 +215,7 @@ def _run(command: list[str], cwd: Path) -> bool:
             capture_output=True,
             timeout=_TIMEOUT_SECONDS,
             check=False,
+            stdin=subprocess.DEVNULL,
         )
     except (subprocess.TimeoutExpired, OSError):
         return False

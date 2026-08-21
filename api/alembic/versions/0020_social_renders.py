@@ -10,6 +10,10 @@ clips that came back before the seventh timed out.
 generations — no video API stitches them — so the honest unit of progress is clips landed, not
 a percentage somebody computed. A resumed attempt can skip what is already in the array.
 
+**One live render per post, enforced by a partial unique index.** The guard in `preflight` is
+a read followed by an insert and two overlapping requests can both pass it; the index is what
+makes paying for the same seven clips twice impossible rather than unlikely.
+
 **`cost_cents` is written even on failure**, because the money is spent when the clip is
 generated and not when the job succeeds. A ledger that only records successful spend is how a
 bill becomes a surprise, which is the same argument as the cost panel it feeds.
@@ -99,12 +103,15 @@ def upgrade() -> None:
         "social_renders",
         ["asset_id", sa.text("created_at DESC")],
     )
-    # "Is anything still running?" — asked on every load of the studio, and by the guard that
-    # refuses to start a second render for a post that is already rendering.
+    # **Unique, not just indexed.** The guard against starting a second render for a post is a
+    # read followed by an insert, and two overlapping requests can both pass the read — which
+    # buys the same seven clips twice. Putting it here makes the race impossible rather than
+    # unlikely, and it is also the "is anything still running" index the studio reads.
     op.create_index(
-        "ix_social_renders_status",
+        "uq_social_renders_one_live_per_asset",
         "social_renders",
-        ["status"],
+        ["asset_id"],
+        unique=True,
         postgresql_where=sa.text("status IN ('queued', 'running')"),
     )
     op.execute(
@@ -116,7 +123,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS trg_social_renders_set_updated_at ON social_renders")
-    op.drop_index("ix_social_renders_status", table_name="social_renders")
+    op.drop_index("uq_social_renders_one_live_per_asset", table_name="social_renders")
     op.drop_index("ix_social_renders_asset_id_created_at", table_name="social_renders")
     # The check constraint is not dropped explicitly: `DROP TABLE` takes its constraints with
     # it, and naming it here re-applies the metadata naming convention to an already-conventional

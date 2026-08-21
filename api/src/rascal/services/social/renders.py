@@ -26,6 +26,7 @@ progress the console shows is real.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import logging
 import uuid
@@ -51,6 +52,11 @@ PROVIDER = "gemini_video"
 #: seven of them run one after another. The client timeout is per request, not for the job.
 _PER_CLIP_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
 
+#: Added on top of the whole job's theoretical worst case before a live row is called dead.
+#: Generous deliberately: cancelling a job that is merely slow starts a second one beside it,
+#: and two jobs rendering the same treatment is the expensive mistake.
+_STALE_GRACE = dt.timedelta(minutes=10)
+
 
 def shots_of(asset: SocialAsset) -> list[dict[str, Any]]:
     return list((asset.shot_list or {}).get("shots") or [])
@@ -59,8 +65,9 @@ def shots_of(asset: SocialAsset) -> list[dict[str, Any]]:
 def estimate_cents(settings: Settings, shots: list[dict[str, Any]]) -> int:
     """What a treatment will cost to render, before rendering it.
 
-    Shown in the console beside the button. A figure derived from a price somebody typed into
-    the environment, like every other estimate in this service, and the card says so.
+    Returned on the asset's render status so the console can price a treatment beside the
+    button rather than after the invoice. A figure derived from a price somebody typed into the
+    environment, like every other estimate in this service, and the console says so.
     """
     seconds = sum(int(shot.get("seconds") or 0) for shot in shots)
     return seconds * settings.gemini_video_cents_per_second
@@ -101,13 +108,41 @@ async def preflight(
         .limit(1)
     )
     if running is not None:
-        raise RascalError(
-            ErrorCode.VALIDATION_FAILED,
-            "A render for this post is already running. Wait for it or let it fail — "
-            "starting a second would pay for the same seven clips twice.",
-            field="status",
-        )
+        # **A live row may be a dead job.** `run()` is a detached background task, so a deploy
+        # or a crash takes it with the process — and `asyncio.CancelledError` is a
+        # `BaseException`, so even the broad handler in `run` may not get to write a terminal
+        # status. Without this, one interrupted render makes a post permanently unrenderable
+        # from the console, recoverable only by hand-editing the database.
+        if _is_stale(running):
+            running.status = "cancelled"
+            running.error = (
+                "Abandoned — the process running it went away, most likely a deploy or a "
+                "restart. Any clips it had already paid for are still on this row."
+            )
+            running.finished_at = dt.datetime.now(tz=dt.UTC)
+            await session.commit()
+        else:
+            raise RascalError(
+                ErrorCode.VALIDATION_FAILED,
+                "A render for this post is already running. Wait for it or let it fail — "
+                "starting a second would pay for the same seven clips twice.",
+                field="status",
+            )
     return shots
+
+
+def _is_stale(render: SocialRender) -> bool:
+    """Has this render been live longer than it could possibly legitimately take?
+
+    The bound is generous on purpose — a clip is documented at up to six minutes and they run
+    one after another — because cancelling a job that is merely slow would start a second one
+    beside it and pay twice. Being an hour late is not the failure this is for; being gone is.
+    """
+    started = render.started_at or render.created_at
+    if started is None:
+        return False
+    budget = dt.timedelta(seconds=_PER_CLIP_TIMEOUT.read or 600) * max(render.shots_total, 1)
+    return dt.datetime.now(tz=dt.UTC) - started > budget + _STALE_GRACE
 
 
 async def create(
@@ -139,7 +174,7 @@ async def run(render_id: uuid.UUID) -> None:
             return
         asset = await session.get(SocialAsset, render.asset_id)
         if asset is None:
-            await _finish(session, render, "failed", error="The post was deleted mid-render.")
+            await _finish(session, render_id, "failed", error="The post was deleted mid-render.")
             return
 
         from rascal.config import get_settings
@@ -182,29 +217,90 @@ async def run(render_id: uuid.UUID) -> None:
             # row, which is the record of how it was made.
             asset.render_provider = PROVIDER
             asset.render_key = key
-            await _finish(session, render, "succeeded")
-        except LookupError:
+            await _finish(session, render_id, "succeeded")
+        except asyncio.CancelledError:
+            # **A `BaseException`, so the broad handler below never sees it.** This is what a
+            # deploy looks like from inside the job: uvicorn cancels the task on SIGTERM. Write
+            # a terminal status before re-raising, or the row stays `running` and `preflight`
+            # refuses this post forever.
             await _finish(
-                session, render, "failed", error="GEMINI_API_KEY is no longer configured."
+                session,
+                render_id,
+                "cancelled",
+                error="The process was shut down mid-render, most likely a deploy.",
             )
+            raise
+        except LookupError as error:
+            # Narrow on purpose: `LookupError` is also `KeyError` and `IndexError`, either of
+            # which can come out of the parsing below and would otherwise be reported to the
+            # operator as a missing API key, sending them to fix something that is not wrong.
+            message = (
+                "GEMINI_API_KEY is no longer configured."
+                if str(error) == "gemini_video"
+                else _sentence(error)
+            )
+            await _finish(session, render_id, "failed", error=message)
         except (RuntimeError, httpx.HTTPError) as error:
             # `gemini` and `stitch` both raise `RuntimeError` carrying a sentence written for
             # a person; anything else is summarised rather than pasted.
-            await _finish(session, render, "failed", error=_sentence(error))
+            await _finish(session, render_id, "failed", error=_sentence(error))
         except Exception as error:
             # Detached: nothing above this catches, so a bare except is the net rather
             # than a shrug. It still ends as a sentence on the row.
             log.exception("social render failed", extra={"render": str(render_id)})
-            await _finish(session, render, "failed", error=_sentence(error))
+            await _finish(session, render_id, "failed", error=_sentence(error))
 
 
 async def _finish(
-    session: AsyncSession, render: SocialRender, status: str, *, error: str | None = None
+    session: AsyncSession, render_id: uuid.UUID, status: str, *, error: str | None = None
 ) -> None:
-    render.status = status
-    render.error = error
-    render.finished_at = dt.datetime.now(tz=dt.UTC)
-    await session.commit()
+    """Write the terminal status, and never raise while doing it.
+
+    **This runs from inside `except` handlers, where the session may already be poisoned.** If
+    the failure being handled *was* a failed `commit` — a dropped Neon connection between two
+    ten-minute generations, a lock timeout, an integer overflow — SQLAlchemy has deactivated
+    the transaction and every further write raises `PendingRollbackError` until somebody rolls
+    back. Committing straight into that raises out of a detached background task, and the row
+    is left `running` forever, which `preflight` then refuses on until somebody edits the
+    database by hand. Verified by injecting all three failures against a real Postgres.
+
+    So: roll back first, re-fetch the row the rollback just expired, and swallow whatever is
+    left. A render whose terminal status could not be written is a log line, not an exception
+    nobody is positioned to catch.
+    """
+    finished = dt.datetime.now(tz=dt.UTC)
+    try:
+        # The ordinary path, and it must stay ordinary: on success there are unflushed changes
+        # here that matter — the render's key and the post pointed at it — and a pre-emptive
+        # rollback would throw them away.
+        render = await session.get(SocialRender, render_id)
+        if render is None:
+            return
+        render.status = status
+        render.error = error
+        render.finished_at = finished
+        await session.commit()
+        return
+    except Exception:
+        log.warning(
+            "the render's outcome did not commit; retrying after a rollback",
+            extra={"render": str(render_id)},
+        )
+
+    # The session was poisoned — the failure being handled was itself a failed commit, so the
+    # transaction is deactivated and every write raises until somebody rolls back. Recover and
+    # write the terminal status alone; whatever else was pending is already lost.
+    try:
+        await session.rollback()
+        render = await session.get(SocialRender, render_id)
+        if render is None:
+            return
+        render.status = status
+        render.error = error
+        render.finished_at = finished
+        await session.commit()
+    except Exception:
+        log.exception("could not record the render's outcome", extra={"render": str(render_id)})
 
 
 def _sentence(error: BaseException) -> str:

@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
 from rascal.errors import ErrorCode, RascalError
+from rascal.models import SocialRender
 from rascal.schemas.social import (
     ChatIn,
     ConceptsIn,
@@ -32,6 +33,7 @@ from rascal.schemas.social import (
     SocialAssetIn,
     SocialAssetUpdate,
 )
+from rascal.services.s3 import presign_get
 from rascal.services.social import brand, director, renderers, renders, studio
 
 router = APIRouter(prefix="/social", tags=["social"])
@@ -298,7 +300,33 @@ async def render_video(
     ),
 )
 async def render_status(
-    asset_id: uuid.UUID, session: AdminReadSession, user: AdminUser
+    asset_id: uuid.UUID, session: AdminReadSession, user: AdminUser, settings: SettingsDep
 ) -> dict[str, Any]:
+    asset = await studio.get_asset(session, asset_id)
     render = await renders.latest_for(session, asset_id)
-    return {"render": renders.as_dict(render) if render else None}
+    return {
+        "render": renders.as_dict(render) if render else None,
+        # What it would cost to render this treatment, so the console can say so beside the
+        # button rather than after the fact.
+        "estimate_cents": renders.estimate_cents(settings, renders.shots_of(asset)),
+    }
+
+
+@router.get(
+    "/renders/{render_id}/file",
+    summary="A short-lived link to a finished render",
+    description=(
+        "A presigned URL, minted on request and never stored. The column holds an object key "
+        "for exactly this reason: a signed URL written to the database outlives its signature "
+        "and then reads as data loss."
+    ),
+)
+async def render_file(
+    render_id: uuid.UUID, session: AdminReadSession, user: AdminUser, settings: SettingsDep
+) -> dict[str, Any]:
+    render = await session.get(SocialRender, render_id)
+    if render is None or not render.render_key:
+        raise RascalError(
+            ErrorCode.NOT_FOUND, "That render has produced no file.", field="render_id"
+        )
+    return {"url": presign_get(render.render_key, settings), "key": render.render_key}

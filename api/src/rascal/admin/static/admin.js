@@ -40,6 +40,10 @@ const state = {
   composing: null,
   // The in-flight poll for a video render, so closing the composer stops it.
   renderPoll: null,
+  // Bumped whenever the poll should stop. `clearTimeout` cannot cancel a poll that is already
+  // awaiting its fetch, and that poll would otherwise reschedule itself after the composer
+  // closed — two loops, one cancellable slot.
+  renderPollEpoch: 0,
   // Which provider's series the costs chart is showing. More than one vendor has a series
   // since phase 100, and they are not all denominated in money.
   chart: null,
@@ -1503,6 +1507,9 @@ function renderTreatment(source) {
     : "";
   stopRenderPoll();
   $("m-render-state").hidden = true;
+  // One button element is reused for every post, so its disabled state has to be reset here
+  // or a render started on one post leaves it stuck for the next.
+  $("m-render").disabled = false;
   if (state.composing?.id) pollRender(state.composing.id, { once: true });
 }
 
@@ -1517,6 +1524,9 @@ function stopRenderPoll() {
     clearTimeout(state.renderPoll);
     state.renderPoll = null;
   }
+  // Invalidates any poll already in flight: it will see a stale epoch when its fetch returns
+  // and decline to reschedule.
+  state.renderPollEpoch += 1;
 }
 
 function renderStateNode(render) {
@@ -1538,7 +1548,11 @@ function renderStateNode(render) {
       failed: "Failed.",
       cancelled: "Cancelled.",
     }[render.status] || render.status;
-  if (render.cost_cents) line.textContent += ` ${money(render.cost_cents)} spent so far.`;
+  if (render.cost_cents) {
+    // "so far" is only true while it is still spending.
+    const live = render.status === "queued" || render.status === "running";
+    line.textContent += ` ${money(render.cost_cents)} ${live ? "spent so far" : "spent"}.`;
+  }
   box.append(line);
 
   if (render.status === "queued" || render.status === "running") {
@@ -1551,6 +1565,16 @@ function renderStateNode(render) {
     bar.append(fill);
     box.append(bar);
   }
+  if (render.status === "succeeded" && render.render_key) {
+    // Otherwise the one thing this feature pays money to produce is unreachable from the
+    // console that produced it.
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "btn btn-quiet";
+    link.textContent = "Open the film →";
+    link.addEventListener("click", () => openRender(render.id));
+    box.append(link);
+  }
   if (render.error) {
     const why = document.createElement("p");
     why.className = "card-note";
@@ -1559,22 +1583,36 @@ function renderStateNode(render) {
   }
 }
 
+async function openRender(renderId) {
+  try {
+    const { url } = await api(`/social/renders/${renderId}/file`);
+    window.open(url, "_blank", "noopener");
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 async function pollRender(assetId, { once = false } = {}) {
+  const epoch = state.renderPollEpoch;
   let payload;
   try {
     payload = await api(`/social/assets/${assetId}/video`);
   } catch {
     return; // a poll that fails is not worth a banner; the next one will say so
   }
+  // The composer may have closed, or moved to another post, while that request was open.
+  if (epoch !== state.renderPollEpoch || state.composing?.id !== assetId) return;
+
   const render = payload.render;
   if (!render) return;
   renderStateNode(render);
   const live = render.status === "queued" || render.status === "running";
   $("m-render").disabled = live;
-  if (live && !once) {
+  // `once` is the snapshot taken when the composer opens; it still resumes the loop if the
+  // render is live, or the progress box would freeze at whatever it happened to catch.
+  if (live) {
     state.renderPoll = setTimeout(() => pollRender(assetId), 4000);
-  } else if (!live && render.render_key && state.composing?.id === assetId) {
-    // The finished film is on the post now, so reopening it shows the real artifact.
+  } else if (render.render_key) {
     loadAssets().catch(() => {});
   }
 }

@@ -155,11 +155,14 @@ class SocialRender(Base):
     __table_args__ = (
         one_of("status", SOCIAL_RENDER_STATUSES, name="status"),
         Index("ix_social_renders_asset_id_created_at", "asset_id", text("created_at DESC")),
-        # Partial: the only question anybody asks of this column is "is anything still
-        # running", and that is also the guard against starting a second render for a post.
+        # **Unique, not merely indexed.** `preflight` reads for a live render and then inserts,
+        # and two overlapping requests can both pass that read — which pays for the same seven
+        # clips twice. The index makes it impossible rather than unlikely, and doubles as the
+        # "is anything still running" lookup.
         Index(
-            "ix_social_renders_status",
-            "status",
+            "uq_social_renders_one_live_per_asset",
+            "asset_id",
+            unique=True,
             postgresql_where=text("status IN ('queued', 'running')"),
         ),
     )

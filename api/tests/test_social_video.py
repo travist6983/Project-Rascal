@@ -7,6 +7,7 @@ quietly stops guarding.
 
 from __future__ import annotations
 
+import datetime as dt
 import subprocess
 import uuid
 from pathlib import Path
@@ -14,6 +15,8 @@ from pathlib import Path
 import httpx
 import pytest
 from httpx import AsyncClient
+from moto import mock_aws
+from sqlalchemy import select
 
 from factories import make_user
 from helpers import auth_headers
@@ -200,6 +203,291 @@ async def test_status_is_null_before_anything_has_been_rendered(client: AsyncCli
     assert response.json()["render"] is None
 
 
+# --- The whole job, with only the vendor call replaced ---------------------------------------
+
+
+@pytest.fixture
+def bucket():
+    """A real bucket, so the job's stores and reads are real."""
+    from rascal.services import s3
+
+    settings = get_settings()
+    s3.get_s3_client.cache_clear()
+    with mock_aws():
+        s3.get_s3_client().create_bucket(
+            Bucket=settings.s3_bucket,
+            CreateBucketConfiguration={"LocationConstraint": settings.s3_region},
+        )
+        yield settings.s3_bucket
+    s3.get_s3_client.cache_clear()
+
+
+@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
+async def test_the_whole_job_runs_end_to_end_with_only_the_vendor_replaced(
+    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
+) -> None:
+    """Everything except the HTTP call to Google: real ffmpeg, real bucket, real row.
+
+    The vendor is the one thing that cannot be exercised — the video models have a free-tier
+    quota of zero — so it is replaced with clips this test generates itself. Everything after
+    it is the shipping code path.
+    """
+    from rascal.models import SocialAsset, SocialRender
+    from rascal.services.social import gemini, renders
+
+    asset = SocialAsset(
+        headline="camera roll",
+        alt_text="A card.",
+        format="video",
+        shot_list=SHOTS,
+        created_by_user_id=admin.id,
+    )
+    session.add(asset)
+    await session.commit()
+
+    made = [_clip(tmp_path, i + 1, seconds=2) for i in range(len(SHOTS["shots"]))]
+    calls: list[str] = []
+
+    async def fake_render_shot(client_, settings_, shot):
+        calls.append(gemini.shot_prompt(shot))
+        return made[len(calls) - 1]
+
+    monkeypatch.setattr(gemini, "render_shot", fake_render_shot)
+
+    render = SocialRender(
+        asset_id=asset.id,
+        status="queued",
+        provider=renders.PROVIDER,
+        model="test-model",
+        shots_total=len(SHOTS["shots"]),
+    )
+    session.add(render)
+    await session.commit()
+    render_id = render.id
+
+    await renders.run(render_id)
+
+    await session.refresh(render)
+    await session.refresh(asset)
+    assert render.status == "succeeded", render.error
+    assert len(render.clip_keys) == len(SHOTS["shots"]), "a clip key per shot"
+    assert all(key.startswith("social/") for key in render.clip_keys), "never under children/"
+    assert render.render_key, "the joined file was stored"
+    assert render.finished_at is not None
+    # 8 seconds of treatment at ten cents a second, recorded as it was spent.
+    assert render.cost_cents == 80
+    # The post now points at the finished film.
+    assert asset.render_key == render.render_key
+    assert asset.render_provider == renders.PROVIDER
+    # Every shot was actually sent, as direction rather than as raw JSON.
+    assert len(calls) == len(SHOTS["shots"])
+    assert "identifiable faces" in calls[0]
+
+
+@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
+async def test_a_vendor_failure_midway_keeps_the_clips_it_already_paid_for(
+    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
+) -> None:
+    """The money is spent at generation. A job that dies on shot two must say what shot one cost."""
+    from rascal.models import SocialAsset, SocialRender
+    from rascal.services.social import gemini, renders
+
+    asset = SocialAsset(headline="partial", alt_text="A card.", format="video", shot_list=SHOTS)
+    session.add(asset)
+    await session.commit()
+
+    good = _clip(tmp_path, 1, seconds=2)
+    seen = {"n": 0}
+
+    async def flaky(client_, settings_, shot):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return good
+        raise RuntimeError("429 from Gemini. Billing is not enabled.")
+
+    monkeypatch.setattr(gemini, "render_shot", flaky)
+
+    render = SocialRender(
+        asset_id=asset.id,
+        status="queued",
+        provider=renders.PROVIDER,
+        model="test-model",
+        shots_total=2,
+    )
+    session.add(render)
+    await session.commit()
+
+    await renders.run(render.id)
+    await session.refresh(render)
+    await session.refresh(asset)
+
+    assert render.status == "failed"
+    assert "Billing is not enabled" in render.error
+    assert len(render.clip_keys) == 1, "the clip it bought is still recorded"
+    assert render.cost_cents == 40, "and so is what that clip cost"
+    assert render.render_key is None
+    assert asset.render_key is None, "a failed job must not point the post at nothing"
+
+
+@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
+async def test_a_failed_commit_does_not_leave_the_row_running_forever(
+    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
+) -> None:
+    """The poisoned-session path, which is the one with teeth.
+
+    If the per-clip `commit` is what fails, SQLAlchemy deactivates the transaction and every
+    later write raises `PendingRollbackError` — including the one that records the failure. A
+    detached background task then raises into nothing and the row stays `running`, which
+    `preflight` refuses on forever. `_finish` rolls back first for exactly this.
+    """
+    from rascal.models import SocialAsset, SocialRender
+    from rascal.services.social import gemini, renders
+
+    asset = SocialAsset(headline="poisoned", format="video", shot_list=SHOTS)
+    session.add(asset)
+    await session.commit()
+
+    async def fine(client_, settings_, shot):
+        return _clip(tmp_path, 1, seconds=2)
+
+    monkeypatch.setattr(gemini, "render_shot", fine)
+    # An integer overflow on `cost_cents` — reachable through the API, since `shot_list` is
+    # free-form JSON — makes the commit itself fail rather than the generation.
+    monkeypatch.setattr(renders, "store", lambda *a, **k: "social/x.mp4", raising=False)
+
+    render = SocialRender(
+        asset_id=asset.id,
+        status="queued",
+        provider=renders.PROVIDER,
+        model="m",
+        shots_total=1,
+        cost_cents=2**31 - 1,
+    )
+    session.add(render)
+    await session.commit()
+    render_id = render.id
+
+    # Never raises, however the commit fails.
+    await renders.run(render_id)
+
+    # Read through a fresh session: `run()` owns its own, and this test's session holds a
+    # snapshot from before it committed.
+    from rascal.db import get_sessionmaker
+
+    async with get_sessionmaker()() as fresh:
+        row = await fresh.get(SocialRender, render_id)
+        assert row.status == "failed", f"the row must reach a terminal state, not {row.status}"
+        assert row.finished_at is not None
+        assert "GEMINI_API_KEY" not in (row.error or "")
+
+
+async def test_an_abandoned_render_stops_blocking_the_post(
+    client: AsyncClient, session, app, admin
+) -> None:
+    """A deploy kills the task mid-render. The post must not become unrenderable forever.
+
+    `asyncio.CancelledError` is a `BaseException`, so even the broad handler may not get to
+    write a terminal status — which leaves a `running` row that `preflight` refuses on and only
+    hand-edited SQL can clear.
+    """
+    from rascal.config import get_settings as real_settings
+    from rascal.models import SocialRender
+
+    asset_id = await _asset(client, admin, shot_list=SHOTS)
+    long_ago = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1)
+    session.add(
+        SocialRender(
+            asset_id=uuid.UUID(asset_id),
+            status="running",
+            provider=renders.PROVIDER,
+            model="m",
+            shots_total=2,
+            started_at=long_ago,
+        )
+    )
+    await session.commit()
+
+    app.dependency_overrides[real_settings] = lambda: _settings()
+    try:
+        response = await client.post(
+            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
+        )
+    finally:
+        app.dependency_overrides.pop(real_settings, None)
+    assert response.status_code == 202, response.text
+
+    from rascal.db import get_sessionmaker
+
+    async with get_sessionmaker()() as fresh:
+        rows = (
+            await fresh.scalars(
+                select(SocialRender).where(SocialRender.asset_id == uuid.UUID(asset_id))
+            )
+        ).all()
+    assert any(r.status == "cancelled" for r in rows), "the abandoned row is reaped"
+    # A second row exists — the render the reaping unblocked. Its own status depends on how far
+    # the background task got, which is not what this test is about.
+    assert len(rows) == 2, [r.status for r in rows]
+
+
+async def test_a_render_that_is_merely_slow_is_not_reaped(
+    client: AsyncClient, session, app, admin
+) -> None:
+    """Cancelling a slow job starts a second one beside it and pays for the clips twice."""
+    from rascal.config import get_settings as real_settings
+    from rascal.models import SocialRender
+
+    asset_id = await _asset(client, admin, shot_list=SHOTS)
+    session.add(
+        SocialRender(
+            asset_id=uuid.UUID(asset_id),
+            status="running",
+            provider=renders.PROVIDER,
+            model="m",
+            shots_total=2,
+            started_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(seconds=30),
+        )
+    )
+    await session.commit()
+
+    app.dependency_overrides[real_settings] = lambda: _settings()
+    try:
+        response = await client.post(
+            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
+        )
+    finally:
+        app.dependency_overrides.pop(real_settings, None)
+    assert response.status_code == 422
+    assert "already running" in response.json()["error"]["message"]
+
+
+async def test_a_missing_key_is_not_reported_as_a_missing_api_key(
+    client: AsyncClient, session, admin, bucket, monkeypatch
+) -> None:
+    """`LookupError` is also `KeyError`. Reporting one as the other misdirects the fix."""
+    from rascal.models import SocialAsset, SocialRender
+    from rascal.services.social import gemini, renders
+
+    asset = SocialAsset(headline="keyerror", format="video", shot_list=SHOTS)
+    session.add(asset)
+    await session.commit()
+
+    async def explodes(client_, settings_, shot):
+        raise KeyError("some_field")
+
+    monkeypatch.setattr(gemini, "render_shot", explodes)
+    render = SocialRender(
+        asset_id=asset.id, status="queued", provider=renders.PROVIDER, model="m", shots_total=1
+    )
+    session.add(render)
+    await session.commit()
+
+    await renders.run(render.id)
+    await session.refresh(render)
+    assert render.status == "failed"
+    assert "GEMINI_API_KEY" not in (render.error or ""), render.error
+
+
 # --- The estimate -----------------------------------------------------------------------------
 
 
@@ -271,6 +559,42 @@ def test_a_single_clip_is_returned_untouched(tmp_path: Path) -> None:
     """One shot is already the finished file. Re-encoding it to prove a point is pure loss."""
     only = _clip(tmp_path, 1)
     assert stitch.concat([only]) == only
+
+
+@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
+def test_a_join_that_exits_zero_but_lost_a_clip_is_rejected(tmp_path: Path) -> None:
+    """An exit code of zero is not correctness, and this is the case that proves it.
+
+    The concat demuxer stream-copies clips whose codecs do not match — h264 packets and mpeg4
+    packets written into one h264 track — and exits 0 having produced something that plays as
+    garbage after the first clip. Verified by hand before this test existed. The copy is
+    therefore accepted only when the joined duration is the sum of the parts.
+    """
+    h264 = _clip(tmp_path, 1, seconds=2)
+    mpeg4_path = tmp_path / "mpeg4.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=360x640:d=2:r=24",
+            "-c:v",
+            "mpeg4",
+            "-pix_fmt",
+            "yuv420p",
+            str(mpeg4_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    joined = stitch.concat([h264, mpeg4_path.read_bytes()])
+    # Four seconds of playable video, which only the re-encode path can produce here.
+    assert abs(_duration(joined, tmp_path) - 4.0) < 0.6
 
 
 def test_nothing_to_stitch_says_so(tmp_path: Path) -> None:

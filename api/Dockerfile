@@ -37,10 +37,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 # **ffmpeg, for one feature.** The studio's video render generates a clip per shot and no
 # video API joins them, so the concatenation happens here — see `services/social/stitch.py`
-# and the scope note in `CLAUDE.md`. `ffmpeg` rather than the full `ffmpeg` suite plus codecs
-# is deliberate: this only ever demuxes and concatenates short mp4s, and the image is a
-# production runtime rather than a workstation. `--no-install-recommends` keeps it to about
-# 60 MB instead of pulling in x11 and a desktop's worth of libraries.
+# and the scope note in `CLAUDE.md`. `ffprobe` comes in the same package and is not optional:
+# the concat is accepted only when the joined duration proves it.
+#
+# **This is not a small install.** Debian's `ffmpeg` is the full suite and it brings a few
+# hundred megabytes of codec libraries with it, `--no-install-recommends` or not — that flag
+# trims the extras, not the dependencies. It is the price of the feature and it is named here
+# rather than discovered in a registry bill.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
