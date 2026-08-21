@@ -432,6 +432,43 @@ async def test_an_upside_down_age_band_is_refused(client: AsyncClient, admin) ->
     assert response.status_code == 422
 
 
+async def test_a_month_outside_the_year_is_refused_on_the_brief(client: AsyncClient, admin) -> None:
+    response = await client.post(
+        GENERATE,
+        json={"kind": "photo", "theme": "seasonal", "month_tags": [13]},
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 422
+
+
+#: The same two guards, on the route that *writes*. `PromptCandidateIn` carries its own
+#: validator, and `commit` is reachable without ever calling `generate` — so a brief validated
+#: on the way out says nothing about what arrives on the way in.
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [
+        ({"min_age_months": 200, "max_age_months": 100}, "min_age_months"),
+        ({"month_tags": [13]}, "month_tags"),
+        ({"month_tags": [0]}, "month_tags"),
+    ],
+)
+async def test_a_candidate_with_an_impossible_band_or_month_is_refused(
+    client: AsyncClient, session: AsyncSession, admin, overrides: dict, field: str
+) -> None:
+    candidate = {
+        "kind": "question",
+        "body": "What did {they} plant this month?",
+        "theme": "seasonal",
+        **overrides,
+    }
+    response = await client.post(
+        CANDIDATES, json={"candidates": [candidate]}, headers=auth_headers(admin)
+    )
+    assert response.status_code == 422, response.text
+    assert field in response.text
+    assert (await session.scalar(select(Prompt).where(Prompt.source == "llm"))) is None
+
+
 async def test_a_seasonal_batch_stops_the_occasion_filter(
     client: AsyncClient, admin, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -483,6 +520,65 @@ async def test_a_generated_batch_never_writes_anything(
     assert response.status_code == 200
     after = await session.scalar(select(Prompt.id).where(Prompt.source == "llm"))
     assert before == after is None
+
+
+# --- Who can see the queue ---------------------------------------------------------------
+
+
+async def test_a_parent_cannot_read_an_unreviewed_candidate(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """`GET /prompts` takes any authenticated caller, and this is the queue's only way out.
+
+    The scheduler is not the only thing that reads `prompts`. Before phase 103 every
+    `active=false` row was human-authored library copy somebody had chosen to retire, so a
+    listing that showed them was fine. This phase puts *unreviewed model output* in that same
+    state, and `active` is filtered on this route only when the caller asks for it — so
+    `?source=llm&active=false` handed a parent copy that no person had read.
+    """
+    await make_prompt(
+        session,
+        source="llm",
+        active=False,
+        body="Model-written and nobody has read it yet.",
+    )
+    parent = await make_user(session, display_name="An ordinary parent")
+    await session.commit()
+    assert parent.is_admin is False
+
+    page = (
+        await client.get("/v1/prompts?source=llm&active=false", headers=auth_headers(parent))
+    ).json()
+    assert page["total"] == 0
+    assert page["prompts"] == []
+
+    # Unfiltered too — the hole was not the query string.
+    everything = (await client.get("/v1/prompts?limit=500", headers=auth_headers(parent))).json()
+    assert all(p["source"] != "llm" for p in everything["prompts"])
+
+
+async def test_an_admin_still_sees_the_queue(
+    client: AsyncClient, session: AsyncSession, admin
+) -> None:
+    """The console reads this route. Hiding it from everyone would break the thing it is for."""
+    await make_prompt(session, source="llm", active=False, body="Waiting to be read.")
+    await session.commit()
+    page = (
+        await client.get("/v1/prompts?source=llm&active=false", headers=auth_headers(admin))
+    ).json()
+    assert page["total"] == 1
+    assert page["prompts"][0]["body"] == "Waiting to be read."
+
+
+async def test_an_approved_candidate_becomes_visible(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The rule is *pending*, not *llm*. Approving one is what puts it in the library."""
+    await make_prompt(session, source="llm", active=True, body="Read, approved, serving.")
+    parent = await make_user(session, display_name="A parent")
+    await session.commit()
+    page = (await client.get("/v1/prompts?source=llm", headers=auth_headers(parent))).json()
+    assert [p["body"] for p in page["prompts"]] == ["Read, approved, serving."]
 
 
 async def test_the_queue_count_is_what_the_review_cli_reads(session: AsyncSession, admin) -> None:

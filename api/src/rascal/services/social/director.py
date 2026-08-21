@@ -261,8 +261,18 @@ async def structured(
         "format": {"type": "json_schema", "schema": schema},
     }
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        response = await client.post(API_URL, json=request, headers=_headers(api_key))
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            response = await client.post(API_URL, json=request, headers=_headers(api_key))
+    except httpx.TimeoutException as exc:
+        # Uncaught, this is a bare 500 that says "A database error occurred"-shaped nothing.
+        # The caller can always act on it — every route here has a size lever — so the message
+        # names one instead of asking them to guess.
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            "The model took longer than five minutes and the request was abandoned. "
+            "Nothing was saved. Ask for fewer at a time and try again.",
+        ) from exc
 
     if response.status_code >= 400:
         raise RascalError(

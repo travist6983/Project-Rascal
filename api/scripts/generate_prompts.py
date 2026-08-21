@@ -78,10 +78,11 @@ MAX_TOKENS = 8192
 # running service cannot import this file. Moving them was the only way to keep one rule set
 # rather than two that drift.
 #
-# Nothing here changed shape: the regexes, the thresholds and `judge`'s wording are the ones
-# this script has always used, and `tests/test_generate_prompts.py` is unchanged and still
-# imports these names from this module. Two deliberate differences, both recorded in
-# `docs/decisions-log.md`: `judge` now also rejects a `{token}` outside `PROMPT_TOKENS`, and
+# The thresholds and `judge`'s wording are the ones this script has always used, and
+# `tests/test_generate_prompts.py` is unchanged and still imports these names from this module.
+# Three deliberate differences, all recorded in `docs/decisions-log.md`: `judge` now also
+# rejects a `{token}` outside `PROMPT_TOKENS`; `FEELING_NOT_ACTION` opens on `notice how`
+# rather than `notice how you`, which is broader than what this script used to apply; and
 # what this file called `MISSION_KINDS` is `IMPERATIVE_KINDS` there, because
 # `services/scheduler.py` already defines `MISSION_KINDS` in that package with a different
 # meaning. Neither name is imported here any more — `judge` was this file's only caller of

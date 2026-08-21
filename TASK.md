@@ -64,3 +64,19 @@
 - [x] **MISSING_INDEX** Rewrite the Today completed-today predicate as a UTC half-open range (sargable, DST-correct) — `api/src/rascal/services/today.py:62` (confidence: 78)
 - [x] **MIGRATION_TEST** Add a data-present downgrade test for 0003 (insert a letter row, downgrade past 0003, assert it's gone) — `api/alembic/versions/0003_letter_slot_and_admin.py:45` (confidence: 92)
 - [x] **CLOCK_DEPENDENT** Capture now before the HTTP call in the Today self-healing tests (lines 89 and 208) — `api/tests/test_today_self_healing.py:89` (confidence: 88)
+> Updated by rascal-review on 2026-08-21 · branch api/phase-102-console-tweaks · 6 validated findings
+
+All six were fixed in the same session. The one open item is a deliberate deferral, not a miss.
+
+## Critical
+- [x] **CONTRACT_DRIFT** `GET /prompts` returned unreviewed `source='llm'` candidates to any signed-in parent — `api/src/rascal/routers/prompts.py:60` (confidence: 95) — fixed, 3 regression tests
+
+## High
+- [x] **N_PLUS_ONE** One SELECT per candidate for the hash pre-check — `api/src/rascal/services/prompt_generation.py:475` (85) — batched into one `IN` query
+- [x] **ERROR_PATH** `PromptCandidateIn`'s validator untested on both branches — `api/src/rascal/schemas/admin.py:172` (85) — 4 tests added
+- [x] **OTHER** Docstring claimed two deliberate changes; three shipped — `api/src/rascal/services/candidates.py:10` (95) — corrected in both files and the log
+- [x] **OTHER** `decisions-log.md` argued from a false premise about `judge` — `docs/decisions-log.md:3313` (85) — corrected
+- [ ] **OTHER** Stream `director.structured`, or accept that count=25 can send no bytes for 1–2 minutes behind a proxy — `api/src/rascal/services/social/director.py:264` (80) — timeout now raises a `RascalError` naming the count; **streaming is an owner decision** because it touches the two existing social callers, and dropping the 25 option was declined since the owner specified it
+
+## Not covered by this review
+- [ ] Phase 104 (`59d58d0`, Instagram publishing) landed mid-run and was outside the reviewed diff — worth a second pass before merge

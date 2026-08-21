@@ -30,6 +30,7 @@ make a regex the final editor of the library.
 from __future__ import annotations
 
 import dataclasses
+import uuid
 from typing import Any
 
 from sqlalchemy import func, select
@@ -449,6 +450,32 @@ async def commit(
     # pass the pre-check and then fail on the unique index.
     claimed: set[str] = set()
 
+    # **One query for the whole batch, not one per candidate.** Every hash is computable before
+    # anything is written, and the pre-check reads a single indexed column — so the loop below
+    # does no reads at all. At twenty-five candidates this is the difference between one round
+    # trip and twenty-five sequential ones, each of them holding the write transaction open.
+    digests = [
+        content_hash(
+            str(row["kind"]),
+            rules.KIND_SHAPES[str(row["kind"])]["cadence"],
+            str(row["body"]).strip(),
+        )
+        for row in picked
+        if str(row["kind"]) in rules.KIND_SHAPES
+    ]
+    clashes: dict[str, uuid.UUID] = (
+        {
+            digest: prompt_id
+            for prompt_id, digest in (
+                await session.execute(
+                    select(Prompt.id, Prompt.content_hash).where(Prompt.content_hash.in_(digests))
+                )
+            ).all()
+        }
+        if digests
+        else {}
+    )
+
     for row in picked:
         kind = str(row["kind"])
         if kind not in rules.KIND_SHAPES:
@@ -472,7 +499,7 @@ async def commit(
             skipped.append({"body": body, "reason": "Sent twice in this batch.", "prompt_id": None})
             continue
 
-        clash = await session.scalar(select(Prompt.id).where(Prompt.content_hash == digest))
+        clash = clashes.get(digest)
         if clash is not None:
             skipped.append(
                 {

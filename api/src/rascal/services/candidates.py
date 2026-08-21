@@ -7,20 +7,24 @@ the only thing that ran them. `api/Dockerfile` copies `src`, `alembic.ini`, `ale
 all. Phase 103 gives the console a generate button, which makes these rules something the API
 enforces at request time, so they move to where the API can see them.
 
-**Moved, not rewritten.** Every regex, every threshold and `judge`'s reason wording are the
+**Moved, with three deliberate changes.** Every threshold and `judge`'s reason wording are the
 ones the batch script has used since phase 46 and that `tests/test_generate_prompts.py` pins.
 `scripts/generate_prompts.py` imports them back from here, which is what keeps one rule set
 rather than two drifting copies — and its unchanged test suite passing is the proof the lift
 was clean.
 
-**Two deliberate changes, both recorded in `docs/decisions-log.md`:**
+**Three deliberate changes, all recorded in `docs/decisions-log.md`:**
 
 1. `judge` now rejects a body carrying a `{token}` outside `constants.PROMPT_TOKENS`. It is
    the same check `services.library.validate_tokens` runs over a hand-typed body and
    `services.seeding` runs over the YAML, and it was the one authoring path without it. A
    misspelled token renders as literal braces on a card, in an export and in a printed book
    for as long as the archive exists, and `judge` is the only gate a generated body passes.
-2. What the script called `MISSION_KINDS` is `IMPERATIVE_KINDS` here.
+2. `FEELING_NOT_ACTION` opens on `notice how` rather than `notice how you`.
+   `scripts/review_candidates.py` carried the broader opener, and its canonical example —
+   "Notice how much you love watching {them} draw" — matched there and not here. Narrowing on
+   merge would have lost exactly the coverage the consolidation existed to protect.
+3. What the script called `MISSION_KINDS` is `IMPERATIVE_KINDS` here.
    `services/scheduler.py:52` already defines `MISSION_KINDS` in this package with a
    different meaning — *which kinds may fill the monthly measurement slot* — and two
    constants with one name and two meanings drift the first time either changes. The name

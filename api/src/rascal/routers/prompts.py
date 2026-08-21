@@ -22,7 +22,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 
 from rascal.constants import Cadence, PromptKind, PromptSource
 from rascal.deps import (
@@ -80,6 +80,15 @@ async def list_prompts(
     offset: int = Query(default=0, ge=0),
 ) -> PromptPage:
     clauses = []
+    if not user.is_admin:
+        # **The review queue is not library content, and this is the only route that could
+        # hand it to a parent.** A candidate is `source='llm'` with `active=false`: model-
+        # written copy that no person has read yet. `active` is filtered here only when the
+        # caller asks for it, so before this clause `GET /prompts?source=llm&active=false`
+        # returned unreviewed output to any signed-in account — which made the sentence in
+        # `docs/api-contract.md`, "nothing serves it", true of the scheduler and false of the
+        # API. The scheduler was never the only way out.
+        clauses.append(~and_(Prompt.source == "llm", Prompt.active.is_(False)))
     if kind:
         clauses.append(Prompt.kind == kind)
     if cadence:

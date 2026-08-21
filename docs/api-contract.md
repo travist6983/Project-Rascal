@@ -1084,7 +1084,9 @@ own records reach you.
 
 ## Prompts (admin, me only)
 
-**`GET /prompts`** — filterable by kind, theme, age band, source. Any authenticated caller.
+**`GET /prompts`** — filterable by kind, theme, age band, source. Any authenticated caller,
+but **pending candidates (`source: "llm"` and not active) are admin-only** — they are a review
+queue, not library content. Approving one makes it visible like any other prompt.
 **`POST /prompts`** — hand-authored additions. **Requires `users.is_admin`**; anyone else
 gets `403 not_authorized`. The library is content every child draws from, so a `viewer`
 login must not be able to write to it. `dev-login`'s fixture user is an admin.
@@ -1162,7 +1164,10 @@ month_tags?, default_unlock_age?}]}` → `201` `{inserted[], skipped[], queued_t
 twenty-five. `cadence` and `completion_mode` are **not accepted** — they are derived server-side
 from `kind`, so a caller cannot send a pair that disagrees with its own kind.
 
-> **A queued candidate is `source: "llm"`, `active: false`, and nothing serves it.** The
+> **A queued candidate is `source: "llm"`, `active: false`, and nothing serves it — and
+> `GET /prompts` hides it from anyone who is not an admin.** That second clause is not
+> decoration: this route takes any authenticated caller and filters `active` only when asked,
+> so without it a parent could list the queue and read copy no person had reviewed. The
 > scheduler filters on `active` and does not look at `source`, so `active: false` is the entire
 > distance between a review queue and model-written copy in a real archive — and `prompts.active`
 > has a `server_default` of `true` with no application-side default, so this is written
