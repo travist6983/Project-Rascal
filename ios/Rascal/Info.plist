@@ -151,5 +151,9 @@
 	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>GOOGLE_REVERSED_CLIENT_ID</key>
 	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+	<key>TERMS_URL</key>
+	<string>$(TERMS_URL)</string>
+	<key>PRIVACY_URL</key>
+	<string>$(PRIVACY_URL)</string>
 </dict>
 </plist>

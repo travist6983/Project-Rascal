@@ -930,6 +930,11 @@ struct OnboardingGate: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await session.notifications.refresh() }
+            // The entitlement re-check. A subscription bought, renewed, refunded or cancelled
+            // while the app was away is the server's news to tell, and a foreground is the only
+            // moment the app can ask. It is also what closes a confirmation that was still late
+            // when the parent last put the phone down.
+            Task { await SubscriptionCenter.shared.refresh() }
         }
         .task {
             // A warm launch resolves a stored session in well under 150ms. A spinner that
@@ -940,6 +945,12 @@ struct OnboardingGate: View {
                 guard !Task.isCancelled else { return }
                 showsLoadingChrome = true
             }
+            // **Before the session resolves, and never cancelled.** `Transaction.updates`
+            // starts producing as soon as the process does — an Ask-to-Buy approval or a
+            // purchase finished on another device can be waiting at launch — and this `.task`
+            // sits above `RootView`'s `.id(child.id)`, so switching child does not tear it down.
+            SubscriptionCenter.shared.start(api: session.account.api)
+
             await session.resume()
             chrome.cancel()
         }

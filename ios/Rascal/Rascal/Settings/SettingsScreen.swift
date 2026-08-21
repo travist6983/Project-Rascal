@@ -81,6 +81,9 @@ struct SettingsScreen: View {
     /// Built on first appearance, like `export`: the screen's memberwise init is what
     /// `RootView` calls, and a `@State` with no default would take it away.
     @State private var guardians: GuardiansModel?
+    /// One per screen, shared by the Membership card and by the invite's paywall — see
+    /// `GuardiansSection.subscription`.
+    @State private var subscription: SubscriptionModel?
     @State private var deletion: AccountDeletionModel?
     @State private var showingDelete = false
     @State private var export: ArchiveExport?
@@ -125,7 +128,12 @@ struct SettingsScreen: View {
                 accountSection
                 // Who shares this archive. In "You"'s neighbourhood rather than under
                 // `Advanced`: a second parent is the household, not a setting.
-                if let guardians { GuardiansSection(model: guardians) }
+                if let guardians, let subscription {
+                    GuardiansSection(model: guardians, subscription: subscription)
+                }
+                // Membership sits under the household it covers, per D4: the subscription is a
+                // property of the household, not of the person reading this screen.
+                if let subscription { SubscriptionSection(model: subscription) }
                 exportSection
                 syncSection
 
@@ -159,6 +167,7 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if guardians == nil { guardians = GuardiansModel(api: session.api) }
+            if subscription == nil { subscription = SubscriptionModel(api: session.api) }
             if deletion == nil { deletion = AccountDeletionModel(api: session.api) }
             await loadChild()
             await loadStats()

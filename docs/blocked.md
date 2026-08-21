@@ -1522,6 +1522,13 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
 click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
 is worse than a described destination. Nobody on this branch has an App Store Connect session.
 
+**Phase 37b shipped against a `.storekit` file and has never been exercised against Apple** (Aug 20,
+2026). The client half — products, paywall, purchase, restore, the `Transaction.updates` listener —
+is built and merged, and `ios/Rascal/RascalTests/Vellum.storekit` is the local configuration it was
+written against. The errand above is unchanged and still gates the first real transaction: until
+steps 1–5 are done there is no sandbox purchase to make, and **the `appAccountToken` round trip to
+37a's webhook has never been observed end to end.**
+
 
 ---
 

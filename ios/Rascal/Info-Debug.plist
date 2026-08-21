@@ -133,6 +133,10 @@
 	<string>$(GOOGLE_CLIENT_ID)</string>
 	<key>GOOGLE_REVERSED_CLIENT_ID</key>
 	<string>$(GOOGLE_REVERSED_CLIENT_ID)</string>
+	<key>TERMS_URL</key>
+	<string>$(TERMS_URL)</string>
+	<key>PRIVACY_URL</key>
+	<string>$(PRIVACY_URL)</string>
 
 	<!-- **Debug only — these two are not in Info.plist, on purpose.** `AppConfig` reads them and
 	     `AppConfig` is #if DEBUG, along with the rest of the dev-login path, so a Release build
