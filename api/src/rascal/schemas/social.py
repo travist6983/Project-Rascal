@@ -15,19 +15,35 @@ from pydantic import Field
 
 from rascal.models.social import SOCIAL_FORMATS, SOCIAL_PLATFORMS, SOCIAL_STATUSES
 from rascal.schemas.common import ApiModel
+from rascal.services.social.brand import PALETTES, TEMPLATES
 
 Platform = Literal[
     "instagram", "instagram_story", "x", "threads", "facebook", "linkedin", "generic"
 ]
 AssetStatus = Literal["draft", "approved", "exported", "published", "discarded"]
 AssetFormat = Literal["card", "photo", "video"]
+#: A card is drawn in the browser from one of these, and `brand.py` is the authority on
+#: both lists. Constrained here rather than left as a free string because `models/social.py`
+#: already claims they are "validated against `services/social/brand.py`" — and until phase
+#: 101 nothing enforced it, so the console's own dropdown could save `palette: ""` and the
+#: card came back unrenderable.
+CardTemplate = Literal["quote", "prompt", "stat", "announcement"]
+CardPalette = Literal["cream", "terracotta", "periwinkle", "sage", "ink"]
 
-# The Literals above and the CHECK-constraint tuples in `models/social.py` are the same three
-# sets written twice, so assert it here rather than discovering the drift as a 500 from
-# Postgres on a value Pydantic happily accepted.
+# These three and the CHECK-constraint tuples in `models/social.py` are the same sets written
+# twice, so assert it here rather than discovering the drift as a 500 from Postgres on a value
+# Pydantic happily accepted.
 assert set(Platform.__args__) == set(SOCIAL_PLATFORMS)
 assert set(AssetStatus.__args__) == set(SOCIAL_STATUSES)
 assert set(AssetFormat.__args__) == set(SOCIAL_FORMATS)
+
+# **These two carry no CHECK, by design.** `models/social.py` keeps `template` and `palette` as
+# plain text because the renderer that has to know them lives in JavaScript, so a constraint in
+# Postgres would be a second list to keep in step. That makes `brand.py` the only authority and
+# these asserts the only thing standing between the two copies — and the failure they prevent
+# is not a database error but a card the browser cannot draw, which nothing else would catch.
+assert set(CardTemplate.__args__) == set(TEMPLATES)
+assert set(CardPalette.__args__) == set(PALETTES)
 
 
 class ChatMessage(ApiModel):
@@ -67,8 +83,8 @@ class SocialAssetIn(ApiModel):
     platform: Platform = "generic"
     format: AssetFormat = "card"
     angle: str | None = Field(default=None, max_length=500)
-    template: str | None = Field(default=None, max_length=40)
-    palette: str | None = Field(default=None, max_length=40)
+    template: CardTemplate | None = None
+    palette: CardPalette | None = None
     headline: str | None = Field(default=None, max_length=400)
     subhead: str | None = Field(default=None, max_length=600)
     caption: str | None = Field(default=None, max_length=4000)
@@ -93,8 +109,8 @@ class SocialAssetUpdate(ApiModel):
     format: AssetFormat | None = None
     status: AssetStatus | None = None
     angle: str | None = Field(default=None, max_length=500)
-    template: str | None = Field(default=None, max_length=40)
-    palette: str | None = Field(default=None, max_length=40)
+    template: CardTemplate | None = None
+    palette: CardPalette | None = None
     headline: str | None = Field(default=None, max_length=400)
     subhead: str | None = Field(default=None, max_length=600)
     caption: str | None = Field(default=None, max_length=4000)

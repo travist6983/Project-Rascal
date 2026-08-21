@@ -102,6 +102,21 @@ async def test_has_more_without_a_cursor_terminates() -> None:
     assert report.status == "ok"
 
 
+async def test_an_unrecognised_shape_is_an_error_not_a_zero() -> None:
+    """A body with no `data` key is a shape change, not a month with no spending."""
+    async with _client(_routed({"buckets": [], "object": "page"})) as client:
+        report = await anthropic_report(client, _settings())
+    assert report.status == "error"
+    assert report.amount_cents is None
+
+
+async def test_an_empty_data_list_is_a_real_quiet_month() -> None:
+    async with _client(_routed({"data": [], "has_more": False})) as client:
+        report = await anthropic_report(client, _settings())
+    assert report.status == "ok"
+    assert report.amount_cents == 0
+
+
 async def test_401_and_403_both_name_the_admin_key() -> None:
     for code in (401, 403):
         async with _client(_routed(code)) as client:

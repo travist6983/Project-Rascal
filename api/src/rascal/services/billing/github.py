@@ -83,8 +83,23 @@ async def github_report(client: httpx.AsyncClient, settings: Settings) -> Provid
     if response.status_code != 200:
         return _error(response.status_code, settings)
 
-    items = response.json().get("usageItems") or []
-    return _report(items, today)
+    payload = response.json()
+    # **An absent key is not an empty month.** `.get("usageItems") or []` would render a
+    # confident "$0.00 · 0 min" if GitHub ever renames or restructures this field — a
+    # reassuring number, on the card whose entire reason for existing is that Actions billing
+    # halted this repository twice without warning. A shape this code does not recognise is an
+    # error, and a present-but-empty list is a real and quiet month.
+    if not isinstance(payload, dict) or "usageItems" not in payload:
+        return ProviderReport(
+            key="github",
+            label=LABELS["github"],
+            status="error",
+            detail="GitHub answered 200 but the body carries no `usageItems`. The endpoint's "
+            "shape has changed, so this card is not reporting a figure rather than reporting "
+            "zero.",
+            console_url=GITHUB_CONSOLE,
+        )
+    return _report(payload["usageItems"] or [], today)
 
 
 def _error(status: int, settings: Settings) -> ProviderReport:

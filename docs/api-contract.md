@@ -1228,6 +1228,14 @@ a post.** The body is read server-side from that id and never accepted as text, 
 consumes a unit of the cap in `GET /social/studio` — see `docs/data-model.md`'s
 `social_assets`, and D7 for why there is a cap at all.
 
+**`template` and `palette` are closed sets, not free strings.** They accept only the values in
+`services/social/brand.py` — `quote`/`prompt`/`stat`/`announcement` and
+`cream`/`terracotta`/`periwinkle`/`sage`/`ink` — and anything else, including `""`, is a 422.
+The renderer lives in the browser and can only draw these; before phase 101 the field was a
+free string and `models/social.py` described a validation that nothing performed, so the
+console's own dropdown could save an empty palette that no card could be drawn from. `GET /social/studio` returns both
+lists, so a client never has to hard-code them.
+
 **Alt text is required to move an asset to `exported` or `published`**, and the check is at
 that moment rather than at creation: a rule enforced while somebody is still typing is a rule
 that gets switched off.

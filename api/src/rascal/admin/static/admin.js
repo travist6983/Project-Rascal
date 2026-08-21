@@ -654,6 +654,11 @@ function stateChips(prompt) {
   return chips.join(" ");
 }
 
+// Two shapes, and using the wrong one is a bug you can see: a filter's blank option means
+// "no filter" and needs a label saying so, while a value picker has no such state — every
+// option is a real value. `fillSelect` was doing both, so the composer's palette list opened
+// with a blank option *labelled* "cream" sitting above the real "cream". Picking the top one
+// looked identical and saved `palette: ""`, which no renderer can draw.
 function fillSelect(select, values, blank) {
   const current = select.value;
   select.replaceChildren();
@@ -661,13 +666,25 @@ function fillSelect(select, values, blank) {
   first.value = "";
   first.textContent = blank;
   select.append(first);
+  appendOptions(select, values);
+  select.value = current;
+}
+
+/** A picker with no empty state. `fallback` is preselected, and is one of `values`. */
+function fillChoices(select, values, fallback) {
+  const current = select.value;
+  select.replaceChildren();
+  appendOptions(select, values);
+  select.value = values.includes(current) ? current : fallback;
+}
+
+function appendOptions(select, values) {
   for (const value of values) {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = value;
     select.append(option);
   }
-  select.value = current;
 }
 
 function fillDatalist(list, values) {
@@ -711,9 +728,9 @@ function openDrawer(prompt) {
   }
 
   $("p-body").value = prompt?.body || "";
-  fillSelect($("p-kind"), KINDS, "question");
-  fillSelect($("p-cadence"), CADENCES, "daily");
-  fillSelect($("p-completion"), COMPLETIONS, "text");
+  fillChoices($("p-kind"), KINDS, "question");
+  fillChoices($("p-cadence"), CADENCES, "daily");
+  fillChoices($("p-completion"), COMPLETIONS, "text");
   $("p-kind").value = prompt?.kind || "question";
   $("p-cadence").value = prompt?.cadence || "daily";
   $("p-completion").value = prompt?.completion_mode || "text";
@@ -1077,11 +1094,11 @@ function renderStudioState(state) {
   // then inherited its track's width and an empty budget drew as a full one.
   $("ledger-fill").style.width = `${pct}%`;
 
-  fillSelect($("c-platform"), state.platforms, "instagram");
+  fillChoices($("c-platform"), state.platforms, "instagram");
   $("c-platform").value = "instagram";
-  fillSelect($("m-template"), state.templates, "quote");
-  fillSelect($("m-palette"), state.palettes, "cream");
-  fillSelect($("m-platform"), state.platforms, "instagram");
+  fillChoices($("m-template"), state.templates, "quote");
+  fillChoices($("m-palette"), state.palettes, "cream");
+  fillChoices($("m-platform"), state.platforms, "instagram");
   $("c-ledger").textContent = ledger.remaining
     ? `${ledger.remaining} more prompts may be featured before the cap.`
     : "The cap is reached. Raise SOCIAL_FEATURED_PROMPT_CAP to feature another.";
@@ -1120,10 +1137,105 @@ function pushTurn(role, text) {
   if (log.querySelector(".chat-empty")) log.replaceChildren();
   const node = document.createElement("div");
   node.className = `turn turn-${role}`;
-  node.textContent = text;
+  setProse(node, text);
   log.append(node);
   log.scrollTop = log.scrollHeight;
   return node;
+}
+
+// Claude answers in Markdown, and this panel's whole output is copy somebody is about to
+// paste somewhere. Rendering it as a text node meant reading `**Absolution.**` and `> caption`
+// with the punctuation still in — the reader doing the parsing, on the one screen whose job is
+// to make copy easy to judge.
+//
+// **Built as DOM nodes, never `innerHTML`.** This is model output rendered in a console that
+// holds a bearer token; the markup surface stays exactly zero, which also means nothing here
+// depends on the CSP allowing anything it currently does not.
+// `\*(?!\s)…(?<!\s)\*` rather than `\*[^*]+\*`: the loose form turns "3 * 4 * 5" into
+// italics, which is the failure you only meet once somebody writes a number in a brief.
+const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\*(?!\s)[^*]+(?<!\s)\*)/g;
+
+function setProse(node, text) {
+  node.replaceChildren();
+  // Fences first, and before the blank-line split: a code block may contain a blank line, and
+  // splitting on those would tear it in half. Odd trailing segment means an unclosed fence —
+  // rendering it as code is friendlier than printing the backticks.
+  String(text)
+    .split("```")
+    .forEach((segment, index) => {
+      if (index % 2 === 1) {
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        code.textContent = segment.replace(/^[\w-]*\n/, "").replace(/\n$/, "");
+        pre.append(code);
+        node.append(pre);
+      } else {
+        appendBlocks(node, segment);
+      }
+    });
+  if (!node.childNodes.length) node.textContent = text;
+}
+
+function appendBlocks(node, text) {
+  for (const block of String(text).split(/\n{2,}/)) {
+    const line = block.trim();
+    if (!line) continue;
+    if (/^---+$/.test(line)) {
+      node.append(document.createElement("hr"));
+      continue;
+    }
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const el = document.createElement(`h${Math.min(heading[1].length + 2, 6)}`);
+      el.className = "prose-h";
+      appendInline(el, heading[2]);
+      node.append(el);
+      continue;
+    }
+    if (line.split("\n").every((l) => /^>\s?/.test(l))) {
+      const quote = document.createElement("blockquote");
+      appendInline(quote, line.replace(/^>\s?/gm, ""));
+      node.append(quote);
+      continue;
+    }
+    if (line.split("\n").every((l) => /^\s*([-*]|\d+\.)\s+/.test(l))) {
+      const ordered = /^\s*\d+\./.test(line);
+      const list = document.createElement(ordered ? "ol" : "ul");
+      for (const item of line.split("\n")) {
+        const li = document.createElement("li");
+        appendInline(li, item.replace(/^\s*([-*]|\d+\.)\s+/, ""));
+        list.append(li);
+      }
+      node.append(list);
+      continue;
+    }
+    const para = document.createElement("p");
+    appendInline(para, line);
+    node.append(para);
+  }
+}
+
+function appendInline(parent, text) {
+  const lines = String(text).split("\n");
+  lines.forEach((line, i) => {
+    if (i) parent.append(document.createElement("br"));
+    // `String.split` with one capturing group interleaves [text, capture, text, capture, …],
+    // so **the odd indices are exactly the pieces `INLINE` matched**. Deciding from the index
+    // rather than from the piece's first and last characters is what keeps the guards in the
+    // pattern meaningful: `* b *` is refused by the lookahead, and inspecting characters would
+    // have italicised it anyway on the way back out.
+    line.split(INLINE).forEach((piece, index) => {
+      if (!piece) return;
+      if (index % 2 === 0) {
+        parent.append(document.createTextNode(piece));
+        return;
+      }
+      const tag = piece.startsWith("**") ? "strong" : piece.startsWith("`") ? "code" : "em";
+      const el = document.createElement(tag);
+      el.textContent = piece.slice(tag === "strong" ? 2 : 1, tag === "strong" ? -2 : -1);
+      parent.append(el);
+    });
+  });
 }
 
 async function sendChat(event) {
@@ -1156,9 +1268,14 @@ async function sendChat(event) {
       const { value, done } = await reader.read();
       if (done) break;
       reply += decoder.decode(value, { stream: true });
+      // Plain text while it streams, on purpose: re-parsing Markdown on every chunk would
+      // flicker through half-formed syntax — `**bol` is not bold yet — and would re-render the
+      // whole answer a hundred times a second to show it.
       node.textContent = reply;
       $("chat-log").scrollTop = $("chat-log").scrollHeight;
     }
+    setProse(node, reply);
+    $("chat-log").scrollTop = $("chat-log").scrollHeight;
     state.chat.push({ role: "assistant", content: reply });
   } catch (error) {
     node.textContent = error.message;
@@ -1215,7 +1332,23 @@ function renderConcepts() {
          .slice(0, 4)
          .map((tag) => `<span class="chip chip-plain">${escape(tag)}</span>`)
          .join("")}</div>`;
-    card.addEventListener("click", () => openComposer(state.concepts[index]));
+    // A card that opens the composer has to look like it does. It was `cursor: pointer` and
+    // nothing else — no label, no focus ring, and unreachable from a keyboard.
+    card.setAttribute("role", "button");
+    card.setAttribute("tabindex", "0");
+    card.setAttribute("aria-label", `Open "${concept.headline}" in the composer`);
+    const open = () => openComposer(state.concepts[index]);
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+    const hint = document.createElement("p");
+    hint.className = "concept-open";
+    hint.textContent = "Open in composer →";
+    card.append(hint);
     mount.append(card);
   });
 }
@@ -1287,7 +1420,19 @@ async function loadAssets() {
       `<span>${escape(asset.platform)}</span>` +
       (asset.featured_body ? '<span class="chip chip-warn">library prompt</span>' : "");
     node.append(line);
-    node.addEventListener("click", () => openComposer(null, asset));
+    // Same affordance rule as the concept cards: this reopens the composer, so it announces
+    // itself and answers a keyboard.
+    node.setAttribute("role", "button");
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("aria-label", `Edit ${asset.status} post: ${asset.headline || "untitled"}`);
+    const reopen = () => openComposer(null, asset);
+    node.addEventListener("click", reopen);
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        reopen();
+      }
+    });
     mount.append(node);
   }
 }
@@ -1300,6 +1445,52 @@ const specOf = (source) => ({
   headline: source.headline || "",
   subhead: source.subhead || "",
 });
+
+// A shot list was written to the database and read back by nothing. The Studio would call
+// Claude, get seven shots and a caption track, save them — and then there was no screen in the
+// console that could show them. Generating something nobody can read is the same defect as not
+// generating it, so the treatment renders here, beside the post it belongs to.
+function renderTreatment(source) {
+  const shots = (source.shot_list || {}).shots || [];
+  const track = source.caption_track || "";
+  $("m-treatment").hidden = !shots.length && !track;
+  const list = $("m-shots");
+  list.replaceChildren();
+  for (const shot of shots) {
+    const item = document.createElement("li");
+    item.className = "shot";
+
+    const head = document.createElement("p");
+    head.className = "shot-head";
+    const seconds = document.createElement("span");
+    seconds.className = "chip chip-plain";
+    seconds.textContent = `${shot.seconds ?? "?"}s`;
+    head.append(seconds);
+    if (shot.on_screen_text) {
+      const onScreen = document.createElement("span");
+      onScreen.className = "shot-super";
+      onScreen.textContent = shot.on_screen_text;
+      head.append(onScreen);
+    }
+    item.append(head);
+
+    if (shot.visual) {
+      const visual = document.createElement("p");
+      visual.className = "shot-visual";
+      visual.textContent = shot.visual;
+      item.append(visual);
+    }
+    if (shot.voiceover) {
+      const voice = document.createElement("p");
+      voice.className = "shot-voice";
+      voice.textContent = shot.voiceover;
+      item.append(voice);
+    }
+    list.append(item);
+  }
+  $("m-vtt").textContent = track;
+  $("m-vtt").hidden = !track;
+}
 
 function openComposer(concept, asset) {
   const source = asset || concept || {};
@@ -1324,6 +1515,7 @@ function openComposer(concept, asset) {
   $("m-tags").value = (source.hashtags || []).join(", ");
   $("m-error").hidden = true;
   $("m-webm").hidden = !cards.canRecord();
+  renderTreatment(source);
   $("card-note").textContent = cards.canRecord()
     ? "WebM records the card settling in — an animated post, not generated footage."
     : "This browser cannot record WebM from a canvas. PNG still works.";
@@ -1733,6 +1925,18 @@ $("composer-form").addEventListener("submit", saveComposer);
 $("m-png").addEventListener("click", downloadPng);
 $("m-webm").addEventListener("click", downloadWebm);
 $("m-export").addEventListener("click", markExported);
+$("m-copy-vtt").addEventListener("click", async () => {
+  // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so
+  // a success message there is an error-coloured alert pinned to the console until somebody
+  // happens to load the Ops tab. Every other confirmation in this file uses `toast`.
+  try {
+    await navigator.clipboard.writeText($("m-vtt").textContent);
+    toast("Caption track copied.");
+  } catch {
+    // Clipboard permission can be refused, and an unhandled rejection here would be silent.
+    toast("Could not reach the clipboard — select the text and copy it.");
+  }
+});
 for (const id of ["m-template", "m-palette", "m-platform", "m-eyebrow", "m-headline", "m-subhead"]) {
   $(id).addEventListener("input", paintPreview);
   $(id).addEventListener("change", paintPreview);
