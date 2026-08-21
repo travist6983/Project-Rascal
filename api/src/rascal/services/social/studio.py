@@ -182,12 +182,18 @@ EDITABLE = (
 )
 
 
-async def update_asset(
-    session: AsyncSession, asset_id: uuid.UUID, changes: dict[str, Any]
-) -> SocialAsset:
+async def get_asset(session: AsyncSession, asset_id: uuid.UUID) -> SocialAsset:
+    """One post, or the 404 every caller would otherwise hand-roll."""
     asset = await session.get(SocialAsset, asset_id)
     if asset is None:
         raise not_found("Social asset")
+    return asset
+
+
+async def update_asset(
+    session: AsyncSession, asset_id: uuid.UUID, changes: dict[str, Any]
+) -> SocialAsset:
+    asset = await get_asset(session, asset_id)
 
     changes = {key: value for key, value in changes.items() if key in EDITABLE}
 

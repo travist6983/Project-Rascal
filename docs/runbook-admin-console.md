@@ -129,6 +129,7 @@ Setting a secret restarts the machines — one deploy, not seven, so set them in
 | `NEON_PROJECT_ID` | console.neon.tech → project → Settings | Costs: which project |
 | `NEON_ORG_ID` | console.neon.tech → in the URL | Costs: the daily compute chart, and nothing else |
 | `RESEND_AUDIENCE_ID` | resend.com → Audiences | Costs: subscribers. Also unblocks `POST /v1/subscribe` |
+| `GEMINI_API_KEY` | aistudio.google.com → API keys, **on a project with billing enabled** | Studio: rendering a shot list into video |
 
 ### The two Anthropic keys cannot be the same value
 
@@ -146,6 +147,26 @@ cost report. They are two keys, not one key used twice.
 
 The `org:admin` OAuth token is the documented alternative to an Admin key, but it is short-lived
 and refreshed interactively, so it is not a value to put in a Fly secret.
+
+### The Gemini key needs billing, and the error will not say so
+
+`GEMINI_API_KEY` renders a shot list into video — one generation per shot, joined with ffmpeg.
+It is optional; without it the Studio's render button refuses and everything else works.
+
+> **The video models have a free-tier quota of exactly zero.** A key that answers text
+> requests perfectly returns **429** for video, and Google's message reads *"You exceeded
+> your current quota"* — which sounds like rate limiting and is actually billing. The tell is
+> in the detail: `generate_content_free_tier_requests, limit: 0`. If you see `free_tier` in
+> that string, the project is not on a paid tier however many credits the console shows.
+
+**Credits on a different project do not count.** API keys belong to a project, and billing has
+to be enabled on *that* project. Check which tier the key is actually on at
+[ai.dev/rate-limit](https://ai.dev/rate-limit) — it names the tier directly, which is faster
+than reading a 429 twice. Propagation after enabling is minutes, not instant.
+
+**Every video model on this API is preview**, and the `veo-3.0`/`veo-2.0` ids most search
+results still name were shut down on June 30, 2026 — confirmed absent from a live model list.
+`GEMINI_VIDEO_MODEL` is a setting so a moved id is a secret change rather than a deploy.
 
 ### The GitHub billing token is not the token CI uses
 

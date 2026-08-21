@@ -309,6 +309,29 @@ class Settings(DatabaseSettings):
     #: request per render spent parsing a response shape to guess at, in place of one variable.
     neon_org_id: str | None = None
 
+    #: Google's Gemini API key, for video generation. **The video models have a free-tier
+    #: quota of literally zero** — `generate_content_free_tier_requests, limit: 0` — so a key
+    #: that works perfectly for text answers 429 here until billing is enabled on the project.
+    #: That failure names the wrong thing if you have not been told, which is why the studio
+    #: card says it and this comment exists.
+    gemini_api_key: str | None = None
+
+    #: Which model renders a shot. `gemini-omni-flash-preview` is Google's documented default
+    #: for video and the only one whose docs claim on-screen text renders legibly, which is the
+    #: whole reason it is the default here: every shot in a Vellum treatment carries a caption.
+    #:
+    #: **Every video model on the Gemini API is preview**, and the `veo-3.0`/`veo-2.0` ids that
+    #: most search results still name were shut down on June 30, 2026 — verified absent from
+    #: this key's own model list. Pinning the id in a setting is what lets that be fixed without
+    #: a deploy when the preview id moves again.
+    gemini_video_model: str = "gemini-omni-flash-preview"
+
+    #: What a second of generated video costs, in cents, so the console can price a treatment
+    #: before it renders one. Google bills Omni Flash per token and publishes the conversion as
+    #: "approximately $0.10 per second"; a thirty-second piece is therefore about three dollars.
+    #: A figure somebody typed, like every other price here, and the card says so.
+    gemini_video_cents_per_second: int = 10
+
     #: What object storage costs per GB-month, in cents, on the plan we are actually on.
     #: **Unset means the card shows bytes and no estimate**, which is the honest default:
     #: Tigris has no billing API, so any figure here is one somebody typed, and a made-up

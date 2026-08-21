@@ -658,6 +658,52 @@ body[data-view="signin"] .shell {
   border-left: 2px solid var(--periwinkle-border);
 }
 
+.treatment-render {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.treatment-render .card-note {
+  margin: 0;
+  flex: 1 1 240px;
+}
+
+.render-state {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.render-state[data-state="failed"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.render-state[data-state="succeeded"] {
+  border-color: var(--periwinkle-border);
+  background: var(--periwinkle-soft);
+  color: var(--periwinkle-deep);
+}
+
+.render-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.render-bar span {
+  display: block;
+  height: 100%;
+  background: var(--periwinkle-deep);
+}
+
 .treatment-track {
   display: flex;
   align-items: center;

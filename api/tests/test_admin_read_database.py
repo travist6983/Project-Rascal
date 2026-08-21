@@ -78,6 +78,9 @@ CONSOLE_WRITES = [
     # before the handler ever looks the row up. Using a real one would test the same thing and
     # need a fixture to build it.
     ("POST", "/v1/social/publications/{publication}/cancel", None),
+    # Writes a `social_renders` row before it queues anything, so it is a console write
+    # like any other and must refuse while the console is pointed at production.
+    ("POST", "/v1/social/assets/{asset}/video", None),
 ]
 
 

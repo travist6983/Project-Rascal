@@ -2034,6 +2034,33 @@ panel rather than this one:
 
 **Not worth requesting until there is an app on the store**, since the data would be empty.
 
+---
+
+## §17 — Gemini video: an **errand**, and the error names the wrong thing (Aug 20, 2026)
+
+`GEMINI_API_KEY` is set and works. Video still refuses, and it will keep refusing until billing
+is enabled **on the project that key belongs to**.
+
+**What was verified against the live API**, rather than read in docs:
+
+- The key is valid — `GET /v1beta/models` returns 50 models, and text generation answers 200.
+- Both video families refuse with **429** carrying
+  `generate_content_free_tier_requests, limit: 0, model: gemini-omni-flash`.
+- Veo answered **400** before it answered 429, which proved two things: the quota check happens
+  after validation, and **`durationSeconds` must be a number, not the string Google's own docs
+  show**.
+- `veo-3.0-*` and `veo-2.0-*` are **absent from the model list** — the June 30, 2026 shutdown
+  is real, whatever the pricing page still says.
+
+**The fix is not code.** Enable billing on the key's project and confirm the tier at
+[ai.dev/rate-limit](https://ai.dev/rate-limit). Credits attached to a different Google Cloud
+project will not move this. **Nothing else in the console is affected** — the render button is
+the only thing that needs it, and it refuses with the sentence above rather than failing oddly.
+
+**Until then one thing is genuinely unverified**: `services/social/gemini.py` has never seen a
+200, so the response-shape walk is written from documentation. It is built to raise on an
+unrecognised shape rather than write an empty file, which turns that risk into a loud error
+instead of a silent one — but the first successful render is still the real test.
 
 ## §17 — the Instagram token expires, and two repositories hold a copy
 
