@@ -804,6 +804,12 @@ final class OnboardingSession {
         // clear the widget: a revoked credential ends the session just as completely as a tapped
         // Sign out, and a remembered child that outlives it would be restored for whoever signs
         // in next on this phone.
+        //
+        // **The membership record goes with it**, and leaving it out of this path left the
+        // cross-account leak half closed: a session that ends because a credential was revoked is
+        // still a session ending, and the next household would inherit this one's
+        // `lastObservedAccess` and its spent two-weeks screen.
+        membership.save(MembershipPresentationRecord())
         selected.clear()
         children = []
         widget.publish(nil)
@@ -964,10 +970,17 @@ struct OnboardingGate: View {
                     TrialWelcomeScreen { showingTrialWelcome = false }
                 }
                 .task(id: child.id) {
-                    // **Not conditioned on `access`, deliberately.** This screen comes *before* the
-                    // first Today, and `access` arrives *with* it — gating on the value would mean
-                    // showing this after the screen it is meant to precede. The copy is written to
-                    // be true of any household signing in for the first time on this device.
+                    // **Confirmed against the server before it is shown**, which is a different
+                    // read from the one this comment used to refuse.
+                    //
+                    // Gating on the `/today` response's `access` would still be wrong — that
+                    // arrives *with* the first board, so it would show this after the screen it is
+                    // meant to precede. `owesTrialWelcome()` asks `GET /v1/families/me` instead, in
+                    // the gap between a sign-in completing and the first board, and fails closed.
+                    //
+                    // The old claim that the copy "is true of any household signing in for the
+                    // first time on this device" was simply false: it is not true of a subscriber
+                    // on a new phone, nor of anyone whose fortnight has already ended.
                     guard await session.owesTrialWelcome() else { return }
                     showingTrialWelcome = true
                     // **Spent on being shown, not on being tapped**, which is the rule the

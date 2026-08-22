@@ -269,7 +269,26 @@ final class SubscriptionModel {
         //
         // The generation check still applies: a load the deadline gave up on before the household
         // even arrived has nothing worth publishing.
-        if generation == loadGeneration, let family { household = family }
+        if generation == loadGeneration, let family {
+            household = family
+
+            // **A load must settle a purchase the server has since answered, exactly as
+            // `refreshHousehold()` does.**
+            //
+            // Only `refreshHousehold()`, `restore()` and `confirm()` carried this repair, and
+            // `load()` is the call the sheet makes on every `.task` — so reopening the sheet after
+            // a failed purchase published a *subscribed* household while leaving `purchase` on
+            // `.failed`. That pair is what let an enabled "Become a member" render for somebody who
+            // already had one, with `buy()` returning at its own `guard canBuy`. Reconciling here
+            // removes the state rather than guarding one rendering of it.
+            //
+            // `.failed` is in the list for the reason `refreshHousehold()` states: a purchase that
+            // threw locally and turned out to have gone through must stop saying it failed the
+            // moment the server disagrees.
+            if family.isSubscribed, purchase != .idle, purchase != .subscribed {
+                purchase = .subscribed
+            }
+        }
 
         let offer = await offerResult
 

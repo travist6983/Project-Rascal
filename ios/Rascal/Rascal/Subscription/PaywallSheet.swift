@@ -358,14 +358,20 @@ struct PaywallSheet: View {
         case .purchasing, .confirming:
             EmptyView()
         case .failed:
-            // **Offer a retry only when there is still something to buy.**
+            // **Offer a retry only when one would actually do something.**
             //
             // A purchase can fail while `.ready` and then a background `refreshHousehold()` can
             // resolve the phase to `.unavailable` — one dropped request is enough. Rendering the
-            // primary regardless left a **disabled** "Become a member" on screen, which is exactly
-            // the shape the brief forbids: *a disabled button is a thing to keep tapping.* Absent,
-            // not greyed, for the same reason the products-unavailable state hides it.
-            if canOffer {
+            // primary regardless left a **disabled** "Become a member" on screen, which the brief
+            // forbids: *a disabled button is a thing to keep tapping.*
+            //
+            // **`canBuy`, not `canOffer`**, and the difference is a live button that does nothing.
+            // `canOffer` asks only whether there is an offer; `canBuy` also asks whether this
+            // household is **already subscribed** — and that state is reachable here, because
+            // `load()` publishes a subscribed household without ever touching `purchase`, so
+            // `.failed` outlives the failure. The button would render enabled and `buy()` would
+            // return at its own `guard canBuy`. Inert-but-enabled is strictly worse than greyed.
+            if model.canBuy {
                 Button(MembershipCopy.primaryAction) { Task { await model.buy() } }
                     .buttonStyle(PrimaryButtonStyle())
             }

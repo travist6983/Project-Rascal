@@ -116,19 +116,23 @@ struct Notice: View {
     @ViewBuilder
     private var actionButtons: some View {
         if let primaryLabel, let onPrimary {
-            Button(primaryLabel, action: onPrimary)
-                .typeRole(.metadata)
-                .fontWeight(.semibold)
-                .foregroundStyle(Color.terracottaDeep)
-                .tappable()
+            Button(action: onPrimary) {
+                Text(primaryLabel)
+                    .typeRole(.metadata)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.terracottaDeep)
+                    .tappable()
+            }
         }
         if let onDismiss {
-            Button(dismissLabel, action: onDismiss)
-                .typeRole(.metadata)
-                // Plain `inkMuted` when it sits beside an opener, so the row has one primary.
-                // `terracottaDeep` when it is the only control.
-                .foregroundStyle(primaryLabel == nil ? Color.terracottaDeep : Color.inkMuted)
-                .tappable()
+            Button(action: onDismiss) {
+                Text(dismissLabel)
+                    .typeRole(.metadata)
+                    // Plain `inkMuted` when it sits beside an opener, so the row has one primary.
+                    // `terracottaDeep` when it is the only control.
+                    .foregroundStyle(primaryLabel == nil ? Color.terracottaDeep : Color.inkMuted)
+                    .tappable()
+            }
         }
     }
 }
@@ -137,11 +141,18 @@ private extension View {
     /// A 13pt label is a **16pt tall tap target**, which is well under the 44 the HIG asks for and
     /// is genuinely hard to hit — especially "Dismiss", which a parent reaches for one-handed.
     ///
-    /// The drawn text is unchanged; only the hit area grows, so the notice keeps the design's
-    /// proportions while the control becomes reachable. `Layout.Chrome.tapTarget` is the constant
-    /// the app already uses for exactly this, on the floating chrome over an artifact.
+    /// **Applied inside a `Button`'s label, never to the `Button` itself**, and the first version of
+    /// this got it wrong: a frame around the composed button centres the label in a 44pt box that
+    /// belongs to the frame rather than to the control, so the row grew by 28pt and the hit area
+    /// stayed 16pt — strictly worse than doing nothing. `EntryDetailScreen`'s chrome buttons, which
+    /// this borrows `Layout.Chrome.tapTarget` from, put both modifiers inside the label for exactly
+    /// this reason.
+    ///
+    /// Leading alignment because the stacked fallback wraps, and a centred wrap beside a
+    /// leading-aligned sentence reads as a rendering fault.
     func tappable() -> some View {
-        frame(minHeight: Layout.Chrome.tapTarget)
+        multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, minHeight: Layout.Chrome.tapTarget, alignment: .leading)
             .contentShape(Rectangle())
     }
 }

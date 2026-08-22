@@ -719,16 +719,28 @@ struct MembershipTests {
         // Nothing may be bought while there is no offer.
         #expect(model.canBuy == false)
 
-        // **`household` is deliberately still nil here, and asserting otherwise was wrong.** It is
-        // assigned after the join, so it cannot land while the store is hanging — six identical
-        // runs said so, deterministically, which is the difference between a test that is wrong and
-        // one that is flaky. The claim it was reaching for is below, once the call has completed.
+        // **The household is published while the store is still hanging, and this is the only
+        // assertion in the suite that says so.**
+        //
+        // It used to be asserted *after* `release()`, with a comment explaining that `household`
+        // "is assigned after the join" and therefore could not have landed yet. That comment
+        // described the code accurately when it was written and was made false an hour later, by
+        // the change that publishes the household as soon as it arrives — which exists to stop an
+        // abandoned load writing its stale summary over a newer one. Asserting it here is what
+        // pins that change; asserting it after the release proved only that a completed load
+        // eventually publishes something.
+        var published = false
+        for _ in 0..<400 {
+            if model.household != nil { published = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(published, "the household waited on a store that has nothing to do with it")
+        #expect(await store.didFinish == false, "and it landed before the store did")
+
         await store.release()
         await loading.value
 
-        // **The household is not blamed for the store's silence.** It answered all along.
-        #expect(model.household != nil)
-        // And the terminal state survives the hung call finally returning.
+        // The terminal state survives the hung call finally returning.
         guard case .unavailable(.products) = model.phase else {
             Issue.record("a late failure should not have moved the phase off .products")
             return
@@ -880,6 +892,90 @@ struct MembershipTests {
             await store.attempts == before,
             "a foreground re-ran the product fetch for an answer that cannot have changed"
         )
+    }
+
+    /// **The mirror, so the rule above cannot be satisfied by never retrying anything.**
+    ///
+    /// `.household` is a genuine transient failure and a foreground *must* re-run the load. A guard
+    /// that only asserts the negative half is satisfied by deleting the retry entirely.
+    @MainActor
+    @Test("a foreground does re-run a load that failed on the household")
+    func foregroundRetriesTheHouseholdFailure() async {
+        let store = InstantStore()
+        let attempts = FailureCount()
+
+        let model = SubscriptionModel(
+            readHousehold: {
+                // Fails once, then answers — so the first load lands in `.unavailable(.household)`.
+                if await attempts.next() == 1 { throw SubscriptionStoreError.productsUnavailable }
+                return .sample(tier: "free")
+            },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+        guard case .unavailable(.household) = model.phase else {
+            Issue.record("a household that did not answer should be the household's failure")
+            return
+        }
+
+        await model.refreshHousehold()
+        guard case .ready = model.phase else {
+            Issue.record("a foreground did not retry a household failure that would now succeed")
+            return
+        }
+    }
+
+    // MARK: - A failed purchase, and a household that has since paid
+
+    /// **A subscribed household must not coexist with `purchase == .failed`.**
+    ///
+    /// That pair is what let an enabled "Become a member" render for somebody who already had one:
+    /// the sheet gated the retry on the phase, `buy()` guards on `canBuy`, and `canBuy` is false for
+    /// a subscriber — so the button was live and inert, which is worse than the greyed one it
+    /// replaced.
+    ///
+    /// It is reachable with no transaction on this device: the second guardian buys, or the App
+    /// Store webhook lands from another Apple ID, so nothing bumps `transactionRevision` and no
+    /// foreground happens. Reopening the sheet runs `load()` — and `load()` used to publish the
+    /// subscribed household while leaving `purchase` alone, which `refreshHousehold()`, `restore()`
+    /// and `confirm()` all knew not to do.
+    @MainActor
+    @Test("a load settles a failed purchase the server has since answered")
+    func aLoadSettlesAFailedPurchaseAgainstTheHousehold() async {
+        let reads = FailureCount()
+        let model = SubscriptionModel(
+            // Free on the first read, subscribed on every one after — somebody else paid.
+            readHousehold: {
+                await reads.next() == 1 ? .sample(tier: "free") : .sample(tier: "subscribed")
+            },
+            store: FailingPurchaseStore(),
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        // Reach `.failed` the way a parent would.
+        await model.load()
+        await model.buy()
+        guard case .failed = model.purchase else {
+            Issue.record("the store was supposed to refuse the purchase")
+            return
+        }
+
+        // The sheet is reopened, which is a `load()` and nothing else.
+        await model.load()
+
+        #expect(
+            model.purchase == .subscribed,
+            "a load left a failed purchase standing over a subscribed household"
+        )
+        #expect(model.canBuy == false)
     }
 
     // MARK: - The Today heading over a locked board
@@ -1144,6 +1240,26 @@ private actor HangThenAnswerStore: SubscriptionPurchasing {
     }
 
     func restore() async throws {}
+}
+
+/// Answers `loadOffer` and refuses every purchase, so `.failed` is reachable in one call.
+private actor FailingPurchaseStore: SubscriptionPurchasing {
+    func loadOffer() async throws -> SubscriptionOffer { .preview }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        throw SubscriptionStoreError.storeKit("The App Store could not complete that.")
+    }
+
+    func restore() async throws {}
+}
+
+/// Counts calls, so a double can fail the first and answer the rest.
+private actor FailureCount {
+    private var count = 0
+    func next() -> Int {
+        count += 1
+        return count
+    }
 }
 
 /// A store that answers immediately, to prove the timeout does not pre-empt a working one.
