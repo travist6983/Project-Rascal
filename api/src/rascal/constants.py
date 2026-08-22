@@ -51,6 +51,15 @@ TIERS: Final = ("free", "subscribed")
 #: `services/guardians.access_for` is the one function that produces it; nothing else in
 #: `src/` may re-derive it. `subscribed` beats `trial`, so a subscriber holding a stale future
 #: `trial_ends_at` reads `subscribed`.
+#:
+#: **The tuple beside the Literal has a different job here from every other pair in this
+#: file.** `TIERS`, `SLOTS` and the rest exist to build a named `CHECK` on a column; `access`
+#: has no column and never will, so there is nothing for this one to constrain. What it
+#: constrains instead is the **wire vocabulary**: an iOS client decodes these three strings,
+#: so a fourth is a contract change rather than an implementation detail.
+#: `test_entitlement_cadence.py` sweeps every reachable input to `access_for` and asserts the
+#: values it can produce are exactly this tuple — so adding a state without deciding to is
+#: a failing test rather than a surprise on somebody's phone.
 AccessState = Literal["free", "trial", "subscribed"]
 ACCESS_STATES: Final = ("free", "trial", "subscribed")
 

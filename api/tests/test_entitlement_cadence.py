@@ -22,6 +22,7 @@ import ast
 import datetime as dt
 import pathlib
 import uuid
+from typing import get_args
 
 import sqlalchemy as sa
 from httpx import AsyncClient
@@ -37,7 +38,16 @@ from factories import (
     make_user,
 )
 from helpers import auth_headers
-from rascal.constants import DAILY_SLOTS, FREE_SLOTS, LOCKED_KIND_HINTS, SLOTS, TRIAL_DAYS
+from rascal.constants import (
+    ACCESS_STATES,
+    DAILY_SLOTS,
+    FREE_SLOTS,
+    LOCKED_KIND_HINTS,
+    SLOTS,
+    TIERS,
+    TRIAL_DAYS,
+    AccessState,
+)
 from rascal.models import Assignment, Entitlement, Prompt
 from rascal.services.dates import local_date, zone
 from rascal.services.guardians import access_for, eligible_at
@@ -285,6 +295,40 @@ def _comparisons_touching(src: pathlib.Path, name: str) -> list[str]:
                 where = enclosing.get(node, "<module>")
                 found.append(f"{path.relative_to(src)}::{where}:{node.lineno}")
     return found
+
+
+def test_access_for_can_produce_exactly_the_three_documented_states() -> None:
+    """**The wire vocabulary, pinned by sweeping the inputs rather than by restating the list.**
+
+    An iOS client decodes these three strings. A fourth is a contract change, not an
+    implementation detail — so this walks every reachable combination of the two columns
+    `access_for` reads and asserts the set of values it can produce is exactly
+    `ACCESS_STATES`, and that the tuple and the `Literal` have not drifted apart.
+
+    Not tautological: it calls the real function over real inputs. An implementation that
+    returned `"trialing"`, or that could return `None` for some combination, fails here.
+    """
+    now = dt.datetime.now(tz=dt.UTC)
+    trials = [None, now - dt.timedelta(days=1), now + dt.timedelta(days=1), now]
+    produced = {
+        access_for(Entitlement(tier=tier, trial_ends_at=trial), now=now).access
+        for tier in TIERS
+        for trial in trials
+    }
+
+    assert produced == set(ACCESS_STATES)
+    assert set(get_args(AccessState)) == set(ACCESS_STATES), (
+        "the Literal and the tuple have drifted apart"
+    )
+
+    # And the two properties that make the mapping unambiguous, over the same sweep.
+    for trial in trials:
+        assert access_for(Entitlement(tier="subscribed", trial_ends_at=trial), now=now).access == (
+            "subscribed"
+        ), "subscribed must beat trial for every trial value, including a future one"
+    # `now == trial_ends_at` is the boundary: the trial has ended, because the comparison is
+    # strict. Stated so the edge is a decision rather than an accident of `<` versus `<=`.
+    assert access_for(Entitlement(tier="free", trial_ends_at=now), now=now).access == "free"
 
 
 def test_nothing_else_in_src_recomputes_the_entitlement_formula() -> None:

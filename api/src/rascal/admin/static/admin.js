@@ -666,6 +666,19 @@ function fillHouseholds(signups) {
     )} — ${row.access || "free"}`;
     select.append(option);
   }
+  // **Restore the selection, or say it is gone — never silently pick a different household.**
+  // `replaceChildren` leaves a `<select>` on its first option, so a household that dropped out
+  // of the list between renders would hand the next click a *different* family than the one on
+  // screen a moment ago. That is the same harm as two identically-labelled options above, by a
+  // different route: the button moves the wrong household's trial and looks like it worked.
+  // `recent_signups` returns the newest twelve, so this is reachable the day there is a
+  // thirteenth account.
+  if (previous && !households.has(previous)) {
+    select.selectedIndex = -1;
+    $("trial-state").textContent =
+      "The household you had selected is no longer in this list. Pick again.";
+    return;
+  }
   if (households.has(previous)) select.value = previous;
   $("trial-state").textContent = households.size ? "" : "No households yet — nothing to move.";
 }
