@@ -101,6 +101,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "prompt_suppressions",
     "prompt_library_overrides",
     "social_assets",
+    "social_publications",
 }
 
 

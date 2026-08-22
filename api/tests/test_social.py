@@ -50,6 +50,10 @@ ALL_ROUTES = [
     # them would be reading the product's marketing credentials or posting under its name.
     ("GET", "/v1/social/account", None),
     ("GET", "/v1/social/publications", None),
+    # The two that reach a public feed. Listed here as well as in `test_social_publishing.py`
+    # so the sweep that walks every social route covers them by construction.
+    ("POST", "/v1/social/assets/00000000-0000-0000-0000-000000000000/publish", {}),
+    ("POST", "/v1/social/publications/00000000-0000-0000-0000-000000000000/cancel", None),
     *MODEL_ROUTES,
 ]
 

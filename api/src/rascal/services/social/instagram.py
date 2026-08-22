@@ -56,6 +56,18 @@ _CONTAINER_ATTEMPTS = 12
 _CONTAINER_DELAY_SECONDS = 2.5
 
 
+class NotSearchable(RascalError):
+    """The account cannot be asked whether this post is already up.
+
+    A type rather than a `None`, because *"we looked and it is not there"* and *"we could not
+    look"* lead to opposite actions and are indistinguishable as return values. Failing a row
+    on the second one tells a person to queue a duplicate of something that may be live.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(ErrorCode.PUBLISH_FAILED, message)
+
+
 @dataclass(frozen=True)
 class Account:
     """Which account the credentials actually control."""
@@ -291,6 +303,26 @@ async def spacing(settings: Settings, *, now: dt.datetime | None = None) -> Spac
     return Spacing(last_post_at=last_post_at, posts_in_last_24h=in_last_day, blocked_reason=reason)
 
 
+#: A caption's first line has to be long enough to identify one post among a feed. Below this
+#: it is not distinctive prose, it is a coincidence waiting to happen.
+MIN_MATCHABLE_CAPTION = 25
+
+
+def searchable(caption: str) -> bool:
+    """Can this caption be matched against a feed at all?
+
+    **Callers must ask before trusting a negative answer from `find_published`.** A caption
+    with a short first line — a one-word hook, a headline under twenty-five characters — cannot
+    be matched, and "cannot be matched" is not "is not there". Conflating them is how a
+    not-published conclusion gets drawn about a post that is live.
+    """
+    return len(first_line(caption)) >= MIN_MATCHABLE_CAPTION
+
+
+def first_line(caption: str) -> str:
+    return (caption or "").strip().split("\n")[0].strip()
+
+
 async def find_published(settings: Settings, caption: str) -> Media | None:
     """Is this already on the account, whatever our own table believes?
 
@@ -299,15 +331,25 @@ async def find_published(settings: Settings, caption: str) -> Media | None:
     duplicate on a public feed, which strangers see and nothing on our side can undo. So the
     question gets asked of Instagram rather than of the database.
 
-    Matched on the caption's first line, which is distinctive prose rather than a template, and
-    only when it is long enough to be distinctive at all. This is a heuristic and it is the
-    second line of defence, not the first: the first is that a publish and its row are written
-    in one transaction, which the marketing repository — recording into a git push — could not
-    do.
+    Matched on the caption's first line, which is distinctive prose rather than a template.
+    **This is the only guard there is**, and an earlier version of this docstring said otherwise
+    — that it was *"the second line of defence, not the first: the first is that a publish and
+    its row are written in one transaction"*. That was false when it was written.
+    `publish_container` is a network call and the row is committed after it returns; there is no
+    transaction around
+    the pair and there cannot be. The false claim mattered because it made the short-caption
+    case below look harmless, as a gap behind a guarantee, when it is a gap behind nothing.
+
+    `None` means **searched and absent**. A caption that cannot be searched raises rather than
+    returning `None`, because those two answers lead to opposite actions and the type does not
+    distinguish them.
     """
-    line = (caption or "").strip().split("\n")[0].strip()
-    if len(line) < 25:
-        return None
+    if not searchable(caption):
+        raise NotSearchable(
+            "This caption's first line is too short to identify a post in a feed, so whether "
+            "it is already on the account cannot be answered from here."
+        )
+    line = first_line(caption)
     for item in await recent_media(settings, limit=25):
         if item.caption.strip().startswith(line):
             return item

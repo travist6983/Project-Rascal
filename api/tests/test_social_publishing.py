@@ -1075,3 +1075,537 @@ def test_the_console_and_the_service_agree_on_which_platforms_can_publish() -> N
         assert f'"{platform}"' in listed, f"{platform} can publish but the console hides it"
     for platform in ("x", "threads", "facebook", "linkedin", "generic"):
         assert f'"{platform}"' not in listed, f"the console offers {platform} with no publisher"
+
+
+# --- Two runners, one row ---------------------------------------------------------------------
+
+
+async def test_two_runners_cannot_both_publish_one_queued_post(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """**Reading `scheduled` and writing `publishing` are not the same thing.**
+
+    The hourly machine and a hand-run — which the runbook actively encourages — can both
+    `SELECT` a due row before either writes anything, then both build a container and both
+    publish. Nothing else catches it: the partial unique index guards two *rows* for one asset
+    and this is one row twice, and `find_published` is asked by both before either has posted.
+
+    Simulated the way it actually happens: two callers holding the same row, the first winning
+    the claim.
+    """
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await publishing.run(session, live_settings, publication)
+    assert gram.calls.count("publish_container") == 1
+
+    # The second runner still holds its own read of the row, from before the claim landed.
+    stale = await session.get(SocialPublication, publication.id)
+    session.expunge(stale)
+    stale.status = "scheduled"
+
+    with pytest.raises(RascalError) as caught:
+        await publishing.run(session, live_settings, stale)
+    assert caught.value.code is ErrorCode.CONFLICT
+    assert gram.calls.count("publish_container") == 1, "the second runner posted it again"
+
+
+async def test_the_claim_is_lost_rather_than_shared(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """`rowcount` is the whole mechanism, so it is worth asserting directly."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+
+    assert await publishing._claim(session, publication) is True
+    assert publication.status == "publishing"
+    assert publication.attempts == 1
+    # A second claim on a row that is no longer `scheduled` must fail rather than re-take it.
+    assert await publishing._claim(session, publication) is False
+    assert publication.attempts == 1, "a lost claim still counted an attempt"
+
+
+async def test_no_database_transaction_is_open_while_meta_is_being_called(
+    session: AsyncSession, live_settings, gram, monkeypatch
+) -> None:
+    """A publish can take the better part of a minute — Meta fetches the image on its own time.
+
+    Holding a transaction across that would pin a pooled connection for the whole exchange, and
+    on a two-machine deploy with a small pool that is how a slow Instagram becomes a slow
+    archive for somebody's phone. The commits that make the attempt durable are also what ends
+    the transaction before every network call; this asserts the second property, which is
+    otherwise invisible and easy to lose in a refactor.
+    """
+    open_during: list[str] = []
+
+    async def watched(settings, *, image_url, caption, alt_text, story=False):
+        if session.in_transaction():
+            open_during.append("create_container")
+        return "CONTAINER-1"
+
+    async def watched_publish(settings, container_id):
+        if session.in_transaction():
+            open_during.append("publish_container")
+        return "17900000000000009"
+
+    monkeypatch.setattr(publishing.instagram, "create_container", watched)
+    monkeypatch.setattr(publishing.instagram, "publish_container", watched_publish)
+
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await publishing.run(session, live_settings, publication)
+    assert open_during == [], f"a transaction was open across {open_during}"
+
+
+async def test_the_upload_route_holds_no_transaction_while_it_waits(
+    app, client, session: AsyncSession, engine, monkeypatch
+) -> None:
+    """A transaction must not be open across the browser upload or the PUT to Tigris.
+
+    The existence check autobegins the request transaction and checks a connection out, and
+    `get_session` holds it until the handler returns — so the naive shape keeps it for the whole
+    upload. The browser half runs at the *client's* speed: a phone on a train would hold a Neon
+    connection for as long as it takes them, and connections are the scarce thing.
+
+    Asserted against the request's own session rather than the pool, because the suite's engine
+    uses `NullPool` and has no `checkedout()` to ask — and because an open transaction is the
+    property that matters, whatever the pool does with it.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from helpers import auth_headers
+    from rascal import db as db_module
+
+    admin = await make_user(session, display_name="Owner")
+    admin.is_admin = True
+    asset = await make_asset(session, admin, render_key=None)
+    await session.commit()
+
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    seen: dict[str, AsyncSession] = {}
+
+    async def _capturing():
+        async with factory() as request_session:
+            seen["session"] = request_session
+            try:
+                yield request_session
+                await request_session.commit()
+            except Exception:
+                await request_session.rollback()
+                raise
+
+    app.dependency_overrides[db_module.get_session] = _capturing
+
+    open_during: list[str] = []
+
+    async def store_card(settings, asset_id, data):
+        if seen["session"].in_transaction():
+            open_during.append("store_card")
+        return "social/2026/08/measured.jpg"
+
+    monkeypatch.setattr(publishing, "store_card", store_card)
+    response = await client.post(
+        f"/v1/social/assets/{asset.id}/image",
+        content=b"\xff\xd8\xff" + b"0" * 64,
+        headers={**auth_headers(admin), "content-type": "image/jpeg"},
+    )
+    assert response.status_code == 200, response.text
+    assert open_during == [], "a transaction was open across the upload and the store"
+
+    # And the key still lands, which is the thing the extra commit could have broken.
+    await session.refresh(asset)
+    assert asset.render_key == "social/2026/08/measured.jpg"
+
+
+# --- "We could not look" is not "nothing was posted" -------------------------------------------
+
+
+async def test_a_caption_too_short_to_search_never_reaches_the_account(monkeypatch) -> None:
+    """`None` from `find_published` means **searched and absent**, and nothing else.
+
+    The short-circuit used to `return None` before any network call, so a caption whose first
+    line was under 25 characters gave the same answer as a completed search that found nothing.
+    Those two lead to opposite actions and the return type could not tell them apart.
+
+    **The assertion that matters is that Meta was not asked**, not the return value — the return
+    value was `None` either way, which is precisely why the bug survived a review. So the fake
+    records whether the account was ever read.
+    """
+    asked: list[int] = []
+
+    async def feed(_settings, limit=25):
+        asked.append(limit)
+        return []
+
+    monkeypatch.setattr(instagram, "recent_media", feed)
+    with pytest.raises(instagram.NotSearchable):
+        await instagram.find_published(get_settings(), "Short hook.\n\nBody follows.")
+    assert asked == [], "it asked Instagram and then discarded the answer"
+
+    # A caption that can be searched does reach the account, or the guard above proves nothing.
+    assert await instagram.find_published(get_settings(), "A" * 25) is None
+    assert asked == [25]
+
+
+@pytest.mark.parametrize(
+    ("first_line", "expected"),
+    [
+        ("A" * 24, False),
+        ("A" * 25, True),
+        ("A" * 26, True),
+        ("", False),
+        ("   " + "A" * 24 + "   ", False),
+        ("A" * 25 + "\n\nmore body", True),
+    ],
+)
+def test_the_searchable_threshold_at_its_boundary(first_line: str, expected: bool) -> None:
+    """25 is a magic number and the next person to tune it will move it.
+
+    The trigger for the critical was *a caption whose first line is under 25 characters* — an
+    ordinary short hook, not an edge case anybody would think to put in a fixture. Which is why
+    the boundary is pinned rather than left to a comfortably long caption in another test.
+    """
+    assert instagram.searchable(first_line) is expected
+
+
+async def test_an_unsearchable_claim_is_left_standing_rather_than_failed(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """**The critical this file was extended for.**
+
+    Reclaim's not-published branch prints *"queue it again"*. Reached for a claim nobody could
+    check, that sentence is an instruction to duplicate a live post on a public feed — and a
+    one-word hook under 25 characters is good caption writing, not an exotic input.
+
+    This is the same invariant `test_an_unreachable_instagram_leaves_a_stalled_row_alone`
+    already stated: silence is not evidence. It was enforced for the network-down path and not
+    for the cannot-be-asked path.
+    """
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user, caption="Short hook.", hashtags=[])
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await _stall(session, publication)
+
+    assert await publishing.reclaim(session, live_settings, now=_later(30)) == []
+
+    settled = await session.get(SocialPublication, publication.id)
+    assert settled.status == "publishing", "a claim nobody could check was failed anyway"
+    assert "Look at the account" in settled.error
+    assert "queue it again when you are ready" not in (settled.error or "").lower()
+
+
+async def test_a_story_is_never_reported_as_not_published(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """A story carries no caption at all, so there is no question to ask Instagram about it."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user, platform="instagram_story", caption="", hashtags=[])
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await _stall(session, publication)
+
+    assert await publishing.reclaim(session, live_settings, now=_later(30)) == []
+    assert (await session.get(SocialPublication, publication.id)).status == "publishing"
+
+
+async def test_the_failure_message_says_what_was_checked(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """It used to assert *"the post is not on the account"* — a stronger claim than looking at
+    the last 25 posts supports."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await _stall(session, publication)
+
+    resolved = await publishing.reclaim(session, live_settings, now=_later(30))
+    assert "most recent posts do not carry this caption" in resolved[0].error
+
+
+async def test_a_stale_unresolvable_claim_can_be_cancelled_by_a_person(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """The way out, and without it the partial unique index blocks the asset permanently.
+
+    A fresh claim is genuinely mid-flight and cancelling it would be a guess. A stale one is the
+    opposite: nothing is running, `reclaim` could not settle it, and the person pressing cancel
+    has the one thing no code here has — they can look at the account.
+    """
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user, caption="Short hook.", hashtags=[])
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+
+    # Fresh: refused, because it might really be in flight.
+    await publishing._claim(session, publication)
+    with pytest.raises(RascalError) as caught:
+        await publishing.cancel(session, publication.id)
+    assert "mid-publish" in caught.value.message
+
+    # Stale: the person decides.
+    from sqlalchemy import text as sql
+
+    await session.execute(
+        sql("UPDATE social_publications SET status = 'publishing' WHERE id = :i"),
+        {"i": publication.id},
+    )
+    await session.commit()
+    session.expunge_all()
+    monkey = await session.get(SocialPublication, publication.id)
+    # Age the claim by moving the threshold rather than the row: `updated_at` is written by the
+    # `set_updated_at()` trigger and cannot be backdated from here.
+    original = publishing.STALE_AFTER
+    publishing.STALE_AFTER = dt.timedelta(seconds=0)
+    try:
+        cancelled = await publishing.cancel(session, monkey.id)
+    finally:
+        publishing.STALE_AFTER = original
+    assert cancelled.status == "cancelled"
+
+    # And the asset is free again.
+    again = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    assert again.status == "scheduled"
+
+
+async def test_an_unsearchable_caption_still_publishes_on_a_first_attempt(
+    session: AsyncSession, live_settings, gram
+) -> None:
+    """Skipping the duplicate lookup is right on a first attempt — there is nothing to be a
+    duplicate of yet — and must not become skipping the publish."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user, caption="Short hook.", hashtags=[])
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    result = await publishing.run(session, live_settings, publication)
+    assert result.status == "published"
+    assert "find_published" not in gram.calls
+
+
+# --- The scheduled runner, which is the flag's second entry point -------------------------------
+#
+# Nothing imported `jobs/social.py` before these. The route was covered and the job was not, and
+# they are two different ways to reach the same irreversible call.
+
+
+@pytest.fixture
+def job(monkeypatch, gram):
+    """`jobs.social` reads settings and opens its own session, so both are pointed at the test
+    database and the fake Instagram before it runs."""
+    from rascal.jobs import social as job_module
+
+    def settings_for(enabled: bool):
+        return get_settings().model_copy(
+            update={
+                "ig_user_id": "38177304098550926",
+                "ig_access_token": "a-token",
+                "social_publish_enabled": enabled,
+            }
+        )
+
+    def arm(enabled: bool) -> None:
+        monkeypatch.setattr(job_module, "get_settings", lambda: settings_for(enabled))
+
+    return type("Job", (), {"module": job_module, "arm": staticmethod(arm)})
+
+
+async def test_the_job_publishes_nothing_when_the_flag_is_off(
+    session: AsyncSession, live_settings, gram, job, capsys
+) -> None:
+    """**The property the whole design rests on, at the entry point that had no test.**
+
+    The route was covered and the job was not, and a queued row plus a false flag reaches this
+    code without going near a request.
+    """
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await session.commit()
+
+    job.arm(False)
+    assert await job.module._run(dry_run=False) == 0, "a deliberate off must not go red"
+    assert "publish_container" not in gram.calls
+    assert "switched off" in capsys.readouterr().out
+
+
+async def test_the_job_publishes_what_is_due_when_it_is_armed(
+    session: AsyncSession, live_settings, gram, job, capsys
+) -> None:
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await session.commit()
+
+    job.arm(True)
+    assert await job.module._run(dry_run=False) == 0
+    assert gram.calls.count("publish_container") == 1
+    assert "published" in capsys.readouterr().out
+
+    session.expunge_all()
+    assert (await session.get(SocialAsset, asset.id)).published_at is not None
+
+
+async def test_a_dry_run_reaches_meta_for_nothing(
+    session: AsyncSession, live_settings, gram, job, capsys
+) -> None:
+    """The rehearsal, and it is flag-independent — which is the correction this phase had to
+    make to three places that claimed the flag itself rehearsed."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await session.commit()
+
+    job.arm(True)
+    assert await job.module._run(dry_run=True) == 0
+    assert gram.calls == [], "a dry run called Instagram"
+    assert "would publish" in capsys.readouterr().out
+
+
+async def test_the_job_holds_off_rather_than_failing_when_it_is_too_soon(
+    session: AsyncSession, live_settings, gram, job, capsys
+) -> None:
+    """A wait is not a fault. Red every hour is how a real alarm stops being read."""
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await session.commit()
+    gram.blocked = "The last post on the account went out 12 minutes ago."
+
+    job.arm(True)
+    assert await job.module._run(dry_run=False) == 0
+    assert "holding off" in capsys.readouterr().out
+    session.expunge_all()
+    assert len(await publishing.due(session)) == 1, "the deferred post left the queue"
+
+
+async def test_an_empty_queue_says_so_rather_than_exiting_silently(gram, job, capsys) -> None:
+    """A green tick and an empty log is indistinguishable from a broken schedule — which is how
+    a marketing run printing "nothing due" was read as "posted successfully" for hours."""
+    job.arm(True)
+    assert await job.module._run(dry_run=False) == 0
+    assert "nothing due" in capsys.readouterr().out
+
+
+# --- The routes, through the client -----------------------------------------------------------
+#
+# Every other assertion in this file calls `publishing.*` directly, which leaves the FastAPI
+# wiring unproven: the admin dependency, the read-only guard, the request schema, the shape that
+# comes back. These two routes are the ones that reach a public feed.
+
+
+@pytest.fixture
+async def admin_user(session: AsyncSession):
+    user = await make_user(session, display_name="Owner")
+    user.is_admin = True
+    await session.commit()
+    return user
+
+
+async def test_a_stranger_cannot_reach_the_publish_route(client, session: AsyncSession) -> None:
+    stranger = await make_user(session, display_name="Nobody")
+    asset = await make_asset(session, stranger)
+    await session.commit()
+    from helpers import auth_headers
+
+    for method, path, body in (
+        ("POST", f"/v1/social/assets/{asset.id}/publish", {}),
+        ("POST", f"/v1/social/publications/{uuid.uuid4()}/cancel", None),
+    ):
+        signed_in = await client.request(method, path, json=body, headers=auth_headers(stranger))
+        assert signed_in.status_code == 403, f"{path} is reachable by a non-admin"
+        anonymous = await client.request(method, path, json=body)
+        assert anonymous.status_code == 401, f"{path} is reachable with no token"
+
+
+async def test_publishing_through_the_route_returns_the_publication(
+    app, client, session: AsyncSession, admin_user, live_settings, gram
+) -> None:
+    """The armed route, end to end through FastAPI — the dependency, the schema, the response.
+
+    Settings are swapped at the dependency rather than on the class: `Settings` is a pydantic
+    model and its fields are not class attributes to patch.
+    """
+    from helpers import auth_headers
+    from rascal.config import get_settings as real_settings
+
+    app.dependency_overrides[real_settings] = lambda: live_settings
+
+    asset = await make_asset(session, admin_user)
+    await session.commit()
+
+    response = await client.post(
+        f"/v1/social/assets/{asset.id}/publish", json={}, headers=auth_headers(admin_user)
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "published"
+    assert body["media_id"] == "17900000000000001"
+    assert body["asset_id"] == str(asset.id)
+
+
+async def test_a_scheduled_time_in_the_past_is_refused_by_the_schema(
+    client, session: AsyncSession, admin_user
+) -> None:
+    """`PublishIn`'s validator, which nothing exercised through a request. A past time usually
+    means somebody got a timezone wrong, and treating it as *now* would post immediately."""
+    from helpers import auth_headers
+
+    asset = await make_asset(session, admin_user)
+    await session.commit()
+    past = (dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=1)).isoformat()
+
+    response = await client.post(
+        f"/v1/social/assets/{asset.id}/publish",
+        json={"scheduled_for": past},
+        headers=auth_headers(admin_user),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["field"] == "scheduled_for"
+
+
+async def test_cancelling_through_the_route(
+    client, session: AsyncSession, admin_user, live_settings, gram
+) -> None:
+    from helpers import auth_headers
+
+    asset = await make_asset(session, admin_user)
+    publication = await publishing.queue(
+        session,
+        live_settings,
+        asset.id,
+        admin_user,
+        scheduled_for=dt.datetime.now(tz=dt.UTC) + dt.timedelta(hours=2),
+    )
+    await session.commit()
+
+    response = await client.post(
+        f"/v1/social/publications/{publication.id}/cancel", headers=auth_headers(admin_user)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "cancelled"
+
+
+# --- Two callers, two transactions, one row ----------------------------------------------------
+
+
+async def test_two_independent_sessions_cannot_both_claim_one_row(
+    session: AsyncSession, engine, live_settings, gram
+) -> None:
+    """The sequential test above simulates the race with a stale object. This one runs it for
+    real: two sessions, two transactions, both holding the same row, both claiming."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    user = await make_user(session, display_name="Owner")
+    asset = await make_asset(session, user)
+    publication = await publishing.queue(session, live_settings, asset.id, user, scheduled_for=None)
+    await session.commit()
+
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
+    async with factory() as one, factory() as two:
+        first = await one.get(SocialPublication, publication.id)
+        second = await two.get(SocialPublication, publication.id)
+        assert first.status == "scheduled" and second.status == "scheduled"
+
+        won = [
+            await publishing._claim(one, first),
+            await publishing._claim(two, second),
+        ]
+    assert won == [True, False], "both runners took the same row"

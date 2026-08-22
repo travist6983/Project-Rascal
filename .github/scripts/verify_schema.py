@@ -96,6 +96,7 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "prompt_suppressions",
     "prompt_library_overrides",
     "social_assets",
+    "social_publications",
 }
 
 # The two columns Postgres maintains itself. If a provider quietly accepted the DDL but did
