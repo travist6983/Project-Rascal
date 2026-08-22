@@ -38,6 +38,7 @@ from rascal.models import (
     PromptLibraryOverride,
     User,
 )
+from rascal.services.guardians import access_for
 
 
 def _utc_now() -> dt.datetime:
@@ -499,6 +500,23 @@ async def top_themes(session: AsyncSession, limit: int = 8) -> list[dict[str, An
     return [{"theme": str(theme), "count": int(count)} for theme, count in rows.all()]
 
 
+def _access_state(tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime) -> str:
+    """`access_for` over two loose columns rather than a mapped row.
+
+    **Not a second formula, and it must never become one.** `recent_signups` aggregates, so it
+    groups — which means it selects the two entitlement *columns* it needs rather than the
+    entity, since selecting the entity would mean grouping by its primary key as well. There is
+    therefore no ORM object to hand to :func:`services.guardians.access_for`, so a throwaway
+    unmapped instance is built for the one call and the formula stays in the one place allowed
+    to know it. `services/scheduler.py::_active_parents` does select the entity, because it does
+    not aggregate; both reach the same function, which is the point.
+
+    `test_entitlement_cadence.py` walks the AST of every module under `src/` looking for anyone
+    who compares `trial_ends_at` against a clock instead of doing this.
+    """
+    return access_for(Entitlement(tier=tier, trial_ends_at=trial_ends_at), now=now).access
+
+
 async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[str, Any]]:
     """Who arrived lately — enough to recognise an account, and nothing about their archive.
 
@@ -513,15 +531,18 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             User.display_name,
             User.created_at,
             User.last_sign_in_at,
+            User.family_id,
             Entitlement.tier,
+            Entitlement.trial_ends_at,
             func.count(func.distinct(Entry.id)).label("entries"),
         )
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
         .outerjoin(Entry, and_(Entry.author_id == User.id, Entry.deleted_at.is_(None)))
-        .group_by(User.id, Entitlement.tier)
+        .group_by(User.id, Entitlement.tier, Entitlement.trial_ends_at)
         .order_by(User.created_at.desc())
         .limit(limit)
     )
+    now = dt.datetime.now(tz=dt.UTC)
     return [
         {
             "id": str(row.id),
@@ -529,7 +550,28 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             "display_name": row.display_name,
             "created_at": row.created_at.isoformat(),
             "last_sign_in_at": row.last_sign_in_at.isoformat() if row.last_sign_in_at else None,
+            # **`family_id`, `access` and `trial_ends_at` are here so the console's one
+            # entitlement lever has something to aim at.** A control that sets a household's
+            # trial needs the household's id, and asking the owner to find a UUID by hand is
+            # a control nobody uses. None of the three is archive content.
+            "family_id": str(row.family_id),
+            # **`or "free"` covers the outer join finding no entitlement row at all**, not a
+            # null column — `tier` is NOT NULL with a `free` server default, so within a row
+            # that exists it is never null. A user with no entitlement row is unreachable
+            # (`create_household` writes one with every family, and `users.family_id` is
+            # `ON DELETE RESTRICT`, so a family with members cannot be deleted out from under
+            # them), and `free` is what the schema would have written anyway.
+            #
+            # **`services/scheduler.py::_serve` treats the same anomaly as *entitled* and the
+            # difference is deliberate.** The scheduler has to choose a behaviour and chooses
+            # the one that cannot cost a paying family their board; a console has no such
+            # obligation and should not invent a state — it reports the columns as they are.
             "tier": row.tier or "free",
+            # Computed by the one authority rather than restated here — a console that
+            # disagreed with `GET /today` about whether somebody is entitled would be worse
+            # than a console with no column at all.
+            "access": _access_state(row.tier or "free", row.trial_ends_at, now),
+            "trial_ends_at": row.trial_ends_at.isoformat() if row.trial_ends_at else None,
             "entries": int(row.entries),
         }
         for row in rows.all()

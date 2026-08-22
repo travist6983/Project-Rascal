@@ -171,6 +171,33 @@ function when(iso) {
   return `${Math.round(minutes / 1440)}d ago`;
 }
 
+/**
+ * A date that may be in the future, which `when` cannot render.
+ *
+ * `when` measures `now - then` and floors at "just now", so a trial ending in a fortnight
+ * came out as **"just now"** — a confident wrong answer on the one column somebody would
+ * read to decide whether to move it. Found by loading the console, not by a test.
+ *
+ * Absolute date first because that is what you act on, distance second because that is what
+ * you scan for.
+ */
+function deadline(iso) {
+  if (!iso) return "—";
+  const then = new Date(iso);
+  // **The last day the trial is still active, not the instant it stops.** `trial_ends_at` is an
+  // exclusive end — `access_for` compares `now < trial_ends_at` — and `endOfDayIso` stores local
+  // midnight *after* the chosen day. Rendering the instant meant picking "Sep 4" and being told
+  // "Sep 5", which contradicts both the date you typed and the runbook's "the date you pick is
+  // the last day of the trial". One millisecond back lands inside the last active day, in local
+  // time, for any value: one the lever set, one the migration backfilled, or one already past.
+  const lastDay = new Date(then.getTime() - 1);
+  const on = lastDay.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const days = Math.round((then.getTime() - Date.now()) / 86400000);
+  if (days > 0) return `${on} · in ${days}d`;
+  if (days === 0) return `${on} · today`;
+  return `${on} · ${Math.abs(days)}d ago`;
+}
+
 const escape = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -579,9 +606,13 @@ function renderToday(data) {
     { color: "var(--series-2)" },
   );
 
+  // `access` is the computed answer — `subscribed` | `trial` | `free` — and `tier` is the
+  // column. Both are shown because they answer different questions: `tier` says whether Apple
+  // has told us somebody is paying, `access` says what a phone will actually be served today.
+  // A console showing only one of them would make a trial look like a lapse.
   $("signups").innerHTML = signups.length
-    ? `<table><thead><tr><th>Account</th><th>Tier</th><th class="num">Entries</th>
-       <th>Joined</th><th>Last seen</th></tr></thead><tbody>${signups
+    ? `<table><thead><tr><th>Account</th><th>Access</th><th>Tier</th><th>Trial ends</th>
+       <th class="num">Entries</th><th>Joined</th><th>Last seen</th></tr></thead><tbody>${signups
          .map(
            (row) => `<tr>
              <td>${escape(row.display_name || row.email || "—")}${
@@ -589,9 +620,13 @@ function renderToday(data) {
                  ? `<br /><span class="tile-note">${escape(row.email)}</span>`
                  : ""
              }</td>
+             <td><span class="chip ${accessChip(row.access)}">${escape(
+               row.access || "free",
+             )}</span></td>
              <td><span class="chip ${
                row.tier === "subscribed" ? "chip-ok" : "chip-plain"
              }">${escape(row.tier)}</span></td>
+             <td>${escape(deadline(row.trial_ends_at))}</td>
              <td class="num">${num(row.entries)}</td>
              <td>${escape(when(row.created_at))}</td>
              <td>${escape(when(row.last_sign_in_at))}</td>
@@ -599,6 +634,105 @@ function renderToday(data) {
          )
          .join("")}</tbody></table>`
     : '<p class="chart-empty">No accounts yet.</p>';
+
+  fillHouseholds(signups);
+}
+
+function accessChip(access) {
+  if (access === "subscribed") return "chip-ok";
+  if (access === "trial") return "chip-warn";
+  return "chip-plain";
+}
+
+// --- The one entitlement lever -----------------------------------------------------------------
+//
+// Set or clear a household's `trial_ends_at`. There is deliberately no control that writes
+// `tier`: App Store Server Notifications are its only writer, and a button here that could
+// disagree with Apple about who is paying would be worse than no button at all.
+
+function fillHouseholds(signups) {
+  const select = $("t-family");
+  const previous = select.value;
+  // One option per household rather than per account — a two-parent family is one
+  // entitlement row, and offering it twice invites setting it twice and wondering which won.
+  const households = new Map();
+  for (const row of signups) {
+    if (!row.family_id || households.has(row.family_id)) continue;
+    households.set(row.family_id, row);
+  }
+  select.replaceChildren();
+  for (const [familyId, row] of households) {
+    const option = document.createElement("option");
+    option.value = familyId;
+    // **The short family id is not decoration.** Two households whose accounts share a display
+    // name — which two dev-login fixtures do — produced two visually identical options, and
+    // picking the wrong one moves the wrong household's trial. Found by loading the console.
+    option.textContent = `${row.display_name || row.email || "unnamed"} · ${familyId.slice(
+      0,
+      8,
+    )} — ${row.access || "free"}`;
+    select.append(option);
+  }
+  // **Restore the selection, or say it is gone — never silently pick a different household.**
+  // `replaceChildren` leaves a `<select>` on its first option, so a household that dropped out
+  // of the list between renders would hand the next click a *different* family than the one on
+  // screen a moment ago. That is the same harm as two identically-labelled options above, by a
+  // different route: the button moves the wrong household's trial and looks like it worked.
+  // `recent_signups` returns the newest twelve, so this is reachable the day there is a
+  // thirteenth account.
+  if (previous && !households.has(previous)) {
+    select.selectedIndex = -1;
+    $("trial-state").textContent =
+      "The household you had selected is no longer in this list. Pick again.";
+    return;
+  }
+  if (households.has(previous)) select.value = previous;
+  $("trial-state").textContent = households.size ? "" : "No households yet — nothing to move.";
+}
+
+function endOfDayIso(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  // Local midnight *after* the chosen day, so picking today leaves the household in its trial
+  // for the rest of today rather than dropping it the moment the date is saved. `day + 1`
+  // rolls the month and the year on its own.
+  return new Date(year, month - 1, day + 1).toISOString();
+}
+
+async function writeTrial(trialEndsAt) {
+  const familyId = $("t-family").value;
+  // Deliberately not named `state` — that is a module-level object in this file, and shadowing
+  // it inside an async function is the kind of thing that reads fine and breaks the next edit.
+  const status = $("trial-state");
+  if (!familyId) {
+    status.textContent = "Pick a household first.";
+    return;
+  }
+  try {
+    const result = await api(`/admin/families/${familyId}/trial`, {
+      method: "PUT",
+      body: JSON.stringify({ trial_ends_at: trialEndsAt }),
+    });
+    toast(trialEndsAt ? "Trial moved." : "Trial cleared.");
+    // Repaint from the server rather than from what we just sent, so the Access column and
+    // the household dropdown agree with the row that actually exists.
+    //
+    // **The confirmation is written after the repaint, not before.** `load()` runs
+    // `fillHouseholds`, which resets this line — so writing it first put the sentence on
+    // screen for exactly as long as the request took and then wiped it. The toast survived
+    // and hid the fact that the more useful message did not. Found by driving the console,
+    // not by a test.
+    await load();
+    // **Say why nothing moved, at the moment it did not move.** A subscribed household reads
+    // `subscribed` whatever this writes, because `subscribed` beats `trial`. Reporting only
+    // "Access is now subscribed" is accurate and reads like a control that failed silently.
+    status.textContent =
+      result.tier === "subscribed"
+        ? `Saved, but access stays “subscribed” — the tier outranks the trial. Set tier back to ` +
+          `“free” (runbook-deploy.md §7a) to see the free tier.`
+        : `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
+  } catch (error) {
+    status.textContent = error.message;
+  }
 }
 
 // --- Library ------------------------------------------------------------------------------------
@@ -2532,6 +2666,16 @@ fillSelect($("f-kind"), KINDS, "Every kind");
 fillSelect($("f-cadence"), CADENCES, "Every cadence");
 fillSelect($("f-source"), SOURCES, "Every source");
 
+$("trial-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const value = $("t-date").value;
+  if (!value) {
+    $("trial-state").textContent = "Pick a date, or use Clear trial.";
+    return;
+  }
+  writeTrial(endOfDayIso(value));
+});
+$("t-clear").addEventListener("click", () => writeTrial(null));
 $("new-prompt").addEventListener("click", () => openDrawer(null));
 $("prompt-form").addEventListener("submit", submitPrompt);
 $("generate-form").addEventListener("submit", writeCandidates);

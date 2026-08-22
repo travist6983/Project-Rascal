@@ -42,6 +42,7 @@ from rascal.constants import (
 from rascal.models import Assignment, Child, Device, Guardian, NotificationSend, User
 from rascal.services.dates import zone
 from rascal.services.devices import live_devices
+from rascal.services.guardians import access_for_family
 from rascal.services.prompt_tokens import render_alert_body
 from rascal.services.push import PushClient, PushMessage, send_with_retry
 from rascal.services.scheduler import ensure_day_filled
@@ -226,8 +227,17 @@ async def run_notifications(
         # **Scoped to this user**, because the notification is going to *their* phone. A
         # two-parent household has two daily boards, and telling one parent about the other's
         # mission is both wrong and impossible to act on — they cannot see it to complete it.
+        #
+        # **And scoped to what their household may actually reach.** `ensure_day_filled` above
+        # will not *create* a locked slot for a household on the free tier, but a household
+        # that lapsed with pending mission rows already written still has them — and this is
+        # the one surface a parent cannot dismiss without reading. Without the gate the ladder
+        # below picks the mission first, by design, and pushes the body of a prompt that
+        # `GET /today` correctly refuses to show: a library prompt on a lock screen with
+        # nothing behind it in the app. The same one authority every other surface reads.
+        household = await access_for_family(session, user.family_id, now=instant)
         today_items, _waiting, _done_today = await assignments_for(
-            session, child, window.local_date, user.id
+            session, child, window.local_date, user.id, entitled=household.entitled
         )
         if not today_items:
             # Every item for today is done, dismissed, or the day was empty. Send nothing:

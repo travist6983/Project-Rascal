@@ -298,6 +298,8 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
+- **107 — the trial, the entitlement gate, and the weekday cadence.** API lane. `entitlements.trial_ends_at` and a computed `access`; the free tier serves the daily question and locks the rest of the day, never the archive. Reverses D2, narrows D3. Paired with **108** (iOS: the locked board and the membership sheet) and **109** (the marketing site's pricing page). The long form is the 107 row in `roadmap-status.md`.
+
 - **108 — the locked board, the membership sheet, the trial welcome. iOS lane, open on
   `ios/phase-108-locked-today-membership`.** The client half of 107. A `LockedPromptCard` below the
   live prompts on Today, a membership sheet reached from it and from Settings, a one-time trial

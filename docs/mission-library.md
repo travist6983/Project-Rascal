@@ -236,6 +236,17 @@ actually has to draw from on an arbitrary day.
 used to sit here — "the daily `mission` slot draws from photo, video, audio, and activity
 together" — stopped being true when the day split into three. What replaced it:
 
+**Three slots, but no longer three every day — phase 107, Aug 21, 2026.** The daily slots
+rotate by weekday: `question` every day, `mission` on Monday, Wednesday and Friday,
+`mission_b` on Tuesday and Thursday, both at the weekend. **The pools below did not
+change** — `mission` is still photo-only and `mission_b` still draws video, audio and
+activity. What changed is how fast each is consumed, so **every *First repeat* figure in
+the table below is now conservative rather than wrong**: `mission` is drawn five days in
+seven and `mission_b` four, so both pools last longer than the column says, by roughly
+1.4× and 1.75×. They are left as measured rather than rescaled by arithmetic — the honest
+number comes from `GET /children/{id}/pool-health`, which projects from the rate the slot
+is **observed** to be served and needs no help from this table.
+
 | Slot | Draws from | Available on an August day at 49mo | First repeat | Relaxation begins |
 |---|---|---|---|---|
 | `question` | question | 30 | ~30 days | 2026-09-10 |
@@ -261,15 +272,20 @@ to reach. Roughly doubles the runway before a repeat.
 moved. `estimated_days_until_first_repeat` is a projection
 from pool size **and the rate the slot is observed to be served**, not a promise — theme rotation
 can relax a single pick earlier without the slot being exhausted. **Phase 50 corrected what it
-divides by**: it used to assume the nominal cadence, and for `mission` — nominally daily, actually
-served zero times a day — that produced a countdown to a repeat that could not happen. A slot
+divides by**: it used to assume the nominal cadence, and for `mission` — nominally daily *as it was
+then; it is nominally 1.4 days since phase 107* — actually served zero times a day, that
+produced a countdown to a repeat that could not happen. A slot
 nobody serves now reports `estimate_basis: not_observed` and no number, which is the answer any
 re-measurement of the relaxation date has to start from.
 
 `weekly` draws from the ten weekly prompts on Saturday; `monthly` draws from the four
 measurement and camera-roll prompts on the 1st; `letter` draws from the eight letters on the
-15th. **All three fire on top of the daily three rather than replacing any of them**, so a
-Saturday is four items, the 15th is four, and a Saturday that is also the 15th is five.
+15th. **All three fire on top of the daily slots rather than replacing any of them**, so
+~~a Saturday is four items, the 15th is four, and a Saturday that is also the 15th is
+five~~ — **re-counted Aug 21, 2026 for the rotation**: an ordinary weekday is 2, a weekday
+that is the 1st or 15th is 3, a Sunday is 3, a Sunday that is the 1st or 15th is 4, a
+Saturday is 4, and **a Saturday that is also the 1st or the 15th is 5** — the same ceiling
+as before, with the floor one lower.
 
 The 180-day cooldown holds comfortably at this size. When the library grows past ~300 you can tighten theme rotation instead of loosening cooldown.
 

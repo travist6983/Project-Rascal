@@ -148,7 +148,8 @@ What a household is entitled to. **One row per family, keyed on the family** —
 | `family_id` | uuid PK FK | → families |
 | `tier` | text | `free` \| `subscribed`, `text` + named CHECK |
 | `payer_user_id` | uuid FK | nullable — a family can be `free` with nobody paying, and a lapsed family keeps the payer who lapsed so a win-back knows who to talk to |
-| `lapsed_at` | timestamptz | nullable; null while subscribed |
+| `lapsed_at` | timestamptz | nullable; null while subscribed. **A trial expiring never writes this** — see below |
+| `trial_ends_at` | timestamptz | nullable; added by migration `0022` (phase 107). When the free trial runs out. **Null means *no trial on this household*, not *a trial that ended*** |
 | `updated_at` | timestamptz | |
 
 ~~**Nothing in this codebase writes `tier`.**~~ — **corrected Aug 20, 2026 by phase 37a. `POST /v1/webhooks/app-store` writes it, and it is the only thing that does.** D5 reserved that column for App Store Server Notifications V2 and this is that; a test asserts there is exactly one assignment to `.tier` anywhere in `src/`, so a second writer fails the suite rather than quietly appearing. The device still never decides whether a household is subscribed, for the same reason it never decides what day it is — a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into an entitlement.
@@ -158,6 +159,27 @@ What a household is entitled to. **One row per family, keyed on the family** —
 **Nothing has ever been verified against Apple.** No product exists in App Store Connect (`docs/blocked.md` §10), so the writer above has been exercised only against synthetic signed payloads.
 
 **`last_sign_in_at` is deliberately not on this table.** It is a denormalisation of `users.last_sign_in_at` that must never be written independently, and a column whose only correct value is a `MAX` over another table — before anything computes that `MAX` — is a column that drifts.
+
+#### The trial is a column, and entitlement is computed — phase 107, Aug 21, 2026
+
+**There is no `trial` value in `tier` and adding one would be a defect.** `tier` has exactly one writer by D5 and a test asserts it; a trial that wrote `tier` would be a second writer of the one column that decision exists to protect — and a writer running on a clock rather than on a receipt, so the column would start disagreeing with Apple. `trial_ends_at` sits beside it instead and **`tier` keeps its existing meaning and values**, which is what keeps every client that reads it working.
+
+Entitlement is therefore derived rather than stored, by one function — `services/guardians.access_for`:
+
+```
+entitled = (tier == "subscribed") or (trial_ends_at is not None and now_utc() < trial_ends_at)
+access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "free")
+```
+
+`access` is on the wire in three places — `GET /families/me`, `GET /families/{id}/entitlement` and `GET /children/{id}/today` — and all three read that one function. `api-contract.md` already described the first two as *"one authority with two shapes"*; phase 107 added a third **shape**, not a third authority, and a test greps `src/` for anybody who re-derives the comparison.
+
+**`subscribed` beats `trial`**, so a subscriber holding a stale future `trial_ends_at` reads `subscribed` and a client never renders a paying household as one on a countdown.
+
+**The default is on the model, not in `create_household`.** `models/family.py` gives the column a Python-side default of `now + 14 days`, so every construction of the row gets a trial — the household factory, the test factories, and anything written later. A default that lives in one caller is a default the second caller silently does without, and the failure mode is a real family landing on the free tier because of where their row happened to be created. Migration `0022` backfills every existing row with the same fourteen days for the same reason: on the day it deploys the free tier stops carrying missions, and an unbackfilled row would take somebody's board away without anybody deciding to.
+
+**A trial expiring is not a lapse, and this is the part with photographs behind it.** `lapsed_at` is about a *subscription* ending, per D3, and it is what `eligible_at` — the media deletion clock — is computed from. A household that tried the app for a fortnight and stopped has not lapsed. `access_for` touches neither field, `eligible_at` still keys off `tier` and `lapsed_at` alone, and a test pins it.
+
+**One route writes this column and it cannot write `tier`.** `PUT /v1/admin/families/{family_id}/trial` is the admin console's single entitlement lever: set the date forward to make a household `trial`, set it to yesterday or clear it to make it `free`. It exists because the owner is the only user and would otherwise never see the free tier he is designing. `docs/runbook-admin-console.md` has the walkthrough.
 
 ### `app_store_transactions`
 The receipt ledger — **why** a household is entitled to what `entitlements` says it is. Created by migration `0019` as part of phase 37a.
@@ -569,7 +591,19 @@ The scheduler avoids serving two prompts from the same theme back to back.
 Runs 5am in each child's `family_timezone`.
 
 1. Expire assignments where `expires_on < today` and `status = 'pending'`.
-2. For each active child, for **all three** daily slots in order — `question`, then `mission`, then `mission_b`:
+2. For each active child, for the daily slots **that weekday carries**, in order:
+
+   | Day (in the child's `family_timezone`) | Daily slots |
+   |---|---|
+   | Mon, Wed, Fri | `question`, `mission` |
+   | Tue, Thu | `question`, `mission_b` |
+   | Sat, Sun | `question`, `mission`, `mission_b` |
+
+   ~~*all three daily slots, every day*~~ — **replaced Aug 21, 2026 by phase 107.** The rotation gives `mission` five days a week and `mission_b` four, which preserves the reason the two slots were split: a photo is the thing a parent can do in ten seconds, and the video/audio/activity pool is the one that needs an afternoon. **The pools did not widen** — `mission` is still photo-only and `mission_b` is still video, audio and activity. Only which day serves which moved.
+
+   **The weekday is read in the child's `family_timezone`, from the same local date this step already derives** — never from UTC and never from the server's clock. A Saturday in Auckland is a Friday in UTC and the parent is entitled to the Saturday.
+
+   For each slot that fires:
    - Candidate pool = active prompts where cadence matches, **the kind is one this slot draws** (`question` → question; `mission` → photo; `mission_b` → video, audio, activity), `child_age_months` falls inside the age window, and `month_tags` is empty or contains the current month.
    - Exclude any prompt suppressed for this child, before selection begins rather than at any rung of the ladder below.
    - Exclude any prompt served to this child in the last 180 days.
@@ -587,7 +621,22 @@ Runs 5am in each child's `family_timezone`.
    *"Postgres will not infer a partial unique index"* — so this step contradicted its own document
    for a day.
 
-Steps 3–5 fire **on top of** step 2 and never in place of it, so the worst day the calendar can produce — a Saturday that is also the 15th — is five assignments. A slot whose pool is empty is left empty and logged; it is never filled from another kind's pool.
+Steps 3–5 fire **on top of** step 2 and never in place of it, so the worst day the calendar can produce — **a Saturday that is also the 1st or the 15th** — is five assignments. A slot whose pool is empty is left empty and logged; it is never filled from another kind's pool.
+
+**That ceiling survived phase 107 unchanged, and it was checked rather than assumed.** The rotation lowered the *floor* — an ordinary weekday is two items now rather than three — and a Saturday still carries `question`, `mission`, `mission_b` and `weekly`, so a Saturday that also fires the monthly or the letter still reaches five. The sentence above previously named only the 15th; both combinations reach five and always did, so the 1st is now named too. A test walks four years of the calendar and asserts nothing beats five.
+
+### The entitlement gate — phase 107
+
+**A household that is not entitled is served the daily question and nothing else.** `constants.FREE_SLOTS` is that list, and the scheduler and `ensure_day_filled` skip every other slot for such a household.
+
+**The reason is the cooldown, and it is load-bearing.** A served prompt writes an assignment and consumes the 180-day cooldown against a 133-prompt pool. Filling slots a free parent can never see would burn their runway invisibly, and the day they subscribe they would be served repeats immediately. **Do not "fill it but hide it."**
+
+**The gate's authority is `GET /today`, not the scheduler** — the same relationship this document already sets for `ensure_day_filled`, where *the scheduler is an optimisation, not a dependency*. That buys two behaviours without any extra machinery:
+
+- A household that subscribes at 2pm gets its missions on the next `/today` read, because the read repairs the day it finds.
+- A household that lapses at 2pm with pending mission rows already written has those rows **omitted from the response**, not deleted. They keep existing. There is deliberately no cleanup for this — D3 as narrowed locks the day and never the archive.
+
+The read-side exclusion is written into the query rather than left to the absence of rows, because a lapsed household genuinely has those rows. A locked slot therefore reaches neither `today[]` nor `waiting[]`, and `done_today` is **never** filtered by entitlement: it is work the household already did.
 
 If the candidate pool empties (small library, narrow age band), relax the 180-day cooldown to 90 before relaxing the age window. Relax the age window last — an age-inappropriate
 prompt is worse than a repeat.
