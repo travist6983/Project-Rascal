@@ -585,7 +585,10 @@ def test_a_saturday_that_is_also_the_first_is_still_the_five_item_ceiling() -> N
     assert slots == ["question", "mission", "mission_b", "weekly", "monthly"]
     assert len(slots) == 5
 
-    # And nothing anywhere in the calendar beats it. 400 years covers every leap rule.
+    # And nothing in four years of calendar beats it — every weekday lands on every
+    # day-of-month over that span, which is what the ceiling depends on. The exhaustive
+    # version is `test_every_shape_the_calendar_can_produce_is_one_of_exactly_six`, which
+    # sweeps 28 years: the Gregorian weekday cycle, and exactly 1461 whole weeks.
     day = dt.date(2026, 1, 1)
     worst = max(len(slots_for(day + dt.timedelta(days=n))) for n in range(366 * 4))
     assert worst == 5
@@ -1123,6 +1126,89 @@ async def test_an_entitled_household_still_sees_a_reopened_mission(
     offered = {item["id"]: item for item in body["today"]}
     assert str(mission.id) in offered, "rewriting a dismissed mission must put it back"
     assert offered[str(mission.id)]["body"] == "MY OWN WORDS"
+
+
+async def test_a_hidden_mission_still_expires_on_its_own_fourteen_day_clock(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**What actually happens to a locked row as it ages, decided rather than left to chance.**
+
+    The phase brief says a locked slot *"never expires against the parent"*, and the `waiting`
+    half of that is enforced in the query and tested above. The expiry half is **not**
+    suppressed, and that is deliberate — the alternative is worse.
+
+    `_expire_stale` flips any pending row past `expires_on`, with no entitlement filter. So a
+    mission served on day 0 while entitled, hidden by a lapse on day 1, is flipped to `expired`
+    on day 15 by the nightly job, having been invisible for a fortnight.
+
+    **Suppressing that would mean a household that lapses for a year and comes back finds a
+    year-old mission in `waiting`** — which is the infinite backlog *"items stack; expire at 14
+    days"* exists to prevent, and a settled decision this phase has no licence to reverse. The
+    row ages on the same clock as any other; entitlement decides what is *served*, not what
+    time does. A household that returns inside the window gets it back with the days it has
+    left, which is the case that matters and is asserted below.
+
+    The cost is named rather than hidden: such a row counts toward `resolved` in the admin
+    console's per-household figures, alongside done and dismissed. That is a small distortion
+    on one number, and it is the price of not reversing the expiry decision.
+    """
+    user, child = await _household(session, trial_ends_at=_next_month())
+    photo = await make_prompt(session, kind="photo", cadence="daily", completion_mode="media")
+    served_on = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone) - dt.timedelta(
+        days=20
+    )
+    mission = await make_assignment(
+        session, child, photo, slot="mission", assigned_on=served_on, user=user
+    )
+    assert mission.expires_on == served_on + dt.timedelta(days=14)
+
+    # The lapse, after the row was written.
+    entitlement = await session.get(Entitlement, user.family_id)
+    entitlement.trial_ends_at = _yesterday()
+    await session.commit()
+
+    # Invisible while it ages — the `waiting` exclusion, which is the enforced half.
+    body = (await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(user))).json()
+    assert str(mission.id) not in {item["id"] for item in body["waiting"] + body["today"]}
+
+    # And the nightly job ages it anyway, on its own clock.
+    await run_scheduler(session, as_of_date=served_on + dt.timedelta(days=15), child_id=child.id)
+    await session.commit()
+    await session.refresh(mission)
+    assert mission.status == "expired", (
+        "a hidden row must still age, or a lapse of a year returns a year-old mission"
+    )
+
+
+async def test_a_household_that_returns_inside_the_window_gets_its_missions_back(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The case that actually matters, and the reason the row is not deleted on a lapse.
+
+    Re-entitled before `expires_on`, the row is served again with the days it has left. This is
+    what *"the rows keep existing and simply stop being served"* buys, and it is why the phase
+    forbids cleanup.
+    """
+    user, child = await _household(session, trial_ends_at=_yesterday())
+    photo = await make_prompt(session, kind="photo", cadence="daily", completion_mode="media")
+    served_on = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone) - dt.timedelta(days=3)
+    mission = await make_assignment(
+        session, child, photo, slot="mission", assigned_on=served_on, user=user
+    )
+    await session.commit()
+    headers = auth_headers(user)
+
+    hidden = (await client.get(f"/v1/children/{child.id}/today", headers=headers)).json()
+    assert str(mission.id) not in {item["id"] for item in hidden["waiting"]}
+
+    entitlement = await session.get(Entitlement, user.family_id)
+    entitlement.trial_ends_at = _next_month()
+    await session.commit()
+
+    back = (await client.get(f"/v1/children/{child.id}/today", headers=headers)).json()
+    assert str(mission.id) in {item["id"] for item in back["waiting"]}, (
+        "a household that came back inside the window did not get its pending mission back"
+    )
 
 
 async def test_a_finished_mission_stays_on_the_board_after_a_lapse(

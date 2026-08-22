@@ -11,6 +11,8 @@ from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.models import PromptSuppression
 from rascal.services.pool_health import (
+    _INTERVAL_SWEEP_DAYS,
+    _INTERVAL_SWEEP_START,
     RELAXATION_COOLDOWN_90,
     RELAXATION_NONE,
     pool_health,
@@ -107,15 +109,28 @@ def test_the_nominal_cadence_is_counted_off_the_scheduler_not_written_down_twice
     assert intervals["weekly"] == 7.0
     assert intervals["monthly"] == intervals["letter"] == 30.44
 
-    # Every slot the calendar can produce has an interval — a slot added to `slots_for` without
-    # one would silently fall back to the `.get(slot, 1.0)` default and read as daily.
+    # **Every slot the calendar produces has an interval, and that is now true by
+    # construction rather than by vigilance** — `serve_interval_days` builds its keys *from*
+    # `slots_for`, so a slot added there appears here automatically. Asserted anyway, because
+    # the property is what `test_every_registry_keyed_by_slot_covers_every_slot` relies on, and
+    # because it would stop being free the day somebody hand-writes an entry back in.
     day = dt.date(2026, 1, 1)  # future-date: explicit, pure
     produced = {slot for n in range(366 * 4) for slot in slots_for(day + dt.timedelta(days=n))}
-    assert produced <= set(intervals)
+    assert produced == set(intervals), (
+        "the interval table and the calendar disagree about which slots exist"
+    )
 
-    # And it is a derivation, not a copy: every value is the sweep length over the count.
-    for slot, interval in intervals.items():
-        assert interval >= 1.0, f"{slot} cannot be served more than once a day"
+    # **The derivation, checked against the calendar rather than restated.** Counting how often
+    # each slot actually fires over the same 28-year window and dividing gives the table back —
+    # which is what makes the numbers above measurements rather than four literals somebody
+    # typed. An implementation that returned a hand-written dict fails here.
+    counts: dict[str, int] = {}
+    for offset in range(_INTERVAL_SWEEP_DAYS):
+        for slot in slots_for(_INTERVAL_SWEEP_START + dt.timedelta(days=offset)):
+            counts[slot] = counts.get(slot, 0) + 1
+    assert intervals == {
+        slot: round(_INTERVAL_SWEEP_DAYS / count, 2) for slot, count in counts.items()
+    }
 
 
 async def test_a_slot_nobody_serves_reports_unmeasured_rather_than_a_countdown(

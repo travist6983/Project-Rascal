@@ -1,6 +1,8 @@
 """How close a child's prompt pool is to repeating itself.
 
-The library holds 113 active prompts and the scheduler serves three a day. Roughly 30 questions
+The library holds 113 active prompts and ~~the scheduler serves three a day~~ — **two on a
+weekday and three at the weekend since phase 107's rotation**; the interval per slot is counted
+off `slots_for` by `serve_interval_days()` below rather than stated here. Roughly 30 questions
 are eligible at 48 months, so at one a day the question pool empties in about a month — at which
 point the documented fallback relaxes the 180-day cooldown to 90 and the parent starts seeing
 prompts they answered last month, during exactly the sixty-day window P1 exists to prove.
