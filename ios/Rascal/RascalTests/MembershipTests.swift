@@ -978,6 +978,68 @@ struct MembershipTests {
         #expect(model.canBuy == false)
     }
 
+    // MARK: - A throw that lands after the server has already granted
+
+    /// **The server's answer outranks a local throw, in both directions.**
+    ///
+    /// `refreshHousehold()` has always handled one direction — a purchase that threw and then
+    /// turned out to have gone through stops claiming failure the moment the server disagrees.
+    /// This is the same collision arriving in the other order, and it went the wrong way.
+    ///
+    /// `buy()` awaits `store.purchase` on the main actor, and leaving for Apple's payment sheet is
+    /// exactly what makes the app background and then foreground — which runs the sheet's
+    /// `scenePhase` handler, and `refreshHousehold()` with it. So a household that goes subscribed
+    /// mid-purchase is the ordinary case, not a contrived one. The awaited call then threw and
+    /// `purchase = .failed` wrote straight over the granted entitlement, telling a parent the
+    /// purchase failed on a device that had already been told otherwise.
+    @MainActor
+    @Test("a throw after the server has granted does not report a failure")
+    func aLateThrowDoesNotOverwriteAGrantedEntitlement() async {
+        let store = HangingPurchaseStore()
+        let granted = GrantFlag()
+
+        let model = SubscriptionModel(
+            readHousehold: {
+                await granted.isSet ? .sample(tier: "subscribed") : .sample(tier: "free")
+            },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+        #expect(model.canBuy, "a free household with an offer should be able to buy")
+
+        // The parent taps Become a member and Apple's sheet comes up.
+        let buying = Task { await model.buy() }
+        var reached = false
+        for _ in 0..<400 {
+            if model.purchase == .purchasing { reached = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(reached, "the purchase never started")
+
+        // They come back to the app. The server has granted meanwhile — the second guardian paid,
+        // or the App Store webhook landed — and the foreground read picks it up.
+        await granted.set()
+        await model.refreshHousehold()
+        #expect(model.purchase == .subscribed)
+
+        // Only now does Apple's call fail.
+        await store.release()
+        await buying.value
+
+        #expect(
+            model.purchase == .subscribed,
+            "a local throw overwrote an entitlement the server had already granted"
+        )
+        if case .failed = model.purchase {
+            Issue.record("a subscribed household was told its purchase failed")
+        }
+    }
+
     // MARK: - The Today heading over a locked board
 
     /// **The state a free household is in for most of every day**, and the one that shipped wrong:
@@ -1069,8 +1131,6 @@ struct MembershipTests {
         }
     }
 
-    /// And that it does **not** fire on the near-misses the rule deliberately allows — a matcher
-    /// that flags everything is as useless as one that flags nothing.
     /// A typographic apostrophe is the same word. A ban that only recognises `'` is one somebody
     /// evades by pasting prose from a document.
     @Test("the banned-word guard reads both apostrophes as the same character")
@@ -1081,6 +1141,8 @@ struct MembershipTests {
         #expect(MembershipCopy.contains("Don't lose", in: "Don't lose your archive"))
     }
 
+    /// And that it does **not** fire on the near-misses the rule deliberately allows — a matcher
+    /// that flags everything is as useless as one that flags nothing.
     @Test("the banned-word guard does not fire on words that merely contain a banned one")
     func theBannedWordGuardIsNotOverEager() {
         #expect(MembershipCopy.contains("Pro", in: "Today's photo mission prompt") == false)
@@ -1251,6 +1313,35 @@ private actor FailingPurchaseStore: SubscriptionPurchasing {
     }
 
     func restore() async throws {}
+}
+
+/// Hangs inside `purchase` until released, then throws — so a foreground can land in the gap.
+private actor HangingPurchaseStore: SubscriptionPurchasing {
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func loadOffer() async throws -> SubscriptionOffer { .preview }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        if !released {
+            await withCheckedContinuation { waiting = $0 }
+        }
+        throw SubscriptionStoreError.storeKit("The App Store could not complete that.")
+    }
+
+    func release() {
+        released = true
+        waiting?.resume()
+        waiting = nil
+    }
+
+    func restore() async throws {}
+}
+
+/// A one-way switch, so the household read can change its answer mid-test.
+private actor GrantFlag {
+    private(set) var isSet = false
+    func set() { isSet = true }
 }
 
 /// Counts calls, so a double can fail the first and answer the rest.

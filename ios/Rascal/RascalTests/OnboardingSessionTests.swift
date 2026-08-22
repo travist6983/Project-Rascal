@@ -20,6 +20,38 @@ struct OnboardingSessionTests {
         #expect(performer.requests.isEmpty, "there is no session to ask about")
     }
 
+    /// **All three session-ending paths clear the membership record, and this is the third.**
+    ///
+    /// `APIClient` drops the token pair itself when a refresh is rejected — a revoked device, an
+    /// expired refresh — without going through either sign-out path. The next cold launch is the
+    /// first moment anything notices, and it used to clear only the widget.
+    ///
+    /// The record outliving that session hands the next household the previous one's state: a
+    /// parent who never had a trial is told *"Your two weeks are up"* on their first free board,
+    /// and `trialWelcomeShown` suppresses the welcome for a household that has genuinely never
+    /// seen it. Two of three paths clearing it is the least useful fraction, because the two that
+    /// were fixed are the ones a reader checks before concluding the leak is closed.
+    @Test("a launch that finds no session forgets the membership record")
+    func aLaunchWithNoSessionForgetsTheMembershipRecord() async {
+        let membership = InMemoryMembershipPresentationStore(
+            MembershipPresentationRecord(
+                trialWelcomeShown: true,
+                trialWelcomeOwed: false,
+                postTrialNoticeShown: true,
+                lastObservedAccess: "trial"
+            )
+        )
+
+        let session = onboardingSession(StubPerformer(), tokens: nil, membership: membership)
+        await session.resume()
+
+        #expect(session.state == .signedOut)
+        #expect(
+            membership.load() == MembershipPresentationRecord(),
+            "a dead session left its membership record for the next household"
+        )
+    }
+
     @Test("a stored session with a child goes straight to ready")
     func warmLaunchWithAChildIsReady() async throws {
         let child = UUID()

@@ -151,8 +151,12 @@ private extension View {
     /// Leading alignment because the stacked fallback wraps, and a centred wrap beside a
     /// leading-aligned sentence reads as a rendering fault.
     func tappable() -> some View {
+        // **Height only, never width.** `maxWidth: .infinity` here stretched both labels inside the
+        // horizontal branch, pushing them apart to share the row rather than sitting 16 apart as
+        // the design draws them. The stacked branch gets its leading alignment from the `VStack`
+        // itself, which is the right level for it.
         multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, minHeight: Layout.Chrome.tapTarget, alignment: .leading)
+            .frame(minHeight: Layout.Chrome.tapTarget)
             .contentShape(Rectangle())
     }
 }

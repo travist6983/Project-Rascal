@@ -196,6 +196,17 @@ final class OnboardingSession {
             // that is now signed out would keep the child's first name and the day's prompts on
             // its Lock Screen indefinitely.
             widget.publish(nil)
+            // **And the membership record, for the same reason and the same blast radius.**
+            //
+            // This was the third of three session-ending paths and the only one still leaving it
+            // behind, which made the leak two-thirds closed — the least useful fraction, because
+            // the two that were fixed are the ones a reader checks. The record outliving a session
+            // hands the next household this one's `lastObservedAccess`, so a parent who never had
+            // a trial is told *"Your two weeks are up"*, and this one's `trialWelcomeShown`, which
+            // suppresses the welcome for a household that has genuinely never seen it.
+            //
+            // Reached on a fresh install too, where it writes an empty record over nothing.
+            membership.save(MembershipPresentationRecord())
             state = .signedOut
             return
         }

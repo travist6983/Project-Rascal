@@ -374,10 +374,10 @@ final class SubscriptionModel {
         do {
             outcome = try await store.purchase(chosen, familyID: familyID)
         } catch let error as SubscriptionStoreError {
-            purchase = .failed(error.userMessage)
+            settleFailure(error.userMessage)
             return
         } catch {
-            purchase = .failed(error.localizedDescription)
+            settleFailure(error.localizedDescription)
             return
         }
 
@@ -393,6 +393,28 @@ final class SubscriptionModel {
     }
 
     /// The confirmation gap. **The app does not become subscribed here — it asks until the server
+    /// **A throw from the store never overwrites an entitlement the server has already granted.**
+    ///
+    /// `buy()` awaits `store.purchase` on the main actor, and that await is a suspension point
+    /// other main-actor work interleaves with. The sheet's own `scenePhase` handler calls
+    /// `refreshHousehold()` on every foreground — which is exactly what happens when the parent
+    /// leaves the app for the App Store's payment sheet and comes back. If that read returns a
+    /// subscribed household, it settles `purchase` to `.subscribed`; a moment later the awaited
+    /// call throws, and the unguarded `purchase = .failed` wrote straight over it.
+    ///
+    /// The parent is then told the purchase failed, by a device that has already been told
+    /// otherwise by the server — the exact inversion `refreshHousehold()`'s own comment forbids:
+    /// *"a purchase that threw locally and then turned out to have gone through … must stop
+    /// telling the parent it failed the moment the server says otherwise."* This is the same rule
+    /// facing the other way, and it is the last of the four writers to `household` to learn it.
+    private func settleFailure(_ message: String) {
+        guard household?.isSubscribed != true else {
+            purchase = .subscribed
+            return
+        }
+        purchase = .failed(message)
+    }
+
     /// says so, or stops asking and says something true.**
     /// Internal rather than private so the confirmation window can be driven directly in a test.
     /// It is not a call site any view has: `buy()` and `transactionArrived()` are the two doors.

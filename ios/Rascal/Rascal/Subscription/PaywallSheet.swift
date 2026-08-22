@@ -365,12 +365,18 @@ struct PaywallSheet: View {
             // primary regardless left a **disabled** "Become a member" on screen, which the brief
             // forbids: *a disabled button is a thing to keep tapping.*
             //
-            // **`canBuy`, not `canOffer`**, and the difference is a live button that does nothing.
-            // `canOffer` asks only whether there is an offer; `canBuy` also asks whether this
-            // household is **already subscribed** — and that state is reachable here, because
-            // `load()` publishes a subscribed household without ever touching `purchase`, so
-            // `.failed` outlives the failure. The button would render enabled and `buy()` would
-            // return at its own `guard canBuy`. Inert-but-enabled is strictly worse than greyed.
+            // **`canBuy`, not `canOffer`, because `buy()` guards on `canBuy`.** A button gated on
+            // a weaker predicate than the action it invokes is a button that can render live and
+            // do nothing when tapped, which is worse than the greyed one above: greyed is at least
+            // honest. The two must be the same predicate, whatever it grows to mean later.
+            //
+            // The first version of this comment defended the gate by claiming the extra state it
+            // catches — a subscribed household still holding `.failed` — was reachable through
+            // `load()`. It no longer is: all four writers to `household` settle `purchase` when
+            // they publish a subscribed one, and `settleFailure` stops `buy()` reopening it from
+            // the other side. So this gate now catches nothing, and that is the point of stating
+            // the invariant rather than a reachability argument — a reachability argument goes
+            // stale the moment somebody adds a fifth writer, and reads as licence to delete.
             if model.canBuy {
                 Button(MembershipCopy.primaryAction) { Task { await model.buy() } }
                     .buttonStyle(PrimaryButtonStyle())
