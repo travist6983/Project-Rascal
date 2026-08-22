@@ -142,10 +142,25 @@ async def pull(
     # 3. Suppressing the `body` while keeping the row corrupts the cache in the same way, and
     #    for the same reason.
     #
-    # **What is left open, and it is an iOS-lane question rather than one this file can
-    # answer:** a client rendering from its local cache while offline can show a cached
-    # mission the server would not serve. Making that impossible needs sync to be able to say
-    # *hidden but not deleted*, which is a schema decision and not a line change.
+    # **The obvious residual worry — a client rendering its cache offline and showing a
+    # mission the server would not serve — was raised with the iOS lane and checked rather
+    # than assumed. It is not reachable in the client as built**, and by construction rather
+    # than by luck: `TodayBoard.merge(response:entries:media:)` takes a **non-optional**
+    # `TodayResponse`, so local entries and media are folded *over* a server response and
+    # cannot produce a board on their own. No response, no board — and any response that did
+    # arrive carried its own `access` and `locked[]`.
+    #
+    # The cached assignment rows are read in exactly two places outside the schema:
+    # `SyncEngine` (sync internals) and `EntryDetailScreen`, which looks a row up by
+    # `entry.assignmentId` — so the only bodies that reach a screen belong to entries that
+    # exist. **D3 as narrowed requires exactly that**: a lapsed household must still be able
+    # to read the prompt that produced its own entry. Suppressing it would be the bug.
+    #
+    # Verified against `ios/phase-108-locked-today-membership`. **It is a client-side property
+    # and nothing in this file enforces it**, so the thing to re-check if this ever changes is
+    # whether a board can be built without a server response. If one ever can, this decision
+    # needs revisiting and sync needs a way to say *hidden but not deleted* — a schema
+    # decision, not a line change.
     assignments = list(
         (
             await session.execute(
