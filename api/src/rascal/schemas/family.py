@@ -7,7 +7,7 @@ import uuid
 
 from pydantic import Field
 
-from rascal.constants import GuardianRole, Tier
+from rascal.constants import AccessState, GuardianRole, Tier
 from rascal.schemas.common import ApiModel
 
 
@@ -27,7 +27,19 @@ class GuardianOut(ApiModel):
 
 class FamilyOut(ApiModel):
     family_id: uuid.UUID
+    #: **Unchanged by phase 107, in both its values and its meaning.** `free` | `subscribed`,
+    #: written only by the App Store webhook. A client that has been reading this since phase
+    #: 37a keeps working; `access` below is the additive field that knows about trials.
     tier: Tier
+    #: What this household may actually reach today: `subscribed` | `trial` | `free`.
+    #: **Computed per read from `tier` and `trial_ends_at`** by the one authority,
+    #: `services.guardians.access_for`, which `GET /families/{id}/entitlement` and
+    #: `GET /children/{id}/today` also read. `subscribed` beats `trial`.
+    access: AccessState
+    #: When the trial runs out. **Null means there is no trial on this household**, not that
+    #: one ended at an unrecorded time. For copy only — a client must never compute
+    #: entitlement from it, because that is the device deciding, which D5 forbids.
+    trial_ends_at: dt.datetime | None = None
     guardians: list[GuardianOut]
     #: Outstanding invites, so the client can show "waiting for them to accept" and offer to
     #: withdraw it. Accepted, revoked and expired invites are not listed — they are history,
@@ -43,12 +55,29 @@ class EntitlementOut(ApiModel):
     authority over "is this household subscribed" and two shapes of it, not two answers.
     `FamilyOut` is the household screen (who is here, who has been asked); this is the
     subscription screen.
+
+    **Phase 107 added a third shape and not a third answer.** `GET /children/{id}/today`
+    reports `access` and `trial_ends_at` too, because a board that locks half of itself has to
+    say why — and it reads `services/guardians.access_for` over the same row rather than
+    deciding for itself. Three shapes, one authority.
     """
 
     family_id: uuid.UUID
+    #: **Unchanged by phase 107.** See the note on `FamilyOut.tier`.
     tier: Tier
+    #: The third shape of the one authority, and the same value `GET /families/me` and
+    #: `GET /children/{id}/today` report. See `services.guardians.access_for`.
+    access: AccessState
+    #: When the trial runs out; null means no trial on this household. See
+    #: `FamilyOut.trial_ends_at`.
+    trial_ends_at: dt.datetime | None = None
     #: When the subscription lapsed. Null on a household that has never subscribed as well as
     #: on one that currently is — `tier` is what tells those apart.
+    #:
+    #: **A trial expiring is not a lapse and must never write this.** `lapsed_at` is about a
+    #: subscription ending, per D3, and it is what `eligible_at` below keys off — so a trial
+    #: quietly running out starting a deletion clock on somebody's photographs is precisely
+    #: the bug the separation exists to prevent.
     lapsed_at: dt.datetime | None = None
     #: **A date, computed per request, never stored.** `max(lapsed_at + 24 months,
     #: last_sign_in_at + 12 months)` per D3, where `last_sign_in_at` is a MAX across the

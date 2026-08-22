@@ -1417,7 +1417,13 @@ body[data-readonly="true"] #p-release,
 body[data-readonly="true"] #m-export,
 body[data-readonly="true"] #concepts-form button[type="submit"],
 body[data-readonly="true"] #m-publish,
-body[data-readonly="true"] #v-go {
+body[data-readonly="true"] #v-go,
+/* The whole membership card, not just its primary button. Two reasons, and the second is why
+   it is the card rather than the form: `Clear trial` is a quiet button and would otherwise
+   survive the rule above and fail on click; and a card whose copy says "set the date to
+   yesterday to see the free tier" above no controls at all is worse than an absent card —
+   this block exists so a control that cannot work does not explain itself after a click. */
+body[data-readonly="true"] #membership {
   display: none;
 }
 body[data-readonly="true"] tbody tr.is-clickable,

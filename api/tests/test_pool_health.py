@@ -11,10 +11,14 @@ from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
 from rascal.models import PromptSuppression
 from rascal.services.pool_health import (
+    _INTERVAL_SWEEP_DAYS,
+    _INTERVAL_SWEEP_START,
     RELAXATION_COOLDOWN_90,
     RELAXATION_NONE,
     pool_health,
+    serve_interval_days,
 )
+from rascal.services.scheduler import slots_for
 
 TODAY = dt.date(2026, 8, 14)  # future-date: explicit, pure
 
@@ -83,6 +87,50 @@ async def test_the_estimate_divides_by_the_observed_rate_not_the_nominal_one(
     assert row.estimate_basis == "observed_rate"
     # Six available at half a day each — twice what the nominal daily rate would have claimed.
     assert row.estimated_days_until_first_repeat == row.available_now * 2
+
+
+def test_the_nominal_cadence_is_counted_off_the_scheduler_not_written_down_twice() -> None:
+    """**The instrument must not develop a permanent false reading.**
+
+    `nominal_interval_days` exists so the gap between intended and observed cadence is legible;
+    a slot supposedly served daily that reports `served_in_window: 0` is the shape of the defect
+    PR #57 found. Phase 107's weekday rotation made the old hand-written table — `mission: 1`,
+    `mission_b: 1` — false, which would have put a permanent, spurious gap on both mission slots
+    and turned that panel into a thing you learn to ignore.
+
+    It is counted off `slots_for` now. This pins the values *and* that the derivation is real:
+    `mission` five days a week, `mission_b` four, and the shared slots at their own cadence.
+    """
+    intervals = serve_interval_days()
+
+    assert intervals["question"] == 1.0, "the question is the free tier and fires every day"
+    assert intervals["mission"] == 1.4, "Mon, Wed, Fri and both weekend days — five in seven"
+    assert intervals["mission_b"] == 1.75, "Tue, Thu and both weekend days — four in seven"
+    assert intervals["weekly"] == 7.0
+    assert intervals["monthly"] == intervals["letter"] == 30.44
+
+    # **Every slot the calendar produces has an interval, and that is now true by
+    # construction rather than by vigilance** — `serve_interval_days` builds its keys *from*
+    # `slots_for`, so a slot added there appears here automatically. Asserted anyway, because
+    # the property is what `test_every_registry_keyed_by_slot_covers_every_slot` relies on, and
+    # because it would stop being free the day somebody hand-writes an entry back in.
+    day = dt.date(2026, 1, 1)  # future-date: explicit, pure
+    produced = {slot for n in range(366 * 4) for slot in slots_for(day + dt.timedelta(days=n))}
+    assert produced == set(intervals), (
+        "the interval table and the calendar disagree about which slots exist"
+    )
+
+    # **The derivation, checked against the calendar rather than restated.** Counting how often
+    # each slot actually fires over the same 28-year window and dividing gives the table back —
+    # which is what makes the numbers above measurements rather than four literals somebody
+    # typed. An implementation that returned a hand-written dict fails here.
+    counts: dict[str, int] = {}
+    for offset in range(_INTERVAL_SWEEP_DAYS):
+        for slot in slots_for(_INTERVAL_SWEEP_START + dt.timedelta(days=offset)):
+            counts[slot] = counts.get(slot, 0) + 1
+    assert intervals == {
+        slot: round(_INTERVAL_SWEEP_DAYS / count, 2) for slot, count in counts.items()
+    }
 
 
 async def test_a_slot_nobody_serves_reports_unmeasured_rather_than_a_countdown(

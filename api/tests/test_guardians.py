@@ -16,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from factories import grant, make_child, make_family, make_prompt, make_user
 from helpers import auth_headers
+from rascal.constants import DAILY_SLOTS
 from rascal.errors import ErrorCode, RascalError
 from rascal.models import Assignment, Guardian, GuardianInvite, User
+from rascal.services.dates import local_date
 from rascal.services.guardians import accept_invite, hash_token
-from rascal.services.scheduler import run_scheduler
+from rascal.services.scheduler import run_scheduler, slots_for
 
 TUESDAY = dt.date(2026, 8, 18)  # future-date: explicit, pure
 SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
@@ -313,7 +315,12 @@ async def _pool(session: AsyncSession) -> None:
             await make_prompt(session, kind=kind, cadence=cadence)
 
 
-async def test_each_guardian_gets_their_own_daily_three(session: AsyncSession) -> None:
+async def test_each_guardian_gets_their_own_daily_slots(session: AsyncSession) -> None:
+    """Renamed from `..._own_daily_three` by phase 107: a weekday is two daily slots now, not
+    three, so a name saying "three" would be a lie on five days out of seven. **What this test
+    is about is unchanged** — the split is per guardian, and neither parent gets the other's
+    row. TUESDAY is a `question` + `mission_b` day under the rotation.
+    """
     family = await make_family(session, tier="subscribed")
     one = await make_user(session, family=family, display_name="Travis")
     two = await make_user(session, family=family, display_name="Anna")
@@ -332,11 +339,10 @@ async def test_each_guardian_gets_their_own_daily_three(session: AsyncSession) -
             )
         )
     ).all()
-    assert len(rows) == 6  # three daily slots, two parents
+    assert len(rows) == 4  # Tuesday's two daily slots, two parents
     for parent in (one, two):
         assert {slot for slot, user_id in rows if user_id == parent.id} == {
             "question",
-            "mission",
             "mission_b",
         }
 
@@ -583,14 +589,21 @@ async def _two_parent_household(session: AsyncSession):
     return one, two, child
 
 
-async def test_today_shows_a_parent_their_own_three_and_not_the_others(
+async def test_today_shows_a_parent_their_own_daily_slots_and_not_the_others(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    """**The defect that would have made this whole phase pointless.**
+    """**The defect that would have made phase 36 pointless.**
 
     Per-guardian assignment is only worth anything if the read path is scoped too. Unscoped,
-    a two-parent household's board shows six daily items — three of them the other parent's,
-    which this parent can see and complete.
+    a two-parent household's board shows both parents' daily items — half of them the other
+    parent's, which this parent can see and complete.
+
+    **The expected count is derived rather than hard-coded, and phase 107 is why.** This test
+    deliberately reads without `?date=` (see the note below), so it runs against whatever
+    weekday it is — and since the rotation a weekday holds two daily slots while a weekend
+    holds three. A literal `3` here would have been correct on Saturday and Sunday and wrong
+    on the other five days. `slots_for` has its own tests; what this one asserts is the
+    scoping.
     """
     one, two, child = await _two_parent_household(session)
     # **No `?date=`, and that is the fix rather than a simplification.** This read used to pass
@@ -604,8 +617,14 @@ async def test_today_shows_a_parent_their_own_three_and_not_the_others(
         body = (
             await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(viewer))
         ).json()
-        daily = [i for i in body["today"] if i["slot"] in ("question", "mission", "mission_b")]
-        assert len(daily) == 3, f"{viewer.display_name} saw {len(daily)} daily items"
+        local_today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+        expected = [s for s in slots_for(local_today) if s in DAILY_SLOTS]
+        daily = [i for i in body["today"] if i["slot"] in DAILY_SLOTS]
+        assert {i["slot"] for i in daily} == set(expected), (
+            f"{viewer.display_name} saw {sorted(i['slot'] for i in daily)}, "
+            f"expected {sorted(expected)} for a {local_today:%A}"
+        )
+        assert len(daily) == len(expected), f"{viewer.display_name} saw {len(daily)} daily items"
 
     # And they are genuinely different rows, not the same three twice.
     ids = []
@@ -656,8 +675,9 @@ async def test_sync_does_not_hand_a_parent_the_other_parents_assignments(
             if a["slot"] in ("question", "mission", "mission_b")
         }
 
-    assert len(pulled[one.id]) == 3
-    assert len(pulled[two.id]) == 3
+    # Two rather than three since phase 107: TUESDAY is a `question` + `mission_b` day.
+    assert len(pulled[one.id]) == 2
+    assert len(pulled[two.id]) == 2
     assert pulled[one.id].isdisjoint(pulled[two.id])
 
 

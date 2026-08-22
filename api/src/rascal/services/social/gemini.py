@@ -9,12 +9,26 @@ discovered later, and it is why `_video_bytes` treats **an unrecognised response
 error rather than as an empty result**. A renderer that silently produces nothing is worse
 than one that says it no longer understands the answer.
 
-**Why Omni Flash rather than Veo.** Google's own video overview names
-`gemini-omni-flash-preview` the default and points at Veo only for scene extension and
-last-frame control. For a Vellum treatment it wins on the thing that matters: it is the only
-model whose documentation claims on-screen text renders legibly, and every shot in a treatment
-carries a caption. It is also synchronous, so there is no long-running operation to poll and
-no two-day expiry to race, and at roughly ten cents a second it is a quarter of Veo's price.
+**Two providers, because the first one refused the product's own copy.** Omni Flash was chosen
+for the reasons below and then, on the first render that got past billing, **rejected shot three
+of a Vellum treatment as "harmful content"** — a static shot of a photograph with the caption
+*"Why did you take this one?"*. The same prompt, byte for byte, is accepted by every Veo 3.1
+tier. A safety filter that refuses a still life is not one this product can plan around, so
+Veo 3.1 Lite is the default as of Aug 21, 2026 and Omni Flash is kept reachable by setting
+`GEMINI_VIDEO_MODEL`.
+
+Lite is also **half the price** — $0.05 a second against $0.10 — so the switch made a
+thirty-second treatment cheaper *and* renderable. The original Omni Flash argument, kept
+because it is still true and still the reason to reach for it if the filter loosens: Google's
+video overview names it the default, it is the only model whose documentation claims on-screen
+text renders legibly, and it is synchronous, so there is no long-running operation to poll.
+
+**Veo is asynchronous and that is the whole shape difference.** `:predictLongRunning` returns
+an operation name; you poll it until `done`, then download the clip from a URI that needs the
+API key appended. Verified against the live API rather than read: a 4-second Lite clip took
+about ninety seconds and came back as a 416KB MP4. Google's own documentation was already
+wrong about one field on this endpoint — `durationSeconds` is documented as a string and is
+rejected unless it is a number — so the shapes below are what the API actually did.
 
 **No API stitches clips.** Omni Flash generates three to ten seconds; Veo does four, six or
 eight. A thirty-second treatment is seven generations and a concatenation, which is
@@ -28,6 +42,7 @@ comes back as an approximation — see `docs/decisions.md`.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from typing import Any
 
@@ -77,10 +92,119 @@ def shot_prompt(shot: dict[str, Any]) -> str:
     return " ".join(part for part in parts if part)
 
 
+#: Veo generates 4, 6 or 8 seconds and nothing between. A treatment written for five gets six
+#: rather than four: a shot that runs long can be trimmed by the concatenation, and one that
+#: runs short leaves a gap no later step can fill.
+VEO_DURATIONS = (4, 6, 8)
+
+#: How long to wait for one Veo clip. A Lite clip measured about ninety seconds; eight minutes
+#: is slack for a queue, not an expectation. The ceiling exists because a render that never
+#: returns is worse than one that fails — `renders.py` records the failure and the cost of the
+#: clips that did land.
+VEO_TIMEOUT_SECONDS = 480
+VEO_POLL_SECONDS = 10
+
+
+def _veo_duration(seconds: Any) -> int:
+    """The nearest duration Veo will actually generate, rounding up on a tie."""
+    wanted = int(seconds or 4)
+    return min(VEO_DURATIONS, key=lambda allowed: (abs(allowed - wanted), -allowed))
+
+
+def is_veo(model: str) -> bool:
+    """Which API shape this model speaks. The id is the only thing that distinguishes them."""
+    return model.startswith("veo-")
+
+
+async def _render_veo(client: httpx.AsyncClient, settings: Settings, shot: dict[str, Any]) -> bytes:
+    """One clip from Veo: start an operation, poll it, download what it made."""
+    model = settings.gemini_video_model
+    started = await client.post(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predictLongRunning",
+        params={"key": settings.gemini_api_key},
+        json={
+            "instances": [{"prompt": shot_prompt(shot)}],
+            # A number, not the string Google documents. Sending the string is a 400, which is
+            # how the docs being wrong was discovered rather than assumed.
+            "parameters": {
+                "durationSeconds": _veo_duration(shot.get("seconds")),
+                "sampleCount": 1,
+                # **9:16, or Veo returns landscape.** Everything this studio makes is a Story
+                # or a Reel. The Interactions path below says the same thing in its own dialect
+                # (`response_format.aspect_ratio`); omitting it here produced a 1280x720 clip
+                # for a vertical treatment, which is not a smaller mistake than failing.
+                "aspectRatio": "9:16",
+            },
+        },
+    )
+    if started.status_code != 200:
+        raise RuntimeError(_error_sentence(started))
+
+    operation = str(started.json().get("name") or "")
+    if not operation:
+        raise RuntimeError("Veo accepted the request and named no operation to poll.")
+
+    waited = 0
+    while waited < VEO_TIMEOUT_SECONDS:
+        await asyncio.sleep(VEO_POLL_SECONDS)
+        waited += VEO_POLL_SECONDS
+        polled = await client.get(
+            f"https://generativelanguage.googleapis.com/v1beta/{operation}",
+            params={"key": settings.gemini_api_key},
+        )
+        if polled.status_code != 200:
+            raise RuntimeError(_error_sentence(polled))
+        payload = polled.json()
+        if not payload.get("done"):
+            continue
+        # A finished operation can still carry an error rather than a clip.
+        if error := payload.get("error"):
+            raise RuntimeError(
+                f"Veo finished with an error: {str(error.get('message') or error)[:160]}"
+            )
+        return await _veo_bytes(client, settings, payload)
+
+    raise RuntimeError(
+        f"Veo did not finish within {VEO_TIMEOUT_SECONDS // 60} minutes. The operation may still "
+        "complete — this render is failed rather than left waiting, and the clips already paid "
+        "for are recorded."
+    )
+
+
+async def _veo_bytes(
+    client: httpx.AsyncClient, settings: Settings, payload: dict[str, Any]
+) -> bytes:
+    """Follow the operation's video URI. **The key goes on the download too**, or it is a 403."""
+    samples = ((payload.get("response") or {}).get("generateVideoResponse") or {}).get(
+        "generatedSamples"
+    ) or []
+    uri = ((samples[0] if samples else {}).get("video") or {}).get("uri")
+    if not uri:
+        raise RuntimeError(
+            "Veo answered done with no video in it. The response shape has changed — this "
+            "renderer refuses rather than writing an empty file. Keys seen: "
+            + ", ".join(sorted(payload)[:8])
+        )
+    # **`copy_merge_params`, not `params=`.** The URI Veo hands back already carries its own
+    # query (`?alt=media`), and httpx *replaces* the query string when you pass `params` —
+    # which drops `alt=media` and turns the download into a 400. Found by running it against
+    # the live API; every mocked test passed with the broken version.
+    downloaded = await client.get(
+        httpx.URL(uri).copy_merge_params({"key": settings.gemini_api_key or ""}),
+        follow_redirects=True,
+    )
+    if downloaded.status_code != 200:
+        raise RuntimeError(f"Veo's clip URI answered {downloaded.status_code} on download.")
+    return downloaded.content
+
+
 async def render_shot(client: httpx.AsyncClient, settings: Settings, shot: dict[str, Any]) -> bytes:
     """Generate one clip. Raises `LookupError` unconfigured, `RuntimeError` with a sentence."""
     if not settings.gemini_api_key:
         raise LookupError("gemini_video")
+
+    if is_veo(settings.gemini_video_model):
+        return await _render_veo(client, settings, shot)
 
     response = await client.post(
         "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -159,4 +283,4 @@ def _video_bytes(payload: dict[str, Any]) -> bytes:
     )
 
 
-__all__ = ["NO_PEOPLE", "STYLE", "render_shot", "shot_prompt"]
+__all__ = ["NO_PEOPLE", "STYLE", "is_veo", "render_shot", "shot_prompt"]

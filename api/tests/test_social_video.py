@@ -8,9 +8,11 @@ quietly stops guarding.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import subprocess
 import uuid
 from pathlib import Path
+from unittest import mock
 
 import httpx
 import pytest
@@ -64,8 +66,20 @@ async def _asset(client: AsyncClient, admin, **extra) -> str:
 
 
 def _settings(**overrides):
-    base = {"gemini_api_key": "AIza-fake", "gemini_video_cents_per_second": 10}
+    # `gemini_video_model` is pinned rather than inherited. The default became a Veo id on
+    # Aug 21, 2026 and the two providers speak different API shapes, so a test that stubs one
+    # shape has to say which one it is stubbing — otherwise changing the default silently
+    # repoints every one of these at code they were not written for.
+    base = {
+        "gemini_api_key": "AIza-fake",
+        "gemini_video_cents_per_second": 10,
+        "gemini_video_model": "gemini-omni-flash-preview",
+    }
     return get_settings().model_copy(update={**base, **overrides})
+
+
+def _veo_settings(**overrides):
+    return _settings(gemini_video_model="veo-3.1-lite-generate-preview", **overrides)
 
 
 # --- The prompt -------------------------------------------------------------------------------
@@ -105,6 +119,119 @@ async def test_a_200_with_no_video_in_it_is_an_error_not_an_empty_clip() -> None
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(RuntimeError, match="no video in it"):
             await gemini.render_shot(client, _settings(), SHOTS["shots"][0])
+
+
+# --- Veo, which is the default provider as of Aug 21, 2026 ------------------------------------
+#
+# Omni Flash rejected shot three of a real treatment as "harmful content" — a static shot of a
+# photograph captioned "Why did you take this one?" — and every Veo tier accepts the identical
+# prompt. These pin the shape difference: Veo is asynchronous, and the key goes on the download.
+
+
+def test_veo_generates_only_the_durations_it_actually_offers() -> None:
+    """4, 6 or 8 and nothing between. A five-second shot gets six, not four.
+
+    Rounding down would leave a gap no later step can fill; the concatenation can trim a long
+    clip and cannot invent a missing second.
+    """
+    assert [gemini._veo_duration(n) for n in (4, 5, 6, 7, 8, 30)] == [4, 6, 6, 8, 8, 8]
+    assert gemini._veo_duration(None) == 4
+
+
+def test_the_provider_is_chosen_by_the_model_id() -> None:
+    assert gemini.is_veo("veo-3.1-lite-generate-preview")
+    assert not gemini.is_veo("gemini-omni-flash-preview")
+
+
+async def test_veo_polls_the_operation_and_downloads_the_clip() -> None:
+    """The whole asynchronous shape, including the key on the download.
+
+    Verified against the live API before it was written: a Lite clip took about ninety seconds
+    and the URI answers 403 without `key`.
+    """
+    seen: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(f"{request.method} {request.url.path}")
+        if request.url.path.endswith(":predictLongRunning"):
+            params = json.loads(request.content)["parameters"]
+            assert params["durationSeconds"] == 4, (
+                "durationSeconds must be a number — Google documents a string and rejects one"
+            )
+            # Omitting this produced a 1280x720 clip for a vertical treatment. Veo defaults to
+            # landscape and every asset this studio makes is a Story or a Reel.
+            assert params["aspectRatio"] == "9:16", "Veo returns landscape without it"
+            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
+        if request.url.path.endswith("/operations/abc"):
+            # Not done on the first poll, so the loop is exercised rather than skipped.
+            if len([s for s in seen if "operations/abc" in s]) == 1:
+                return httpx.Response(200, json={"done": False})
+            return httpx.Response(
+                200,
+                json={
+                    "done": True,
+                    "response": {
+                        "generateVideoResponse": {
+                            "generatedSamples": [
+                                {"video": {"uri": "https://x.test/clip?alt=media"}}
+                            ]
+                        }
+                    },
+                },
+            )
+        assert request.url.params.get("key"), "the clip URI needs the key or it is a 403"
+        # **The URI's own query must survive.** Veo hands back `...?alt=media`, and passing
+        # `params=` to httpx *replaces* the query rather than merging it — which drops
+        # `alt=media` and makes the download a 400. Every mocked test passed with that bug;
+        # only a live call caught it, so it is pinned here.
+        assert request.url.params.get("alt") == "media", "alt=media was dropped from the URI"
+        return httpx.Response(200, content=b"MP4BYTES")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
+            blob = await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
+    assert blob == b"MP4BYTES"
+    assert any("operations/abc" in call for call in seen), "the operation was polled"
+
+
+async def test_a_finished_veo_operation_carrying_an_error_is_not_a_clip() -> None:
+    """`done: true` with an `error` is a failure, and it must not be read as a video."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(":predictLongRunning"):
+            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
+        return httpx.Response(200, json={"done": True, "error": {"message": "safety violations"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
+            with pytest.raises(RuntimeError, match="safety violations"):
+                await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
+
+
+async def test_a_veo_response_with_no_video_in_it_is_an_error() -> None:
+    """The same refusal Omni Flash gets: an unrecognised shape is loud, never an empty file."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(":predictLongRunning"):
+            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
+        return httpx.Response(200, json={"done": True, "response": {}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
+            with pytest.raises(RuntimeError, match="no video in it"):
+                await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
+
+
+async def test_the_key_never_reaches_a_veo_error_message() -> None:
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"message": "boom"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+        with pytest.raises(RuntimeError) as caught:
+            await gemini.render_shot(
+                client, _veo_settings(gemini_api_key="SENTINEL-KEY"), SHOTS["shots"][0]
+            )
+    assert "SENTINEL-KEY" not in str(caught.value)
 
 
 async def test_a_429_is_reported_as_billing_rather_than_rate_limiting() -> None:
@@ -275,7 +402,12 @@ async def test_the_whole_job_runs_end_to_end_with_only_the_vendor_replaced(
     assert render.render_key, "the joined file was stored"
     assert render.finished_at is not None
     # 8 seconds of treatment at ten cents a second, recorded as it was spent.
-    assert render.cost_cents == 80
+    # Derived rather than hardcoded: the price moved from 10c to 5c a second with the Veo
+    # switch, and a literal here fails for the wrong reason when it moves again.
+    expected = sum(int(shot["seconds"]) for shot in SHOTS["shots"]) * (
+        get_settings().gemini_video_cents_per_second
+    )
+    assert render.cost_cents == expected
     # The post now points at the finished film.
     assert asset.render_key == render.render_key
     assert asset.render_provider == renders.PROVIDER
@@ -324,7 +456,10 @@ async def test_a_vendor_failure_midway_keeps_the_clips_it_already_paid_for(
     assert render.status == "failed"
     assert "Billing is not enabled" in render.error
     assert len(render.clip_keys) == 1, "the clip it bought is still recorded"
-    assert render.cost_cents == 40, "and so is what that clip cost"
+    expected_paid = sum(int(shot["seconds"]) for shot in SHOTS["shots"][:1]) * (
+        get_settings().gemini_video_cents_per_second
+    )
+    assert render.cost_cents == expected_paid, "and so is what that clip cost"
     assert render.render_key is None
     assert asset.render_key is None, "a failed job must not point the post at nothing"
 

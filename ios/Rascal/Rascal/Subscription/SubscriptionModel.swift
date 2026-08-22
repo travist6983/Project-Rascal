@@ -16,10 +16,31 @@ final class SubscriptionModel {
     enum Phase: Equatable {
         case loading
         case ready(SubscriptionOffer, familyID: UUID)
-        /// Products or the household did not arrive. **A retry, never a blank paywall** — an
-        /// empty product list looks exactly like a network failure and must not render as a
-        /// screen with nothing to buy on it.
-        case unavailable(String)
+        /// Products or the household did not arrive. **Never a blank paywall** — an empty product
+        /// list looks exactly like a network failure and must not render as a screen with nothing
+        /// on it.
+        case unavailable(Unavailable)
+    }
+
+    /// **Why there is nothing to offer, because the two reasons are not the same thing.**
+    ///
+    /// This was one `String` and that collapsed a calm, permanent fact into the same shape as a
+    /// transient failure. It matters now that phase 108 makes `.products` the *ordinary* state:
+    /// `api-contract.md` §37a records that no subscription product exists in App Store Connect and
+    /// no sandbox transaction has ever been made, so every device today lands on `.products`.
+    ///
+    /// Rendering the household failure with the same calm sentence — *"Membership isn't open yet"* —
+    /// would be a lie told on one dropped request. They are separate cases so the sheet can say
+    /// something true about each, and so a retry is offered only where retrying can help.
+    enum Unavailable: Equatable {
+        /// StoreKit returned fewer than both products, or could not be reached. **Expected.** Renders
+        /// the copy file's `Notice` and hides the primary action; no retry, because there is nothing
+        /// the parent can do and a button that changes nothing teaches them the screen is decorative.
+        case products
+        /// `GET /v1/families/me` did not answer. **A real failure**, and the one case that keeps a
+        /// retry — without the household there is no `appAccountToken`, so a buy button here would
+        /// mint a permanently unattributable receipt.
+        case household(String)
     }
 
     enum PurchasePhase: Equatable {
@@ -60,6 +81,22 @@ final class SubscriptionModel {
     /// Injected so the confirmation window can be exercised without waiting 63 seconds.
     private let confirmationSchedule: [Duration]
     private let confirmationSleep: @Sendable (Duration) async throws -> Void
+
+    /// How long `Product.products(for:)` gets before the sheet says there is nothing to offer.
+    ///
+    /// Ten seconds: long enough that a slow-but-working App Store call still lands, short enough
+    /// that a parent who opened this to read what membership includes is not held on a spinner. See
+    /// `loadOffer()` for why a bound exists at all.
+    private let offerTimeout: Duration
+
+    /// **Its own sleeper, deliberately not `confirmationSleep`.**
+    ///
+    /// Reusing that one was a real bug and it broke five existing tests: `makeModel` stubs
+    /// `confirmationSleep` to `{ _ in }` so the confirmation window can be driven without waiting a
+    /// minute — which made the timeout resolve *instantly*, win every race against the store, and
+    /// turn every load in the suite into `.unavailable(.products)`. Two different clocks were being
+    /// injected through one parameter, and the tests were right to notice.
+    private let offerSleep: @Sendable (Duration) async throws -> Void
     /// True only for a preview-constructed model. Guards `load`, which the views call from a
     /// `.task` — without it the parked phase is replaced by whatever the machine's connectivity
     /// produced. Same shape as `GuardiansModel`.
@@ -72,11 +109,30 @@ final class SubscriptionModel {
     /// `phase`, and a transient failure in the later one replaces a working paywall with a retry.
     private var isLoading = false
 
+    /// Which `load()` is allowed to speak.
+    ///
+    /// **The mutex alone was not enough once the deadline existed.** `isLoading` is released by a
+    /// `defer`, so a `load()` suspended on a hung store held it for the whole hang — the deadline
+    /// freed the *screen* and left the *model* stuck, and every retry from a locked card or from
+    /// Settings early-returned in silence. Any hang longer than the deadline opened a window where
+    /// membership was unbuyable and nothing a parent did was even attempted.
+    ///
+    /// Releasing the mutex from the deadline fixes that and creates a second problem: the abandoned
+    /// load is still running and will eventually assign `phase`, clobbering whatever a newer one
+    /// found. This is what stops it — a late completion may only write if it is still the current
+    /// one. That preserves phase 37b's reason for the mutex (two screens loading at once must not
+    /// let a transient failure replace a working paywall) while making it impossible to wedge.
+    private var loadGeneration = 0
+
     init(
         readHousehold: @escaping @Sendable () async throws -> FamilySummary,
         store: any SubscriptionPurchasing = SubscriptionStore(),
         confirmationSchedule: [Duration] = EntitlementConfirmation.schedule,
         confirmationSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        },
+        offerTimeout: Duration = .seconds(10),
+        offerSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         }
     ) {
@@ -84,6 +140,8 @@ final class SubscriptionModel {
         self.store = store
         self.confirmationSchedule = confirmationSchedule
         self.confirmationSleep = confirmationSleep
+        self.offerTimeout = offerTimeout
+        self.offerSleep = offerSleep
     }
 
     convenience init(api: APIClient, store: any SubscriptionPurchasing = SubscriptionStore()) {
@@ -152,7 +210,11 @@ final class SubscriptionModel {
         if isPreview { return }
         guard !isLoading else { return }
         isLoading = true
-        defer { isLoading = false }
+        loadGeneration += 1
+        let generation = loadGeneration
+        // Only release the mutex if a newer load has not already taken it. Without the check, an
+        // abandoned load returning after the deadline would clear a flag belonging to somebody else.
+        defer { if generation == loadGeneration { isLoading = false } }
         // **`notice` is one string shared by the Membership card and the paywall sheet**, and
         // `noticeDismissed()` had no caller anywhere — so a restore's "nothing has arrived yet"
         // followed the parent onto the paywall and sat under the buy button indefinitely. Opening
@@ -160,9 +222,46 @@ final class SubscriptionModel {
         notice = nil
         if case .ready = phase {} else { phase = .loading }
 
+        // **The spinner's terminal state, and it is a deadline on the *screen* rather than a race
+        // against the store.**
+        //
+        // `Product.products(for:)` has no timeout of its own, and the call under it —
+        // `isEligibleForIntroOffer(for:)` — is `async` and **not throwing**, so it cannot report
+        // cancellation and nothing can make it stop. A hung StoreKit call therefore cannot be
+        // cancelled; it can only be stopped from holding the screen.
+        //
+        // Two racing implementations were tried and both were worse. `withTaskGroup` does not
+        // return until every child finishes — `cancelAll()` only *requests* — so it bounded
+        // nothing; measured, a 200ms sleeper racing a 3s non-cooperative child returned after
+        // **3.20s**. Racing two unstructured tasks through a one-shot continuation worked in
+        // isolation and could not be tested honestly: it depends on a `Task.sleep` continuation
+        // winning against a `DispatchQueue` timer, which stops being true the moment the
+        // cooperative pool is busy.
+        //
+        // This does the one thing the requirement actually asks for: **it moves `phase` off
+        // `.loading` on a deadline**, so the sheet stops spinning and says something true. The
+        // request is left alone to finish or not; if the products do arrive late, the `switch`
+        // below is still ahead of it and renders them.
+        let deadline = Task { [weak self, offerTimeout, offerSleep] in
+            try? await offerSleep(offerTimeout)
+            guard let self, generation == self.loadGeneration else { return }
+            // **Frees the model, not only the screen.** Releasing this is what lets a parent who
+            // reopens the sheet actually get another attempt instead of a silent no-op; the
+            // generation guard below is what stops this abandoned load from overwriting it.
+            self.isLoading = false
+            if case .loading = self.phase { self.phase = .unavailable(.products) }
+        }
+        defer { deadline.cancel() }
+
         async let householdResult = loadHousehold()
         async let offerResult = loadOffer()
         let (family, offer) = await (householdResult, offerResult)
+
+        // **A load the deadline gave up on does not get to change anything.** By the time a hung
+        // store finally answers, a newer `load()` may have run and found the truth; last writer wins
+        // would make that the stale one — for `household` as much as for `phase`, which is why the
+        // guard sits above both rather than between them.
+        guard generation == loadGeneration else { return }
 
         if let family { household = family }
 
@@ -173,10 +272,10 @@ final class SubscriptionModel {
             // Without the household there is no `appAccountToken`, so there is nothing safe to
             // offer — a buy button here would mint an unattributable receipt.
             phase = .unavailable(
-                "We couldn't reach your household just now, so there's nothing to show yet."
+                .household("We couldn't reach your household just now, so there's nothing to show yet.")
             )
         case (_, nil):
-            phase = .unavailable(SubscriptionStoreError.productsUnavailable.userMessage)
+            phase = .unavailable(.products)
         }
     }
 
@@ -184,6 +283,7 @@ final class SubscriptionModel {
         try? await readHousehold()
     }
 
+    /// The store's answer, unbounded — see `load()` for the deadline that makes that safe.
     private func loadOffer() async -> SubscriptionOffer? {
         try? await store.loadOffer()
     }
@@ -202,7 +302,15 @@ final class SubscriptionModel {
         if family.isSubscribed, purchase != .idle, purchase != .subscribed {
             purchase = .subscribed
         }
-        if case .unavailable = phase {
+        // **Only the household failure retries on foreground.**
+        //
+        // This was `if case .unavailable`, which was right while unavailable meant "something went
+        // wrong just now". Since phase 108, `.products` is the *ordinary* state on every device —
+        // no subscription product exists in App Store Connect — so that branch would re-run a full
+        // `Product.products(for:)` every single time the app came to the foreground, for a result
+        // that is not going to change until someone creates a product. `.household` is a genuine
+        // transient failure and does retry.
+        if case .unavailable(.household) = phase {
             await load()
         }
     }

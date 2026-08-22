@@ -32,6 +32,7 @@ from rascal.schemas.family import (
 )
 from rascal.services.guardians import (
     accept_invite,
+    access_for,
     eligible_at,
     entitlement_for,
     family_members,
@@ -108,9 +109,15 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
         )
         for member in members
     ]
+    # One authority, read rather than re-derived. `access` here and `access` on
+    # `GET /families/{id}/entitlement` and on `GET /children/{id}/today` are the same
+    # function over the same row — see `services/guardians.access_for`.
+    access = access_for(entitlement)
     return FamilyOut(
         family_id=user.family_id,
         tier=entitlement.tier,
+        access=access.access,
+        trial_ends_at=access.trial_ends_at,
         guardians=guardians,
         pending_invites=await _pending_invites(session, user.family_id),
     )
@@ -123,20 +130,29 @@ async def read_entitlement(
 ) -> EntitlementOut:
     """What this household is entitled to. **Any guardian may read it.**
 
-    **`GET /families/me` reports the same `tier` and this route does not second-guess it** —
-    both call `entitlement_for` against the same row, so there is one authority and two
-    shapes. Two routes that computed the answer separately is the bug D4 and D5 exist to
-    prevent; two routes that render one computation is a household screen and a subscription
-    screen.
+    **`GET /families/me` reports the same `tier` and `access` and this route does not
+    second-guess either** — both call `entitlement_for` against the same row and hand it to
+    the same `access_for`, so there is one authority and (since phase 107) three shapes. Two
+    routes that computed the answer separately is the bug D4 and D5 exist to prevent; three
+    routes that render one computation is a household screen, a subscription screen and a
+    board that has to explain why half of it is locked.
 
     `eligible_at` is computed here, per request, from two clocks that both move. See
     `services/guardians.eligible_at`.
     """
     entitlement = await entitlement_for(session, family_id)
+    access = access_for(entitlement)
     return EntitlementOut(
         family_id=family_id,
         tier=entitlement.tier,
+        access=access.access,
+        trial_ends_at=access.trial_ends_at,
         lapsed_at=entitlement.lapsed_at,
+        # **Deliberately still `entitlement.tier` and not `access.entitled`.** `eligible_at` is
+        # D3's deletion clock and it starts when a *subscription* ends. A trial running out is
+        # not a lapse, `lapsed_at` stays null through one, and passing the trial in here would
+        # be the phase that quietly points a deletion timer at every household that tried the
+        # app for a fortnight and stopped.
         eligible_at=eligible_at(
             entitlement.tier,
             entitlement.lapsed_at,

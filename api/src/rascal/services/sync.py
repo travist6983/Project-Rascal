@@ -125,6 +125,42 @@ async def pull(
         .all()
     )
 
+    # **`/sync` is deliberately NOT gated by entitlement, and phase 107 left it that way on
+    # purpose rather than by omission.** A free household's device does pull the rows for
+    # slots `GET /today` refuses to serve it, prompt bodies included. Three reasons, and the
+    # second is the one that decides it:
+    #
+    # 1. This is a delta feed keyed on `updated_at` and a *mirror* of rows, not a decision
+    #    about what to show. The client is told what it may reach by `access` and `locked[]`
+    #    on `GET /today`; that is the surface that renders a board.
+    # 2. **There is no tombstone for "no longer yours to see."** Absences never signal
+    #    anything here — that is the whole reason deletions sync as rows with `deleted_at`
+    #    set. So a filter would withhold nothing from a device that had already synced, and
+    #    it would break the far more important direction: on re-subscribing, those rows'
+    #    `updated_at` has not moved, so they would never be sent again and the cache would be
+    #    permanently missing work the household is now entitled to.
+    # 3. Suppressing the `body` while keeping the row corrupts the cache in the same way, and
+    #    for the same reason.
+    #
+    # **The obvious residual worry — a client rendering its cache offline and showing a
+    # mission the server would not serve — was raised with the iOS lane and checked rather
+    # than assumed. It is not reachable in the client as built**, and by construction rather
+    # than by luck: `TodayBoard.merge(response:entries:media:)` takes a **non-optional**
+    # `TodayResponse`, so local entries and media are folded *over* a server response and
+    # cannot produce a board on their own. No response, no board — and any response that did
+    # arrive carried its own `access` and `locked[]`.
+    #
+    # The cached assignment rows are read in exactly two places outside the schema:
+    # `SyncEngine` (sync internals) and `EntryDetailScreen`, which looks a row up by
+    # `entry.assignmentId` — so the only bodies that reach a screen belong to entries that
+    # exist. **D3 as narrowed requires exactly that**: a lapsed household must still be able
+    # to read the prompt that produced its own entry. Suppressing it would be the bug.
+    #
+    # Verified against `ios/phase-108-locked-today-membership`. **It is a client-side property
+    # and nothing in this file enforces it**, so the thing to re-check if this ever changes is
+    # whether a board can be built without a server response. If one ever can, this decision
+    # needs revisiting and sync needs a way to say *hidden but not deleted* — a schema
+    # decision, not a line change.
     assignments = list(
         (
             await session.execute(

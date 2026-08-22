@@ -18,6 +18,25 @@ struct TodayBoard: Equatable {
     var waiting: [BoardItem]
     var doneToday: [BoardItem]
 
+    /// Slots this household was not served, in the order the server sent them.
+    ///
+    /// **A fourth array rather than a flag on `BoardItem`**, and that is what keeps a locked slot
+    /// out of every existing surface. `waiting`, `doneToday`, the expiry chips, the skip gesture and
+    /// the widget snapshot all read the three arrays above; none of them can see this one without
+    /// somebody deliberately adding it. A `BoardItem` with `isLocked` would have leaked into all of
+    /// them by default and been noticed in whichever one nobody checks.
+    var locked: [LockedSlot] = []
+
+    /// What the **server** says this household may be served. Rendered, never computed.
+    ///
+    /// Carried on the board so the one place that decides whether to draw locks reads the same value
+    /// the one place that decides whether to show the post-trial notice does.
+    ///
+    /// Defaulted at the declaration so every existing construction site — previews, and the push
+    /// routing tests — keeps compiling and keeps meaning what it meant: a board nobody told about
+    /// entitlement is a full board.
+    var access: Access = .notReported
+
     /// An assignment plus whatever the client knows that the server may not.
     struct BoardItem: Equatable, Identifiable {
         let assignment: AssignmentResponse
@@ -111,7 +130,20 @@ struct TodayBoard: Equatable {
             child: response.child,
             today: today,
             waiting: waiting,
-            doneToday: done
+            doneToday: done,
+            // **`isEntitled` is what gates the cards, not `access == .free`.**
+            //
+            // The distinction is the whole of D5 on this side. `.notReported` — the field absent,
+            // which is every build talking to a server older than phase 107 — and `.unrecognised` —
+            // a fourth value from a server newer than this build — both read as entitled, so the
+            // board renders in full. The failure direction must be *"you can see everything"*, never
+            // *"here is a paywall"*: a parent in a tunnel does not get sold to, and a device never
+            // decides whether a household has paid.
+            //
+            // A server that sends `locked[]` while saying `subscribed` is contradicting itself; the
+            // generous reading wins, and the locks are dropped.
+            locked: response.access.isEntitled ? [] : response.locked,
+            access: response.access
         )
     }
 

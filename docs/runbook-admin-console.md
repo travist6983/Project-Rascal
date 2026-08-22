@@ -168,6 +168,32 @@ than reading a 429 twice. Propagation after enabling is minutes, not instant.
 results still name were shut down on June 30, 2026 — confirmed absent from a live model list.
 `GEMINI_VIDEO_MODEL` is a setting so a moved id is a secret change rather than a deploy.
 
+### After billing, the next refusal is not about money — and it decided the default model
+
+**Billing was enabled Aug 21, 2026 and the section above stopped being the last hurdle.** The
+first render past the 429 came back **200** and then refused a shot: `gemini-omni-flash-preview`
+rejected **a static shot of a photograph, captioned *"Why did you take this one?"*, as "harmful
+content"**. It is ordinary product copy, there is nothing to appeal, and every Veo 3.1 tier
+accepts the identical prompt byte for byte.
+
+**So the default is `veo-3.1-lite-generate-preview`.** Two things follow that matter when you are
+sitting in front of the console:
+
+- **Renders take minutes and the number is real.** Veo is asynchronous — the service starts an
+  operation, polls it, then downloads the clip — and one four-second Lite clip measured **about
+  ninety seconds**. A seven-shot treatment is seven of those plus a concatenation. The panel polls
+  `shots_done` of `shots_total`; it is working, not hung. The ceiling is eight minutes **per
+  clip**, after which the render is failed deliberately and the clips already paid for are kept.
+- **The price changed with the model, and you have to change it too.** Lite is **$0.05 a second**
+  against Omni Flash's $0.10 ($0.40 for Veo Standard), so `GEMINI_VIDEO_CENTS_PER_SECOND` is `5`.
+  **If you repoint `GEMINI_VIDEO_MODEL` and leave the price, the console confidently prices the
+  wrong model.** Nothing detects this — it is two independent settings by design, because the
+  price is a figure somebody typed, and it has **never been reconciled against a Google invoice**.
+
+**Omni Flash still works if you set it** — the service speaks both API shapes and picks by the
+model id prefix. It is worth trying again if the filter loosens, because it remains the only model
+documenting legible on-screen text, which every captioned shot needs.
+
 ### The GitHub billing token is not the token CI uses
 
 Two separate mistakes lead to the same dead end here, and both produce a **404**.
@@ -242,6 +268,61 @@ full-access role. The role is the belt; that is the braces.
 
 ---
 
+## 3a. Seeing the free tier — the one entitlement lever
+
+**Today tab → *Membership — move a household's trial*.** Pick the household, pick a date, press
+**Set trial**. **Clear trial** removes the date entirely.
+
+| What you want | What to do | What `access` becomes |
+|---|---|---|
+| See the free tier — one item on the board, the rest locked | Set the date to **yesterday** | `free` |
+| Go back to a full board | Set the date to **next month** | `trial` |
+| A household with no trial at all | **Clear trial** | `free` |
+
+**Every row above assumes `tier` is `free`, and yours is not.** `subscribed` beats `trial`, so a
+subscribed household reads `access: "subscribed"` whatever this lever writes — the date is stored
+and will matter the day the subscription lapses, but the board does not change. `runbook-deploy.md`
+§7a wrote `tier = 'subscribed'` for your own household by hand and says it *"always will be"*, so
+**to see the free tier you have to undo that first**:
+
+```sql
+-- runbook-deploy.md §7a in reverse. Put it back afterwards or you cannot mint an invite.
+UPDATE entitlements SET tier = 'free'
+WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
+```
+
+The console says so too, at the moment it happens: setting a trial on a subscribed household
+reports *"Saved, but access stays subscribed — the tier outranks the trial."* rather than implying
+it worked.
+
+The *Newest accounts* table above it shows `Access` beside `Tier`, so you can read the result
+without reloading the app. They answer different questions and both are shown deliberately:
+**`Tier` is whether Apple has told us somebody is paying; `Access` is what a phone will actually
+be served today.** During a fourteen-day trial those are different answers, and a console showing
+only `Tier` would make a trial look like a lapse.
+
+**The date you pick is the last day of the trial.** It is stored as the end of that day in your
+own timezone, so picking today leaves the household entitled for the rest of today rather than
+dropping it the moment you save.
+
+**This lever cannot set the tier, and there is deliberately no control that can.** D5 reserves
+`entitlements.tier` for App Store Server Notifications V2 and a test asserts it has exactly one
+writer; a button here that set it would be a person disagreeing with Apple about who is paying.
+Moving `trial_ends_at` reaches both states without going near that column, which is the whole
+reason this is the lever. If you genuinely need to make a household `subscribed`, that is still
+`docs/runbook-deploy.md` §7a — a hand-run SQL statement, deliberately not a button.
+
+**It is hidden while `ADMIN_READ_DATABASE_URL` is set.** The console is reading production and
+writing to your local database in that state, so a control that appeared to work and did not would
+be worse than no control. Unset it to edit locally, or use the deployed console.
+
+**The effect is immediate on the next `GET /today`** — the read repairs the day it finds, so a
+household you re-entitle at 2pm gets its missions on the next pull rather than tomorrow morning.
+Going the other way, the mission rows that already exist are **not deleted**; they stop being
+served and go on existing, and they come back if you re-entitle.
+
+---
+
 ## 4. Checking it worked
 
 ```bash
@@ -254,3 +335,22 @@ The last one **should** be 401 — the page is public, the data is not.
 
 Signed in, the Costs tab shows one card per provider: connected ones report figures, the rest
 name the variable they want. The Studio's provider strip does the same.
+
+And the entitlement lever, from a shell rather than the page — useful when you want to check the
+answer the phone will get rather than the one the console draws:
+
+**The timestamp must carry an offset.** An offset-less one — `2026-09-01T00:00:00` — is
+refused with a `422` naming the field, deliberately: assuming UTC for a value a person typed is
+this service inventing a timezone, and a naive timestamp in an archive spanning eighteen years
+is the bug that surfaces years later. `Z` or `+13:00`, either is fine.
+
+```bash
+# Drop a household to the free tier. `access` comes back `free`; `tier` is untouched.
+curl -s -X PUT "$API/v1/admin/families/$FAMILY_ID/trial" \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"trial_ends_at": "2020-01-01T00:00:00Z"}'
+
+# What the phone sees: one item in `today`, the rest of the day in `locked`.
+curl -s "$API/v1/children/$CHILD_ID/today" -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["access"], [i["slot"] for i in d["today"]], [i["slot"] for i in d["locked"]])'
+```

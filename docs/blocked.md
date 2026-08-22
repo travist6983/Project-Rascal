@@ -8,8 +8,16 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 16, 2026.** The Aug 11 pass is described below and its findings stand; what
+Last reviewed: **Aug 21, 2026.** The Aug 11 pass is described below and its findings stand; what
 Aug 16 changed is recorded in the paragraphs immediately after it.
+
+**Aug 21, 2026 — §17 is closed, and closing it is the argument for reading this file sceptically.**
+Gemini video billing was enabled and the render path saw its first 200. **The errand was correctly
+diagnosed and was not the last thing in the way**: the first successful render was refused by Omni
+Flash's safety filter over a shot of a photograph, so the default model moved to Veo 3.1 Lite —
+which is also half the price — and two response-shape errors surfaced that only a live call could
+find. §17 has the evidence. **Also closed here: the second §17**, which was a numbering collision
+one day old and is now §18.
 
 Previously reviewed: **Aug 11, 2026** — and this was the review where most of the file stopped being
 true. Apple enrollment (§1), Fly (§3), object storage (§2) and Actions billing (§0) were already
@@ -2043,7 +2051,36 @@ panel rather than this one:
 
 ---
 
-## §17 — Gemini video: an **errand**, and the error names the wrong thing (Aug 20, 2026)
+## ~~§17 — Gemini video: an **errand**, and the error names the wrong thing~~ (Aug 20, 2026) — **RESOLVED Aug 21, 2026. Billing is enabled and a clip has been generated.**
+
+**Closed by phase 106.** Billing was enabled on the key's project, and the render path has now
+seen a 200: a four-second Veo 3.1 Lite clip came back as a **416KB MP4** in about ninety seconds.
+The last paragraph of this section — *"one thing is genuinely unverified"* — is the one that
+closing this actually settles, and it is settled by running it rather than by the billing flip.
+
+**What the first successful render found, which is the part worth carrying forward.** Enabling
+billing did not make the feature work; it made the *next* problem visible, and that problem was
+not a credential:
+
+- **Omni Flash refused the product's own copy.** The first render past billing rejected **shot
+  three of a real Vellum treatment as "harmful content"** — a static shot of a photograph,
+  captioned *"Why did you take this one?"*. There is nothing to appeal and nothing to rephrase
+  around; a safety filter that refuses a still life is not one this product can plan around.
+- **Every Veo 3.1 tier accepts the identical prompt**, byte for byte. So the default moved to
+  `veo-3.1-lite-generate-preview`, which is also **half the price** ($0.05 a second against
+  $0.10), and Omni Flash stays reachable by setting `GEMINI_VIDEO_MODEL`.
+- **Two more things only the live API said**, both now pinned in tests: the clip URI Veo hands
+  back already carries `?alt=media`, and passing `params=` to httpx *replaces* the query rather
+  than merging it — which silently turns the download into a 400. **Every mocked test passed with
+  that bug.** And Veo returns **landscape** unless `aspectRatio` is sent, which produced a
+  1280×720 clip for a vertical treatment — not a smaller mistake than failing.
+
+**The general shape of this entry, which is why it is not simply deleted:** it was filed as a
+billing errand, the billing diagnosis was correct, and the errand was still not the last thing in
+the way. **A blocker that names a credential can be right about the credential and wrong about
+being the blocker.** The original entry follows.
+
+### The original entry, Aug 20, 2026
 
 `GEMINI_API_KEY` is set and works. Video still refuses, and it will keep refusing until billing
 is enabled **on the project that key belongs to**.
@@ -2064,12 +2101,24 @@ is enabled **on the project that key belongs to**.
 project will not move this. **Nothing else in the console is affected** — the render button is
 the only thing that needs it, and it refuses with the sentence above rather than failing oddly.
 
-**Until then one thing is genuinely unverified**: `services/social/gemini.py` has never seen a
+~~**Until then one thing is genuinely unverified**: `services/social/gemini.py` has never seen a
 200, so the response-shape walk is written from documentation. It is built to raise on an
 unrecognised shape rather than write an empty file, which turns that risk into a loud error
-instead of a silent one — but the first successful render is still the real test.
+instead of a silent one — but the first successful render is still the real test.~~ — **that test
+was run on Aug 21, 2026 and this paragraph called it correctly.** The shape walk written from
+documentation was wrong in two places, both caught loudly rather than silently: the download's
+query string and the missing aspect ratio, above. **The refusal-on-an-unrecognised-shape design is
+what turned a documentation error into a 400 with a sentence instead of an empty MP4 in the
+bucket**, which is the one claim in this section that was load-bearing and is now evidence.
 
-## §17 — the Instagram token expires, and two repositories hold a copy
+## §18 — the Instagram token expires, and two repositories hold a copy
+
+> **Renumbered from §17 on Aug 21, 2026.** It was filed as a second §17 on Aug 20 — two sections
+> on this page carried the same number for a day. Nothing anywhere referenced this one, so the
+> collision was cheap to close by moving it; the Gemini §17 above **keeps its number** because
+> `roadmap-status.md` points at it. This is not the phase-number rule in `CLAUDE.md` — collisions
+> at 3, 11, 19 and 20 stay exactly as they are, because those are identifiers with history
+> attached. A section heading a day old with no inbound links is not.
 
 **Blocked on nobody; this is a diary entry with a date on it.** `IG_ACCESS_TOKEN` is a
 long-lived Instagram token, which Meta issues for about sixty days. The only real timestamp

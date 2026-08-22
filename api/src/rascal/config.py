@@ -317,20 +317,31 @@ class Settings(DatabaseSettings):
     gemini_api_key: str | None = None
 
     #: Which model renders a shot. `gemini-omni-flash-preview` is Google's documented default
-    #: for video and the only one whose docs claim on-screen text renders legibly, which is the
-    #: whole reason it is the default here: every shot in a Vellum treatment carries a caption.
+    #: for video and the only one whose docs claim on-screen text renders legibly, which is why
+    #: it was the default here until Aug 21, 2026: every shot in a Vellum treatment carries a
+    #: caption. It is no longer the default, for the reason below, and that argument is kept
+    #: rather than deleted because it is still the reason to reach for it if the filter loosens.
     #:
     #: **Every video model on the Gemini API is preview**, and the `veo-3.0`/`veo-2.0` ids that
     #: most search results still name were shut down on June 30, 2026 — verified absent from
     #: this key's own model list. Pinning the id in a setting is what lets that be fixed without
     #: a deploy when the preview id moves again.
-    gemini_video_model: str = "gemini-omni-flash-preview"
+    #: **Veo 3.1 Lite, changed from `gemini-omni-flash-preview` on Aug 21, 2026.** Omni Flash
+    #: rejected shot three of a real Vellum treatment as "harmful content" — a static shot of a
+    #: photograph, captioned *"Why did you take this one?"* — and every Veo tier accepts the
+    #: identical prompt. Lite is also half the price. Omni Flash stays reachable by setting this,
+    #: and `services/social/gemini.py` still speaks both API shapes.
+    gemini_video_model: str = "veo-3.1-lite-generate-preview"
 
     #: What a second of generated video costs, in cents, so the console can price a treatment
-    #: before it renders one. Google bills Omni Flash per token and publishes the conversion as
-    #: "approximately $0.10 per second"; a thirty-second piece is therefore about three dollars.
-    #: A figure somebody typed, like every other price here, and the card says so.
-    gemini_video_cents_per_second: int = 10
+    #: before it renders one. **5, for Veo 3.1 Lite at 720p** — Google publishes $0.05 a second,
+    #: against $0.10 for Fast and $0.40 for Standard, so a thirty-second treatment is about
+    #: $1.50 rather than $3.00. Change it with the model or the console prices the wrong thing.
+    #:
+    #: A figure somebody typed, like every other price here, and the card says so. It has never
+    #: been reconciled against an actual Google invoice, so it is an estimate on the screen and
+    #: should be read as one.
+    gemini_video_cents_per_second: int = 5
 
     #: What object storage costs per GB-month, in cents, on the plan we are actually on.
     #: **Unset means the card shows bytes and no estimate**, which is the honest default:

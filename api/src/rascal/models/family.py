@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from rascal.constants import GUARDIAN_ROLES, TIERS, GuardianRole, Tier
+from rascal.constants import GUARDIAN_ROLES, TIERS, TRIAL_DAYS, GuardianRole, Tier
 from rascal.models.base import (
     Base,
     created,
@@ -25,6 +25,16 @@ from rascal.models.base import (
     updated,
     uuid_pk,
 )
+
+
+def _default_trial_ends_at() -> dt.datetime:
+    """`now + 14 days`, evaluated at INSERT rather than at import.
+
+    A module-level constant would freeze the trial at the moment the process started, which
+    on a long-lived Fly machine means every household created that week gets the same expiry
+    and the last of them gets no trial at all.
+    """
+    return dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=TRIAL_DAYS)
 
 
 class Family(Base):
@@ -51,10 +61,22 @@ class Entitlement(Base):
 
     `docs/runbook-deploy.md` §7a — a hand-run SQL statement — is the manual override, and the
     owner's own household is `subscribed` by one with no Apple transaction behind it. **There is
-    no admin route and there is deliberately not going to be one.** The device still never
-    decides whether a household is subscribed, for the same reason it never decides what day it
-    is: a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into
-    an entitlement.
+    no admin route that writes `tier`, and there is deliberately not going to be one.** The
+    device still never decides whether a household is subscribed, for the same reason it never
+    decides what day it is: a StoreKit transaction on the phone is a receipt, and the webhook is
+    what turns one into an entitlement.
+
+    **That sentence is about `tier` and only `tier`, which matters now that a neighbouring
+    column does have one.** Phase 107 added `PUT /v1/admin/families/{id}/trial`, which writes
+    `trial_ends_at` below. It reaches both the entitled and the free state without touching
+    `tier` — which is exactly why the trial is the lever rather than a tier switch, and why
+    adding one for `tier` is still forbidden rather than newly precedented.
+
+    **`trial_ends_at` is the trial, and there is no `trial` tier.** Phase 107 made entitlement
+    a computed thing — `tier` and `trial_ends_at` together, through
+    `services.guardians.access_for` — precisely so the trial did not have to become a second
+    writer of the column above. Reading `tier` on its own still means exactly what it always
+    meant, which is what keeps every existing client working.
 
     `last_sign_in_at` is deliberately **not** here. `data-model.md` describes it as a
     denormalisation of `users.last_sign_in_at` that must never be written independently, and
@@ -75,10 +97,36 @@ class Entitlement(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     lapsed_at: Mapped[optional_moment]
+    #: When this household's free trial runs out. **The trial is a column, not a tier** — see
+    #: the note on `tier` above and `constants.Tier`.
+    #:
+    #: Defaulted here rather than in :func:`services.guardians.create_household` so that every
+    #: construction of this row gets a trial: the household factory, the test factories, and
+    #: anything written later. A default that lives in one caller is a default the second
+    #: caller silently does without, and the failure mode is a real family landing on the free
+    #: tier because of where their row happened to be created.
+    #:
+    #: **Nullable, and null is a real state rather than a missing value.** It means *no trial
+    #: on this household* — which is what the admin console's one lever produces when it clears
+    #: the date, and what a household reads forever after somebody uses it. It is not "the
+    #: trial ended at a time nobody recorded".
+    #:
+    #: Nothing reads this column directly to decide entitlement. `services.guardians.access_for`
+    #: is the only thing that turns it and `tier` into an answer.
+    trial_ends_at: Mapped[optional_moment] = mapped_column(default=_default_trial_ends_at)
     updated_at: Mapped[updated]
 
     @property
     def is_subscribed(self) -> bool:
+        """`tier` alone, and deliberately **not** the entitlement question.
+
+        This answers *"is somebody paying"*, which is what the guardian-invite paywall asks
+        (D4 sells the second parent on a subscription, and a trial does not add one). *"May
+        this household reach today's missions"* is a different question with a different
+        answer during a trial, and it is :func:`services.guardians.access_for`. Do not
+        collapse the two — a caller that wants entitlement and reads this gets a free-tier
+        answer for a household inside its trial.
+        """
         return self.tier == "subscribed"
 
 

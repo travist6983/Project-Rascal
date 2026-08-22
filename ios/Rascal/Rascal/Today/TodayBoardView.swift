@@ -27,6 +27,17 @@ struct TodayBoardView: View {
     var onSkip: (TodayBoard.BoardItem) -> Void = { _ in }
     var onUndoSkip: () -> Void = {}
     var onDismissNotice: () -> Void = {}
+
+    /// The one-time note shown on the first board after the trial ends.
+    ///
+    /// **Its own slot, not `notice`.** That string is the transport-and-expiry channel: it is
+    /// overwritten by any `APIError` and cleared by `onDismissNotice`. Routing a once-ever
+    /// presentation through it would let a dropped request either spend the flag or silently
+    /// replace the sentence, and which one happened would depend on network timing.
+    var membershipNotice: String?
+    var onOpenMembership: () -> Void = {}
+    var onDismissMembershipNotice: () -> Void = {}
+
     var onSwitchChild: (() -> Void)?
     /// TESTING ONLY — rebuilds today as one assignment per kind, because the real scheduler fills
     /// slots and cannot produce one of every kind on demand, which is what exercising the photo and
@@ -42,22 +53,66 @@ struct TodayBoardView: View {
 
             if let notice { noticeBanner(notice) }
 
-            // `failures`/`onEdit` are plumbed here for completeness rather than because this
-            // section reaches them: `TodayBoard.merge` routes anything with a local entry into
-            // `done_today`, so a card in this section is never done. `PromptCard` keeps its
-            // documented done state — `design-system.md` specifies one — but on this board a
-            // finished item becomes a `DoneCard`, which is where the retry list actually lives.
-            section("Today", board.today) { item in
-                PromptCard(
-                    item: item,
-                    today: board.date,
-                    onPrimary: { onOpen(item) },
-                    onDismiss: { onSkip(item) },
-                    onEdit: item.localEntryId == nil ? nil : { onEdit(item) },
-                    failures: failures(item),
-                    onRetry: onRetry,
-                    onRetryAll: { onRetryAll(item) }
+            // **Above "Today", per the design's board order**, and below the transport notice — a
+            // dropped request is about right now and outranks a note about the fortnight that just
+            // ended.
+            if let membershipNotice {
+                Notice(
+                    text: membershipNotice,
+                    primaryLabel: MembershipCopy.postTrialOpen,
+                    onPrimary: onOpenMembership,
+                    onDismiss: onDismissMembershipNotice,
+                    dismissLabel: MembershipCopy.postTrialDismiss
                 )
+                .plainRow()
+            }
+
+            // **One header over the live rows and the locked ones, because they are the same
+            // day.**
+            //
+            // Emitted here rather than through `section(_:_:)` for a reason that is not tidiness:
+            // that helper draws its header only when *its own* array is non-empty. With the locked
+            // rows as a separate `ForEach` after it, the moment a free parent answered the daily
+            // question `today` emptied into `doneToday`, the header disappeared, and the locked
+            // cards were left floating above "Waiting" with nothing naming them — **which is the
+            // state a free household is in for the rest of every day.** No artboard draws that.
+            //
+            // The locked rows still get **no header and no count of their own**: they are today's
+            // slots, and a second quieter board is a place the eye learns to skip and a place a
+            // count could one day be attached to. The copy file's first rule is that nothing
+            // anywhere counts locked items.
+            if !board.today.isEmpty || !board.locked.isEmpty {
+                BoardSectionHeader(title: "Today")
+                    .plainRow(bottom: 10)
+
+                // `failures`/`onEdit` are plumbed here for completeness rather than because this
+                // section reaches them: `TodayBoard.merge` routes anything with a local entry into
+                // `done_today`, so a card here is never done. `PromptCard` keeps its documented
+                // done state — `design-system.md` specifies one — but on this board a finished item
+                // becomes a `DoneCard`, which is where the retry list actually lives.
+                ForEach(board.today) { item in
+                    PromptCard(
+                        item: item,
+                        today: board.date,
+                        onPrimary: { onOpen(item) },
+                        onDismiss: { onSkip(item) },
+                        onEdit: item.localEntryId == nil ? nil : { onEdit(item) },
+                        failures: failures(item),
+                        onRetry: onRetry,
+                        onRetryAll: { onRetryAll(item) }
+                    )
+                    .plainRow()
+                }
+
+                // Below the live prompts, above `waiting`, in the order the server sent them.
+                //
+                // **No `swipeActions`.** The rows above have a skip; these must not. A lock you can
+                // dismiss becomes a thing to dismiss every morning, and there is nothing to decline
+                // — it was never offered.
+                ForEach(board.locked) { locked in
+                    LockedPromptCard(locked: locked, onOpenMembership: onOpenMembership)
+                        .plainRow()
+                }
             }
 
             section("Waiting", board.waiting, count: board.waiting.count) { item in
@@ -179,7 +234,8 @@ struct TodayBoardView: View {
         .forBoard(
             today: board.today.count,
             waiting: board.waiting.count,
-            doneToday: board.doneToday.count
+            doneToday: board.doneToday.count,
+            locked: board.locked.count
         )
     }
 

@@ -671,7 +671,21 @@ household becomes subscribed and the only way one becomes free again.~~ — **st
 Store Server Notification, and it is the only code that does.
 
 **This statement is now the override rather than the only way in**, and it is still the lever
-when you find a family on the wrong tier. There is still no admin route, deliberately.
+when you find a family on the wrong tier. There is still no admin route that writes `tier`,
+deliberately — phase 107 added one that writes `entitlements.trial_ends_at`, which is a different
+column and cannot reach this one.
+
+**The reverse, which phase 107 made necessary.** The free tier now serves the daily question only,
+and the console's trial lever cannot show it to you while this row says `subscribed` —
+`subscribed` beats `trial`. To look at your own product the way a free household sees it:
+
+```sql
+UPDATE entitlements SET tier = 'free'
+WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
+```
+
+Then use the console's Membership card to move between `trial` and `free`. **Run the statement at
+the top of this section again afterwards** — on `free` you cannot mint a guardian invite.
 
 **Your own household is subscribed by one of these and always will be.** There is no App Store
 transaction behind the row §7a wrote on Aug 17, 2026, and there never will be — you did not

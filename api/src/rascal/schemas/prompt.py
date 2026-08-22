@@ -107,10 +107,13 @@ class SlotHealthOut(ApiModel):
         description="The window `served_in_window` was counted over, so the rate is "
         "reproducible from this response alone."
     )
-    nominal_interval_days: int = Field(
+    nominal_interval_days: float = Field(
         description="What this slot is *supposed* to be served at, in days. Reported beside "
         "`served_in_window` so the gap between intended and actual is visible. A daily slot "
-        "reading `served_in_window: 0` is the shape of a scheduler defect."
+        "reading `served_in_window: 0` is the shape of a scheduler defect. **Fractional since "
+        "phase 107**, because the daily slots rotate by weekday: `mission` is served five days "
+        "a week (1.4) and `mission_b` four (1.75). It is counted off the scheduler's own "
+        "calendar rather than written down twice."
     )
     estimate_basis: str = Field(
         description="Why the estimate is what it is: `observed_rate`, `pool_empty`, or "

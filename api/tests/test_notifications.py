@@ -26,10 +26,18 @@ from rascal.models import Assignment, Entry, NotificationSend, User
 from rascal.services.notifications import run_notifications
 from rascal.services.push import PushResult, StubPushClient
 
-# A plain Friday: not a Saturday, not the 1st, not the 15th, so `slots_for` is the daily
+# A plain Friday: not a Saturday, not the 1st, not the 15th, so `slots_for` is the weekday
 # pair and nothing else. A date that quietly also carried a weekly would make "the mission
 # is what gets sent" ambiguous.
+#
+# **Since phase 107 a Friday is `question` + `mission` specifically** — the rotation gives
+# `mission` to Monday, Wednesday and Friday — which is why this date still exercises the top
+# of the push ladder. A Tuesday would not: it has no `mission` slot at all.
 DAY = dt.date(2026, 8, 14)  # future-date: explicit, pure
+# A plain Sunday: the only shape of day that holds **both** doing-slots without a weekly,
+# monthly or letter riding along. The `mission` → `mission_b` fallback needs a day where both
+# slots exist, and phase 107's rotation means no weekday is one.
+BOTH_MISSIONS_DAY = dt.date(2026, 8, 16)  # future-date: explicit, pure
 DETROIT = "America/Detroit"
 # UTC-10 all year, so a local evening is the *next* UTC day. No DST to reason about.
 HONOLULU = "Pacific/Honolulu"
@@ -559,7 +567,8 @@ async def test_the_job_fills_the_day_through_the_shared_scheduler_path(
             Assignment.child_id == child.id, Assignment.assigned_on == DAY
         )
     )
-    assert set(filled.scalars().all()) == {"question", "mission", "mission_b"}
+    # A Friday, so the rotation gives `question` + `mission` and nothing else.
+    assert set(filled.scalars().all()) == {"question", "mission"}
     assert push.sent[0].body == MISSION
 
 
@@ -739,6 +748,11 @@ async def test_the_notification_falls_back_to_mission_b_when_the_photo_pool_is_e
 
     The widget has the same fallback for the same reason, and the two must agree about which
     item is "the" mission today.
+
+    **Runs on a Sunday since phase 107, and it has to.** The rotation gives a weekday one
+    doing-slot, so on the Friday this used to use there is no `mission_b` for the ladder to
+    fall back *to* — the test would pass for the wrong reason, or fail for one. A Sunday is
+    the only day holding both `mission` and `mission_b` with nothing else riding along.
     """
     user = await make_user(session, notify_enabled=True, notify_local_time=dt.time(19, 0))
     child = await make_child(session, name="Miles", timezone=DETROIT)
@@ -751,7 +765,7 @@ async def test_the_notification_falls_back_to_mission_b_when_the_photo_pool_is_e
     await make_device(session, user)
     await session.commit()
 
-    run, push = await _run(session, at=_utc(DAY, dt.time(19, 5), DETROIT))
+    run, push = await _run(session, at=_utc(BOTH_MISSIONS_DAY, dt.time(19, 5), DETROIT))
 
     assert run.sent == 1
     assert len(push.sent) == 1

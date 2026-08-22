@@ -245,12 +245,12 @@ private let _preview = InvitePreview(
     .environment(\.dynamicTypeSize, .accessibility4)
 }
 
-#Preview("Upgrade sheet") {
-    PaywallSheet(model: SubscriptionModel(previewing: .loading), context: .secondParent) {}
+#Preview("Membership sheet") {
+    PaywallSheet(model: SubscriptionModel(previewing: .loading)) {}
 }
 
-#Preview("Upgrade sheet — AX XXL") {
-    PaywallSheet(model: SubscriptionModel(previewing: .loading), context: .secondParent) {}
+#Preview("Membership sheet — AX XXL") {
+    PaywallSheet(model: SubscriptionModel(previewing: .loading)) {}
         .environment(\.dynamicTypeSize, .accessibility4)
 }
 #endif
