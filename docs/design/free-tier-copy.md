@@ -20,6 +20,10 @@
 > resolve quietly.** None was found in the strings; the two disagreements that exist are recorded
 > under *Conflicts* at the bottom.
 >
+> **This file is a reconstruction and is not the source document.** If the owner's original ever
+> resurfaces it wins over this, and over any agent's reading of it. A reader who finds this in the
+> tree and treats it as the authority is making exactly the mistake this header exists to prevent.
+>
 > **Phase 108 authored nothing in sections 1–4.** Two strings it needed and could not draw from
 > either witness are in *Proposed additions*, unshipped or clearly marked.
 >
@@ -87,6 +91,15 @@ dismissible lock becomes a thing to dismiss every morning.
 ---
 
 ## 2 · The membership sheet
+
+> **Reader's note, not copy — nothing in §§1–4 has been edited.** The bullet
+> `Three on Saturdays and Sundays` below reads as though it contradicts §1's *"one card per locked
+> slot — one on a weekday, two on a weekend"*. **It does not: §1 counts locked cards and §2 counts
+> items in the day** — the free question plus those two missions. Confirmed independently by the
+> approved design, whose artboard `1c` is titled *"The same weekend, member — three live, no locks"*
+> and draws exactly three, and by phase 107's live server, which returns two locked mission slots at
+> the weekend. The file was never ambiguous, only compressed. Recorded here as well as under
+> *Conflicts* because this is where a reader trips on it.
 
 Presented from a locked card, from Settings, and from the guardian-invite surface. Same sheet every
 time.
@@ -196,6 +209,23 @@ contracted form and **inventing a token is what this file forbids.**
 **If the owner wants the literal masculine copy, it is one file.** If they want a sentence written for
 a household rather than a child — e.g. `The other parent, on the same archive` — that is a copy
 decision and belongs here rather than in a view.
+
+**⚠️ This is a ruling on three surfaces, not one, and it is cheaper to see that before answering.**
+
+| Surface | State |
+|---|---|
+| **This file / the iOS app** | Written for a boy; shipped tokenised, so a `he/him` child reads it verbatim |
+| **The marketing site's tier, mission and membership copy** | **Already neutral** — `their voice`, `Their other parent`, `Letters you seal until they're old enough`, in the visible copy *and* in the `FAQPage` and `HowTo` JSON-LD. Zero gendered pronouns |
+| **The marketing site's narrative voice** | **Says `he` six times** — five on the home page, one on `/how-it-works`: *"search 'what he was afraid of'"*, *"What is he pretending to be this week?"*, *"whether he was three or four"*. All pre-existing |
+
+The site's one deliberate `her` — in the `/prompts` paragraph explaining that the tokeniser says
+*her* to a family with a daughter — is doing its job and is not part of this.
+
+**The app and the site's product copy already agree**, by two independent routes: the sheet renders
+against no child, which is they/them by construction, and the site was written neutral. The open
+question is the **narrative voice**, which is prose written for the one four-year-old this was built
+for — a different category from a paywall string, and not obviously wrong. Found by the phase 109
+session while checking the surfaces against each other.
 
 **2 · A string for a slot or hint newer than the client.**
 
