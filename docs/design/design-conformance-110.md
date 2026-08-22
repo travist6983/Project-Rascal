@@ -487,23 +487,71 @@ alphas belong at the use site. So `terracottaSoft @ 45%` is idiomatic here, not 
 
 ## 10 · Conformance table
 
-**To be completed against phase 108's committed tree.** One row per approved screen: what shipped,
-and any deviation with its reason. This is the artifact the owner is reviewing.
+Against phase 108 at `60281dd`, merged and built. **Verified by reading the code against the
+artboard source, not by looking at renders.**
 
 | Artboard | Shipped | Deviation | Reason |
 |---|---|---|---|
-| `1a` Weekday free | _pending 108_ | | |
-| `1b` Weekend free | _pending 108_ | | |
-| `1c` Weekend member | _pending 108_ | | |
-| `1d` Treatment | _pending 108_ | **C, not A** | Owner override, §2.1 |
-| `1e` AX1 | _pending 108_ | | |
-| `1f` Quiet row | **Not built** | Whole artboard | Owner override, §2.2 |
-| `2a` Sheet annual | _pending 108_ | restore + legal links retained | App Review, §7.1 |
-| `2b` Sheet monthly | _pending 108_ | | |
-| `2c` Unavailable | _pending 108_ | | |
-| `2d` Scrolled | _pending 108_ | | |
-| `3a` Trial welcome | _pending 108_ | | |
-| `3b` Post-trial notice | _pending 108_ | footnote `inkMuted` not `inkFaint` | Contrast, §8.2 |
+| `1a` Weekday free | ✅ | eyebrow below the tile, not beside it | **Defect — F3** |
+| `1b` Weekend free | ✅ | as `1a` | **Defect — F3** |
+| `1c` Weekend member | ✅ | none | — |
+| `1d` Treatment | ✅ C | **C, not the recommended A** | Owner override, §2.1 |
+| `1e` AX1 | ✅ | 4-lock board is 1163pt vs an 852pt viewport | Accepted; §2.2 |
+| `1f` Quiet row | **Not built** | whole artboard | Owner override, §2.2 |
+| `2a` Sheet annual | ✅ | no bullet dots; no detents; label outside block | **F6, F5**, §10.1 |
+| `2b` Sheet monthly | ✅ | as `2a` | — |
+| `2c` Unavailable | ✅ | footnote renders where `2c` omits it | Minor, §10.1 |
+| `2d` Scrolled | ✅ | no detents — always full height | **F5** |
+| `3a` Trial welcome | ✅ | plain canvas, no wash, no progress rail | Correct |
+| `3b` Post-trial notice | ✅ | footnote `inkMuted`, not `inkFaint` | Contrast, §8.2 |
+
+**Restore and both legal links survived the restyle**, against a design that draws none of them —
+§7.1 — and are now pinned by tests, §10.2.
+
+### 10.1 · Findings
+
+Six specialist readers over the diff, each finding independently refuted by a second agent; the
+two HIGH findings were then re-verified by hand in the source.
+
+| # | Sev | Finding |
+|---|---|---|
+| **F1** | **HIGH** | **The trial welcome fires for every existing install, every invited second guardian, and every subscribed household.** `shouldShowTrialWelcome` is `!record.trialWelcomeShown` and nothing else; `OnboardingGate:878` runs it in `.task(id: child.id)`, which fires on every launch for anyone already signed in. The flag is new in this build, so it defaults false for everybody. A subscribed parent is told *"Two weeks, everything open. No card, nothing to cancel."* — **a false statement about money.** The code's comment defends not gating on `access`, which is a sound argument against gating on `access` and not an argument for gating on nothing; the missing condition is *"this device just completed a first sign-in"*, which is known at sign-in time. |
+| **F2** | **HIGH** | **Locked cards are orphaned when the day's live prompt is done.** `TodayBoardView.section(_:_:)` renders `BoardSectionHeader` only `if !items.isEmpty`, and `ForEach(board.locked)` follows it at the same level — so the moment a free parent answers the question and it moves to `doneToday`, the locked cards render with **no header**, directly above "Waiting". No artboard draws that. It is also the most common state on the board: what every free household sees for the rest of the day. Fix is the header's condition, not a header of their own. |
+| **F3** | MED | **The eyebrow is not in the header row.** Every artboard drawing this card — `1a`, `1b`, all four of `1d`, `1e`, `3b` — puts tile and eyebrow on one row, `gap:10`, in the slot `PromptCard` gives its `KindBadge`. Shipped as tile-alone-with-a-`Spacer`, eyebrow moved above the body at a 6pt gap that is not a design value. Checked `1e` first: the design keeps them side by side at AX1 with a 56pt tile, so Dynamic Type is not a reason. |
+| **F4** | MED | **VoiceOver says "Opens membership" twice per card.** `MembershipCopy:89` ends the label with it and `LockedPromptCard:100` adds it again as a hint — up to four repetitions on a Saturday-the-15th board. It is also hint material in a label, and a hardcoded user-visible string outside `MembershipCopy`. |
+| **F5** | MED | **No `presentationDetents` anywhere**, so the sheet always presents full height. `2d` specifies *"sized to measured content, seeded ~700, `.large` kept in the set for the accessibility sizes — the `AddToArchiveSheet` rule. Not `.medium`."* |
+| **F6** | MED | **"What membership adds" ships with no bullet markers.** All four sheet artboards draw a 5px terracotta dot per row. The copy file's *"no icons competing with the terracotta"* is about icons, not about the dot the design itself draws. |
+| **F7** | MED | **`MembershipCopy.bannedPhrases` is dead code whose doc claims an enforcement that does not exist**, and the test that does exist covers 8 of §4's 11 phrases against its own divergent list. A dead guard reads as cover. |
+| **F8** | MED | **`TodayModel.observe(_:)` has no test**, and it is the only code deciding whether the post-trial notice appears. The offer timeout is also unpinned, and the *"no empty state"* half of the `locked: []` case is asserted by an expression that cannot fail. |
+
+**Not reported as defects**, having checked: the uniform terracotta wash on a locked `letter` (the
+wash is the lock ground, not a tint — the tile carries kind, correctly, in periwinkle); the absent
+`SectionLabel` over the locked group (deliberate and right — a header there is where a count would
+one day be attached); `Font.system(size:)` on four glyphs (the sanctioned `@ScaledMetric`
+exception); and the hardcoded glyph-tile radius `11` (matches `PromptCard` and `WaitingCard`).
+
+### 10.2 · Two App Review requirements were deletable, and now are not
+
+Break-tested by deleting controls from a green tree and re-running all 1108 tests:
+
+| deleted | tests that failed |
+|---|---|
+| the entitlement gate — `access.isEntitled ? [] : response.locked` | **2** ✅ |
+| a currency literal added to `MembershipCopy` | **1** ✅ |
+| **the restore control** | **0** ❌ |
+| **the plan row's `Text(plan.displayName)`** | **0** ❌ |
+
+**`displayName` had in fact been dropped during the restyle** and was restored only because a
+reviewer asked — nothing in the suite would have caught it. `RascalTests/AppReviewRequirementsTests.swift`
+now pins all five requirements, both legal links and the host guard; all four source guards were
+broken simultaneously and each failed **exactly one** test, 1:1 with its break.
+
+### 10.3 · The warning baseline is 0, not 21
+
+Both phase prompts say *"21 inherited warnings exist… do not add the 22nd."* **That figure is
+stale.** A cold build of the merged tree — isolated `derivedDataPath`, app and test targets —
+produces **zero** warnings under CI's own grep. CI itself gates at zero and would fail on one. The
+target is zero and it is met.
 
 ---
 
