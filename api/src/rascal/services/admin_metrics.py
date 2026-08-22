@@ -38,6 +38,7 @@ from rascal.models import (
     PromptLibraryOverride,
     User,
 )
+from rascal.services.guardians import access_for
 
 
 def _utc_now() -> dt.datetime:
@@ -502,15 +503,17 @@ async def top_themes(session: AsyncSession, limit: int = 8) -> list[dict[str, An
 def _access_state(tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime) -> str:
     """`access_for` over two loose columns rather than a mapped row.
 
-    **Not a second formula and it must never become one.** This query selects columns rather
-    than entities — one `Entitlement` per row would be a second query per signup — so there is
-    no ORM object to hand to :func:`services.guardians.access_for`. A throwaway unmapped
-    instance is built for the one call instead, so the formula stays in the one place that is
-    allowed to know it. `test_entitlement_cadence.py` greps `src/` for anyone who reimplements
-    it rather than doing this.
-    """
-    from rascal.services.guardians import access_for
+    **Not a second formula, and it must never become one.** `recent_signups` aggregates, so it
+    groups — which means it selects the two entitlement *columns* it needs rather than the
+    entity, since selecting the entity would mean grouping by its primary key as well. There is
+    therefore no ORM object to hand to :func:`services.guardians.access_for`, so a throwaway
+    unmapped instance is built for the one call and the formula stays in the one place allowed
+    to know it. `services/scheduler.py::_active_parents` does select the entity, because it does
+    not aggregate; both reach the same function, which is the point.
 
+    `test_entitlement_cadence.py` walks the AST of every module under `src/` looking for anyone
+    who compares `trial_ends_at` against a clock instead of doing this.
+    """
     return access_for(Entitlement(tier=tier, trial_ends_at=trial_ends_at), now=now).access
 
 
@@ -552,6 +555,17 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             # trial needs the household's id, and asking the owner to find a UUID by hand is
             # a control nobody uses. None of the three is archive content.
             "family_id": str(row.family_id),
+            # **`or "free"` covers the outer join finding no entitlement row at all**, not a
+            # null column — `tier` is NOT NULL with a `free` server default, so within a row
+            # that exists it is never null. A user with no entitlement row is unreachable
+            # (`create_household` writes one with every family, and `users.family_id` is
+            # `ON DELETE RESTRICT`, so a family with members cannot be deleted out from under
+            # them), and `free` is what the schema would have written anyway.
+            #
+            # **`services/scheduler.py::_serve` treats the same anomaly as *entitled* and the
+            # difference is deliberate.** The scheduler has to choose a behaviour and chooses
+            # the one that cannot cost a paying family their board; a console has no such
+            # obligation and should not invent a state — it reports the columns as they are.
             "tier": row.tier or "free",
             # Computed by the one authority rather than restated here — a console that
             # disagreed with `GET /today` about whether somebody is entitled would be worse
