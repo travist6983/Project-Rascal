@@ -37,6 +37,14 @@ INTERMEDIATE_MARKER_OID = "1.2.840.113635.100.6.2.1"
 BUNDLE_ID = "com.travisterry.childarchive"
 APP_APPLE_ID = 1234567890
 ANNUAL_PRODUCT_ID = "com.travisterry.childarchive.subscription.annual"
+# The other half of D5a's subscription group, added by phase 113 so a test can tell the two
+# cadences apart on the wire. One group holding both durations is what makes a monthly→annual
+# move a *plan change* rather than two live subscriptions — see `docs/decisions.md` D5a.
+MONTHLY_PRODUCT_ID = "com.travisterry.childarchive.subscription.monthly"
+# An identifier that is real enough to sign and deliberately absent from `constants.PRODUCT_PLANS`
+# — a future non-renewing product, or one nobody has decided on yet. It must read as `plan: null`
+# rather than being guessed at by substring.
+UNKNOWN_PRODUCT_ID = "com.travisterry.childarchive.book.hardcover"
 
 # Fixed so a test never depends on the wall clock. Every certificate below is valid across
 # this window and every payload is signed inside it.

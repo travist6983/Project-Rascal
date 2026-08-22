@@ -7,7 +7,7 @@ import uuid
 
 from pydantic import Field
 
-from rascal.constants import AccessState, GuardianRole, Tier
+from rascal.constants import AccessState, GuardianRole, SubscriptionPlan, Tier
 from rascal.schemas.common import ApiModel
 
 
@@ -40,6 +40,58 @@ class FamilyOut(ApiModel):
     #: one ended at an unrecorded time. For copy only — a client must never compute
     #: entitlement from it, because that is the device deciding, which D5 forbids.
     trial_ends_at: dt.datetime | None = None
+    #: **When the subscription lapsed, and what tells "never subscribed" from "used to be".**
+    #: Added by phase 113 off the same `entitlements` row this route already reads — no second
+    #: query. The same value `GET /families/{id}/entitlement` has reported since phase 107; it
+    #: is here because that route has no client in the app and this one does.
+    #:
+    #: **A trial expiring is not a lapse and never writes this**, per D3. A household that
+    #: tried the app for a fortnight and stopped reads `null` here forever, and it must not be
+    #: rendered as though it had cancelled something.
+    #:
+    #: **`eligible_at` is deliberately not here** and is not coming. It is D3's deletion clock,
+    #: it stays on the entitlement endpoint for the console, and leaving it off this schema is
+    #: what makes it structurally impossible for the Settings path to render a deletion date by
+    #: accident — `docs/design/free-tier-copy.md` §4 pre-bans the sentence in words and this
+    #: omission bans it in numbers.
+    lapsed_at: dt.datetime | None = None
+    #: How often a subscribed household is billed: `annual` | `monthly` | `null`. Derived per
+    #: read from the receipt ledger by `services.membership.membership_signals`.
+    #:
+    #: **`null` is an answer and a client must render its fallback rather than guess** — it
+    #: means no transaction row behind the subscription (the hand-written household in
+    #: `runbook-deploy.md` §7a), a product id this build does not recognise, **or a household
+    #: that is not currently subscribed.** A household that lapsed from annual reports `null`,
+    #: so `plan` never appears beside `access: "free"`.
+    plan: SubscriptionPlan | None = None
+    #: Whether Apple is currently retrying a failing card.
+    #:
+    #: **This gates nothing whatsoever, and that is the point of it existing separately.** A
+    #: household in the grace period still reads `access: "subscribed"` and is still fully
+    #: entitled: Apple is retrying, the archive stays open, and `tier_effect` is unchanged by
+    #: phase 113. The field lets a client offer to fix a card; it must never be read as a
+    #: reason to withhold anything. See `docs/decisions-log.md`, Aug 22, 2026.
+    #:
+    #: **Not optional, deliberately.** `false` and absent are the same render — a household not
+    #: in grace and a server predating this field — so a tri-state would buy a third branch and
+    #: no information.
+    billing_retry: bool = False
+    #: Whether **the calling user** is the one paying. `true` | `false` | `null`.
+    #:
+    #: **`null` means unknown and must never be treated as `false`.** A client hides Apple's
+    #: subscription-management control on an explicit `false`, which is right — a non-payer
+    #: sent to that sheet finds this subscription is not in it. Doing the same on a null strips
+    #: the control from a parent who is paying. See `services.guardians.is_payer_for`.
+    #:
+    #: **Null is the common case, not the edge one.** `payer_user_id` is deliberately left
+    #: unwritten when a household has two guardians, because `appAccountToken` carries a family
+    #: id and Apple's notification never names a user — so this is unknown in exactly the
+    #: households where the question means anything. `docs/blocked.md` §20 carries what would
+    #: fix it.
+    #:
+    #: The raw `payer_user_id` is never sent: it is another member's UUID, and this question is
+    #: answerable about the caller without disclosing one.
+    is_payer: bool | None = None
     guardians: list[GuardianOut]
     #: Outstanding invites, so the client can show "waiting for them to accept" and offer to
     #: withdraw it. Accepted, revoked and expired invites are not listed — they are history,
@@ -84,6 +136,14 @@ class EntitlementOut(ApiModel):
     #: household's guardians. Both clocks move, so a client may display this and **must not
     #: cache it**. Null while `tier` is `subscribed`.
     eligible_at: dt.date | None = None
+    #: How often a subscribed household is billed. **The same value and the same derivation as
+    #: `FamilyOut.plan`** — one function, `services.membership.membership_signals`, two shapes.
+    #: See the note there for what `null` means; it is an answer rather than a gap.
+    plan: SubscriptionPlan | None = None
+    #: Whether Apple is currently retrying a failing card. **The same value as
+    #: `FamilyOut.billing_retry`, and it gates nothing here either.** A household in grace
+    #: reads `access: "subscribed"` on this route too and is fully entitled.
+    billing_retry: bool = False
     #: Where original media is stored. **A constant `hot` today**: D3's move to the Tigris
     #: Archive tier at 90 days lapsed is phase 38, `media` has no `storage_tier` column yet,
     #: and reporting the field now means the client that will show it does not need a second

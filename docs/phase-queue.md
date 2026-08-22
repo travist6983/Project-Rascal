@@ -37,7 +37,22 @@ on Aug 22, 2026, by 111 taking the number this sentence offered.** 110 is the de
 pass over 108: the approved Claude Design bundle, committed to the repository, and 108's tree
 audited against it.
 
-**The highest number used is 111. A genuinely new phase takes 112.** **111 is the blocked-list
+~~**The highest number used is 111. A genuinely new phase takes 112.**~~ — **struck a ninth time on
+Aug 22, 2026, and this strike is the first one taken by two phases at once.** 112 and 113 were
+allocated together, by two sessions running concurrently against one owner's instruction: **112 is
+the iOS Settings membership surface** (`ios/phase-112-settings-membership`) and **113 is the API
+lane's membership wire** (`api/phase-113-membership-wire`), which exists because 112's second
+tranche cannot be built without it. **The highest number used is 113. A genuinely new phase takes
+114.**
+
+**This is the first allocation in this file's history where the two lanes agreed the split by
+message before either wrote a line**, rather than discovering the collision afterwards — which is
+what 103 did, twice, and what the eight strikes above are mostly about. The API session wrote this
+header and the 113 row; the iOS session wrote the 112 row and touched neither this sentence nor
+that one. **Worth recording because the remedy is cheap and the failure it prevents is the one this
+header keeps having to describe.**
+
+**111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
 committed and `blocked.md` §10a item 1 closed, §14 struck as resolved by phase 86, the four resolved
 `##` sections at the top of `blocked.md` moved into *Resolved since the last review*, and the
@@ -667,6 +682,22 @@ reports; these are only the things somebody has to *do*.
   to be forgotten is not forgotten and no instrument in this project says so. It is the one
   hard-delete `CLAUDE.md` rule 5 carves out, an App Store commitment rather than a feature, and the
   long form is `blocked.md`.
+- **113 — the membership wire.** *New Aug 22, 2026, API lane, branch
+  `api/phase-113-membership-wire`, paired with 112 in the iOS lane.* Four additive optional fields
+  so the Settings surface can tell more than three household states apart: `lapsed_at`, `plan`,
+  `billing_retry` and `is_payer` on `FamilyOut`, with `plan` and `billing_retry` on `EntitlementOut`
+  too. **`access` keeps exactly three values** — a fourth would mean *entitled* on every client
+  predating it, under D9. **`billing_retry` gates nothing** and a household in grace stays fully
+  subscribed. **`is_payer` is `bool | null` and null never means false**; it is unknown in the
+  two-guardian case, which is the only case where the question means anything, and `blocked.md` §21
+  records why that cannot be fixed server-side and what the client half would need.
+- **A client change is the only way to know who is paying in a two-guardian household.** *New
+  Aug 22, 2026, iOS lane, not allocated.* `appAccountToken` carries a `family_id` by contract, so no
+  Apple notification can ever name a user. It needs a request field carrying the purchasing user id
+  plus a change to `SubscriptionStore.purchase(_:familyID:)`, whose argument is non-optional and
+  pinned by two tests — so it is a phase, not a drive-by, and it fixes nothing retroactively.
+  Nothing is broken while it waits: `is_payer: null` means *show the control*. Long form in
+  `blocked.md` §21.
 - **Owner: read the Resend dashboard and write down the recipient count for the four sends.** *New
   Aug 22, 2026.* One look, and it is the only place the number exists. Until it is written down,
   every document in this repository can say the broadcast sends and none of them can say to whom.

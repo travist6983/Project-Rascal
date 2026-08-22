@@ -2883,3 +2883,58 @@ inventory already says in terms that there is *"no `python -m rascal.jobs.delete
 page whose job is to be read for what is not done — so the one document an operator opens to ask
 *"what is outstanding"* was the one document that did not say it. Filed here now; the other two
 already have it and neither is this lane's to edit.
+
+---
+
+## §21 — `is_payer` is unknown in exactly the households where the question means something (Aug 22, 2026)
+
+**Blocked on a client change, not on a credential, a vendor or a decision.** Filed by phase 113,
+which shipped `is_payer` on `FamilyOut` and can answer it honestly for one-guardian households and
+not at all for two-guardian ones.
+
+**The shape of the gap.** `entitlements.payer_user_id` exists and reaches the wire as
+`is_payer: bool | null`, computed for the calling user by `services/guardians.is_payer_for`.
+`services/app_store_events._set_payer` writes the column **only when the household has exactly one
+guardian at the moment of purchase** — and that is correct rather than lazy. Apple's notification
+carries `appAccountToken`, the client obligation pins it to the purchasing user's **`family_id`**
+(`api-contract.md`, *The client obligation*), and a family id does not name a person. With one
+guardian there is only one candidate. With two there is no way to tell from anything Apple sends,
+and a wrong payer is worse than a null one: D3a's win-back writes to the payer, so a guess means
+emailing the wrong parent about the other one's cancelled card.
+
+**So the field is null in precisely the case it exists for.** A one-guardian household trivially
+has a payer and does not need to be told; a two-guardian household is the only one where "are you
+the one paying for this" is a real question, and that is the one the server cannot answer.
+
+**Two extensions were considered and both are unsound. Recording them so they are not re-proposed:**
+
+1. **Call `_set_payer` on `DID_RENEW` too, when the household now has one guardian.** Guardians A
+   and B; B purchases, so the column is correctly null; B later leaves; a year on `DID_RENEW`
+   arrives and this rule writes **A**, who has never paid for anything. `is_payer` then reads
+   `true` for A and the win-back emails A about B's card — the exact failure `_set_payer` exists to
+   prevent, arriving through a different door.
+2. **Restrict that to households that have only *ever* had one member.** **Not expressible in this
+   schema.** `guardians` is keyed `(user_id, child_id)` and has no `family_id`; household
+   membership is `users.family_id`, and a user who leaves simply has that column point elsewhere.
+   There is no membership history and no tombstone, so "has this family ever had a second member"
+   cannot be asked. The one-guardian inference is sound *only* at purchase time, which is exactly
+   where it is already applied.
+
+Also worth stating: a resubscribe does **not** arrive as `DID_RENEW` — Apple sends `SUBSCRIBED`
+with subtype `RESUBSCRIBE`, so that path already reaches `_set_payer` (`constants.py` says so on
+`PROMOTING_NOTIFICATIONS`). And the household `runbook-deploy.md` §7a wrote `subscribed` by hand
+can never be fixed by webhook code at all, because no notification exists for it.
+
+**The only real fix, and it is an iOS-lane phase with a contract change.** The client knows who is
+tapping Purchase; the server never will. It would need a request field carrying the purchasing
+**user** id — or an `appAccountToken` scheme that encodes a user rather than a household, which
+would break the existing attribution path and is the worse of the two. Either is a new field in
+`api-contract.md` plus a change to `SubscriptionStore.purchase(_:familyID:)`, whose `familyID`
+argument is currently non-optional and pinned by two tests. **It is not a drive-by**, it fixes
+nothing retroactively for purchases already made, and nobody has asked for it.
+
+**Nothing is broken while it stays null, and that is why this is filed rather than fixed.** Phase
+112 treats `null` as *don't know, show the control*, so a paying parent always reaches Apple's
+subscription-management sheet. The failure direction is deliberate and matches standing rule D9:
+**`is_payer` must never be `false` on a null.** Shipping `false` on a guess would hide the
+management control from somebody who is paying, which is the one outcome worse than saying nothing.

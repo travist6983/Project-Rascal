@@ -125,6 +125,42 @@ async def access_for_family(
     return access_for(await entitlement_for(session, family_id), now=now)
 
 
+def is_payer_for(entitlement: Entitlement, user_id: uuid.UUID) -> bool | None:
+    """Is *user_id* the one paying for this household? **`None` means nobody knows.**
+
+    Three values, and the third is the entire reason this is a function rather than a
+    comparison written at the call site.
+
+    * `True` — this caller is the recorded payer.
+    * `False` — somebody else in the household is, and we know who.
+    * `None` — `payer_user_id` is null, so **the question is unanswered**.
+
+    **`None` must never collapse to `False`, and the cost of getting it wrong is one-sided.**
+    A client hides Apple's subscription-management control on an explicit `False` — that is
+    correct, because sending a non-payer to a sheet that will not list this subscription is a
+    dead end. Doing the same on a null takes the control away from a parent who *is* paying
+    and leaves them no way to change their card, on the strength of a column nobody filled in.
+    Saying nothing is strictly better than a confident wrong answer here, so the null case
+    stays null all the way to the wire.
+
+    **Null is common rather than exceptional**, which is why this matters:
+    `services/app_store_events._set_payer` deliberately declines to write a payer when the
+    household has two guardians — `appAccountToken` carries a *family* id, so Apple's
+    notification never names a user, and a wrong payer means D3a's win-back emails the wrong
+    parent about the other one's cancelled card. Two guardians is exactly the case where "are
+    you the payer" is a meaningful question, so the field is unknown precisely where it would
+    be most useful. `docs/blocked.md` carries what it would take to fix that; it is a client
+    change, not a server one.
+
+    **The raw `payer_user_id` is never returned in its place.** It is another household
+    member's UUID, and "who pays" is answerable as a yes/no about the caller without putting a
+    second person's identifier in a response body.
+    """
+    if entitlement.payer_user_id is None:
+        return None
+    return entitlement.payer_user_id == user_id
+
+
 async def set_trial_ends_at(
     session: AsyncSession, family_id: uuid.UUID, trial_ends_at: dt.datetime | None
 ) -> Entitlement:

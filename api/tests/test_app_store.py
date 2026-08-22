@@ -955,6 +955,13 @@ async def test_the_entitlement_route_reports_the_computed_date(client, session):
         "access": "trial",
         "lapsed_at": "2026-05-01T00:00:00Z",
         "eligible_at": "2028-05-01",
+        # Phase 113's two additions to this shape. **Both are the not-subscribed answer**, and
+        # this household is `free` with a live trial, so neither has anything to report: a
+        # trial has no receipt behind it, and nobody's card is being retried. This assertion
+        # is a whole-body equality on purpose — it is what caught these fields being added,
+        # and it is the test that will catch the next one.
+        "plan": None,
+        "billing_retry": False,
         "media_storage_tier": "hot",
     }
 
