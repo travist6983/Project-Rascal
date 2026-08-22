@@ -32,6 +32,7 @@ from rascal.constants import DAILY_SLOTS, FREE_SLOTS, LOCKED_KIND_HINTS, SLOTS, 
 from rascal.models import Assignment, Entitlement, Prompt
 from rascal.services.dates import local_date
 from rascal.services.guardians import access_for, eligible_at
+from rascal.services.scheduler import _active_parents as active_parents
 from rascal.services.scheduler import (
     ensure_day_filled,
     locked_slots_for,
@@ -882,6 +883,68 @@ async def test_the_console_reports_access_beside_the_tier(
     assert row["access"] == "trial"
     assert row["tier"] == "free"
     assert row["trial_ends_at"] is not None
+
+
+async def test_a_guardian_with_no_entitlement_row_is_served_rather_than_dropped(
+    session: AsyncSession,
+) -> None:
+    """**Fails open, and the direction is the point.**
+
+    `create_household` writes an `entitlements` row with every family and nothing deletes them,
+    so a guardian whose household has none is a data anomaly rather than a state. The safe
+    response to an anomaly is to serve the parent — refusing on missing data is how a paying
+    family silently stops getting a board, and nothing would raise.
+    """
+    family = await make_family(session, trial_ends_at=_yesterday())
+    user = await make_user(session, family=family)
+    child = await make_child(session, parent=user)
+    await _pool(session)
+    # Remove the entitlement row entirely — the anomaly, arranged rather than imagined.
+    entitlement = await session.get(Entitlement, family.id)
+    await session.delete(entitlement)
+    await session.commit()
+
+    assert await active_parents(session, child.id) == {user.id: True}
+
+    await run_scheduler(session, as_of_date=SATURDAY, child_id=child.id, seed=6)
+    await session.commit()
+    assert {row.slot for row in await _rows(session, child.id, SATURDAY)} == set(
+        slots_for(SATURDAY)
+    ), "a household with no entitlement row lost its board instead of keeping it"
+
+
+async def test_who_is_a_parent_and_whether_they_are_entitled_is_one_query(
+    session: AsyncSession,
+) -> None:
+    """They were two, and two scans of `guardians` can disagree.
+
+    A guardian revoked between the two reads would be in one answer and not the other, and the
+    day would be filled for a parent the gate never evaluated. Asserted by counting the SELECTs
+    the function issues rather than by reading it.
+    """
+    family = await make_family(session, trial_ends_at=_yesterday())
+    user = await make_user(session, family=family)
+    child = await make_child(session, parent=user)
+    await session.commit()
+
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    sa.event.listen(session.bind.sync_engine, "before_cursor_execute", record)
+    try:
+        await _rows(session, child.id, SATURDAY)  # warm the connection, then measure
+        statements.clear()
+        result = await active_parents(session, child.id)
+    finally:
+        sa.event.remove(session.bind.sync_engine, "before_cursor_execute", record)
+
+    assert result == {user.id: False}
+    assert len(statements) == 1, (
+        f"resolving parents and their entitlement took {len(statements)} queries: {statements}"
+    )
 
 
 async def test_two_parents_in_one_free_household_both_get_only_the_question(

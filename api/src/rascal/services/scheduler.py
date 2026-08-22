@@ -195,18 +195,49 @@ async def _candidates(session: AsyncSession, spec: SlotSpec, child_id: uuid.UUID
     return list(rows.scalars().all())
 
 
-async def _active_parents(session: AsyncSession, child_id: uuid.UUID) -> list[uuid.UUID]:
-    """The guardians a daily slot is served to, oldest grant first.
+async def _active_parents(
+    session: AsyncSession, child_id: uuid.UUID, *, now: dt.datetime | None = None
+) -> dict[uuid.UUID, bool]:
+    """The guardians a daily slot is served to, oldest grant first, each mapped to whether
+    **their** household is entitled to more than the daily question.
 
     **`parent` only.** A `viewer` reads what is there and is never served a prompt of their
     own — phase 30 is iceboxed and this does not un-ice it, but the filter belongs here now
     rather than as a surprise later.
 
-    Ordering is deterministic so two concurrent runs take the unique index's locks in the
-    same order and one waits rather than deadlocking, exactly as slot order already does.
+    **Ordering is deterministic and load-bearing**, which is why this returns a dict rather
+    than a set: two concurrent runs must take the unique index's locks in the same order so
+    one waits rather than deadlocking, exactly as slot order already does. Python dicts keep
+    insertion order, so iterating the keys is the old `list` unchanged.
+
+    **Who is a parent and whether that parent is entitled are one query, not two.** They were
+    two when phase 107 first wrote the gate — one scan of `guardians` for the list and another
+    for the entitlement — on the hottest read in the app, and worse than the cost was that two
+    scans of the same table can disagree: a guardian revoked between them would be in one
+    answer and not the other, and the day would be filled for a parent the gate never
+    evaluated.
+
+    Entitlement is family-level per D4 and a child is reached through `guardians` rather than
+    through a family — there is no `children.family_id` and deliberately so — hence the join
+    out to the user's household. It is read through :func:`services.guardians.access_for` so
+    the formula is not restated here.
+
+    **Per parent rather than per child, because a daily slot is served per parent.** In every
+    ordinary household the two parents share one `entitlements` row and this map holds one
+    value twice. It differs only where a child is guarded from two households — reachable,
+    because accepting an invite moves a user's family without revoking the guardian rows they
+    already had — and there the right answer is that each parent's own household governs their
+    own board.
+
+    **A `LEFT JOIN`, so a missing entitlement row cannot drop a parent from the board.**
+    `create_household` writes one with every family and nothing deletes them, so `None` here is
+    a data anomaly rather than a state — and the safe response to an anomaly is to serve the
+    parent, not to silently stop scheduling for them. It is recorded as entitled and logged.
     """
     rows = await session.execute(
-        select(Guardian.user_id)
+        select(Guardian.user_id, Entitlement)
+        .join(User, User.id == Guardian.user_id)
+        .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
         .where(
             Guardian.child_id == child_id,
             Guardian.revoked_at.is_(None),
@@ -214,37 +245,17 @@ async def _active_parents(session: AsyncSession, child_id: uuid.UUID) -> list[uu
         )
         .order_by(Guardian.granted_at, Guardian.user_id)
     )
-    return list(rows.scalars().all())
-
-
-async def entitled_parents(
-    session: AsyncSession, child_id: uuid.UUID, *, now: dt.datetime | None = None
-) -> dict[uuid.UUID, bool]:
-    """Each active parent of this child, mapped to whether **their** household is entitled.
-
-    Entitlement is a family-level attribute per D4, and a child is reached through `guardians`
-    rather than through a family — there is no `children.family_id` and deliberately so. This
-    is the join that closes that gap: guardian → user → family → entitlement, one query, read
-    through :func:`services.guardians.access_for` so the formula is not restated here.
-
-    **Per parent rather than per child, because a daily slot is served per parent.** In every
-    ordinary household the two parents share one `entitlements` row and this map has one value
-    repeated. It differs only where a child is guarded from two households — reachable, because
-    accepting an invite moves a user's family without revoking the guardian rows they already
-    had — and there the right answer is that each parent's own household governs their own
-    board.
-    """
-    rows = await session.execute(
-        select(Guardian.user_id, Entitlement)
-        .join(User, User.id == Guardian.user_id)
-        .join(Entitlement, Entitlement.family_id == User.family_id)
-        .where(
-            Guardian.child_id == child_id,
-            Guardian.revoked_at.is_(None),
-            Guardian.role == "parent",
-        )
-    )
-    return {user_id: access_for(entitlement, now=now).entitled for user_id, entitlement in rows}
+    parents: dict[uuid.UUID, bool] = {}
+    for user_id, entitlement in rows:
+        if entitlement is None:
+            log.warning(
+                "guardian has no entitlement row",
+                extra={"child_id": str(child_id), "user_id": str(user_id)},
+            )
+            parents[user_id] = True
+            continue
+        parents[user_id] = access_for(entitlement, now=now).entitled
+    return parents
 
 
 def _serve(slot: Slot, user_id: uuid.UUID | None, entitled: dict[uuid.UUID, bool]) -> bool:
@@ -564,7 +575,7 @@ def _wanted_pairs(
     invisible to a single-guardian household.
 
     `entitled` maps each active parent to whether their household may be served more than the
-    daily question — see :func:`entitled_parents`. **`None` means "do not gate"**, which is what
+    daily question — see :func:`_active_parents`. **`None` means "do not gate"**, which is what
     a caller that has already decided (or a test exercising the calendar alone) wants; it is
     not a default anything in production takes.
     """
@@ -610,7 +621,7 @@ async def ensure_day_filled(
     """
     run = SchedulerRun(as_of=day)
     parents = await _active_parents(session, child.id)
-    wanted = _wanted_pairs(day, parents, await entitled_parents(session, child.id))
+    wanted = _wanted_pairs(day, list(parents), parents)
     present = await _filled_slots(session, child.id, day)
     missing = [pair for pair in wanted if pair not in present]
     run.skipped_existing = len(wanted) - len(missing)
@@ -679,14 +690,13 @@ async def run_scheduler(
         # tomorrow's mission at 9pm.
         day = as_of_date or local_date(instant, child.family_timezone)
         run.expired += await _expire_stale(session, child, day)
-        parents = await _active_parents(session, child.id)
+        parents = await _active_parents(session, child.id, now=instant)
         if not parents:
             # A child with no active parent gets no daily prompts, because there is nobody to
             # serve them to. Shared slots still fire — they belong to the child. Worth a line
             # in the log rather than silence: it is either a revoked guardian or a data bug.
             log.warning("child has no active parent", extra={"child_id": str(child.id)})
-        entitled = await entitled_parents(session, child.id, now=instant)
-        for slot, user_id in _wanted_pairs(day, parents, entitled):
+        for slot, user_id in _wanted_pairs(day, list(parents), parents):
             await _fill_slot(session, child, slot, day, rng, run, user_id)
 
     await session.flush()
