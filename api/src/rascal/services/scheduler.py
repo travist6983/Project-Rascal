@@ -412,10 +412,24 @@ def slots_for(day: dt.date) -> list[Slot]:
     plus both at the weekend.
 
     The weekly, monthly and letter slots fire **on top of them, unconditionally** — they are
-    not suppressed to keep the count down. So an ordinary weekday is two items, a Saturday is
-    four, the 15th is three or four, and **the worst day the calendar can produce is still
-    five**: a Saturday that is also the 1st or the 15th. The rotation lowered the floor without
-    moving that ceiling, which is why `docs/data-model.md`'s stated maximum did not change.
+    not suppressed to keep the count down. Every shape the calendar produces, enumerated rather
+    than described, because an earlier draft of this sentence got the 15th wrong:
+
+    ====================  =====
+    Day                   Items
+    ====================  =====
+    ordinary weekday          2
+    weekday, 1st or 15th      3
+    Sunday                    3
+    Sunday, 1st or 15th       4
+    Saturday                  4
+    Saturday, 1st or 15th     5
+    ====================  =====
+
+    So **the worst day the calendar can produce is still five** — a Saturday that is also the
+    1st or the 15th — and the floor dropped from three to two. The rotation lowered the floor
+    without moving the ceiling, which is why `docs/data-model.md`'s stated maximum did not
+    change. `test_entitlement_cadence.py` walks four years and asserts nothing beats five.
 
     The letter stays on the 15th rather than the 1st for the reason it was moved there: it
     keeps the money letter from losing a coin flip to a height measurement every month.

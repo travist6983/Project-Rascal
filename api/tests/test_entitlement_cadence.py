@@ -423,6 +423,44 @@ def test_every_day_of_the_year_carries_the_question_and_never_two_missions_on_a_
         assert len(daily) == expected, f"{on:%A} {on} produced {daily}"
 
 
+def test_every_shape_the_calendar_can_produce_is_one_of_exactly_six() -> None:
+    """The full enumeration, because prose about this drifted once already.
+
+    An earlier draft of `slots_for`'s docstring said *"the 15th is three or four"* — wrong for a
+    Saturday the 15th, which is five, in the same sentence that correctly named five as the
+    ceiling. A table in a docstring is a claim; this is the assertion behind it.
+
+    Swept over eight years so every weekday-by-date combination occurs, rather than over seven
+    hand-picked fixtures that could all miss the same case.
+    """
+    shapes: dict[tuple[str, str], set[int]] = {}
+    day = dt.date(2024, 1, 1)  # future-date: explicit, pure
+    for offset in range(366 * 8):
+        on = day + dt.timedelta(days=offset)
+        weekday = "Sat" if on.weekday() == 5 else "Sun" if on.weekday() == 6 else "weekday"
+        occasion = "1st" if on.day == 1 else "15th" if on.day == 15 else "plain"
+        shapes.setdefault((weekday, occasion), set()).add(len(slots_for(on)))
+
+    # Each combination produces exactly one length — no combination is sometimes-N-sometimes-M.
+    for key, lengths in shapes.items():
+        assert len(lengths) == 1, f"{key} produced {sorted(lengths)} different day lengths"
+
+    counts = {key: lengths.pop() for key, lengths in shapes.items()}
+    assert counts == {
+        ("weekday", "plain"): 2,
+        ("weekday", "1st"): 3,
+        ("weekday", "15th"): 3,
+        ("Sun", "plain"): 3,
+        ("Sun", "1st"): 4,
+        ("Sun", "15th"): 4,
+        ("Sat", "plain"): 4,
+        ("Sat", "1st"): 5,
+        ("Sat", "15th"): 5,
+    }
+    assert min(counts.values()) == 2, "the floor is an ordinary weekday"
+    assert max(counts.values()) == 5, "the ceiling is a Saturday that is also the 1st or 15th"
+
+
 async def test_the_weekday_is_read_in_the_childs_family_timezone(session: AsyncSession) -> None:
     """Requirement 7, and it is asserted through the scheduler's **real entry point**.
 
@@ -775,6 +813,104 @@ async def test_a_locked_slot_never_appears_in_waiting(
     # locks the day, not the archive, and the phase deliberately adds no cleanup for this.
     assert await session.get(Assignment, stale_mission.id) is not None
     assert await session.get(Assignment, stale_weekly.id) is not None
+
+
+async def _reopened_locked_mission(client: AsyncClient, session: AsyncSession, user, child):
+    """Drive the one route sequence that leaves a **pending** assignment with a **live entry**.
+
+    Dismiss a mission; answer it anyway (an entry against a non-pending assignment saves and
+    leaves the status alone, because the archive matters more than the bookkeeping); then
+    rewrite it with `POST /assignments/{id}/custom`, which makes a dismissed assignment live
+    again. Every step is a route a parent can reach.
+    """
+    import uuid as uuidlib
+
+    headers = auth_headers(user)
+    photo = await make_prompt(
+        session, kind="photo", cadence="daily", completion_mode="media", body="LIBRARY MISSION"
+    )
+    today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    mission = await make_assignment(
+        session, child, photo, slot="mission", assigned_on=today, user=user
+    )
+    await session.commit()
+
+    assert (
+        await client.post(f"/v1/assignments/{mission.id}/dismiss", headers=headers)
+    ).status_code == 200
+    entry = await client.post(
+        "/v1/entries",
+        headers={**headers, "Idempotency-Key": str(uuidlib.uuid4())},
+        json={
+            "id": str(uuidlib.uuid4()),
+            "child_id": str(child.id),
+            "assignment_id": str(mission.id),
+            "body": "He built a tower.",
+            "occurred_at": dt.datetime.now(tz=dt.UTC).isoformat().replace("+00:00", "Z"),
+        },
+    )
+    assert entry.status_code == 201, entry.text
+    rewritten = await client.post(
+        f"/v1/assignments/{mission.id}/custom", headers=headers, json={"body": "MY OWN WORDS"}
+    )
+    assert rewritten.status_code == 200, rewritten.text
+    # The state this helper exists to construct, asserted rather than assumed.
+    assert rewritten.json()["status"] == "pending"
+    return mission
+
+
+async def test_a_reopened_locked_mission_does_not_appear_in_today_and_locked_at_once(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**The same slot cannot be live and locked in one response.**
+
+    A row that is `pending` *and* has a live entry dated today reaches `assignments_for`
+    through the completed-today leg rather than the pending leg — and the pending leg is the
+    only one the entitlement gate narrows. Without `status == "done"` on the completed leg, a
+    free household got the locked slot in `today[]` **and** in `locked[]` simultaneously.
+
+    That is worse than an extra item. The iOS client keys a locked card's identity on `slot`,
+    so it would draw a live mission card and a locked mission card for the same slot on the
+    same board.
+
+    Nothing of the library leaks either way — a rewritten assignment serves its `custom_body`,
+    which is the parent's own words — so this is a contract defect rather than a disclosure.
+    """
+    user, child = await _household(session, trial_ends_at=_next_month())
+    mission = await _reopened_locked_mission(client, session, user, child)
+
+    entitlement = await session.get(Entitlement, user.family_id)
+    entitlement.trial_ends_at = _yesterday()
+    await session.commit()
+
+    body = (await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(user))).json()
+
+    assert body["access"] == "free"
+    live = _slots(body["today"]) | _slots(body["waiting"])
+    locked = {item["slot"] for item in body["locked"]}
+    assert not (live & locked), f"{sorted(live & locked)} is both offered and locked"
+    assert "mission" not in live
+    assert str(mission.id) not in {item["id"] for item in body["today"] + body["waiting"]}
+
+
+async def test_an_entitled_household_still_sees_a_reopened_mission(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The other direction, so the fix above cannot pass by hiding the row from everybody.
+
+    An entitled household reaches the identical row through the **pending** leg, which the
+    gate does not narrow, so rewriting a dismissed mission still puts it back on the board.
+    """
+    user, child = await _household(session, trial_ends_at=_next_month())
+    mission = await _reopened_locked_mission(client, session, user, child)
+
+    body = (await client.get(f"/v1/children/{child.id}/today", headers=auth_headers(user))).json()
+
+    assert body["access"] == "trial"
+    assert body["locked"] == []
+    offered = {item["id"]: item for item in body["today"]}
+    assert str(mission.id) in offered, "rewriting a dismissed mission must put it back"
+    assert offered[str(mission.id)]["body"] == "MY OWN WORDS"
 
 
 async def test_a_finished_mission_stays_on_the_board_after_a_lapse(

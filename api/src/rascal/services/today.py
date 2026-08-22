@@ -132,7 +132,26 @@ async def assignments_for(
                             Assignment.status == "pending",
                             Assignment.slot.in_(FREE_SLOTS),
                         ),
-                        Assignment.id.in_(completed_today) if completed_today else false(),
+                        # **`status == "done"` is part of this leg, not an accident.** The
+                        # leg exists to bring back work *finished* today; the loop below only
+                        # files a row under `done_today` if its status is `done`, so a row
+                        # arriving here in any other state falls through to the pending
+                        # branches and is filed as if it had come through the pending leg —
+                        # which, for a free household, is the leg that was just narrowed.
+                        #
+                        # That is reachable: dismiss a mission, answer it anyway (an entry
+                        # against a non-pending assignment saves and leaves the status alone),
+                        # then rewrite it with `POST /assignments/{id}/custom`, which makes a
+                        # dismissed assignment live again. The result is a **pending** row with
+                        # a **live entry dated today**, and without this clause a free
+                        # household got that locked slot in `today[]` *and* in `locked[]` — the
+                        # same slot, twice, contradicting itself in one response.
+                        and_(
+                            Assignment.status == "done",
+                            Assignment.id.in_(completed_today),
+                        )
+                        if completed_today
+                        else false(),
                     ),
                 )
                 .options(selectinload(Assignment.prompt))

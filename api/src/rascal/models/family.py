@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Index, Text
+from sqlalchemy import ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rascal.constants import GUARDIAN_ROLES, TIERS, TRIAL_DAYS, GuardianRole, Tier
@@ -61,10 +61,16 @@ class Entitlement(Base):
 
     `docs/runbook-deploy.md` §7a — a hand-run SQL statement — is the manual override, and the
     owner's own household is `subscribed` by one with no Apple transaction behind it. **There is
-    no admin route and there is deliberately not going to be one.** The device still never
-    decides whether a household is subscribed, for the same reason it never decides what day it
-    is: a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into
-    an entitlement.
+    no admin route that writes `tier`, and there is deliberately not going to be one.** The
+    device still never decides whether a household is subscribed, for the same reason it never
+    decides what day it is: a StoreKit transaction on the phone is a receipt, and the webhook is
+    what turns one into an entitlement.
+
+    **That sentence is about `tier` and only `tier`, which matters now that a neighbouring
+    column does have one.** Phase 107 added `PUT /v1/admin/families/{id}/trial`, which writes
+    `trial_ends_at` below. It reaches both the entitled and the free state without touching
+    `tier` — which is exactly why the trial is the lever rather than a tier switch, and why
+    adding one for `tier` is still forbidden rather than newly precedented.
 
     **`trial_ends_at` is the trial, and there is no `trial` tier.** Phase 107 made entitlement
     a computed thing — `tier` and `trial_ends_at` together, through
@@ -107,9 +113,7 @@ class Entitlement(Base):
     #:
     #: Nothing reads this column directly to decide entitlement. `services.guardians.access_for`
     #: is the only thing that turns it and `tier` into an answer.
-    trial_ends_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, default=_default_trial_ends_at
-    )
+    trial_ends_at: Mapped[optional_moment] = mapped_column(default=_default_trial_ends_at)
     updated_at: Mapped[updated]
 
     @property
