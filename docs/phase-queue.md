@@ -18,7 +18,7 @@ hours rather than a day.** 102 was taken within the hour by `api/phase-102-conso
 A genuinely new phase takes 104.**~~ — **struck a fifth time on Aug 21, 2026, and this strike is
 different from the four before it: the collision it warned about actually happened.**
 
-**The highest number used is 106. A genuinely new phase takes 107.** 104 is Instagram publishing,
+~~**The highest number used is 106. A genuinely new phase takes 107.**~~ — **struck a sixth time on Aug 21, 2026, and this strike is the first one written at allocation time rather than at ship time.** **107, 108 and 109 are all spent**: 107 is the entitlement gate and the weekday cadence (Lane A), 108 is the locked Today board and the membership sheet (Lane B), 109 is the marketing site's pricing page. **A genuinely new phase takes 110.** 104 is Instagram publishing,
 105 is the phase 104 review (open as PR #155), and 106 is the video renderer's provider switch —
 **built and green in the working tree on `main`, on no branch, uncommitted**, which is a state this
 header has never had to describe before and the reason its row went into `roadmap-status.md`
@@ -262,6 +262,8 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 ## The build queue
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
+
+- **107 — the trial, the entitlement gate, and the weekday cadence.** API lane. `entitlements.trial_ends_at` and a computed `access`; the free tier serves the daily question and locks the rest of the day, never the archive. Reverses D2, narrows D3. Paired with **108** (iOS: the locked board and the membership sheet) and **109** (the marketing site's pricing page). The long form is the 107 row in `roadmap-status.md`.
 
 - ~~**37b — StoreKit, the client half.**~~ — **shipped Aug 20, 2026, merged as PR #154; line
   struck per this file's rule that a queue line goes when it is done.** The long form is the 37b
