@@ -71,6 +71,7 @@ struct MembershipTests {
     /// `locked: []` is what the server sends a household that is entitled. It must produce no cards
     /// **and no empty-state view** — an empty section is furniture.
     @Test("an explicitly empty locked array renders no locked cards and no empty state")
+    @MainActor
     func emptyLockedArrayRendersNothing() throws {
         let json = Self.preEntitlementPayload
             .replacingOccurrences(of: "\"done_today\": []", with: """
@@ -181,6 +182,97 @@ struct MembershipTests {
         #expect(board.locked.isEmpty)
     }
 
+    // MARK: - Against the server's actual bytes
+
+    /// **The two payloads Lane A read off a live server**, not a fixture and not a mock — phase 107,
+    /// commit `f2ac83a`, the same child on the same day either side of dropping to free.
+    ///
+    /// Pinned here because every other decode test in this suite is written against JSON *this* lane
+    /// invented, and a client and a server can agree perfectly with each other's imagination.
+    @Test("the payloads phase 107 served from a live server decode as this client expects")
+    func liveServerPayloadsDecode() throws {
+        // In trial: a full board, and `locked` present-but-empty.
+        let inTrial = """
+            { "date": "2026-08-21", "access": "trial",
+              "trial_ends_at": "2026-09-05T02:47:30.847618Z",
+              "child": { "id": "\(Self.fixedChildID)", "name": "Milo", "age_months": 50 },
+              "today": [], "locked": [], "waiting": [], "done_today": [] }
+            """
+        let trial = try decode(inTrial)
+        #expect(trial.access == .trial)
+        #expect(trial.access.isEntitled)
+        #expect(trial.locked.isEmpty)
+        // A fractional-second UTC timestamp has to parse. It is read by nothing, but a decode
+        // failure here would take the whole board down rather than one field.
+        #expect(trial.trialEndsAt != nil, "the server's microsecond precision must decode")
+
+        // Free, same child, same day. Note `trial_ends_at` is a **past timestamp, not null** — the
+        // trial ended rather than being cleared.
+        let afterTrial = """
+            { "date": "2026-08-21", "access": "free",
+              "trial_ends_at": "2020-01-01T00:00:00Z",
+              "child": { "id": "\(Self.fixedChildID)", "name": "Milo", "age_months": 50 },
+              "today": [], "waiting": [], "done_today": [],
+              "locked": [ { "slot": "mission", "kind_hint": "photo" } ] }
+            """
+        let free = try decode(afterTrial)
+        #expect(free.access == .free)
+        #expect(free.access.isEntitled == false)
+        #expect(free.locked.count == 1)
+
+        // **The two `free` shapes must be indistinguishable to this client.** A past timestamp and a
+        // null one both mean "not in a trial"; the admin Clear button produces the second. Nothing
+        // in this app may branch on the difference.
+        let cleared = afterTrial.replacingOccurrences(
+            of: "\"trial_ends_at\": \"2020-01-01T00:00:00Z\"",
+            with: "\"trial_ends_at\": null"
+        )
+        let clearedResponse = try decode(cleared)
+        #expect(clearedResponse.trialEndsAt == nil)
+        #expect(clearedResponse.access == free.access)
+        #expect(
+            TodayBoard.merge(response: clearedResponse, entries: [], media: []).locked.count
+                == TodayBoard.merge(response: free, entries: [], media: []).locked.count,
+            "a cleared trial and an elapsed one must render identically"
+        )
+    }
+
+    /// The scheduler's real week, from Lane A's live route. **Four locked rows is the worst case**
+    /// and only happens on a Saturday that is also the 1st or the 15th; one row is the common case.
+    ///
+    /// This is a decode-and-render check across the whole range rather than a claim about the
+    /// scheduler, which is the server's business.
+    @Test("every locked shape the scheduler can serve renders a card")
+    func everyScheduledShapeRenders() throws {
+        let week: [[(String, String)]] = [
+            [("mission", "photo")],
+            [("mission_b", "mission")],
+            [("mission", "photo"), ("mission_b", "mission"), ("weekly", "weekly")],
+            [("mission", "photo"), ("mission_b", "mission"), ("weekly", "weekly"), ("monthly", "monthly")],
+            [("mission", "photo"), ("mission_b", "mission"), ("weekly", "weekly"), ("letter", "letter")],
+        ]
+
+        for day in week {
+            let locked = day
+                .map { "{ \"slot\": \"\($0.0)\", \"kind_hint\": \"\($0.1)\" }" }
+                .joined(separator: ",")
+            let json = Self.preEntitlementPayload
+                .replacingOccurrences(of: "\"done_today\": []", with: """
+                    "done_today": [], "access": "free", "locked": [\(locked)]
+                    """)
+
+            let board = TodayBoard.merge(response: try decode(json), entries: [], media: [])
+            #expect(board.locked.count == day.count)
+            for slot in board.locked {
+                // Every one has words and a glyph. A card that decoded but could not describe itself
+                // is the failure this asserts against.
+                #expect(MembershipCopy.lockedEyebrow(slot.slotKind).isEmpty == false)
+                #expect(MembershipCopy.lockedBody(slot.slotKind).isEmpty == false)
+                #expect(slot.kind.symbolName.isEmpty == false)
+            }
+        }
+    }
+
     // MARK: - The one-time notice
 
     /// **The case the obvious implementation gets wrong**, and the reason the rule is a transition
@@ -279,6 +371,7 @@ struct MembershipTests {
     /// *"Nothing waiting. Today's prompts arrive in the morning"* under four locked cards is a flat
     /// contradiction on one screen: the prompts **have** arrived.
     @Test("a locked board with nothing done gets no end-of-board card")
+    @MainActor
     func lockedBoardSuppressesNothingYet() {
         #expect(AllCaughtUpCard.Mode.forBoard(today: 0, waiting: 0, doneToday: 0, locked: 0) == .nothingYet)
         #expect(AllCaughtUpCard.Mode.forBoard(today: 0, waiting: 0, doneToday: 0, locked: 3) == nil)
@@ -288,6 +381,7 @@ struct MembershipTests {
     /// question has finished everything they were offered, and withholding the acknowledgement
     /// because they did not pay would be the meanest available reading.
     @Test("all caught up survives a locked board when something was actually done")
+    @MainActor
     func caughtUpSurvivesLocks() {
         #expect(
             AllCaughtUpCard.Mode.forBoard(today: 0, waiting: 0, doneToday: 1, locked: 3)

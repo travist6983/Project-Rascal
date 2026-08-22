@@ -120,7 +120,12 @@ struct PaywallSheet: View {
     private var addsBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(MembershipCopy.addsLabel)
-            VStack(alignment: .leading, spacing: 10) {
+            // **14, not 10, and it is a legibility fix rather than taste.** `body` carries 0.45×
+            // line spacing — about 7pt — so at 10 the gap *between* rows was barely larger than the
+            // gap *inside* one. At default type every row is a single line and it reads fine; at
+            // XXL, where the first and third rows wrap, the five items ran together as one
+            // paragraph. The design draws this list at default size only.
+            VStack(alignment: .leading, spacing: 14) {
                 ForEach(MembershipCopy.adds, id: \.self) { line in
                     Text(neutral(line))
                         .typeRole(.body)
@@ -144,7 +149,8 @@ struct PaywallSheet: View {
     private var freeBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(MembershipCopy.freeLabel)
-            VStack(alignment: .leading, spacing: 10) {
+            // Same reason as the adds list above.
+            VStack(alignment: .leading, spacing: 14) {
                 ForEach(MembershipCopy.stayFree, id: \.self) { line in
                     Text(neutral(line))
                         .typeRole(.body)
