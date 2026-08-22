@@ -51,7 +51,20 @@ struct TrialWelcomeScreen: View {
     }
 
     private var copy: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // Spacing 0 at this level so the inset below is exactly the inset, rather than the inset
+        // plus a stack gap.
+        VStack(alignment: .leading, spacing: 0) {
+            // The design's 72 from the top, scaled — at accessibility sizes a fixed inset is a
+            // large fraction of the screen given to nothing.
+            //
+            // **A child view rather than a `@ScaledMetric` on this struct**, and that is not
+            // cosmetic: `content` is read as a *property* by the screenshot harness, on an instance
+            // that was never installed in a hierarchy — so a metric stored here resolves to its
+            // default and every accessibility render would have been taken at the wrong inset. A
+            // metric inside a child is evaluated where the environment actually is.
+            TopInset()
+
+            VStack(alignment: .leading, spacing: 14) {
             Text(MembershipCopy.TrialWelcome.title)
                 .typeRole(.display)
                 .foregroundStyle(Color.ink)
@@ -61,12 +74,10 @@ struct TrialWelcomeScreen: View {
                 .typeRole(.body)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, margin)
-        // The design's 72 from the top, scaled — at accessibility sizes a fixed inset is a large
-        // fraction of the screen given to nothing.
-        .padding(.top, topInset)
     }
 
     private var action: some View {
@@ -77,8 +88,15 @@ struct TrialWelcomeScreen: View {
     /// 28 — the onboarding margin, wider than a board's 16. This screen is a step in that flow and
     /// takes its measurements.
     private let margin: CGFloat = 28
+}
 
-    @ScaledMetric(relativeTo: .largeTitle) private var topInset: CGFloat = 72
+/// The clear space above the title. See `TrialWelcomeScreen.copy` for why it is a view.
+private struct TopInset: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var height: CGFloat = 72
+
+    var body: some View {
+        Color.clear.frame(height: height)
+    }
 }
 
 #if DEBUG

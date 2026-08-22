@@ -759,6 +759,83 @@ struct MembershipTests {
         }
     }
 
+    /// **A load the deadline gave up on must not overwrite a newer one.**
+    ///
+    /// This is what `loadGeneration` is for, and nothing exercised it: the two timeout tests both
+    /// end with a single load in flight. Here the first load hangs past its deadline, a second runs
+    /// to completion and finds an offer, and only then does the first return.
+    @MainActor
+    @Test("a load abandoned at the deadline cannot overwrite a newer one")
+    func aStaleLoadCannotOverwriteANewerOne() async {
+        let store = HangThenAnswerStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let first = Task { await model.load() }
+        for _ in 0..<400 {
+            if case .unavailable(.products) = model.phase { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        // The second load answers, and its answer is the current one.
+        await model.load()
+        guard case .ready = model.phase else {
+            Issue.record("the second load should have found an offer")
+            return
+        }
+
+        // Now let the abandoned first load finish. It reports *no* offer, and if it were allowed to
+        // speak it would replace a working paywall with `.unavailable`.
+        await store.release()
+        await first.value
+
+        guard case .ready = model.phase else {
+            Issue.record("a stale load overwrote the newer answer")
+            return
+        }
+    }
+
+    /// **`.products` must not re-run a full load on every foreground.**
+    ///
+    /// It is the ordinary state — no subscription product exists in App Store Connect — so the old
+    /// `if case .unavailable` would have re-run `Product.products(for:)` every time the app came
+    /// forward, forever, for an answer that cannot change until somebody creates a product.
+    /// `.household` is a genuine transient failure and does retry.
+    @MainActor
+    @Test("a foreground re-reads the household but does not re-run a settled product load")
+    func foregroundRetriesOnlyTheHouseholdFailure() async {
+        let store = HangThenAnswerStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let first = Task { await model.load() }
+        for _ in 0..<400 {
+            if case .unavailable(.products) = model.phase { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        await store.release()
+        await first.value
+
+        let before = await store.attempts
+        await model.refreshHousehold()
+        #expect(
+            await store.attempts == before,
+            "a foreground re-ran the product fetch for an answer that cannot have changed"
+        )
+    }
+
     // MARK: - The end of the board
 
     /// *"Nothing waiting. Today's prompts arrive in the morning"* under four locked cards is a flat
@@ -941,6 +1018,37 @@ private actor HangingStore: SubscriptionPurchasing {
     }
 
     /// Let every hung call finish, once the test has asserted what it needs to.
+    func release() {
+        for continuation in waiting { continuation.resume() }
+        waiting.removeAll()
+    }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        .cancelled
+    }
+
+    func restore() async throws {}
+}
+
+/// Hangs the **first** call until released, then answers every later one.
+///
+/// The shape the generation guard exists for: an abandoned load still in flight while a newer one
+/// completes. A store that only ever hangs cannot produce it, and one that always answers cannot
+/// either.
+private actor HangThenAnswerStore: SubscriptionPurchasing {
+    private(set) var attempts = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func loadOffer() async throws -> SubscriptionOffer {
+        attempts += 1
+        if attempts == 1 {
+            await withCheckedContinuation { waiting.append($0) }
+            // The abandoned load reports no offer, which is what would overwrite a working paywall.
+            throw SubscriptionStoreError.productsUnavailable
+        }
+        return .preview
+    }
+
     func release() {
         for continuation in waiting { continuation.resume() }
         waiting.removeAll()
