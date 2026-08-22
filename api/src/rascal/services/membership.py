@@ -121,6 +121,20 @@ async def membership_signals(
         # subscription, so this clears itself: a successful retry arrives as `DID_RENEW` and a
         # failed one as `GRACE_PERIOD_EXPIRED`, and either overwrites both columns read here.
         # Nothing has to remember to turn it off.
+        #
+        # **It is "the last thing Apple said was a grace notification", not "is in grace", and
+        # those differ.** Any notification for this subscription overwrites these two columns,
+        # including ones that change no tier — `DID_CHANGE_RENEWAL_STATUS` (auto-renew off) and
+        # `DID_CHANGE_RENEWAL_PREF` (a plan change) both do — so a household that turns off
+        # auto-renew *during* a retry reads `false` while Apple is still retrying.
+        #
+        # **Left as-is rather than made exact, and the direction is why.** The error is always
+        # under-reporting: this can say "not retrying" when it is, and can never say "retrying"
+        # when it is not. A missed offer to fix a card costs a household nothing — entitlement
+        # is untouched either way, and phase 112 renders nothing for this field — whereas a
+        # false alarm tells a healthy subscriber their payment is failing. Being exact needs
+        # `renewalInfo.gracePeriodExpiresDate`, which `VerifiedNotification` does not parse;
+        # that is the `grace_until` variant, and it is a phase rather than a line.
         billing_retry=(
             notification_type == BILLING_RETRY_NOTIFICATION and subtype == BILLING_RETRY_SUBTYPE
         ),

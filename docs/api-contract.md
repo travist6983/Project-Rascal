@@ -696,6 +696,17 @@ stays open. That was already true before this field existed — `DID_FAIL_TO_REN
 fix a card*, never so it can withhold anything. `GRACE_PERIOD_EXPIRED` is the separate
 notification that actually demotes.
 
+**`billing_retry` under-reports, deliberately, and never over-reports.** It is derived from *the
+last notification Apple sent about this subscription*, so any later notification clears it —
+including ones that change no tier, such as `DID_CHANGE_RENEWAL_STATUS` (auto-renew off) and
+`DID_CHANGE_RENEWAL_PREF` (a plan change). A household that turns auto-renew off during a retry
+reads `false` while Apple is still retrying. **The direction is the point:** a missed offer to fix
+a card costs nothing, since entitlement is untouched either way, whereas telling a healthy
+subscriber their payment is failing is a false alarm. Being exact needs
+`renewalInfo.gracePeriodExpiresDate`, which the webhook does not currently parse — that is the
+`grace_until` variant of this field and it is a phase, not a line. A test pins the current
+behaviour so it cannot drift into over-reporting unnoticed.
+
 **`is_payer` is computed for the calling user and has three values, and the third is the point.**
 `true` and `false` mean what they say; **`null` means nobody knows**. A client hides Apple's
 subscription-management control on an explicit `false` — correct, because a non-payer sent to

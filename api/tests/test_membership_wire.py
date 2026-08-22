@@ -545,3 +545,57 @@ async def test_the_new_fields_are_additive_and_change_nothing_that_was_there(cli
         "billing_retry",
         "is_payer",
     }
+
+
+async def test_billing_retry_is_the_last_word_apple_said_and_under_reports_by_design(
+    app_store_client, client, session, app_store_chain
+):
+    """**A known imprecision, pinned so it stays in the safe direction.**
+
+    `billing_retry` reads *the last notification for this subscription*, and any notification
+    overwrites it — including ones that change no tier. A household that turns auto-renew off
+    while Apple is still retrying its card reads `false`.
+
+    **The error is always under-reporting and never over-reporting**, which is the whole reason
+    this is acceptable: a missed offer to fix a card costs nothing (entitlement is untouched and
+    nothing renders the field yet), whereas telling a healthy subscriber their payment is failing
+    is a false alarm. **If this test ever flips to asserting `True`, check what made it exact** —
+    being exact needs `renewalInfo.gracePeriodExpiresDate`, which is a separate phase.
+    """
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+    )
+    await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="DID_FAIL_TO_RENEW",
+        subtype="GRACE_PERIOD",
+        signed_date=LATER,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+    )
+    assert (await _me(client, user))["billing_retry"] is True
+
+    # Auto-renew off. Changes no tier — and must not, the household is paid up to `expires_date`.
+    await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="DID_CHANGE_RENEWAL_STATUS",
+        subtype="AUTO_RENEW_DISABLED",
+        signed_date=LATER + dt.timedelta(days=1),
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+    )
+
+    body = await _me(client, user)
+    assert body["billing_retry"] is False, "under-reports, and that is the documented direction"
+    # The part that actually matters, and it is unchanged: they are still fully entitled.
+    assert body["access"] == "subscribed"
+    assert body["plan"] == "annual"
