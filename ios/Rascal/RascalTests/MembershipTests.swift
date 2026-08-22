@@ -61,7 +61,6 @@ struct MembershipTests {
 
         // The load-bearing line: not-known means entitled.
         #expect(response.access.isEntitled)
-        #expect(response.access.wasReported == false)
 
         let board = TodayBoard.merge(response: response, entries: [], media: [])
         #expect(board.today.count == 1)
@@ -180,6 +179,28 @@ struct MembershipTests {
 
         let board = TodayBoard.merge(response: response, entries: [], media: [])
         #expect(board.locked.isEmpty)
+    }
+
+    /// **A slot the server listed twice must draw one card, not two.**
+    ///
+    /// `ForEach` keys these on `slot`, and duplicate ids in a `List` are undefined behaviour rather
+    /// than merely a duplicated row. `TodayBoard.merge` already de-duplicates `done_today` on the
+    /// same reasoning, and its comment says why: *"a card appearing twice is the most visible
+    /// possible bug and costs one line to rule out."*
+    @Test("a slot the server repeated draws one card")
+    func duplicateLockedSlotsAreCollapsed() throws {
+        let json = Self.preEntitlementPayload
+            .replacingOccurrences(of: "\"done_today\": []", with: """
+                "done_today": [], "access": "free",
+                "locked": [
+                  { "slot": "mission", "kind_hint": "photo" },
+                  { "slot": "mission", "kind_hint": "photo" },
+                  { "slot": "weekly", "kind_hint": "weekly" }
+                ]
+                """)
+
+        let board = TodayBoard.merge(response: try decode(json), entries: [], media: [])
+        #expect(board.locked.map(\.slot) == ["mission", "weekly"])
     }
 
     // MARK: - Against the server's actual bytes
@@ -394,15 +415,142 @@ struct MembershipTests {
     }
 
     @Test("a record that cannot be decoded reads as a fresh one rather than as already-shown")
-    func corruptRecordFailsTowardsShowing() {
-        let defaults = try! #require(UserDefaults(suiteName: "membership.tests.\(UUID().uuidString)"))
-        defaults.set(Data("not json".utf8), forKey: "membership.presentation")
-        let store = UserDefaultsMembershipPresentationStore(defaults: defaults, key: "membership.presentation")
+    func corruptRecordFailsTowardsShowing() throws {
+        // **A named suite that is removed afterwards.** The first version minted a fresh
+        // `UUID`-named suite on every run and never cleaned it up, so each pass left a plist behind
+        // in the simulator; and it used `try!` on the initialiser, which traps the whole test
+        // process rather than failing one test if the suite cannot be opened.
+        let name = "membership.presentation.tests"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let key = "membership.presentation"
+        defaults.set(Data("not json".utf8), forKey: key)
+        let store = UserDefaultsMembershipPresentationStore(defaults: defaults, key: key)
 
         let record = store.load()
         #expect(record.trialWelcomeShown == false)
+        #expect(record.trialWelcomeOwed == false)
         #expect(record.postTrialNoticeShown == false)
         #expect(record.lastObservedAccess == nil)
+    }
+
+    /// **The banned-word guard covers `MembershipCopy`. This covers everywhere else.**
+    ///
+    /// The sheet still renders strings authored at the call site — `"Loading the options"`,
+    /// `"Restore a purchase"`, the purchase-outcome sentences — which phase 37b wrote and this phase
+    /// did not move. None of them contains a banned word today, and nothing would notice if a later
+    /// edit introduced one.
+    ///
+    /// A source scan rather than a runtime check, which is the idiom this suite already uses for
+    /// `noCurrencyLiterals`: it sees strings no test path renders, and it sees them in files nobody
+    /// thought to add to a list.
+    @Test("no banned word appears in any string literal in the surfaces this phase ships")
+    func noBannedWordInAnySurfaceSource() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Rascal")
+
+        let files = [
+            "Subscription/PaywallSheet.swift",
+            "Subscription/SubscriptionSection.swift",
+            "Today/LockedPromptCard.swift",
+            "Today/TodayBoardView.swift",
+            "Onboarding/TrialWelcomeScreen.swift",
+            "DesignSystem/Notice.swift",
+        ].map { root.appendingPathComponent($0) }
+
+        for file in files {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            #expect(!source.isEmpty, "\(file.lastPathComponent) moved and this test stopped looking")
+
+            for (index, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                // Comments are where these words are allowed to be discussed, and this phase
+                // discusses them at length.
+                if code.hasPrefix("//") || code.hasPrefix("///") || code.hasPrefix("*") { continue }
+
+                for match in code.matches(of: /"([^"]*)"/) {
+                    let literal = String(match.output.1)
+                    for banned in MembershipCopy.bannedPhrases
+                    where MembershipCopy.contains(banned, in: literal) {
+                        let where_ = "\(file.lastPathComponent):\(index + 1)"
+                        Issue.record("banned phrase \"\(banned)\" in \"\(literal)\" at \(where_)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The population the local flag alone could not exclude: a subscriber signing in on a new
+    /// phone.**
+    ///
+    /// `trialWelcomeOwed` is set by every successful sign-in, which correctly excludes an existing
+    /// install resuming a session and — through `declineTrialWelcome()` — an invited guardian. It
+    /// cannot exclude a household that is already paying, because the client does not know the tier
+    /// at sign-in. Telling that parent *"Two weeks, everything open. No card, nothing to cancel."*
+    /// is a false statement about money on their first screen.
+    ///
+    /// Driven through the real `OnboardingSession` against a scripted network, because the defect is
+    /// in the **wiring** — which method asks the server, and what it does with the answer — and a
+    /// test of the pure rules is structurally blind to that.
+    @MainActor
+    @Test("a subscribed household signing in on a new device is not welcomed to a trial")
+    func aSubscriberIsNotWelcomedToATrial() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "subscribed").utf8), 200) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false, "a paying household must not be shown a trial")
+        #expect(
+            store.load().trialWelcomeShown,
+            "one confirmed answer settles it — a subscriber should not be asked again later either"
+        )
+    }
+
+    /// The other half, so the guard above cannot be satisfied by never showing the screen at all.
+    @MainActor
+    @Test("a free household signing in is still owed the two weeks")
+    func aFreeHouseholdIsStillWelcomed() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "free").utf8), 200) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome())
+        #expect(store.load().trialWelcomeShown == false, "asking is not showing")
+    }
+
+    /// **Fails closed, and does not spend the flag.** A household we could not ask about is not
+    /// shown the screen — but the next launch tries again rather than either lying to a subscriber
+    /// or swallowing the welcome for good.
+    @MainActor
+    @Test("a household the server cannot confirm is not welcomed, and is asked again later")
+    func anUnreachableHouseholdIsNotWelcomedYet() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data("{}".utf8), 500) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeOwed, "the flag must survive so the next launch retries")
+        #expect(store.load().trialWelcomeShown == false)
+    }
+
+    /// A `/families/me` body good enough for `FamilySummary`.
+    private static func familyJSON(tier: String) -> String {
+        """
+        { "family_id": "33333333-3333-3333-3333-333333333333", "tier": "\(tier)",
+          "guardians": [], "pending_invites": [] }
+        """
     }
 
     // MARK: - The notice, driven through the model that actually decides it
@@ -644,53 +792,42 @@ struct MembershipTests {
     /// is what keeps `LockedPromptCard` and `LockedSlot` legitimate names.
     @Test("no banned word reaches a parent")
     func noBannedWordShipsInUserVisibleCopy() {
-        // **Both lists come from the shipped constants**, so neither can drift from what the app
-        // actually says or from what the copy file actually bans. The previous version of this test
-        // duplicated the phrases inline and enforced 8 of the 11 — a guard that agreed with itself.
+        // **Both lists and the matcher are the shipped ones**, so none of the three can drift from
+        // what the app says, what the copy file bans, or how the ban is meant to be read.
         #expect(MembershipCopy.bannedPhrases.count == 11, "the copy file's §4 lists eleven")
         #expect(MembershipCopy.allUserVisibleStrings.count > 30, "the string list stopped collecting")
 
         for string in MembershipCopy.allUserVisibleStrings {
-            let lowered = string.lowercased()
             for banned in MembershipCopy.bannedPhrases {
-                // `Pro` is a whole word, not a fragment: "Pro" must not match "**pro**mpt", and
-                // "Only X left" is a shape rather than a literal, so it is matched on "only".
-                let needle = banned.lowercased()
-                let hit: Bool
-                switch needle {
-                case "pro":
-                    hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
-                case "only x left":
-                    hit = lowered.contains("only") && lowered.contains("left")
-                default:
-                    hit = lowered.contains(needle)
-                }
-                #expect(!hit, "\"\(string)\" contains the banned phrase \"\(banned)\"")
+                #expect(
+                    !MembershipCopy.contains(banned, in: string),
+                    "\"\(string)\" contains the banned phrase \"\(banned)\""
+                )
             }
         }
     }
 
-    /// **The guard above only means something if it can fail.** A banned phrase planted in a real
-    /// shipped string must be caught, which is what proves the two lists are actually connected —
-    /// the previous version would have passed with `Only X left`, `Your archive will be` and `Pro`
-    /// absent from its inline copy.
-    @Test("the banned-word guard actually catches a planted phrase")
+    /// **The guard above only means something if it can fail**, and this proves it against the
+    /// *production* matcher rather than a copy of it. An earlier version of this test carried its
+    /// own `switch` and therefore proved only that the test file worked.
+    @Test("the banned-word guard catches a phrase planted in a real string")
     func theBannedWordGuardCanFail() {
         for banned in MembershipCopy.bannedPhrases {
             let planted = "Become a member and \(banned) today"
-            let lowered = planted.lowercased()
-            let needle = banned.lowercased()
-            let hit: Bool
-            switch needle {
-            case "pro":
-                hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
-            case "only x left":
-                hit = lowered.contains("only") && lowered.contains("left")
-            default:
-                hit = lowered.contains(needle)
-            }
-            #expect(hit, "the guard would not have caught \"\(banned)\"")
+            #expect(
+                MembershipCopy.contains(banned, in: planted),
+                "the guard would not have caught \"\(banned)\""
+            )
         }
+    }
+
+    /// And that it does **not** fire on the near-misses the rule deliberately allows — a matcher
+    /// that flags everything is as useless as one that flags nothing.
+    @Test("the banned-word guard does not fire on words that merely contain a banned one")
+    func theBannedWordGuardIsNotOverEager() {
+        #expect(MembershipCopy.contains("Pro", in: "Today's photo mission prompt") == false)
+        #expect(MembershipCopy.contains("Only X left", in: "The only thing left is the question"))
+        #expect(MembershipCopy.contains("Only X left", in: "Only the daily question is free") == false)
     }
 
     /// **Every locked string renders for a real child**, which is what the pronoun decision is for.

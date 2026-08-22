@@ -134,10 +134,6 @@ nonisolated enum Access: Decodable, Equatable, Sendable {
         }
     }
 
-    /// Whether the server actually told us. `.notReported` is not an observation and must never be
-    /// recorded as one — see `MembershipPresentation.shouldShowPostTrialNotice`.
-    var wasReported: Bool { self != .notReported }
-
     /// The wire value, when there was one, for persisting what this device last actually saw.
     ///
     /// **Nil for `.notReported` on purpose**, so that "the server did not say" cannot be written

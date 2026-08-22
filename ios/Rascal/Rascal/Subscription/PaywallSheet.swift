@@ -296,11 +296,16 @@ struct PaywallSheet: View {
                     Button("Done", action: onDismiss)
                         .buttonStyle(PrimaryButtonStyle())
                 } else if canOffer {
+                    // **No `.disabled` here, and its absence is deliberate.** In this branch
+                    // `canBuy` is true by construction — it requires `.ready` (which `canOffer`
+                    // just checked), a household that is not already subscribed (the `if` above),
+                    // and a `purchase` of `.idle` or `.failed` (the outer `if`). A modifier that
+                    // can never fire reads as though the button can grey out, which is the one
+                    // state this sheet must never show.
                     Button(MembershipCopy.primaryAction) {
                         Task { await model.buy() }
                     }
                     .buttonStyle(PrimaryButtonStyle())
-                    .disabled(!model.canBuy)
                 }
 
                 OnboardingSecondaryButton(title: MembershipCopy.notNow, action: onDismiss)
@@ -356,10 +361,19 @@ struct PaywallSheet: View {
         case .purchasing, .confirming:
             EmptyView()
         case .failed:
-            Button(MembershipCopy.primaryAction) { Task { await model.buy() } }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(!model.canBuy)
+            // **Offer a retry only when there is still something to buy.**
+            //
+            // A purchase can fail while `.ready` and then a background `refreshHousehold()` can
+            // resolve the phase to `.unavailable` — one dropped request is enough. Rendering the
+            // primary regardless left a **disabled** "Become a member" on screen, which is exactly
+            // the shape the brief forbids: *a disabled button is a thing to keep tapping.* Absent,
+            // not greyed, for the same reason the products-unavailable state hides it.
+            if canOffer {
+                Button(MembershipCopy.primaryAction) { Task { await model.buy() } }
+                    .buttonStyle(PrimaryButtonStyle())
+            }
             OnboardingSecondaryButton(title: MembershipCopy.notNow, action: onDismiss)
+                .accessibilityHint(MembershipCopy.notNowHint)
         case .idle, .subscribed, .late, .awaitingApproval:
             Button("Done", action: onDismiss)
                 .buttonStyle(PrimaryButtonStyle())

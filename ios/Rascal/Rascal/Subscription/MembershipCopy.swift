@@ -90,14 +90,16 @@ nonisolated enum MembershipCopy {
     static func lockedAccessibilityLabel(_ slot: Slot, subject: PromptSubject) -> String {
         let eyebrow = PromptTokens.render(lockedEyebrow(slot), for: subject)
         let body = PromptTokens.render(lockedBody(slot), for: subject)
-        return "\(eyebrow). \(body). \(lockedFooter)."
+        // **No punctuation added after `body`.** Every body string already ends in a full stop, so
+        // appending one produced "…and the reason you took it.. Included with membership." — a
+        // doubled stop, which VoiceOver reads as a longer pause and a proofreader reads as a typo.
+        return "\(eyebrow). \(body) \(lockedFooter)."
     }
 
     /// The hint on a locked card. Here rather than at the call site, because it is a string a
     /// parent hears and every one of those lives in this file.
     static let lockedHint = "Opens membership"
 
-    // MARK: - 2 · The membership sheet (continued)
 
     // MARK: - 2 · The membership sheet
 
@@ -183,6 +185,27 @@ nonisolated enum MembershipCopy {
         "Free trial ending", "Don't lose", "You've missed",
         "Limited time", "Only X left", "Your archive will be", "Members only",
     ]
+
+    /// Whether `string` contains `phrase`, by the rule the ban actually means.
+    ///
+    /// **Here rather than in the test, and that is the point.** The test previously carried its own
+    /// copy of this matching logic *and* a break-test that planted phrases into strings — so the
+    /// break-test proved the **test's** copy could match, not that the guard could. Two copies of a
+    /// rule is one rule and one decoration.
+    ///
+    /// `Pro` is matched as a whole word so it does not fire on "**pro**mpt"; `Only X left` is a
+    /// shape rather than a literal.
+    static func contains(_ phrase: String, in string: String) -> Bool {
+        let haystack = string.lowercased()
+        switch phrase.lowercased() {
+        case "pro":
+            return haystack.split(whereSeparator: { !$0.isLetter }).contains("pro")
+        case "only x left":
+            return haystack.contains("only") && haystack.contains("left")
+        default:
+            return haystack.contains(phrase.lowercased())
+        }
+    }
 
     /// **Every string this phase can put in front of a parent**, so the guard has something to run
     /// against rather than a list a test happens to duplicate.

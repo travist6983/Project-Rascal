@@ -172,11 +172,21 @@ struct LockedPromptCard: View {
 
     // MARK: Presentation
 
-    /// Colour carries meaning, and the same meaning as everywhere else: terracotta is missions,
-    /// photo and video and the bigger slots; periwinkle is questions and voice.
+    /// Colour carries meaning: terracotta is missions, photo and video and the bigger slots;
+    /// periwinkle is questions and voice.
     ///
-    /// A letter is periwinkle — it is written, not done — which is the tint `AssignmentResponse`
-    /// gives a `letter` prompt, whose completion mode is `text`.
+    /// **⚠️ A locked `letter` is periwinkle and a live one is terracotta. That is a known
+    /// disagreement, recorded rather than a claim that they match.** This phase's brief specifies
+    /// the tints outright — *"`photo` → terracotta, `mission` → terracotta, `weekly`/`monthly` →
+    /// terracotta, `letter` → periwinkle"* — while `AssignmentResponse.tint` resolves a live letter
+    /// to **terracotta**, because its rule is `isQuestion || kind == .question || kind == .audio`
+    /// and a letter is none of the three. No artboard draws a locked letter, so the design does not
+    /// settle it either.
+    ///
+    /// The brief wins, per this phase's own gate on a prompt disagreeing with the code — but it is
+    /// in the PR rather than smoothed over, because two cards for one slot in two colours is what
+    /// *"colour carries meaning"* exists to prevent. **One line here changes it** if the owner would
+    /// rather they agree.
     ///
     /// **An unrecognised hint gets no tint rather than a guessed one**, the contract
     /// `AssignmentResponse.isRecognised` states for a value from a future server release.

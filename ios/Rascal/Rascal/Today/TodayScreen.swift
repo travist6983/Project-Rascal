@@ -128,6 +128,14 @@ final class TodayModel {
     /// The order matters too — read the record, then update it. Observing first would overwrite the
     /// `trial` this is looking for with the `free` that arrived, and the notice would never fire.
     private func observe(_ access: Access) {
+        // **A notice about the free tier does not survive becoming entitled.**
+        //
+        // Its own action opens the sheet, so a parent can go from reading *"Your two weeks are up"*
+        // to being a member without the board ever reloading underneath it — and the sheet's
+        // dismissal refetches, which lands here. Leaving it up would have the app advertising
+        // membership to somebody who just bought it.
+        if access.isEntitled { membershipNotice = nil }
+
         var record = presentation.load()
 
         if MembershipPresentation.shouldShowPostTrialNotice(record: record, access: access) {
@@ -312,12 +320,6 @@ struct TodayScreen: View {
                     PaywallSheet(model: subscription) { showingMembership = false }
                 }
             }
-            // **A locked card cannot open a sheet that does not exist yet.** `subscription` is nil
-            // only for the first frame while `RootView` builds it; without this the sheet would
-            // present empty and the parent would have to dismiss a blank one.
-            .onChange(of: subscription == nil) { _, isMissing in
-                if isMissing { showingMembership = false }
-            }
     }
 
     @ViewBuilder
@@ -367,7 +369,18 @@ struct TodayScreen: View {
                 onUndoSkip: { model.undoSkip() },
                 onDismissNotice: { model.notice = nil },
                 membershipNotice: model.membershipNotice,
-                onOpenMembership: { showingMembership = true },
+                // **Guarded at the point of opening, not after.**
+                //
+                // `subscription` is built in `RootView`'s `.task` and is nil for the first frame.
+                // The `if let` inside the sheet's content is a second belt, but on its own it would
+                // present an **empty sheet** the parent has to dismiss. Refusing to open is the
+                // better failure for a window this short: the card simply does nothing until the
+                // model lands, which is a fraction of a second and indistinguishable from a slow
+                // tap.
+                //
+                // This replaced an `.onChange(of: subscription == nil)` that could not fire —
+                // `subscription` only ever goes nil → non-nil, never back.
+                onOpenMembership: { if subscription != nil { showingMembership = true } },
                 onDismissMembershipNotice: { model.dismissMembershipNotice() },
                 onSwitchChild: onSwitchChild,
                 // Debug builds only. The `/debug/*` route behind it is registered only when the

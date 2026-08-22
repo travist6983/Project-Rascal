@@ -360,9 +360,35 @@ final class OnboardingSession {
         membership.save(MembershipPresentation.decliningWelcome(in: membership.load()))
     }
 
-    /// Whether the gate owes the two-weeks screen right now.
-    var owesTrialWelcome: Bool {
-        MembershipPresentation.shouldShowTrialWelcome(record: membership.load())
+    /// Whether the gate owes the two-weeks screen, **confirmed against the server before it is
+    /// shown.**
+    ///
+    /// A local flag is not enough, and the gap it leaves is the worst copy this phase can produce.
+    /// `trialWelcomeOwed` is set by any successful sign-in — which correctly excludes an existing
+    /// install resuming a session, and, via `declineTrialWelcome()`, an invited guardian. **It does
+    /// not exclude a household that is already subscribed signing in on a new phone**, and telling
+    /// somebody who is paying *"Two weeks, everything open. No card, nothing to cancel."* is a false
+    /// statement about money on their first screen.
+    ///
+    /// The client cannot know the tier at sign-in, so this asks: one `GET /v1/families/me`, in the
+    /// gap between a sign-in completing and the first board, which is a moment the app is already
+    /// between screens.
+    ///
+    /// **Fails closed, and that is the safe direction.** If the request does not answer, the screen
+    /// is not shown and the flag is *not* spent — so the next launch tries again rather than either
+    /// lying to a subscriber or silently swallowing the welcome for good.
+    func owesTrialWelcome() async -> Bool {
+        guard MembershipPresentation.shouldShowTrialWelcome(record: membership.load()) else {
+            return false
+        }
+        guard let household = try? await account.api.family() else { return false }
+        guard !household.isSubscribed else {
+            // Not merely un-owed: **spent**. A subscriber should not be shown this later either, and
+            // one confirmed answer is enough to settle it forever.
+            declineTrialWelcome()
+            return false
+        }
+        return true
     }
 
     /// Spent. Shown is shown, whether or not the parent read it.
@@ -728,6 +754,16 @@ final class OnboardingSession {
     private func forgetLocalIdentity() {
         appleIDs.clear()
         drafts.clear()
+        // **What this device has shown about membership belongs to the account that saw it.**
+        //
+        // Without this, one household's `lastObservedAccess` drives the next household's post-trial
+        // notice: sign out during a trial, sign in as somebody on the free tier, and they are told
+        // *"Your two weeks are up"* about a fortnight that was never theirs. And `trialWelcomeShown`
+        // would suppress the two-weeks screen for a genuinely new account.
+        //
+        // This is presentation state, so it is cleared here with the rest of the local identity
+        // rather than by `LocalArchiveErasing`, which owns the archive.
+        membership.save(MembershipPresentationRecord())
         // Which child was on screen is part of what a signed-out phone must stop remembering, and
         // it goes with the list itself — leaving `children` populated would let `canSwitchChild`
         // answer true for an account that is no longer signed in.
@@ -918,7 +954,7 @@ struct OnboardingGate: View {
                     // first Today, and `access` arrives *with* it — gating on the value would mean
                     // showing this after the screen it is meant to precede. The copy is written to
                     // be true of any household signing in for the first time on this device.
-                    guard session.owesTrialWelcome else { return }
+                    guard await session.owesTrialWelcome() else { return }
                     showingTrialWelcome = true
                     // **Spent on being shown, not on being tapped**, which is the rule the
                     // post-trial notice already follows and which this did not. A screen that comes
