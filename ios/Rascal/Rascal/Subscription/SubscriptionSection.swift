@@ -15,6 +15,15 @@ struct SubscriptionSection: View {
     @Bindable var model: SubscriptionModel
 
     @Environment(\.scenePhase) private var scenePhase
+
+    /// **The gap between the three reassurance lines, scaled with Dynamic Type.**
+    ///
+    /// A fixed spacing is wrong here and looked fine until it was rendered: at XXL the *leading*
+    /// inside a wrapped line grows while a constant gap does not, so "Everything you've already
+    /// written / or captured" separated by 3pt read as two items rather than one wrapped one —
+    /// three statements looking like five. `PaywallSheet.ListRow` already solves this for the same
+    /// block with `base * gap`; this is that treatment, so the two surfaces stay in step.
+    @ScaledMetric(relativeTo: .body) private var reassuranceGap: CGFloat = 1
     @State private var showingPaywall = false
     @State private var showingManage = false
 
@@ -132,13 +141,15 @@ struct SubscriptionSection: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionLabel(MembershipCopy.freeLabel)
 
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(Array(MembershipCopy.stayFree.enumerated()), id: \.offset) { _, line in
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(MembershipCopy.stayFree.enumerated()), id: \.offset) { index, line in
                     Text(PromptTokens.render(line, for: .unknown))
                         .typeRole(.body)
                         .foregroundStyle(Color.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        // The same 14 the sheet uses, scaled. See `reassuranceGap`.
+                        .padding(.top, index == 0 ? 0 : 14 * reassuranceGap)
                 }
             }
         }

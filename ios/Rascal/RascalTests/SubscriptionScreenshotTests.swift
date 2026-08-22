@@ -91,6 +91,20 @@ struct SubscriptionScreenshotTests {
             previewing: .loading, household: .sample(tier: "subscribed")
         )
         let free = SubscriptionModel(previewing: .loading, household: .sample(tier: "free"))
+        // **The state this phase exists for**, and it was not rendered before: a trial household is
+        // `tier: free`, so the two fixtures above both drew the *same* card for it.
+        let trial = SubscriptionModel(
+            previewing: .loading, household: .sample(tier: "free", access: .trial)
+        )
+        // **The `.hidden` branch, built through the view rather than only through the function.**
+        // A subscribed household whose caller is explicitly not the payer draws no action row at
+        // all — and must not fall through to the paywall row, which would try to sell a member
+        // what they already have. The pure-function test proves the branch is chosen; this proves
+        // the view is wired to it, including the per-case divider placement.
+        let notPayer = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "subscribed", isPayer: false)
+        )
 
         for (label, size) in Self.sizes {
             try render(
@@ -101,6 +115,16 @@ struct SubscriptionScreenshotTests {
             try render(
                 SubscriptionSection(model: free).padding(Layout.screenMargin),
                 named: "membership-free-\(label)",
+                at: size
+            )
+            try render(
+                SubscriptionSection(model: trial).padding(Layout.screenMargin),
+                named: "membership-trial-\(label)",
+                at: size
+            )
+            try render(
+                SubscriptionSection(model: notPayer).padding(Layout.screenMargin),
+                named: "membership-not-payer-\(label)",
                 at: size
             )
         }
@@ -310,18 +334,27 @@ private func inkFraction(of image: UIImage) -> Double {
 }
 
 extension FamilySummary {
-    /// A household for a render. Not a fixture with opinions — the row only reads `tier`.
-    static func sample(tier: String) -> FamilySummary {
+    /// A household for a render.
+    ///
+    /// **`access` and `isPayer` are overridable and default to what they were** — derived-from-tier
+    /// and unknown — so every render that predates phase 112 is byte-identical. The two overrides
+    /// exist because the row no longer reads only `tier`: `access` is what distinguishes a trial,
+    /// and `isPayer` is the one field that removes a control.
+    static func sample(
+        tier: String,
+        access: Access? = nil,
+        isPayer: Bool? = nil
+    ) -> FamilySummary {
         FamilySummary(
             familyId: UUID(),
             tier: tier,
-            access: tier == "subscribed" ? .subscribed : .free,
+            access: access ?? (tier == "subscribed" ? .subscribed : .free),
             lapsedAt: nil,
             plan: nil,
             billingRetry: nil,
-            // Unset, so every existing render keeps the Manage control it had: unknown is not
-            // `false`, and `mayManageSubscription` is `isPayer != false`.
-            isPayer: nil,
+            // Defaults to unset, so every existing render keeps the Manage control it had: unknown
+            // is not `false`, and `mayManageSubscription` is `isPayer != false`.
+            isPayer: isPayer,
             guardians: [
                 GuardianSummary(
                     userId: UUID(), displayName: "Travis", role: "parent",

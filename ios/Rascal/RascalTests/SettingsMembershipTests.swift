@@ -287,43 +287,77 @@ struct SettingsMembershipTests {
             #expect(!files.isEmpty, "\(folder)/ moved and this test stopped looking")
 
             for file in files {
-                let lines = try String(contentsOf: file, encoding: .utf8)
-                    .split(separator: "\n", omittingEmptySubsequences: false)
-
-                for (index, line) in lines.enumerated() where line.contains(".typeRole(.body)") {
-                    // The modifier chain continues on the following lines.
-                    //
-                    // **A word boundary, not a suffix list.** The first version of this scan looked
-                    // for `Color.terracotta)` and `Color.terracotta,` and therefore missed
-                    // `isEnabled ? Color.terracotta : Color.inkMuted` — which is `SettingsActionRow`
-                    // itself, the one site the whole finding is named after. It was caught by
-                    // reintroducing the defect and watching this test stay green. `\b` matches
-                    // `Color.terracotta` and not `Color.terracottaDeep`, whatever punctuation
-                    // follows.
-                    for offset in 1...2 where index + offset < lines.count {
-                        let next = String(lines[index + offset])
-                        // **Keyed on `foregroundStyle`, then on a bare `.terracotta`.** This is
-                        // wider than the reachable defect on purpose. Two forms it now catches that
-                        // `Color.terracotta` alone did not: `Color .terracotta` with a space, and
-                        // the SwiftUI shorthand `.foregroundStyle(.terracotta)`. **The shorthand
-                        // does not compile today** — these are `static let`s on `Color`, not
-                        // `ShapeStyle` members, so the compiler rejects it — but it starts
-                        // compiling the day somebody adds a `ShapeStyle` extension, and a guard
-                        // that has to be widened at that moment is a guard nobody widens.
-                        //
-                        // Requiring `foregroundStyle` on the line is what keeps
-                        // `ProgressView().tint(.terracotta)` out — a spinner is not text and is
-                        // held to the 3:1 non-text bar, which `terracotta` clears at 4.36:1.
-                        guard next.contains("foregroundStyle"),
-                              next.firstMatch(of: /\.terracotta\b/) != nil
-                        else { continue }
-                        offenders.append("\(file.lastPathComponent):\(index + offset + 1)")
-                    }
-                }
+                let source = try String(contentsOf: file, encoding: .utf8)
+                offenders += Self.bodySizeTerracotta(in: source, of: file.lastPathComponent)
             }
         }
 
         #expect(offenders.isEmpty, "16pt terracotta at 4.36:1 — below the 4.5:1 AA bar: \(offenders)")
+    }
+
+    /// Every `foregroundStyle(…)` in *source* whose argument names bare `terracotta` and which sits
+    /// beside a `.typeRole(.body)`.
+    ///
+    /// **This parses the call rather than matching a line, and that is the third shape of this
+    /// guard.** The first matched `Color.terracotta)` and `Color.terracotta,` and missed the ternary
+    /// `isEnabled ? Color.terracotta : Color.inkMuted` — which is `SettingsActionRow` itself, the one
+    /// site the whole finding is named after. The second was keyed on a line containing both
+    /// `foregroundStyle` and `.terracotta`, and missed the argument wrapped onto its own line, which
+    /// is ordinary formatting for a long modifier. **Two consecutive widenings of a text match is
+    /// the signal to stop widening the text match**, so this finds the call, walks its parentheses
+    /// to the balancing one, and reads the argument it actually has.
+    ///
+    /// Comments are blanked first — this phase discusses `Color.terracotta` at length in prose.
+    ///
+    /// `\b` is what keeps `terracottaDeep` and `terracottaSoft` out, and requiring the enclosing
+    /// call to be `foregroundStyle` is what keeps `ProgressView().tint(.terracotta)` out: a spinner
+    /// is not text and is held to the 3:1 non-text bar, which `terracotta` clears at 4.36:1.
+    static func bodySizeTerracotta(in source: String, of fileName: String) -> [String] {
+        // Blank comment-only lines, preserving line numbering for the report.
+        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
+        let code = lines.map { line -> String in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let isComment = trimmed.hasPrefix("//") || trimmed.hasPrefix("*")
+            return isComment ? String(repeating: " ", count: line.count) : String(line)
+        }.joined(separator: "\n")
+
+        let chars = Array(code)
+        let needle = Array("foregroundStyle(")
+        var offenders: [String] = []
+        var i = 0
+
+        while i + needle.count <= chars.count {
+            guard Array(chars[i..<(i + needle.count)]) == needle else { i += 1; continue }
+
+            // Walk to the balancing paren, so a nested call inside the argument is included.
+            var depth = 0
+            var j = i + needle.count - 1
+            var closed = j
+            while j < chars.count {
+                if chars[j] == "(" { depth += 1 }
+                if chars[j] == ")" {
+                    depth -= 1
+                    if depth == 0 { closed = j; break }
+                }
+                j += 1
+            }
+
+            let argument = String(chars[(i + needle.count)..<max(closed, i + needle.count)])
+            if argument.firstMatch(of: /\.terracotta\b/) != nil {
+                // `.typeRole(.body)` may sit before or after the colour in the chain, so look both
+                // ways over a window rather than assuming an order.
+                let lower = max(0, i - 240)
+                let upper = min(chars.count, closed + 240)
+                let neighbourhood = String(chars[lower..<upper])
+                if neighbourhood.contains(".typeRole(.body)") {
+                    let line = code.prefix(i).filter { $0 == "\n" }.count + 1
+                    offenders.append("\(fileName):\(line)")
+                }
+            }
+            i = closed + 1
+        }
+
+        return offenders
     }
 }
 
