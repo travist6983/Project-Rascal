@@ -5,22 +5,26 @@ import UIKit
 
 @testable import Rascal
 
-/// Renders the paywall and the Settings row at accessibility text sizes and writes PNGs.
+/// Renders the membership surfaces at accessibility text sizes and writes PNGs.
 ///
-/// **Phase 61 shipped without these and its row says so; this is the phase not repeating that.**
-/// The predicted defect was truncation in the price comparison, where a computed saving string
-/// sits beside two prices — which is why `PlanRow` stacks its three strings vertically instead of
-/// putting them on one line, and why these renders exist to show it holds.
+/// **Phase 61 shipped without these and its row says so; 37b was the phase not repeating that, and
+/// 108 extends the same harness to the three surfaces it added.** The predicted defect in 37b was
+/// truncation in the price comparison — which is why `PlanRow` stacks its strings vertically. The
+/// predicted defects here are a glyph tile that stops scaling into a dot, and a locked board that
+/// becomes taller than the viewport before anyone looks at it.
 ///
 /// `ImageRenderer` rather than a simulator screenshot, and that is what makes it possible at all:
-/// the paywall renders from `OfferedPlan` values rather than from StoreKit `Product`s, so it can
-/// be built at any text size with no store, no session and no taps. A simulator screenshot of this
-/// screen would need a working `SKTestSession`, which this machine does not have — see
-/// `SubscriptionStoreKitTests`.
+/// these views render from values rather than from StoreKit `Product`s or a live board, so they can
+/// be built at any text size with no store, no session and no taps.
+///
+/// **Two things this harness cannot do, stated so nobody reads a green run as more than it is.**
+/// There is no golden-image diff — the PNGs are written and must be *looked at*; a run that changes
+/// every pixel passes. And `ImageRenderer` will not rasterize a `ScrollView` or a `List`, which is
+/// why every view here is either scroll-free or exposes a scroll-free `content`/`renderable`.
 ///
 /// Output goes to `$RASCAL_SCREENSHOT_DIR`, or a temporary directory whose path is printed.
 @MainActor
-@Suite("Dynamic Type — the paywall and the membership row")
+@Suite("Dynamic Type — the membership surfaces")
 struct SubscriptionScreenshotTests {
 
     private static let sizes: [(name: String, size: DynamicTypeSize)] = [
@@ -34,33 +38,48 @@ struct SubscriptionScreenshotTests {
             return URL(fileURLWithPath: raw, isDirectory: true)
         }
         return FileManager.default.temporaryDirectory
-            .appendingPathComponent("rascal-phase-37b", isDirectory: true)
+            .appendingPathComponent("rascal-phase-108", isDirectory: true)
     }
 
-    @Test("the paywall renders at every accessibility size, in both of its states")
-    func paywallRenders() throws {
-        // Ready, with a trial and a computed saving — the state carrying the three strings that
-        // could collide.
-        let ready = SubscriptionModel(previewing: .ready(.double, familyID: UUID()))
-        // And the retry, which is what an empty product load must look like rather than a blank.
-        let unavailable = SubscriptionModel(
-            previewing: .unavailable(SubscriptionStoreError.productsUnavailable.userMessage)
-        )
+    /// The child the approved design draws, so a render can be compared with the artboards.
+    private static let milo = PromptSubject(name: "Milo", pronouns: .heHim)
+
+    /// **Three states, and the third is the one a parent will actually be in.**
+    ///
+    /// `membership-sheet-*` shows an introductory offer, which is what a storefront grants — and
+    /// which **no parent reaching this sheet will ever see**, because the trial is server-granted
+    /// (`entitlements.trial_ends_at`) and has ended by the time anybody opens this.
+    /// `isEligibleForIntroOffer` is then false, `TrialRule.resolve` returns nil, and both plan rows
+    /// lose their `"2 weeks free, then "` prefix.
+    ///
+    /// That is not cosmetic: it changes each row from a wrapped line to a single one, which changes
+    /// the height of the plan group and therefore the rhythm the detent is sized against. Every
+    /// visual review of this sheet before `membership-notrial-*` existed was done against copy
+    /// production cannot produce.
+    @Test("the membership sheet renders at every accessibility size, in all three of its states")
+    func membershipSheetRenders() throws {
+        let ready = SubscriptionModel(previewing: .ready(.preview, familyID: UUID()))
+        let noTrial = SubscriptionModel(previewing: .ready(.previewWithoutTrial, familyID: UUID()))
+        // **The state every device is actually in.** No subscription product exists in App Store
+        // Connect, so this is the ordinary render and not the error one.
+        let unavailable = SubscriptionModel(previewing: .unavailable(.products))
+
+        try render(PaywallSheet(model: noTrial) {}.renderable, named: "membership-notrial-default", at: .large)
 
         for (label, size) in Self.sizes {
             try render(
-                PaywallSheet(model: ready, context: .secondParent) {}.content,
-                named: "paywall-secondParent-\(label)",
+                PaywallSheet(model: ready) {}.renderable,
+                named: "membership-sheet-\(label)",
                 at: size
             )
             try render(
-                PaywallSheet(model: ready, context: .settings) {}.content,
-                named: "paywall-settings-\(label)",
+                PaywallSheet(model: noTrial) {}.renderable,
+                named: "membership-notrial-\(label)",
                 at: size
             )
             try render(
-                PaywallSheet(model: unavailable, context: .settings) {}.content,
-                named: "paywall-unavailable-\(label)",
+                PaywallSheet(model: unavailable) {}.renderable,
+                named: "membership-unavailable-\(label)",
                 at: size
             )
         }
@@ -87,14 +106,133 @@ struct SubscriptionScreenshotTests {
         }
     }
 
+    /// **The card, alone.** `TodayBoardView` is a `List` and `ImageRenderer` renders a list's ground
+    /// and stops, so a board screenshot would be a cream rectangle that passes every check.
+    ///
+    /// The two things to look at: the 34pt glyph tile must still be a tile rather than a dot, and
+    /// the footer must not wrap past two lines.
+    @Test("the locked card renders at every accessibility size, for every slot")
+    func lockedCardRenders() throws {
+        let slots = [
+            ("photo", LockedSlot(slot: "mission", kindHint: "photo")),
+            ("second", LockedSlot(slot: "mission_b", kindHint: "mission")),
+            ("letter", LockedSlot(slot: "letter", kindHint: "letter")),
+            ("unknown", LockedSlot(slot: "seasonal", kindHint: "seasonal")),
+        ]
+
+        for (name, slot) in slots {
+            try render(
+                LockedPromptCard(locked: slot) {}
+                    .promptSubject(Self.milo)
+                    .padding(Layout.screenMargin),
+                named: "locked-\(name)-default",
+                at: .large
+            )
+        }
+
+        for (label, size) in Self.sizes {
+            try render(
+                LockedPromptCard(locked: slots[0].1) {}
+                    .promptSubject(Self.milo)
+                    .padding(Layout.screenMargin),
+                named: "locked-photo-\(label)",
+                at: size
+            )
+        }
+    }
+
+    /// **The four-lock Saturday**, which no artboard draws and which is the state most likely to
+    /// look bad and least likely to be looked at: a Saturday that is also the 15th serves both daily
+    /// missions, the weekly and the letter against a single live question.
+    ///
+    /// The design's own note warns one card is ~270pt at AX1. This is that, four times — rendered
+    /// so the height is a number somebody can read rather than a thing to be surprised by.
+    @Test("four locked cards, the worst case the scheduler can produce")
+    func fourLockedCardsRender() throws {
+        let saturday = [
+            LockedSlot(slot: "mission", kindHint: "photo"),
+            LockedSlot(slot: "mission_b", kindHint: "mission"),
+            LockedSlot(slot: "weekly", kindHint: "weekly"),
+            LockedSlot(slot: "letter", kindHint: "letter"),
+        ]
+
+        let stack = VStack(spacing: Layout.cardSpacing) {
+            ForEach(saturday) { locked in
+                LockedPromptCard(locked: locked) {}
+            }
+        }
+        .promptSubject(Self.milo)
+        .padding(Layout.screenMargin)
+
+        try render(stack, named: "locked-saturday-default", at: .large)
+        try render(stack, named: "locked-saturday-xxLarge", at: .xxLarge)
+        try render(stack, named: "locked-saturday-accessibility1", at: .accessibility1)
+    }
+
+    /// **The pronoun rule, rendered rather than argued about.** The `he/him` column must read
+    /// exactly as the owner's copy file does; the other two must read correctly rather than wrongly.
+    @Test("the locked card renders each pronoun set correctly")
+    func lockedCardPronounsRender() throws {
+        let sets: [(String, PronounSet?)] = [
+            ("heHim", .heHim), ("sheHer", .sheHer), ("theyThem", .theyThem), ("unanswered", nil),
+        ]
+
+        for (name, set) in sets {
+            let pair = VStack(spacing: Layout.cardSpacing) {
+                LockedPromptCard(locked: LockedSlot(slot: "mission", kindHint: "photo")) {}
+                LockedPromptCard(locked: LockedSlot(slot: "letter", kindHint: "letter")) {}
+            }
+            .promptSubject(PromptSubject(name: "Sam", pronouns: set))
+            .padding(Layout.screenMargin)
+
+            try render(pair, named: "locked-pronouns-\(name)", at: .large)
+        }
+    }
+
+    @Test("the trial welcome renders at every accessibility size")
+    func trialWelcomeRenders() throws {
+        try render(TrialWelcomeScreen {}.content, named: "trial-welcome-default", at: .large)
+        for (label, size) in Self.sizes {
+            try render(TrialWelcomeScreen {}.content, named: "trial-welcome-\(label)", at: size)
+        }
+    }
+
+    /// The notice in both shapes — one action and two — because the two-action layout is the one the
+    /// design stacks, and stacking is the thing that has to hold at accessibility sizes.
+    @Test("the notice renders in both of its shapes")
+    func noticeRenders() throws {
+        let postTrial = Notice(
+            text: MembershipCopy.postTrialNotice,
+            primaryLabel: MembershipCopy.postTrialOpen,
+            onPrimary: {},
+            onDismiss: {},
+            dismissLabel: MembershipCopy.postTrialDismiss
+        )
+        .padding(Layout.screenMargin)
+
+        let statement = Notice(text: MembershipCopy.productsUnavailable)
+            .padding(Layout.screenMargin)
+
+        try render(postTrial, named: "notice-post-trial-default", at: .large, minimumHeight: 60)
+        try render(statement, named: "notice-unavailable-default", at: .large, minimumHeight: 60)
+        for (label, size) in Self.sizes {
+            try render(postTrial, named: "notice-post-trial-\(label)", at: size, minimumHeight: 60)
+        }
+    }
+
     /// One render, at one size, written as a PNG.
     ///
-    /// The width is an iPhone's; the height is whatever the content needs, so nothing is cropped
-    /// and a truncation shows up as truncation rather than as a short image.
+    /// The width is an iPhone's; the height is whatever the content needs, so nothing is cropped and
+    /// a truncation shows up as truncation rather than as a short image.
     private func render(
         _ view: some View,
         named name: String,
-        at size: DynamicTypeSize
+        at size: DynamicTypeSize,
+        // **A floor, not a constant.** 100 is right for a screen and wrong for a component: a
+        // `Notice` at default type is legitimately about 92pt tall, and asserting a screen's height
+        // against a row is how a correct render reads as a failure. The check that actually matters
+        // is `inkFraction` — "did anything draw" — and that is unchanged for every caller.
+        minimumHeight: CGFloat = 100
     ) throws {
         let renderer = ImageRenderer(
             content:
@@ -111,9 +249,9 @@ struct SubscriptionScreenshotTests {
             return
         }
         // **Height alone is not evidence.** A `ScrollView` renders its ground and none of its
-        // content, which produced a full-height sheet of blank cream that passed a height check.
-        // So the assertion is that something was actually drawn on it.
-        #expect(image.size.height > 100, "\(name) rendered \(image.size.height)pt tall")
+        // content, which produced a full-height sheet of blank cream that passed a height check. So
+        // the assertion is that something was actually drawn on it.
+        #expect(image.size.height > minimumHeight, "\(name) rendered \(image.size.height)pt tall")
         #expect(inkFraction(of: image) > 0.01, "\(name) rendered blank")
 
         let directory = Self.outputDirectory

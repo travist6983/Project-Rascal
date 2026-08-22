@@ -1,0 +1,45 @@
+/* Two families, strictly divided: Nunito 700/800 is every heading, prompt,
+   button and badge. Source Sans 3 400/600 is every sentence of body copy.
+   Mono is metadata only — dates, counters, spec keys. */
+:root {
+  --rascal-font-display: 'Nunito', system-ui, sans-serif;
+  --rascal-font-body:    'Source Sans 3', system-ui, sans-serif;
+  --rascal-font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --rascal-weight-body:    400;
+  --rascal-weight-medium:  600;
+  --rascal-weight-prompt:  700;
+  --rascal-weight-display: 800;
+
+  /* Fluid web scale (marketing) */
+  --rascal-size-hero:    clamp(2.125rem, 4.8vw, 3.25rem);
+  --rascal-size-h2:      clamp(1.75rem, 3.6vw, 2.625rem);
+  --rascal-size-h3:      clamp(1.375rem, 2.6vw, 1.875rem);
+  --rascal-size-prompt:  clamp(1.4375rem, 3.1vw, 2.125rem);
+  --rascal-size-lede:    clamp(1.0625rem, 1.6vw, 1.1875rem);
+  --rascal-size-body:    1.0625rem;
+  --rascal-size-small:   0.9375rem;
+  --rascal-size-eyebrow: 0.8125rem;
+  --rascal-size-meta:    0.75rem;
+  --rascal-size-micro:   0.6875rem;
+
+  /* Fixed app scale (iOS, 393pt) */
+  --rascal-app-size-title:   38px;
+  --rascal-app-size-screen:  29px;
+  --rascal-app-size-prompt:  22px;
+  --rascal-app-size-cta:     17px;
+  --rascal-app-size-body:    16px;
+  --rascal-app-size-caption: 14px;
+  --rascal-app-size-badge:   11.5px;
+
+  --rascal-leading-display: 1.1;
+  --rascal-leading-prompt:  1.25;
+  --rascal-leading-body:    1.5;
+  --rascal-leading-lede:    1.55;
+
+  --rascal-tracking-display: -0.02em;
+  --rascal-tracking-prompt:  -0.015em;
+  --rascal-tracking-eyebrow: 0.06em;
+  --rascal-tracking-badge:   0.08em;
+  --rascal-tracking-wordmark: 0.14em;
+}

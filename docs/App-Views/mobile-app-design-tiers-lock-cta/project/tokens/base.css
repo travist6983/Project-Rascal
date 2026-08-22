@@ -1,0 +1,31 @@
+/* Minimal resets the brand depends on. Paper grain is part of the identity,
+   not decoration — every RASCAL surface sits on it. */
+:root { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: inherit; }
+
+body {
+  margin: 0;
+  background-color: var(--rascal-canvas);
+  background-image: var(--rascal-grain);
+  color: var(--rascal-ink);
+  font-family: var(--rascal-font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--rascal-terracotta); text-decoration: none; }
+a:hover { color: var(--rascal-ink); text-decoration: underline; }
+
+input, button, textarea, select { font-family: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--rascal-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
