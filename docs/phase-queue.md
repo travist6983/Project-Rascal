@@ -18,11 +18,46 @@ hours rather than a day.** 102 was taken within the hour by `api/phase-102-conso
 A genuinely new phase takes 104.**~~ — **struck a fifth time on Aug 21, 2026, and this strike is
 different from the four before it: the collision it warned about actually happened.**
 
-~~**The highest number used is 106. A genuinely new phase takes 107.**~~ — **struck a sixth time on Aug 21, 2026, and this strike is the first one written at allocation time rather than at ship time.** **107, 108 and 109 are all spent**: 107 is the entitlement gate and the weekday cadence (Lane A), 108 is the locked Today board and the membership sheet (Lane B), 109 is the marketing site's pricing page. **A genuinely new phase takes 110.** 104 is Instagram publishing,
-105 is the phase 104 review (open as PR #155), and 106 is the video renderer's provider switch —
-**built and green in the working tree on `main`, on no branch, uncommitted**, which is a state this
-header has never had to describe before and the reason its row went into `roadmap-status.md`
-before the commit rather than after it.
+~~*The highest number used is 106. A genuinely new phase takes 107.*~~ — **struck a sixth time on
+Aug 21, 2026.** 104 is Instagram publishing, 105 is the phase 104 review (open as PR #155), and 106
+is the video renderer's provider switch — **built and green in the working tree on `main`, on no
+branch, uncommitted**, which is a state this header had never had to describe before and the reason
+its row went into `roadmap-status.md` before the commit rather than after it.
+
+~~*The highest number used is 109. A genuinely new phase takes 110.*~~ — **struck a seventh time on
+Aug 21, 2026, within the hour, by 110 itself taking the number this sentence offered.** 107 is the
+entitlement and cadence work (API lane), 108 is the locked board and membership sheet (iOS lane),
+and 109 is the marketing site's free-tier copy. **107, 108, 109 and 110 all wrote their rows into
+`roadmap-status.md` at allocation rather than at ship** — the remedy this header has asked for
+across nine instances, had never once received before tonight, and has now received four times
+running.
+
+**The highest number used is 110. A genuinely new phase takes 111.** 110 is the design-conformance
+pass over 108: the approved Claude Design bundle, committed to the repository, and 108's tree
+audited against it.
+
+**110 is the first strike in this file's history that is not a failure**, and the distinction is
+worth keeping rather than filing it with the other nine. Every previous strike records a number
+found spent *after* somebody had already taken it. This one records the sentence being consumed
+**as designed** — 110 read *"a genuinely new phase takes 110"*, took 110, and rewrote the line in
+the same commit, before a line of its own work existed. **The header went stale in under an hour
+and that is the system working**, not drifting: a next-number claim is meant to be consumed and
+replaced, and the nine instances above are all cases where it was consumed and *not* replaced.
+**The failure this file records has never been staleness. It is the gap between reading a number
+and writing it down**, and four phases in one evening have now closed it.
+
+**109 is the ninth instance, and it is the fifth blind spot rather than any of the four before it.**
+All four prescribed commands were run on Aug 21 before 108 took its number. They returned: commits
+**107**, branches **108**, PRs **105**, docs **106**. **Not one of them can see 109**, because 109
+exists only in the sentence of a prompt the owner wrote — no branch, no commit, no PR, no line in
+any file under `docs/`. This header already names the failure exactly — *"the measurement being
+unable, in principle, to see an allocation that exists only in somebody's head"* — and 103 is the
+case it was written for. **The difference worth recording is that 103's collision was discovered
+afterwards and this one was not.** 109 was declared in the same prompt that told phase 108 to write
+this line, so the allocation and its record arrived together for the first time. **That is the
+remedy working, and it worked because a human wrote the number down where an agent would read it —
+not because any command found it.** The commands still cannot, and a tenth instance will look
+exactly like this one if the next allocation is spoken rather than written.
 
 **103 was spent twice and both halves shipped.** *The shot list becomes a video* (PR #153) and
 *LLM prompt generation* (PR #152) were allocated hours apart on Aug 20 by two branches running in
@@ -264,6 +299,22 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
 - **107 — the trial, the entitlement gate, and the weekday cadence.** API lane. `entitlements.trial_ends_at` and a computed `access`; the free tier serves the daily question and locks the rest of the day, never the archive. Reverses D2, narrows D3. Paired with **108** (iOS: the locked board and the membership sheet) and **109** (the marketing site's pricing page). The long form is the 107 row in `roadmap-status.md`.
+
+- **108 — the locked board, the membership sheet, the trial welcome. iOS lane, open on
+  `ios/phase-108-locked-today-membership`.** The client half of 107. A `LockedPromptCard` below the
+  live prompts on Today, a membership sheet reached from it and from Settings, a one-time trial
+  welcome and a one-time post-trial `Notice`. **Three things a reader needs before touching it, and
+  the first is not a task:** *(i)* this phase and 107 **reverse D2 and D3**, which `CLAUDE.md` marks
+  settled — the reversal is the owner's and is authorised, but its diff
+  (`docs/decisions/proposed-d2-d3-reversal-diff.md`) **was never written**, so both lanes applied
+  the intent of a file neither could read; Lane A's amendment to `decisions.md:30-31` is the record
+  that now exists. *(ii)* **The live marketing site still promises the un-reversed D2** in four
+  places including indexed JSON-LD — **109 is presumed to own that**, and it is logged in both lane
+  PRs so it survives 109 slipping. *(iii)* `docs/design/free-tier-copy.md`, named as the verbatim
+  source for every string, **did not exist**; this phase authored it and **it is unreviewed**. The
+  standing rule the phase must not break, whatever else changes: **`access` absent or unrecognised
+  means entitled** — the device never decides entitlement, and the failure direction is the full
+  board, never a paywall.
 
 - ~~**37b — StoreKit, the client half.**~~ — **shipped Aug 20, 2026, merged as PR #154; line
   struck per this file's rule that a queue line goes when it is done.** The long form is the 37b

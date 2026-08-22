@@ -58,6 +58,14 @@ final class TodayModel {
     /// A quiet, non-alarming note shown over the board — an expired assignment, a dismissal
     /// that didn't reach the server. Never an error dialog over the parent's work.
     var notice: String?
+
+    /// The once-ever note shown on the first board after the trial ends.
+    ///
+    /// **Its own property, not `notice`.** That one is the transport channel and is overwritten by
+    /// any `APIError`; a once-ever presentation sharing it would be spent or silently replaced by
+    /// network timing.
+    private(set) var membershipNotice: String?
+
     private(set) var pendingSkip: PendingSkip?
 
     /// Every assignment the parent has swiped away and not taken back — the one still inside its
@@ -80,23 +88,63 @@ final class TodayModel {
     private var skipTask: Task<Void, Never>?
     private let childId: UUID
     private let api: APIClient
+    /// What this device has already shown about membership. Injected so the once-ever rules can be
+    /// driven in a test without touching `UserDefaults`.
+    private let presentation: MembershipPresentationStoring
 
-    init(childId: UUID, api: APIClient, skipGrace: Duration = .seconds(8)) {
+    init(
+        childId: UUID,
+        api: APIClient,
+        skipGrace: Duration = .seconds(8),
+        presentation: MembershipPresentationStoring = UserDefaultsMembershipPresentationStore()
+    ) {
         self.childId = childId
         self.api = api
         self.skipGrace = skipGrace
+        self.presentation = presentation
     }
 
     func load(showSpinner: Bool = true) async {
         if showSpinner, case .loaded = state {} else if showSpinner { state = .loading }
         do {
-            state = .loaded(try await api.today(childId: childId))
+            let response = try await api.today(childId: childId)
+            observe(response.access)
+            state = .loaded(response)
         } catch let error as APIError {
             // A refetch failing over an already-loaded board should not blank it.
             if case .loaded = state { notice = error.userMessage } else { state = .failed(error.userMessage) }
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    /// Decide the once-ever notice, then record what was seen.
+    ///
+    /// **Called only from a response that actually decoded**, which is the whole of its correctness.
+    /// A network error or a decode failure must not reach this: writing an assumed value into
+    /// `lastObservedAccess` would record an observation that never happened, and the next genuine
+    /// `free` would then look like a flip from something.
+    ///
+    /// The order matters too — read the record, then update it. Observing first would overwrite the
+    /// `trial` this is looking for with the `free` that arrived, and the notice would never fire.
+    private func observe(_ access: Access) {
+        var record = presentation.load()
+
+        if MembershipPresentation.shouldShowPostTrialNotice(record: record, access: access) {
+            membershipNotice = MembershipCopy.postTrialNotice
+            // **Spent on being shown, not on being dismissed.** Seeing it is what spends it; a
+            // notice that comes back because the parent scrolled past instead of tapping Dismiss is
+            // the nag the copy rules forbid.
+            record.postTrialNoticeShown = true
+        }
+
+        presentation.save(MembershipPresentation.observing(access, in: record))
+    }
+
+    /// The parent tapped Dismiss. The flag was already spent when it was shown, so this only takes
+    /// it off the screen.
+    func dismissMembershipNotice() {
+        membershipNotice = nil
     }
 
     // MARK: Skipping
@@ -191,11 +239,17 @@ struct TodayScreen: View {
     var onSync: () async -> Void = {}
     let openComposer: (ComposerRequest) -> Void
 
+    /// The one instance, owned by `RootView`. Nil for the first frame while it is built, which is
+    /// the same shape every other model handed down here has — a locked card tapped in that beat
+    /// simply does not open a sheet, rather than opening an empty one.
+    var subscription: SubscriptionModel?
+
     /// **Owned by `RootView`, not by this screen.** The tab switch destroys this view, and the
     /// widget's snapshot has to keep up with the archive from two tabs away — so the model, and
     /// the publishing that reads it, live above the tab. See `WidgetSnapshotSync`.
     let model: TodayModel
     @Environment(\.scenePhase) private var scenePhase
+    @State private var showingMembership = false
     @Environment(\.modelContext) private var context
     /// The child every prompt on this board is about.
     @Environment(\.promptSubject) private var promptSubject
@@ -231,6 +285,38 @@ struct TodayScreen: View {
                 case .background: Task { await model.commitPendingSkip() }
                 default: break
                 }
+            }
+            // **A sheet, not a `fullScreenCover`.** The copy file and the phase brief agree: this is
+            // a door. A cover would be an interstitial the parent has to beat to get back to the
+            // board they opened the app for.
+            //
+            // Presented from here rather than from the card, because `TodayBoardView` is a `List`
+            // and a sheet owned by a row is torn down whenever the row is recycled.
+            //
+            // **`onDismiss` re-reads the board, and it has to be `onDismiss` rather than the
+            // sheet's own callback.** A parent who buys membership here leaves the server already
+            // knowing — `EntitlementConfirmation.poll` does not stop until it says `subscribed` —
+            // but nothing on Today would have noticed: `.task` does not re-run when a sheet over it
+            // closes, `scenePhase` stays `.active` for an in-app sheet, and this screen reads only
+            // `subscription == nil`, never its household. So the board behind the sheet kept
+            // rendering the pre-purchase response, locked cards and all, until the parent happened
+            // to background the app or pull to refresh.
+            //
+            // `PaywallSheet`'s own dismiss closure is not enough: it is invoked by that view's
+            // buttons and **does not run when the sheet is swiped away**, which is the more common
+            // way out. `GuardiansSection` already re-reads on the same event for the same reason.
+            .sheet(isPresented: $showingMembership) {
+                Task { await model.load(showSpinner: false) }
+            } content: {
+                if let subscription {
+                    PaywallSheet(model: subscription) { showingMembership = false }
+                }
+            }
+            // **A locked card cannot open a sheet that does not exist yet.** `subscription` is nil
+            // only for the first frame while `RootView` builds it; without this the sheet would
+            // present empty and the parent would have to dismiss a blank one.
+            .onChange(of: subscription == nil) { _, isMissing in
+                if isMissing { showingMembership = false }
             }
     }
 
@@ -280,6 +366,9 @@ struct TodayScreen: View {
                 onSkip: { model.skip($0.assignment) },
                 onUndoSkip: { model.undoSkip() },
                 onDismissNotice: { model.notice = nil },
+                membershipNotice: model.membershipNotice,
+                onOpenMembership: { showingMembership = true },
+                onDismissMembershipNotice: { model.dismissMembershipNotice() },
                 onSwitchChild: onSwitchChild,
                 // Debug builds only. The `/debug/*` route behind it is registered only when the
                 // API runs with ENVIRONMENT=local, so in a release build this button is a 404

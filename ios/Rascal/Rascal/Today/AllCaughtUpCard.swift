@@ -27,9 +27,23 @@ struct AllCaughtUpCard: View {
         /// has not run yet has an empty board and has done nothing, and telling someone on their
         /// first morning that they are all caught up is praise for no work. Anything still open —
         /// today or waiting — means the board is not finished and gets no card at all.
-        static func forBoard(today: Int, waiting: Int, doneToday: Int) -> Mode? {
+        ///
+        /// **`locked` suppresses `.nothingYet` and only that.** The two cases are not alike:
+        ///
+        /// - *"Nothing waiting. Today's prompts arrive in the morning"* under four locked cards is a
+        ///   flat contradiction on one screen. The prompts **have** arrived; this household is not
+        ///   being served them. That sentence would be the app telling a parent something they can
+        ///   see is false, which is worse than saying nothing.
+        /// - *"All caught up"* over a locked board is **true and stays**. A free parent who answered
+        ///   today's question has finished everything they were offered, and withholding the
+        ///   acknowledgement because they did not pay would be the meanest reading available.
+        ///
+        /// A locked board with nothing done therefore gets no end-of-board card at all, which is
+        /// what the locked cards themselves are already saying.
+        static func forBoard(today: Int, waiting: Int, doneToday: Int, locked: Int = 0) -> Mode? {
             guard today == 0, waiting == 0 else { return nil }
-            return doneToday == 0 ? .nothingYet : .caughtUp(doneToday: doneToday)
+            if doneToday == 0 { return locked == 0 ? .nothingYet : nil }
+            return .caughtUp(doneToday: doneToday)
         }
     }
 

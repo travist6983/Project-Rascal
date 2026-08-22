@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+@font-face{font-family:'Nunito';src:url('fonts/nunito-var-latin.woff2') format('woff2');font-weight:400 900;font-style:normal;font-display:swap}
+body{margin:0;background:#EFE9DF;-webkit-font-smoothing:antialiased;text-wrap:pretty}
+a{color:#9A431E;text-decoration:none}
+a:hover{color:#23253C}
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:64px;padding:56px 64px 120px;font-family:system-ui,-apple-system,sans-serif">
+
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:760px">
+    <div style="font:400 12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">Three surfaces · free tier · states as listed</div>
+    <div style="font:800 30px/1.15 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">Locked mission card, membership sheet, trial welcome</div>
+    <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Every string is verbatim from <span style="font-family:ui-monospace,Menlo,monospace;font-size:14px">free-tier-copy.md</span>. Prompt bodies are sample prompt-library rows, marked where they appear. No paper grain — the iOS system records that rejection, and this project's marketing-side readme still mandates it; the iOS file wins.</div>
+  </div>
+
+  <!-- ══════════════════ SURFACE 1 ══════════════════ -->
+  <div style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid #DCD3C6;padding-top:18px">
+      <div style="font:400 12px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">Surface 1</div>
+      <div style="font:800 24px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The locked mission card on Today</div>
+    </div>
+
+    <sc-if value="{{ showLocked }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;gap:60px;flex-wrap:wrap;align-items:flex-start">
+
+      <!-- 1a WEEKDAY -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">1a</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">Weekday · free — one live question above one locked photo mission</span>
+          </div>
+          <div data-screen-label="1a Weekday free" style="width:393px;min-height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="height:54px;flex:none"></div>
+            <div style="padding:0 16px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+                <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+                <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+              </div>
+              <div style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-left:4px">4 years old</div>
+            </div>
+            <div style="padding:22px 16px 0;display:flex;flex-direction:column;gap:12px;flex:1">
+
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <!-- live question card, periwinkle -->
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                    <div style="position:relative;width:18px;height:13px;border-radius:4px;background:#FFFDF9">
+                      <div style="position:absolute;left:3px;bottom:-3px;width:6px;height:6px;background:#FFFDF9;border-radius:0 0 2px 0"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:4px 9px">Question</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:12px 20px">Write it</span>
+                </div>
+              </div>
+
+              <!-- LOCKED CARD · surface + border, no shadow, text-only footer -->
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center">
+                      <div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="display:flex;align-items:center;gap:8px;padding-top:2px;border-top:1px solid #EDE5DA;margin-top:-2px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-top:12px">Included with membership</span>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Waiting</span>
+                <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:3px 8px">1</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+                <div style="width:30px;height:30px;border-radius:10px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                  <div style="width:16px;height:12px;border-radius:3.5px;background:#C05A2B;display:grid;place-items:center">
+                    <div style="width:6px;height:6px;border-radius:999px;background:#FDF3EC"></div>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+                  <div style="font:400 16px/1.45 system-ui;color:#23253C">A picture of the two of you. Ask someone else to take it.</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#C05A2B;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Photo</span>
+                    <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:5px 10px">Yesterday</span>
+                  </div>
+                </div>
+                <div style="width:8px;height:8px;border-top:1.6px solid #6E6A63;border-right:1.6px solid #6E6A63;transform:rotate(45deg);margin-top:9px;flex:none"></div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Done today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+                <div style="width:26px;height:26px;border-radius:999px;background:#5566D6;display:grid;place-items:center;flex:none">
+                  <div style="width:10px;height:5px;border-left:2px solid #FFFDF9;border-bottom:2px solid #FFFDF9;transform:rotate(-45deg);margin-top:-3px"></div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Record him telling you about his day.</div>
+                  <div style="font:400 13px/1.4 system-ui;color:#6E6A63">Voice · 6:30 PM</div>
+                </div>
+              </div>
+
+              <div style="flex:1;min-height:24px"></div>
+            </div>
+            <div style="padding:0 16px 10px;flex:none">
+              <div style="position:relative;height:56px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;box-shadow:0 4px 10px rgba(35,37,60,.06);display:grid;grid-template-columns:1fr 1fr 62px 1fr 1fr;align-items:center;justify-items:center">
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#C05A2B">Today</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Timeline</span>
+                <span></span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Moments</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Settings</span>
+                <div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:52px;height:52px;border-radius:999px;background:#C05A2B;border:4px solid #FDFAF4;display:grid;place-items:center;font:400 30px/1 Nunito,system-ui;color:#FFFDF9;padding-bottom:3px;box-sizing:border-box">+</div>
+              </div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">LOCKED CARD</div>
+            fill <span style="color:#23253C">surface</span> · hairline <span style="color:#23253C">border</span> 1px<br>
+            radius <span style="color:#23253C">20</span> (card) · padding <span style="color:#23253C">16</span><br>
+            zone gap <span style="color:#23253C">14</span> · card gap <span style="color:#23253C">12</span><br>
+            shadow <span style="color:#23253C">none</span> — see <a href="#1d">1d</a> for the pair
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">GLYPH TILE</div>
+            <span style="color:#23253C">34</span>pt · radius <span style="color:#23253C">11</span><br>
+            washed <span style="color:#23253C">terracotta @12%</span>, glyph <span style="color:#23253C">terracotta</span><br>
+            same wash <span style="color:#23253C">WaitingCard</span> uses at 30/10
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">TEXT</div>
+            eyebrow <span style="color:#23253C">label</span> 12/+0.6 · <span style="color:#23253C">inkMuted</span><br>
+            body <span style="color:#23253C">prompt body</span> 20/1.30 rounded · <span style="color:#23253C">inkMuted</span><br>
+            footer <span style="color:#23253C">metadata</span> 13 · <span style="color:#23253C">inkMuted</span> · rule <span style="color:#23253C">border</span>
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">LIVE QUESTION</div>
+            <span style="color:#23253C">periwinkleSoft</span> / <span style="color:#23253C">periwinkleBorder</span><br>
+            tile filled <span style="color:#23253C">periwinkle</span>, glyph <span style="color:#23253C">surface</span> 15<br>
+            KindBadge <span style="color:#23253C">periwinkleDeep</span> on peri @12% (6.00:1)<br>
+            button <span style="color:#23253C">PrimaryButtonStyle</span> 20/12, not full width
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">BOARD</div>
+            <span style="color:#23253C">canvas</span> · margin <span style="color:#23253C">16</span><br>
+            ChildSwitcherPill: <span style="color:#23253C">surface</span>/<span style="color:#23253C">border</span>, 30 disc, no chevron<br>
+            SectionLabel + 1px <span style="color:#23253C">border</span> rule; count chip <span style="color:#23253C">chipPlain</span><br>
+            WaitingCard r<span style="color:#23253C">18</span> 14/16 · DoneCard r<span style="color:#23253C">18</span> tinted
+          </div>
+          <div style="color:#B4ADA3">Prompt bodies here are sample prompt-library rows, not client copy.</div>
+        </div>
+      </div>
+
+      <!-- 1b + 1c weekend pair -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">1b</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">Weekend · free — one live question, two locked</span>
+          </div>
+          <div data-screen-label="1b Weekend free" style="width:393px;min-height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="height:54px;flex:none"></div>
+            <div style="padding:0 16px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+                <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+                <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+              </div>
+              <div style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-left:4px">4 years old</div>
+            </div>
+            <div style="padding:22px 16px 0;display:flex;flex-direction:column;gap:12px;flex:1">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                    <div style="position:relative;width:18px;height:13px;border-radius:4px;background:#FFFDF9">
+                      <div style="position:absolute;left:3px;bottom:-3px;width:6px;height:6px;background:#FFFDF9;border-radius:0 0 2px 0"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:4px 9px">Question</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:12px 20px">Write it</span>
+                </div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center">
+                      <div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:flex;align-items:center;justify-content:center">
+                      <div style="width:0;height:0;border-left:6px solid #FDF3EC;border-top:4px solid transparent;border-bottom:4px solid transparent;margin-left:2px"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's second mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">His voice, a video, or something to do together.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Waiting</span>
+                <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:3px 8px">1</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+                <div style="width:30px;height:30px;border-radius:10px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                  <div style="width:16px;height:12px;border-radius:3.5px;background:#C05A2B;display:grid;place-items:center">
+                    <div style="width:6px;height:6px;border-radius:999px;background:#FDF3EC"></div>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+                  <div style="font:400 16px/1.45 system-ui;color:#23253C">A picture of the two of you. Ask someone else to take it.</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#C05A2B;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Photo</span>
+                    <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:5px 10px">Yesterday</span>
+                  </div>
+                </div>
+                <div style="width:8px;height:8px;border-top:1.6px solid #6E6A63;border-right:1.6px solid #6E6A63;transform:rotate(45deg);margin-top:9px;flex:none"></div>
+              </div>
+              <div style="flex:1;min-height:24px"></div>
+            </div>
+            <div style="padding:0 16px 10px;flex:none">
+              <div style="position:relative;height:56px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;box-shadow:0 4px 10px rgba(35,37,60,.06);display:grid;grid-template-columns:1fr 1fr 62px 1fr 1fr;align-items:center;justify-items:center">
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#C05A2B">Today</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Timeline</span>
+                <span></span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Moments</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Settings</span>
+                <div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:52px;height:52px;border-radius:999px;background:#C05A2B;border:4px solid #FDFAF4;display:grid;place-items:center;font:400 30px/1 Nunito,system-ui;color:#FFFDF9;padding-bottom:3px;box-sizing:border-box">+</div>
+              </div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">1c</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">The same weekend, member — three live, no locks</span>
+          </div>
+          <div data-screen-label="1c Weekend member" style="width:393px;min-height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="height:54px;flex:none"></div>
+            <div style="padding:0 16px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+                <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+                <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+              </div>
+              <div style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-left:4px">4 years old</div>
+            </div>
+            <div style="padding:22px 16px 0;display:flex;flex-direction:column;gap:12px;flex:1">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                    <div style="position:relative;width:18px;height:13px;border-radius:4px;background:#FFFDF9">
+                      <div style="position:absolute;left:3px;bottom:-3px;width:6px;height:6px;background:#FFFDF9;border-radius:0 0 2px 0"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:4px 9px">Question</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:12px 20px">Write it</span>
+                </div>
+              </div>
+
+              <div style="background:#FBEDE2;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#C05A2B;display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#FFFDF9;display:grid;place-items:center">
+                      <div style="width:7px;height:7px;border-radius:999px;background:#C05A2B"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#9A431E;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Photo</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Photograph the mess he made. Don't clean it up first.</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's mission</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#C05A2B;border-radius:999px;padding:12px 20px">Capture it</span>
+                </div>
+              </div>
+
+              <div style="background:#FBEDE2;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#C05A2B;display:grid;place-items:center;flex:none">
+                    <div style="display:flex;align-items:center;gap:2.5px;height:15px">
+                      <div style="width:2.5px;height:6px;border-radius:999px;background:#FFFDF9"></div>
+                      <div style="width:2.5px;height:14px;border-radius:999px;background:#FFFDF9"></div>
+                      <div style="width:2.5px;height:9px;border-radius:999px;background:#FFFDF9"></div>
+                      <div style="width:2.5px;height:13px;border-radius:999px;background:#FFFDF9"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#9A431E;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Voice</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Ask him to teach you something he's just learned.</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's mission</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#C05A2B;border-radius:999px;padding:12px 20px">Capture it</span>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Waiting</span>
+                <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:3px 8px">1</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+                <div style="width:30px;height:30px;border-radius:10px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                  <div style="width:16px;height:12px;border-radius:3.5px;background:#C05A2B;display:grid;place-items:center">
+                    <div style="width:6px;height:6px;border-radius:999px;background:#FDF3EC"></div>
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+                  <div style="font:400 16px/1.45 system-ui;color:#23253C">A picture of the two of you. Ask someone else to take it.</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#C05A2B;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Photo</span>
+                    <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:5px 10px">Yesterday</span>
+                  </div>
+                </div>
+                <div style="width:8px;height:8px;border-top:1.6px solid #6E6A63;border-right:1.6px solid #6E6A63;transform:rotate(45deg);margin-top:9px;flex:none"></div>
+              </div>
+              <div style="flex:1;min-height:24px"></div>
+            </div>
+            <div style="padding:0 16px 10px;flex:none">
+              <div style="position:relative;height:56px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;box-shadow:0 4px 10px rgba(35,37,60,.06);display:grid;grid-template-columns:1fr 1fr 62px 1fr 1fr;align-items:center;justify-items:center">
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#C05A2B">Today</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Timeline</span>
+                <span></span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Moments</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Settings</span>
+                <div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:52px;height:52px;border-radius:999px;background:#C05A2B;border:4px solid #FDFAF4;display:grid;place-items:center;font:400 30px/1 Nunito,system-ui;color:#FFFDF9;padding-bottom:3px;box-sizing:border-box">+</div>
+              </div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1d treatments -->
+      <div id="1d" style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">1d</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">The four treatments you asked to see, on cream at card width</span>
+          </div>
+          <div data-screen-label="1d Locked card treatments" style="width:425px;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:22px;padding:16px;display:flex;flex-direction:column;gap:22px">
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="font:400 11px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:#B4ADA3">A · surface + border · no shadow</div>
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center"><div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="font:400 11px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:#B4ADA3">B · surface + border · resting shadow y2 b8 4%</div>
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center"><div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="font:400 11px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:#B4ADA3">C · terracottaSoft @45% + border · resting shadow</div>
+              <div style="background:rgba(251,237,226,.45);border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center"><div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="font:400 11px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;color:#B4ADA3">D · A, with the footer glyph you asked for</div>
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center"><div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px;display:flex;align-items:center;gap:7px">
+                  <div style="width:15px;height:15px;border-radius:999px;border:1.5px solid #B4ADA3;display:grid;place-items:center;flex:none"><div style="width:5px;height:5px;border-radius:999px;background:#B4ADA3"></div></div>
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">MY PICK: A</div>
+            No shadow. At 4% over cream the shadow is not a legible difference at rest — but the locked card sits directly under a live one that has it, and the only way a parent ever perceives a 4% shadow is as a <span style="color:#23253C">difference</span> between two adjacent cards. Dropping it is the quietest available signal and costs nothing.
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">AGAINST C</div>
+            <span style="color:#23253C">terracottaSoft</span> at any opacity is the fill a <span style="color:#23253C">live</span> mission wears. Washing it makes the locked card look like a live mission rendering badly, which is the failure mode you named.
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">AGAINST D</div>
+            The kind glyph is already on the card, in the tile, 34pt. A second mark 13pt below it says nothing the first one didn't, and the system's own rule hides a glyph that repeats the text beside it. It also reads as the ring of a disabled control.
+          </div>
+        </div>
+      </div>
+
+      <!-- 1e AX1 -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">1e</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">AX1 — the largest step the card survives</span>
+          </div>
+          <div data-screen-label="1e AX1" style="width:393px;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden;display:flex;flex-direction:column">
+            <div style="height:54px;flex:none"></div>
+            <div style="padding:0 16px 24px;display:flex;flex-direction:column;gap:12px">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font:600 20px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <div style="width:56px;height:56px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                    <div style="position:relative;width:29px;height:21px;border-radius:6px;background:#FFFDF9">
+                      <div style="position:absolute;left:5px;bottom:-4px;width:9px;height:9px;background:#FFFDF9;border-radius:0 0 3px 0"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 20px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:5px 11px">Question</span>
+                </div>
+                <div style="font:400 33px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+                <div style="display:flex;flex-direction:column;align-items:stretch;gap:12px">
+                  <span style="font:400 21px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                  <span style="font:600 28px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:14px 22px;text-align:center">Write it</span>
+                </div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:56px;height:56px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:29px;height:21px;border-radius:6px;background:#C05A2B;display:grid;place-items:center"><div style="width:11px;height:11px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 20px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 33px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 21px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">WHAT SCALES</div>
+            body 16→<span style="color:#23253C">27</span> · prompt 20→<span style="color:#23253C">33</span> · metadata 13→<span style="color:#23253C">21</span><br>
+            label 12→<span style="color:#23253C">20</span> · glyph tile 34→<span style="color:#23253C">56</span> (radius stays 11)<br>
+            live card footer stacks rather than clipping — the rule <span style="color:#23253C">PromptCard</span> already has
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">IT SURVIVES — AND THAT'S THE PROBLEM</div>
+            Nothing clips, nothing truncates. But the locked card is now <span style="color:#23253C">~270pt tall</span>, and at AX1 a free parent's whole first screen is one question and one thing they don't have. At AX3 the pair alone is taller than the viewport.
+          </div>
+          <div>This is the strongest argument for <a href="#1f">1f</a>.</div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- 1f alternative -->
+    <sc-if value="{{ showQuiet }}" hint-placeholder-val="{{ true }}">
+    <div id="1f" style="display:flex;gap:28px;align-items:flex-start;border-top:1px solid #DCD3C6;padding-top:32px">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#C05A2B;padding:6px 8px;border-radius:6px">1f</span>
+          <span style="font:600 15px/1.2 system-ui;color:#23253C">The answer you said you'd take — no locked card, one quiet row (weekend)</span>
+        </div>
+        <div data-screen-label="1f Quiet row weekend" style="width:393px;min-height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+          <div style="height:54px;flex:none"></div>
+          <div style="padding:0 16px;display:flex;flex-direction:column;gap:4px;flex:none">
+            <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+              <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+              <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+            </div>
+            <div style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-left:4px">4 years old</div>
+          </div>
+          <div style="padding:22px 16px 0;display:flex;flex-direction:column;gap:12px;flex:1">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+              <div style="height:1px;background:#EDE5DA;flex:1"></div>
+            </div>
+
+            <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+              <div style="display:flex;align-items:center;gap:10px">
+                <div style="width:34px;height:34px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                  <div style="position:relative;width:18px;height:13px;border-radius:4px;background:#FFFDF9">
+                    <div style="position:absolute;left:3px;bottom:-3px;width:6px;height:6px;background:#FFFDF9;border-radius:0 0 2px 0"></div>
+                  </div>
+                </div>
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:4px 9px">Question</span>
+              </div>
+              <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:12px 20px">Write it</span>
+              </div>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px">
+              <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span>
+              <span style="font:600 13px/1.4 system-ui;color:#9A431E">See what's included</span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+              <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Waiting</span>
+              <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:3px 8px">1</span>
+              <div style="height:1px;background:#EDE5DA;flex:1"></div>
+            </div>
+            <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+              <div style="width:30px;height:30px;border-radius:10px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                <div style="width:16px;height:12px;border-radius:3.5px;background:#C05A2B;display:grid;place-items:center"><div style="width:6px;height:6px;border-radius:999px;background:#FDF3EC"></div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;flex:1">
+                <div style="font:400 16px/1.45 system-ui;color:#23253C">A picture of the two of you. Ask someone else to take it.</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#C05A2B;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px">Photo</span>
+                  <span style="font:400 13px/1 system-ui;color:#6E6A63;background:#F4EEE5;border-radius:999px;padding:5px 10px">Yesterday</span>
+                </div>
+              </div>
+              <div style="width:8px;height:8px;border-top:1.6px solid #6E6A63;border-right:1.6px solid #6E6A63;transform:rotate(45deg);margin-top:9px;flex:none"></div>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:10px;padding-top:10px">
+              <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Done today</span>
+              <div style="height:1px;background:#EDE5DA;flex:1"></div>
+            </div>
+            <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:18px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+              <div style="width:26px;height:26px;border-radius:999px;background:#5566D6;display:grid;place-items:center;flex:none">
+                <div style="width:10px;height:5px;border-left:2px solid #FFFDF9;border-bottom:2px solid #FFFDF9;transform:rotate(-45deg);margin-top:-3px"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px;flex:1">
+                <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Record him telling you about his day.</div>
+                <div style="font:400 13px/1.4 system-ui;color:#6E6A63">Voice · 6:30 PM</div>
+              </div>
+            </div>
+            <div style="flex:1;min-height:24px"></div>
+          </div>
+          <div style="padding:0 16px 10px;flex:none">
+            <div style="position:relative;height:56px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;box-shadow:0 4px 10px rgba(35,37,60,.06);display:grid;grid-template-columns:1fr 1fr 62px 1fr 1fr;align-items:center;justify-items:center">
+              <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#C05A2B">Today</span>
+              <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Timeline</span>
+              <span></span>
+              <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Moments</span>
+              <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Settings</span>
+              <div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:52px;height:52px;border-radius:999px;background:#C05A2B;border:4px solid #FDFAF4;display:grid;place-items:center;font:400 30px/1 Nunito,system-ui;color:#FFFDF9;padding-bottom:3px;box-sizing:border-box">+</div>
+            </div>
+          </div>
+          <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+        </div>
+      </div>
+
+      <div style="width:300px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+        <div>
+          <div style="color:#23253C;font-weight:700;letter-spacing:.04em">THE ROW</div>
+          No card, no fill, no hairline, no glyph. <span style="color:#23253C">metadata</span> 13 <span style="color:#23253C">inkMuted</span> left, action right, inset <span style="color:#23253C">4</span> from the card edge, sitting in the same <span style="color:#23253C">12</span> card gap. It is a caption on the day, not an item in it.
+        </div>
+        <div>
+          <div style="color:#23253C;font-weight:700;letter-spacing:.04em">WHY THIS WINS</div>
+          One row is identical on a weekday and a weekend, so the free board never grows a second and third reminder as the week ends. It cannot read as an error state, a disabled control or an ad, because it is not a control. And it survives AX3, which the card does not.
+        </div>
+        <div>
+          <div style="color:#23253C;font-weight:700;letter-spacing:.04em">WHAT IT COSTS</div>
+          The free parent stops learning what a mission <span style="color:#23253C">is</span>. <a href="#1a">1a</a> teaches "a picture of him, and the reason you took it" every morning; this teaches nothing. If that education is the point of the locked card, keep the card — but then the honest version is one card, not two on a weekend.
+        </div>
+        <div>
+          <div style="color:#23253C;font-weight:700;letter-spacing:.04em">COPY ⚠</div>
+          Both strings are verbatim (§1 footer, §3 notice action). Neither was written for this row. A one-line form belongs in the file — proposed, not drawn: <span style="color:#23253C">Missions are included with membership.</span>
+        </div>
+        <div>
+          <div style="color:#23253C;font-weight:700;letter-spacing:.04em">CONTRAST ⚠</div>
+          Action drawn in <span style="color:#23253C">terracottaDeep</span> (6.31:1). <span style="color:#23253C">terracotta</span> at 13pt measures <span style="color:#23253C">4.26:1</span> on canvas and fails AA. Same substitution everywhere terracotta carries a small string below.
+        </div>
+      </div>
+    </div>
+    </sc-if>
+  </div>
+
+  <!-- ══════════════════ SURFACE 2 ══════════════════ -->
+  <div style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid #DCD3C6;padding-top:18px">
+      <div style="font:400 12px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">Surface 2</div>
+      <div style="font:800 24px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The membership sheet</div>
+    </div>
+
+    <div style="display:flex;gap:56px;flex-wrap:wrap;align-items:flex-start">
+
+      <!-- 2a -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">2a</span>
+          <span style="font:600 15px/1.2 system-ui;color:#23253C">Default — annual selected</span>
+        </div>
+        <div data-screen-label="2a Sheet annual" style="width:393px;height:852px;position:relative;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+          <div style="position:absolute;inset:0;background:#FDFAF4"></div>
+          <div style="position:absolute;top:54px;left:16px;right:16px;display:flex;flex-direction:column;gap:4px">
+            <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+              <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+              <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+            </div>
+          </div>
+          <div style="position:absolute;inset:0;background:rgba(35,37,60,.40)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:96px;background:#FDFAF4;border-radius:28px 28px 0 0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="display:grid;place-items:center;padding:8px 0 2px;flex:none"><div style="width:36px;height:5px;border-radius:999px;background:#EDE5DA"></div></div>
+            <div style="flex:1;overflow:hidden;padding:14px 16px 0;display:flex;flex-direction:column;gap:22px">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="font:700 26px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The daily question is always free.</div>
+                <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Membership is what fills in the rest of the day.</div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What membership adds</div>
+                <div style="display:flex;flex-direction:column;gap:11px">
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">A mission every day — a photo, a video, his voice, or something to do together</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Three on Saturdays and Sundays</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">The monthly measurement, and letters you seal until he's old enough</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Video, and photographs without a limit</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">His other parent, on the same archive</div></div>
+                </div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What stays free, always</div>
+                <div style="display:flex;flex-direction:column;gap:9px">
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">A question every day, forever</div>
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Everything you've already written or captured</div>
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Search, and a full export of the whole archive</div>
+                </div>
+              </div>
+
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="background:#FBEDE2;border:1.5px solid #C05A2B;border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$59.99 a year</span>
+                    <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#9A431E;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px;align-self:flex-start">Two months free</span>
+                  </div>
+                </div>
+                <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$5.99 a month</span>
+                </div>
+                <div style="font:400 13px/1.4 system-ui;color:#B4ADA3;padding:2px 2px 0">One membership covers the whole family — every child, both parents.</div>
+              </div>
+              <div style="height:26px;flex:none"></div>
+            </div>
+            <div style="flex:none;padding:0 16px 14px;background:linear-gradient(to bottom,rgba(253,250,244,0),#FDFAF4 26px);display:flex;flex-direction:column;gap:14px;padding-top:26px">
+              <div style="background:#C05A2B;border-radius:999px;padding:16px 20px;text-align:center;font:600 17px/1 Nunito,system-ui;color:#FFFDF9">Become a member</div>
+              <div style="text-align:center;font:400 17px/1 system-ui;color:#6E6A63;text-decoration:underline;text-underline-offset:3px">Not now</div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2b -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">2b</span>
+          <span style="font:600 15px/1.2 system-ui;color:#23253C">Monthly selected</span>
+        </div>
+        <div data-screen-label="2b Sheet monthly" style="width:393px;height:852px;position:relative;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+          <div style="position:absolute;inset:0;background:rgba(35,37,60,.40)"></div>
+          <div style="position:absolute;left:0;right:0;bottom:0;top:96px;background:#FDFAF4;border-radius:28px 28px 0 0;display:flex;flex-direction:column;overflow:hidden">
+            <div style="display:grid;place-items:center;padding:8px 0 2px;flex:none"><div style="width:36px;height:5px;border-radius:999px;background:#EDE5DA"></div></div>
+            <div style="flex:1;overflow:hidden;padding:14px 16px 0;display:flex;flex-direction:column;gap:22px">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="font:700 26px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The daily question is always free.</div>
+                <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Membership is what fills in the rest of the day.</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:12px">
+                <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What membership adds</div>
+                <div style="display:flex;flex-direction:column;gap:11px">
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">A mission every day — a photo, a video, his voice, or something to do together</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Three on Saturdays and Sundays</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">The monthly measurement, and letters you seal until he's old enough</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Video, and photographs without a limit</div></div>
+                  <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">His other parent, on the same archive</div></div>
+                </div>
+              </div>
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What stays free, always</div>
+                <div style="display:flex;flex-direction:column;gap:9px">
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">A question every day, forever</div>
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Everything you've already written or captured</div>
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Search, and a full export of the whole archive</div>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:5px">
+                    <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$59.99 a year</span>
+                    <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#9A431E;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px;align-self:flex-start">Two months free</span>
+                  </div>
+                </div>
+                <div style="background:#FBEDE2;border:1.5px solid #C05A2B;border-radius:18px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$5.99 a month</span>
+                </div>
+                <div style="font:400 13px/1.4 system-ui;color:#B4ADA3;padding:2px 2px 0">One membership covers the whole family — every child, both parents.</div>
+              </div>
+              <div style="height:26px;flex:none"></div>
+            </div>
+            <div style="flex:none;padding:26px 16px 14px;background:linear-gradient(to bottom,rgba(253,250,244,0),#FDFAF4 26px);display:flex;flex-direction:column;gap:14px">
+              <div style="background:#C05A2B;border-radius:999px;padding:16px 20px;text-align:center;font:600 17px/1 Nunito,system-ui;color:#FFFDF9">Become a member</div>
+              <div style="text-align:center;font:400 17px/1 system-ui;color:#6E6A63;text-decoration:underline;text-underline-offset:3px">Not now</div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2c -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">2c</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">StoreKit unavailable — price row replaced, primary hidden</span>
+          </div>
+          <div data-screen-label="2c Sheet storekit unavailable" style="width:393px;height:852px;position:relative;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="position:absolute;inset:0;background:rgba(35,37,60,.40)"></div>
+            <div style="position:absolute;left:0;right:0;bottom:0;top:96px;background:#FDFAF4;border-radius:28px 28px 0 0;display:flex;flex-direction:column;overflow:hidden">
+              <div style="display:grid;place-items:center;padding:8px 0 2px;flex:none"><div style="width:36px;height:5px;border-radius:999px;background:#EDE5DA"></div></div>
+              <div style="flex:1;overflow:hidden;padding:14px 16px 0;display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <div style="font:700 26px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The daily question is always free.</div>
+                  <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Membership is what fills in the rest of the day.</div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What membership adds</div>
+                  <div style="display:flex;flex-direction:column;gap:11px">
+                    <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">A mission every day — a photo, a video, his voice, or something to do together</div></div>
+                    <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Three on Saturdays and Sundays</div></div>
+                    <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">The monthly measurement, and letters you seal until he's old enough</div></div>
+                    <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Video, and photographs without a limit</div></div>
+                    <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">His other parent, on the same archive</div></div>
+                  </div>
+                </div>
+                <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                  <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What stays free, always</div>
+                  <div style="display:flex;flex-direction:column;gap:9px">
+                    <div style="font:400 16px/1.45 system-ui;color:#6E6A63">A question every day, forever</div>
+                    <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Everything you've already written or captured</div>
+                    <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Search, and a full export of the whole archive</div>
+                  </div>
+                </div>
+                <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:14px;display:flex;align-items:flex-start;gap:11px">
+                  <div style="width:18px;height:18px;border-radius:999px;border:1.6px solid #6E6A63;display:grid;place-items:center;flex:none;margin-top:1px"><span style="font:800 10px/1 Nunito,system-ui;color:#6E6A63">i</span></div>
+                  <div style="font:400 13px/1.4 system-ui;color:#6E6A63">Membership isn't open yet. The daily question is, and everything you write is yours either way.</div>
+                </div>
+                <div style="height:26px;flex:none"></div>
+              </div>
+              <div style="flex:none;padding:26px 16px 14px;background:linear-gradient(to bottom,rgba(253,250,244,0),#FDFAF4 26px)">
+                <div style="text-align:center;font:400 17px/1 system-ui;color:#6E6A63;text-decoration:underline;text-underline-offset:3px">Not now</div>
+              </div>
+              <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">SHEET</div>
+            ground <span style="color:#23253C">canvas</span> · top corners <span style="color:#23253C">28</span> · scrim <span style="color:#23253C">ink @40%</span><br>
+            title <span style="color:#23253C">detail title</span> 26 rounded · subtitle <span style="color:#23253C">body</span>/<span style="color:#23253C">inkMuted</span><br>
+            blocks stack <span style="color:#23253C">22</span> (grouped-screen rule)<br>
+            SectionLabel→content <span style="color:#23253C">9–12</span>
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">FREE BLOCK</div>
+            <span style="color:#23253C">surface</span> · <span style="color:#23253C">border</span> · radius <span style="color:#23253C">14</span> (media inset) · padding <span style="color:#23253C">16</span><br>
+            all copy <span style="color:#23253C">inkMuted</span> at <span style="color:#23253C">body</span> 16, not metadata — the Field vocabulary, so it reads as a stated fact rather than a footnote
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">PLAN ROWS</div>
+            two rows, radius <span style="color:#23253C">18</span> (compact row) · <span style="color:#23253C">14/16</span><br>
+            selected <span style="color:#23253C">terracottaSoft</span> + <span style="color:#23253C">1.5px terracotta</span><br>
+            unselected <span style="color:#23253C">surface</span> + <span style="color:#23253C">1px border</span> · no check mark<br>
+            caption <span style="color:#23253C">terracottaDeep</span> on terracotta@12% (5.73:1)
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">ACTIONS</div>
+            pinned on <span style="color:#23253C">PinnedActionBackdrop</span>, <span style="color:#23253C">26</span> above<br>
+            primary <span style="color:#23253C">PrimaryButtonStyle</span> 20/16, full width<br>
+            <span style="color:#23253C">Not now</span> = <span style="color:#23253C">OnboardingSecondaryButton</span> — underlined <span style="color:#23253C">inkMuted</span> at 17, the primary's own label size<br>
+            unavailable: notice at radius <span style="color:#23253C">14</span>, primary <span style="color:#23253C">absent</span>, not disabled
+          </div>
+          <div style="color:#9A431E">⚠ primary label is <span style="color:#23253C">surface</span> on <span style="color:#23253C">terracotta</span> = 4.26:1 at 17pt semibold. Fails AA. Fix is <span style="color:#23253C">terracottaDeep</span> as the resting fill (6.31:1) — a palette decision, not a mockup one.</div>
+        </div>
+      </div>
+
+      <!-- 2d -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">2d</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">Scrolled, 375×667 — the list below the fold</span>
+          </div>
+          <div data-screen-label="2d Sheet scrolled small phone" style="width:375px;height:667px;position:relative;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:26px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="position:absolute;inset:0;background:rgba(35,37,60,.40)"></div>
+            <div style="position:absolute;left:0;right:0;bottom:0;top:44px;background:#FDFAF4;border-radius:28px 28px 0 0;display:flex;flex-direction:column;overflow:hidden">
+              <div style="display:grid;place-items:center;padding:8px 0 2px;flex:none"><div style="width:36px;height:5px;border-radius:999px;background:#EDE5DA"></div></div>
+              <div style="flex:1;overflow:hidden;position:relative">
+                <div style="position:absolute;left:0;right:0;top:-232px;padding:14px 16px 0;display:flex;flex-direction:column;gap:22px">
+                  <div style="display:flex;flex-direction:column;gap:8px">
+                    <div style="font:700 26px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The daily question is always free.</div>
+                    <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Membership is what fills in the rest of the day.</div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:12px">
+                    <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What membership adds</div>
+                    <div style="display:flex;flex-direction:column;gap:11px">
+                      <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">A mission every day — a photo, a video, his voice, or something to do together</div></div>
+                      <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Three on Saturdays and Sundays</div></div>
+                      <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">The monthly measurement, and letters you seal until he's old enough</div></div>
+                      <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">Video, and photographs without a limit</div></div>
+                      <div style="display:flex;gap:11px"><div style="width:5px;height:5px;border-radius:999px;background:#C05A2B;flex:none;margin-top:9px"></div><div style="font:400 16px/1.45 system-ui;color:#23253C">His other parent, on the same archive</div></div>
+                    </div>
+                  </div>
+                  <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                    <div style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">What stays free, always</div>
+                    <div style="display:flex;flex-direction:column;gap:9px">
+                      <div style="font:400 16px/1.45 system-ui;color:#6E6A63">A question every day, forever</div>
+                      <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Everything you've already written or captured</div>
+                      <div style="font:400 16px/1.45 system-ui;color:#6E6A63">Search, and a full export of the whole archive</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:10px">
+                    <div style="background:#FBEDE2;border:1.5px solid #C05A2B;border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:5px">
+                      <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$59.99 a year</span>
+                      <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#9A431E;background:rgba(192,90,43,.12);border-radius:999px;padding:4px 9px;align-self:flex-start">Two months free</span>
+                    </div>
+                    <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:18px;padding:14px 16px">
+                      <span style="font:600 17px/1.25 Nunito,system-ui;color:#23253C">$5.99 a month</span>
+                    </div>
+                    <div style="font:400 13px/1.4 system-ui;color:#B4ADA3;padding:2px 2px 0">One membership covers the whole family — every child, both parents.</div>
+                  </div>
+                </div>
+              </div>
+              <div style="flex:none;padding:26px 16px 12px;background:linear-gradient(to bottom,rgba(253,250,244,0),#FDFAF4 26px);display:flex;flex-direction:column;gap:12px">
+                <div style="background:#C05A2B;border-radius:999px;padding:16px 20px;text-align:center;font:600 17px/1 Nunito,system-ui;color:#FFFDF9">Become a member</div>
+                <div style="text-align:center;font:400 17px/1 system-ui;color:#6E6A63;text-decoration:underline;text-underline-offset:3px">Not now</div>
+              </div>
+              <div style="height:20px;display:grid;place-items:center;flex:none"><div style="width:120px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">WHAT THIS SHOWS</div>
+            On a 667pt phone the title and the first two adds are above the fold; everything from the free block down needs a scroll. The pinned action never moves, so the sheet is never a page you have to reach the end of to escape.
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">DETENT</div>
+            sized to measured content, seeded ~<span style="color:#23253C">700</span>, <span style="color:#23253C">.large</span> kept in the set for the accessibility sizes — the <span style="color:#23253C">AddToArchiveSheet</span> rule. Not <span style="color:#23253C">.medium</span>.
+          </div>
+          <div style="color:#9A431E">⚠ At AX sizes this sheet is long. It scrolls fine, but the <span style="color:#23253C">what stays free</span> block ends up two screens from the title — which is where a paywall's fine print lives. If that matters, the block moves directly under the subtitle and the adds list goes below it.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ SURFACE 3 ══════════════════ -->
+  <div style="display:flex;flex-direction:column;gap:28px">
+    <div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid #DCD3C6;padding-top:18px">
+      <div style="font:400 12px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:#B4ADA3">Surface 3</div>
+      <div style="font:800 24px/1.2 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">The trial welcome, and the one notice after it</div>
+    </div>
+
+    <div style="display:flex;gap:56px;flex-wrap:wrap;align-items:flex-start">
+
+      <!-- 3a -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">3a</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">Once, after first sign-in, before the first Today</span>
+          </div>
+          <div data-screen-label="3a Trial welcome" style="width:393px;height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="height:54px;flex:none"></div>
+            <div style="flex:1;padding:72px 28px 0;display:flex;flex-direction:column;gap:14px">
+              <div style="font:800 34px/1.1 Nunito,system-ui;letter-spacing:-.02em;color:#23253C">Two weeks, everything open.</div>
+              <div style="font:400 16px/1.45 system-ui;color:#6E6A63">No card, nothing to cancel. After two weeks the daily question keeps going, free, and the missions become part of membership.</div>
+            </div>
+            <div style="flex:none;padding:26px 28px 20px;background:linear-gradient(to bottom,rgba(253,250,244,0),#FDFAF4 26px)">
+              <div style="background:#C05A2B;border-radius:999px;padding:16px 20px;text-align:center;font:600 17px/1 Nunito,system-ui;color:#FFFDF9">Start</div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">SCREEN</div>
+            ground <span style="color:#23253C">canvas</span>, plain · margin <span style="color:#23253C">28</span> (onboarding)<br>
+            content starts <span style="color:#23253C">72</span> from the top<br>
+            title <span style="color:#23253C">display</span> 34 bold rounded · body <span style="color:#23253C">body</span> 16 <span style="color:#23253C">inkMuted</span>, gap <span style="color:#23253C">14</span><br>
+            action in a bottom <span style="color:#23253C">safeAreaInset</span> on <span style="color:#23253C">PinnedActionBackdrop</span>, never behind a Spacer
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">DECISION</div>
+            No <span style="color:#23253C">Gradients.wash</span>. The wash is reserved to the welcome screen and this screen comes <span style="color:#23253C">after</span> sign-in, so it is a step, and steps are plain canvas. If you read it as an emotional beat instead, it takes the wash at 55% — say which.
+          </div>
+          <div>No progress bar: this is not one of the six setup steps, and a rail of one is a control that lies.</div>
+        </div>
+      </div>
+
+      <!-- 3b -->
+      <div style="display:flex;gap:28px;align-items:flex-start">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:800 12px/1 Nunito,system-ui;letter-spacing:.06em;color:#FFFDF9;background:#23253C;padding:6px 8px;border-radius:6px">3b</span>
+            <span style="font:600 15px/1.2 system-ui;color:#23253C">The post-trial notice, at the top of the board, once</span>
+          </div>
+          <div data-screen-label="3b Post-trial notice" style="width:393px;min-height:852px;display:flex;flex-direction:column;background:#FDFAF4;border:1px solid #E2D9CC;border-radius:30px;box-shadow:0 18px 44px rgba(35,37,60,.12);overflow:hidden">
+            <div style="height:54px;flex:none"></div>
+            <div style="padding:0 16px;display:flex;flex-direction:column;gap:4px;flex:none">
+              <div style="display:inline-flex;align-self:flex-start;align-items:center;gap:8px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;padding:6px 14px 6px 6px">
+                <div style="width:30px;height:30px;border-radius:999px;background:#C05A2B;display:grid;place-items:center;font:700 13px/1 system-ui;color:#FFFDF9">M</div>
+                <span style="font:600 17px/1.25 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">Milo</span>
+              </div>
+              <div style="font:400 13px/1.4 system-ui;color:#6E6A63;padding-left:4px">4 years old</div>
+            </div>
+            <div style="padding:18px 16px 0;display:flex;flex-direction:column;gap:12px;flex:1">
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:14px;padding:14px;display:flex;align-items:flex-start;gap:11px">
+                <div style="width:18px;height:18px;border-radius:999px;border:1.6px solid #6E6A63;display:grid;place-items:center;flex:none;margin-top:1px"><span style="font:800 10px/1 Nunito,system-ui;color:#6E6A63">i</span></div>
+                <div style="display:flex;flex-direction:column;gap:10px;flex:1">
+                  <div style="font:400 13px/1.4 system-ui;color:#6E6A63">Your two weeks are up. The daily question keeps going, free, forever. The missions are part of membership whenever you want them.</div>
+                  <div style="display:flex;align-items:center;gap:18px">
+                    <span style="font:600 13px/1.4 system-ui;color:#9A431E">See what's included</span>
+                    <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Dismiss</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:10px;padding-top:6px">
+                <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63;flex:none">Today</span>
+                <div style="height:1px;background:#EDE5DA;flex:1"></div>
+              </div>
+
+              <div style="background:#E9EBFB;border:1px solid #DADDF7;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,.04)">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:#5566D6;display:grid;place-items:center;flex:none">
+                    <div style="position:relative;width:18px;height:13px;border-radius:4px;background:#FFFDF9">
+                      <div style="position:absolute;left:3px;bottom:-3px;width:6px;height:6px;background:#FFFDF9;border-radius:0 0 2px 0"></div>
+                    </div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#3F4FB0;background:rgba(85,102,214,.12);border-radius:999px;padding:4px 9px">Question</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#23253C">What's a word he says wrong that you'd miss if he stopped?</div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+                  <span style="font:400 13px/1.4 system-ui;color:#6E6A63">Today's question</span>
+                  <span style="font:600 17px/1 Nunito,system-ui;color:#FFFDF9;background:#5566D6;border-radius:999px;padding:12px 20px">Write it</span>
+                </div>
+              </div>
+
+              <div style="background:#FFFDF9;border:1px solid #EDE5DA;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="width:34px;height:34px;border-radius:11px;background:rgba(192,90,43,.12);display:grid;place-items:center;flex:none">
+                    <div style="width:18px;height:13px;border-radius:4px;background:#C05A2B;display:grid;place-items:center"><div style="width:7px;height:7px;border-radius:999px;background:#FDF3EC"></div></div>
+                  </div>
+                  <span style="font:600 12px/1.2 system-ui;letter-spacing:.6px;text-transform:uppercase;color:#6E6A63">Today's photo mission</span>
+                </div>
+                <div style="font:400 20px/1.3 Nunito,system-ui;letter-spacing:-.01em;color:#6E6A63">A picture of him, and the reason you took it.</div>
+                <div style="border-top:1px solid #EDE5DA;padding-top:12px"><span style="font:400 13px/1.4 system-ui;color:#6E6A63">Included with membership</span></div>
+              </div>
+
+              <div style="flex:1;min-height:24px"></div>
+            </div>
+            <div style="padding:0 16px 10px;flex:none">
+              <div style="position:relative;height:56px;background:#FFFDF9;border:1px solid #EDE5DA;border-radius:999px;box-shadow:0 4px 10px rgba(35,37,60,.06);display:grid;grid-template-columns:1fr 1fr 62px 1fr 1fr;align-items:center;justify-items:center">
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#C05A2B">Today</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Timeline</span>
+                <span></span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Moments</span>
+                <span style="font:600 10px/1 system-ui;letter-spacing:.3px;text-transform:uppercase;color:#6E6A63">Settings</span>
+                <div style="position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:52px;height:52px;border-radius:999px;background:#C05A2B;border:4px solid #FDFAF4;display:grid;place-items:center;font:400 30px/1 Nunito,system-ui;color:#FFFDF9;padding-bottom:3px;box-sizing:border-box">+</div>
+              </div>
+            </div>
+            <div style="height:22px;display:grid;place-items:center;flex:none"><div style="width:134px;height:5px;border-radius:999px;background:rgba(35,37,60,.22)"></div></div>
+          </div>
+        </div>
+
+        <div style="width:262px;display:flex;flex-direction:column;gap:16px;padding-top:44px;font:400 11.5px/1.65 ui-monospace,Menlo,monospace;color:#6E6A63">
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">NOTICE</div>
+            <span style="color:#23253C">surface</span> · radius <span style="color:#23253C">14</span> · <span style="color:#23253C">border</span> hairline · padding <span style="color:#23253C">14</span><br>
+            info glyph <span style="color:#23253C">inkMuted</span> 18, top-aligned<br>
+            copy <span style="color:#23253C">metadata</span> 13 <span style="color:#23253C">inkMuted</span><br>
+            sits above <span style="color:#23253C">Today</span>, per the TodayBoard row order
+          </div>
+          <div>
+            <div style="color:#23253C;font-weight:700;letter-spacing:.04em">DECISION</div>
+            <span style="color:#23253C">Notice</span> is specified with <span style="color:#23253C">one</span> terracotta dismiss. This one needs two actions. I put the membership action first in <span style="color:#23253C">terracottaDeep</span> semibold and <span style="color:#23253C">Dismiss</span> beside it in plain <span style="color:#23253C">inkMuted</span> — so the row still has exactly one thing that looks like an action.
+          </div>
+          <div style="color:#9A431E">⚠ Both action labels are 13pt. <span style="color:#23253C">terracotta</span> there is 4.26:1 — drawn in <span style="color:#23253C">terracottaDeep</span> (6.31:1) instead.</div>
+          <div>Notice actions stack under the copy rather than sitting on its trailing edge: at AX sizes a three-line sentence plus two labels on one row cannot fit 361pt.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;direction&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Both&quot;,&quot;Locked card only&quot;,&quot;Quiet line only&quot;],&quot;default&quot;:&quot;Both&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Surface 1&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const d = this.props.direction ?? "Both";
+    return {
+      showLocked: d !== "Quiet line only",
+      showQuiet: d !== "Locked card only"
+    };
+  }
+}
+</script>
+</body>
+</html>
