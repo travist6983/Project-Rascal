@@ -143,8 +143,18 @@ async def set_trial_ends_at(
 
     `None` clears the trial. That is a real value rather than a reset: a household with a null
     `trial_ends_at` has no trial, which is not the same as one whose trial ended.
+
+    **Deliberately not :func:`entitlement_for`, and the difference is a 500 versus a 404.**
+    That function treats a missing row as an internal error, correctly — every other caller
+    reaches it through the caller's own `users.family_id`, so an absent entitlement there is a
+    broken invariant rather than a bad input. This one takes an id **a human typed into a
+    console**, where a wrong one is a typo. Routing a typo through the internal-error branch
+    would turn a mistyped UUID into a 500 and make a `# pragma: no cover` line reachable from
+    an HTTP route.
     """
-    entitlement = await entitlement_for(session, family_id)
+    entitlement = await session.get(Entitlement, family_id)
+    if entitlement is None:
+        raise not_found("Household")
     entitlement.trial_ends_at = trial_ends_at
     await session.flush()
     return entitlement

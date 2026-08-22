@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import datetime as dt
 import pathlib
+import uuid
 
 import sqlalchemy as sa
 from httpx import AsyncClient
@@ -940,6 +941,29 @@ async def test_the_admin_lever_moves_a_household_between_free_and_trial(
     )
     assert cleared.json()["access"] == "free"
     assert cleared.json()["trial_ends_at"] is None
+
+
+async def test_the_admin_lever_404s_on_a_household_that_does_not_exist(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**A typo is a 404, not a 500**, and before this test it was a 500.
+
+    The lever takes a household id a human typed into a console. Routed through
+    `entitlement_for` — which treats a missing row as an internal error, correctly, because
+    every *other* caller reaches it through the caller's own `users.family_id` — a mistyped
+    UUID became a 500 and made a `# pragma: no cover` branch reachable from an HTTP route.
+    """
+    admin = await make_user(session, display_name="Owner")
+    admin.is_admin = True
+    await session.commit()
+
+    response = await client.put(
+        f"/v1/admin/families/{uuid.uuid4()}/trial",
+        headers=auth_headers(admin),
+        json={"trial_ends_at": None},
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "not_found"
 
 
 async def test_the_admin_lever_refuses_a_caller_who_is_not_an_admin(
