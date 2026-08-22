@@ -27,6 +27,17 @@ struct TodayBoardView: View {
     var onSkip: (TodayBoard.BoardItem) -> Void = { _ in }
     var onUndoSkip: () -> Void = {}
     var onDismissNotice: () -> Void = {}
+
+    /// The one-time note shown on the first board after the trial ends.
+    ///
+    /// **Its own slot, not `notice`.** That string is the transport-and-expiry channel: it is
+    /// overwritten by any `APIError` and cleared by `onDismissNotice`. Routing a once-ever
+    /// presentation through it would let a dropped request either spend the flag or silently
+    /// replace the sentence, and which one happened would depend on network timing.
+    var membershipNotice: String?
+    var onOpenMembership: () -> Void = {}
+    var onDismissMembershipNotice: () -> Void = {}
+
     var onSwitchChild: (() -> Void)?
     /// TESTING ONLY — rebuilds today as one assignment per kind, because the real scheduler fills
     /// slots and cannot produce one of every kind on demand, which is what exercising the photo and
@@ -41,6 +52,20 @@ struct TodayBoardView: View {
             header
 
             if let notice { noticeBanner(notice) }
+
+            // **Above "Today", per the design's board order**, and below the transport notice — a
+            // dropped request is about right now and outranks a note about the fortnight that just
+            // ended.
+            if let membershipNotice {
+                Notice(
+                    text: membershipNotice,
+                    primaryLabel: MembershipCopy.postTrialOpen,
+                    onPrimary: onOpenMembership,
+                    onDismiss: onDismissMembershipNotice,
+                    dismissLabel: MembershipCopy.postTrialDismiss
+                )
+                .plainRow()
+            }
 
             // `failures`/`onEdit` are plumbed here for completeness rather than because this
             // section reaches them: `TodayBoard.merge` routes anything with a local entry into
@@ -58,6 +83,24 @@ struct TodayBoardView: View {
                     onRetry: onRetry,
                     onRetryAll: { onRetryAll(item) }
                 )
+            }
+
+            // **Below the live prompts, above `waiting`.**
+            //
+            // Deliberately *inside* the "Today" grouping rather than under a heading of its own:
+            // these are today's slots, and a `SectionLabel` over them would be a second, quieter
+            // board — which is a place a parent's eye learns to skip and, worse, a place a count
+            // could one day be attached to. There is no header and **there is no count**; the copy
+            // file's first rule is that nothing anywhere counts locked items.
+            //
+            // `id: \.slot` rather than the array index, so the `List` re-uses rows correctly when
+            // the set changes — a Saturday's four become a Monday's one.
+            ForEach(board.locked) { locked in
+                LockedPromptCard(locked: locked, onOpenMembership: onOpenMembership)
+                    // **No `swipeActions`.** The row above this one has a skip; this one must not.
+                    // A lock you can dismiss becomes a thing to dismiss every morning, and there is
+                    // nothing to decline — it was never offered.
+                    .plainRow()
             }
 
             section("Waiting", board.waiting, count: board.waiting.count) { item in
@@ -179,7 +222,8 @@ struct TodayBoardView: View {
         .forBoard(
             today: board.today.count,
             waiting: board.waiting.count,
-            doneToday: board.doneToday.count
+            doneToday: board.doneToday.count,
+            locked: board.locked.count
         )
     }
 

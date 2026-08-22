@@ -57,8 +57,9 @@ struct GuardiansSection: View {
         ) {
             // **Phase 37b: this is a purchase now.** Phase 61 shipped the same surface with no
             // StoreKit behind it deliberately — 37 owned that and a "coming soon" would have been
-            // furniture for months. Its copy is unchanged and lives in `PaywallSheet.Context`.
-            PaywallSheet(model: subscription, context: .secondParent) {
+            // furniture for months. Phase 108 retired the per-context copy: the copy file specifies one
+            // sheet, and the second-parent claim is now a row in *what membership adds*.
+            PaywallSheet(model: subscription) {
                 model.upgradeDismissed()
                 // The household may be subscribed now, and this section is showing the tier it
                 // had when it loaded. Re-read rather than leave the invite row refusing on a

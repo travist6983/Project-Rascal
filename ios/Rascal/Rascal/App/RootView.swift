@@ -88,6 +88,16 @@ struct RootView: View {
     /// completion check on a prompt with nothing behind it. `WidgetSnapshotSync` reads this model
     /// from the root, where nothing tears it down.
     @State private var todayModel: TodayModel
+    /// **One `SubscriptionModel` above every tab, and there must be exactly one.**
+    ///
+    /// It was `@State` inside `SettingsScreen`, which was correct while Settings was the only door
+    /// to the membership sheet. Phase 108 adds a second — a locked card on Today — and two
+    /// instances would be two `GET /v1/families/me` readers and two opinions about which plan is
+    /// selected, which is the duplication `GuardiansSection` already warns about for the same type.
+    ///
+    /// Owned here for the same reason `todayModel` is: a tab switch destroys the screen, and this
+    /// must outlive that.
+    @State private var subscription: SubscriptionModel?
     @State private var tab: Tab = .today
     @State private var composer: ComposerRequest?
     /// An assignment the widget asked for, waiting for Today to have a board to resolve it
@@ -231,6 +241,7 @@ struct RootView: View {
             if avatarSync == nil {
                 avatarSync = AvatarSync(api: session.api)
             }
+            if subscription == nil { subscription = SubscriptionModel(api: session.api) }
             if sync == nil {
                 sync = EntrySync(
                     api: session.api,
@@ -490,6 +501,7 @@ struct RootView: View {
                         onSwitchChild: onSwitchChild,
                         onSync: { await runSweep() },
                         openComposer: { composer = $0 },
+                        subscription: subscription,
                         model: todayModel
                     )
                 case .timeline:
@@ -514,7 +526,8 @@ struct RootView: View {
                         transcription: transcription,
                         notifications: notifications,
                         onTimezoneResolved: { resolvedTimezone = $0 },
-                        onPromptSubjectChanged: { resolvedPromptSubject = $0 }
+                        onPromptSubjectChanged: { resolvedPromptSubject = $0 },
+                        subscription: subscription
                     )
                 case .create:
                     // The centre button opens the composer as a sheet and never selects a tab,

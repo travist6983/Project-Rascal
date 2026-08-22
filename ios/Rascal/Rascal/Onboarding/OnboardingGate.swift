@@ -755,6 +755,18 @@ struct OnboardingGate: View {
     /// tapped from. A sheet owned down there would be tearing down its own presenter.
     @State private var isPresentingAddChild = false
 
+    /// The two-weeks screen, and what it has already been told.
+    ///
+    /// **Owned by the gate, not by Today**, for the reason every other once-per-session presentation
+    /// here is: this must appear *before* the first board, and a view inside `RootView` cannot
+    /// present something that precedes it.
+    ///
+    /// Read once, on the first `.ready`. Presentation state, never archive state — a reinstall
+    /// forgetting it is correct rather than a bug, because this is a fact about a phone.
+    @State private var membershipPresentation: MembershipPresentationStoring =
+        UserDefaultsMembershipPresentationStore()
+    @State private var showingTrialWelcome = false
+
     /// Nil while they are away signing in, so the invitation does not reappear on top of the
     /// welcome screen it just handed them to.
     private var presentedInvite: Binding<InviteLink?> {
@@ -846,6 +858,29 @@ struct OnboardingGate: View {
                     pendingLink: $pendingLink
                 )
                 .id(child.id)
+                // **Over the board rather than instead of it**, so the app behind is already
+                // loaded and the first Today is one tap away rather than one fetch away.
+                //
+                // A cover rather than a sheet, and this is the one place in the phase where that is
+                // right: it is a step in a flow with a single action, not something to dismiss.
+                .fullScreenCover(isPresented: $showingTrialWelcome) {
+                    TrialWelcomeScreen {
+                        var record = membershipPresentation.load()
+                        record.trialWelcomeShown = true
+                        membershipPresentation.save(record)
+                        showingTrialWelcome = false
+                    }
+                }
+                .task(id: child.id) {
+                    // **Not conditioned on `access`, deliberately.** This screen comes *before* the
+                    // first Today, and `access` arrives *with* it — gating on the value would mean
+                    // showing this after the screen it is meant to precede. The copy is written to
+                    // be true of any household signing in for the first time on this device.
+                    guard MembershipPresentation.shouldShowTrialWelcome(
+                        record: membershipPresentation.load()
+                    ) else { return }
+                    showingTrialWelcome = true
+                }
             }
         }
         // Held rather than acted on. A signed-out phone can be tapped through from a widget that

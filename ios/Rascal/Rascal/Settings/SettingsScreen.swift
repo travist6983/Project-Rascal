@@ -65,6 +65,18 @@ struct SettingsScreen: View {
     /// relaunch; see `RootView.resolvedPromptSubject`.
     var onPromptSubjectChanged: (PromptSubject) -> Void = { _ in }
 
+    /// **Handed down rather than built here, as of phase 108.**
+    ///
+    /// This screen used to own it, which was right while Settings was the only door to the
+    /// membership sheet. Today now has one too — a locked card — and two `SubscriptionModel`s would
+    /// be two `GET /v1/families/me` readers and two opinions about the selected plan. `RootView`
+    /// owns the one instance and both tabs read it.
+    ///
+    /// Optional because it is built in `RootView`'s `.task`, so it is nil for the first frame — the
+    /// same shape `sync` and `syncEngine` already have here, and the Membership card renders absent
+    /// rather than wrong until it arrives.
+    var subscription: SubscriptionModel?
+
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
 
@@ -81,9 +93,6 @@ struct SettingsScreen: View {
     /// Built on first appearance, like `export`: the screen's memberwise init is what
     /// `RootView` calls, and a `@State` with no default would take it away.
     @State private var guardians: GuardiansModel?
-    /// One per screen, shared by the Membership card and by the invite's paywall — see
-    /// `GuardiansSection.subscription`.
-    @State private var subscription: SubscriptionModel?
     @State private var deletion: AccountDeletionModel?
     @State private var showingDelete = false
     @State private var export: ArchiveExport?
@@ -167,7 +176,6 @@ struct SettingsScreen: View {
             ArchiveExport.purgeStale()
             if export == nil { export = ArchiveExport(api: session.api) }
             if guardians == nil { guardians = GuardiansModel(api: session.api) }
-            if subscription == nil { subscription = SubscriptionModel(api: session.api) }
             if deletion == nil { deletion = AccountDeletionModel(api: session.api) }
             await loadChild()
             await loadStats()

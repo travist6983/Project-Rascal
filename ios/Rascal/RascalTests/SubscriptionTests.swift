@@ -598,11 +598,15 @@ struct PaywallOfferTests {
         let model = makeModel(store: store) { await household("free") }
         await model.load()
 
-        guard case .unavailable(let message) = model.phase else {
+        // **Phase 108 changed this assertion's shape, not its meaning.** `Phase.unavailable` carried
+        // a `String` and the check was on that string; it now carries a cause, because phase 108
+        // makes an empty product load the *ordinary* state and the two reasons had to stop rendering
+        // the same sentence. The thing being asserted is the same and is now structural rather than
+        // textual: this is the products' failure and not the household's.
+        guard case .unavailable(.products) = model.phase else {
             Issue.record("an empty product load must not render as a paywall")
             return
         }
-        #expect(message == SubscriptionStoreError.productsUnavailable.userMessage)
         #expect(model.canBuy == false)
         // The household did load, so this is the products' failure and not the household's — the
         // two say different things because a parent can act on one of them.

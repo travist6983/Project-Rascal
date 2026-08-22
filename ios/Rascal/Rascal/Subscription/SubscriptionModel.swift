@@ -16,10 +16,31 @@ final class SubscriptionModel {
     enum Phase: Equatable {
         case loading
         case ready(SubscriptionOffer, familyID: UUID)
-        /// Products or the household did not arrive. **A retry, never a blank paywall** — an
-        /// empty product list looks exactly like a network failure and must not render as a
-        /// screen with nothing to buy on it.
-        case unavailable(String)
+        /// Products or the household did not arrive. **Never a blank paywall** — an empty product
+        /// list looks exactly like a network failure and must not render as a screen with nothing
+        /// on it.
+        case unavailable(Unavailable)
+    }
+
+    /// **Why there is nothing to offer, because the two reasons are not the same thing.**
+    ///
+    /// This was one `String` and that collapsed a calm, permanent fact into the same shape as a
+    /// transient failure. It matters now that phase 108 makes `.products` the *ordinary* state:
+    /// `api-contract.md` §37a records that no subscription product exists in App Store Connect and
+    /// no sandbox transaction has ever been made, so every device today lands on `.products`.
+    ///
+    /// Rendering the household failure with the same calm sentence — *"Membership isn't open yet"* —
+    /// would be a lie told on one dropped request. They are separate cases so the sheet can say
+    /// something true about each, and so a retry is offered only where retrying can help.
+    enum Unavailable: Equatable {
+        /// StoreKit returned fewer than both products, or could not be reached. **Expected.** Renders
+        /// the copy file's `Notice` and hides the primary action; no retry, because there is nothing
+        /// the parent can do and a button that changes nothing teaches them the screen is decorative.
+        case products
+        /// `GET /v1/families/me` did not answer. **A real failure**, and the one case that keeps a
+        /// retry — without the household there is no `appAccountToken`, so a buy button here would
+        /// mint a permanently unattributable receipt.
+        case household(String)
     }
 
     enum PurchasePhase: Equatable {
@@ -60,6 +81,22 @@ final class SubscriptionModel {
     /// Injected so the confirmation window can be exercised without waiting 63 seconds.
     private let confirmationSchedule: [Duration]
     private let confirmationSleep: @Sendable (Duration) async throws -> Void
+
+    /// How long `Product.products(for:)` gets before the sheet says there is nothing to offer.
+    ///
+    /// Ten seconds: long enough that a slow-but-working App Store call still lands, short enough
+    /// that a parent who opened this to read what membership includes is not held on a spinner. See
+    /// `loadOffer()` for why a bound exists at all.
+    private let offerTimeout: Duration
+
+    /// **Its own sleeper, deliberately not `confirmationSleep`.**
+    ///
+    /// Reusing that one was a real bug and it broke five existing tests: `makeModel` stubs
+    /// `confirmationSleep` to `{ _ in }` so the confirmation window can be driven without waiting a
+    /// minute — which made the timeout resolve *instantly*, win every race against the store, and
+    /// turn every load in the suite into `.unavailable(.products)`. Two different clocks were being
+    /// injected through one parameter, and the tests were right to notice.
+    private let offerSleep: @Sendable (Duration) async throws -> Void
     /// True only for a preview-constructed model. Guards `load`, which the views call from a
     /// `.task` — without it the parked phase is replaced by whatever the machine's connectivity
     /// produced. Same shape as `GuardiansModel`.
@@ -78,12 +115,18 @@ final class SubscriptionModel {
         confirmationSchedule: [Duration] = EntitlementConfirmation.schedule,
         confirmationSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
+        },
+        offerTimeout: Duration = .seconds(10),
+        offerSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
         }
     ) {
         self.readHousehold = readHousehold
         self.store = store
         self.confirmationSchedule = confirmationSchedule
         self.confirmationSleep = confirmationSleep
+        self.offerTimeout = offerTimeout
+        self.offerSleep = offerSleep
     }
 
     convenience init(api: APIClient, store: any SubscriptionPurchasing = SubscriptionStore()) {
@@ -173,10 +216,10 @@ final class SubscriptionModel {
             // Without the household there is no `appAccountToken`, so there is nothing safe to
             // offer — a buy button here would mint an unattributable receipt.
             phase = .unavailable(
-                "We couldn't reach your household just now, so there's nothing to show yet."
+                .household("We couldn't reach your household just now, so there's nothing to show yet.")
             )
         case (_, nil):
-            phase = .unavailable(SubscriptionStoreError.productsUnavailable.userMessage)
+            phase = .unavailable(.products)
         }
     }
 
@@ -184,8 +227,32 @@ final class SubscriptionModel {
         try? await readHousehold()
     }
 
+    /// **Bounded, because nothing under `Subscription/` was.**
+    ///
+    /// `Product.products(for:)` has no timeout of its own and neither does `URLSession.shared` as
+    /// this app configures it, so a StoreKit hang left `.loading` on screen with no terminal state —
+    /// *"Loading the options"*, forever. That was survivable while a successful fetch was the
+    /// expected path. It is not survivable now that **an unavailable fetch is the expected path**:
+    /// the spinner would be the ordinary experience.
+    ///
+    /// `confirm()` has been hard-bounded since phase 37b on the same reasoning — *"a spinner that
+    /// never ends is worse than a sentence"* — and this closes the other half.
+    ///
+    /// A timeout resolves to `nil`, which is `.unavailable(.products)`: the honest answer, since a
+    /// fetch that never returned and a fetch that returned nothing are the same thing to a parent.
     private func loadOffer() async -> SubscriptionOffer? {
-        try? await store.loadOffer()
+        await withTaskGroup(of: SubscriptionOffer?.self) { group in
+            group.addTask { [store] in try? await store.loadOffer() }
+            group.addTask { [offerTimeout, offerSleep] in
+                try? await offerSleep(offerTimeout)
+                return nil
+            }
+            // Whichever finishes first decides. The loser is cancelled rather than awaited, so a
+            // hung StoreKit call cannot hold the screen after the timeout has already answered.
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     /// Re-read the household alone — the foreground re-check, and what the transaction listener
@@ -202,7 +269,15 @@ final class SubscriptionModel {
         if family.isSubscribed, purchase != .idle, purchase != .subscribed {
             purchase = .subscribed
         }
-        if case .unavailable = phase {
+        // **Only the household failure retries on foreground.**
+        //
+        // This was `if case .unavailable`, which was right while unavailable meant "something went
+        // wrong just now". Since phase 108, `.products` is the *ordinary* state on every device —
+        // no subscription product exists in App Store Connect — so that branch would re-run a full
+        // `Product.products(for:)` every single time the app came to the foreground, for a result
+        // that is not going to change until someone creates a product. `.household` is a genuine
+        // transient failure and does retry.
+        if case .unavailable(.household) = phase {
             await load()
         }
     }
