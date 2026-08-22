@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import ast
 import datetime as dt
+import io
+import json
 import pathlib
 import uuid
+import zipfile
 from typing import get_args
 
 import sqlalchemy as sa
@@ -1084,6 +1087,93 @@ async def test_an_entitled_household_is_still_pushed_the_mission(
 
     assert run.sent == 1
     assert push.sent[0].body == mission.body
+
+
+# --- The governing constraint: the archive is never locked ------------------------------------
+
+
+async def test_a_free_households_archive_stays_readable_searchable_and_exportable(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**The sentence the whole phase is built under, asserted end to end.**
+
+    D3 as narrowed: *the archive is never locked, the day is.* A free household keeps unlimited
+    text and `did_it` entries, full export, full-text search, and **every entry it already
+    has** — including the ones a mission produced while it was entitled, and including the
+    prompt that asked for them.
+
+    Everything else in this file checks that something is *withheld*. This checks that nothing
+    else is, which is the half a gate gets wrong. It goes through four separate read paths,
+    because "the archive is fine" is a claim about all of them and any one of them could have
+    grown an entitlement check.
+    """
+    user, child = await _household(session, trial_ends_at=_next_month())
+    headers = auth_headers(user)
+    photo = await make_prompt(
+        session,
+        kind="photo",
+        cadence="daily",
+        completion_mode="media",
+        body="Photograph the thing he built today.",
+    )
+    today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    mission = await make_assignment(
+        session, child, photo, slot="mission", assigned_on=today, user=user
+    )
+    await session.commit()
+
+    entry_id = str(uuid.uuid4())
+    created = await client.post(
+        "/v1/entries",
+        headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        json={
+            "id": entry_id,
+            "child_id": str(child.id),
+            "assignment_id": str(mission.id),
+            "body": "He built a wobbling tower of blocks and called it a lighthouse.",
+            "occurred_at": dt.datetime.now(tz=dt.UTC).isoformat().replace("+00:00", "Z"),
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    # Now take the missions away. The entry was made under a trial; the household is free.
+    entitlement = await session.get(Entitlement, user.family_id)
+    entitlement.trial_ends_at = _yesterday()
+    await session.commit()
+
+    board = (await client.get(f"/v1/children/{child.id}/today", headers=headers)).json()
+    assert board["access"] == "free", "the fixture must actually be on the free tier"
+
+    # 1. The timeline still has it.
+    listed = (await client.get(f"/v1/entries?child_id={child.id}", headers=headers)).json()
+    assert entry_id in {item["id"] for item in listed["entries"]}, "a free tier hid an entry"
+
+    # 2. Full-text search still finds it — by a word from the body.
+    found = (
+        await client.get(f"/v1/entries?child_id={child.id}&q=lighthouse", headers=headers)
+    ).json()
+    assert entry_id in {item["id"] for item in found["entries"]}, "search stopped at the paywall"
+    # A negative control, so the assertion above is not passing because `q` is ignored — which
+    # would make it prove nothing at all.
+    missed = (
+        await client.get(f"/v1/entries?child_id={child.id}&q=zzzznotaword", headers=headers)
+    ).json()
+    assert missed["entries"] == [], "`q` is not filtering, so the search assertion is vacuous"
+
+    # 3. The prompt that asked for it is still readable on the entry, which is the part D3 as
+    #    narrowed positively requires — suppressing it would be the bug, not the fix.
+    detail = next(item for item in listed["entries"] if item["id"] == entry_id)
+    assert detail.get("prompt_body") == "Photograph the thing he built today."
+
+    # 4. Export is whole. `zipfile` rather than a status check, because "always free and
+    #    complete" is a claim about the bytes.
+    dump = await client.get(f"/v1/children/{child.id}/export", headers=headers)
+    assert dump.status_code == 200, dump.text
+    archive = zipfile.ZipFile(io.BytesIO(dump.content))
+    entries = json.loads(archive.read("entries.json"))
+    exported = entries["entries"] if isinstance(entries, dict) else entries
+    assert entry_id in {item["id"] for item in exported}, "export dropped an entry on the free tier"
+    assert "lighthouse" in archive.read("entries.json").decode()
 
 
 # --- Task 5: the one admin lever ---------------------------------------------------------------
