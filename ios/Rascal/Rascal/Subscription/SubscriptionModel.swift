@@ -157,16 +157,24 @@ final class SubscriptionModel {
         /// so the full paywall could only be seen with a working store. It now holds `OfferedPlan`
         /// values, so `SubscriptionScreenshotTests` builds the finished paywall — trial, computed
         /// saving and all — at every accessibility size, with no store, no session and no taps.
+        /// `isRestoring` and `notice` are `private(set)` and are therefore unreachable from a
+        /// preview or a screenshot test without this. Both are additive with defaults, so no
+        /// existing call site changes — and they are what makes the **restore** sub-states
+        /// renderable without a store, which is the same argument that put `household` here.
         convenience init(
             previewing phase: Phase,
             household: FamilySummary? = nil,
-            purchase: PurchasePhase = .idle
+            purchase: PurchasePhase = .idle,
+            isRestoring: Bool = false,
+            notice: String? = nil
         ) {
             self.init(readHousehold: { throw CancellationError() })
             self.isPreview = true
             self.phase = phase
             self.household = household
             self.purchase = purchase
+            self.isRestoring = isRestoring
+            self.notice = notice
         }
     #endif
 

@@ -164,7 +164,7 @@ struct NotificationSettingsSection: View {
                 UIApplication.shared.open(url)
             }
             .typeRole(.body)
-            .foregroundStyle(Color.terracotta)
+            .foregroundStyle(Color.terracottaDeep)
             .accessibilityHint("Opens the iOS Settings app")
             #endif
         }

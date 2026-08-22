@@ -88,7 +88,7 @@ struct GuardiansSection: View {
                 .foregroundStyle(Color.ink)
             Button("Try again") { Task { await model.load() } }
                 .typeRole(.body)
-                .foregroundStyle(Color.terracotta)
+                .foregroundStyle(Color.terracottaDeep)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -191,6 +191,11 @@ private func _family(
         familyId: UUID(),
         tier: tier,
         access: tier == "subscribed" ? .subscribed : .free,
+        // This row reads none of phase 113's membership fields; unset is what it means.
+        lapsedAt: nil,
+        plan: nil,
+        billingRetry: nil,
+        isPayer: nil,
         guardians: guardians,
         pendingInvites: invites
     )

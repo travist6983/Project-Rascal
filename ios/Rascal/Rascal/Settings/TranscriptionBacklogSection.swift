@@ -87,7 +87,7 @@ struct TranscriptionBacklogSection: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button("Stop") { queue.cancelBacklog() }
                 .typeRole(.body)
-                .foregroundStyle(Color.terracotta)
+                .foregroundStyle(Color.terracottaDeep)
         }
         .padding(Layout.cardPadding)
     }
@@ -103,7 +103,7 @@ struct TranscriptionBacklogSection: View {
             HStack(spacing: 16) {
                 Button("Done") { queue.clearReport() }
                     .typeRole(.body)
-                    .foregroundStyle(Color.terracotta)
+                    .foregroundStyle(Color.terracottaDeep)
                 if waiting > 0 {
                     Button("Keep going") { Task { await queue.runBacklog() } }
                         .typeRole(.body)

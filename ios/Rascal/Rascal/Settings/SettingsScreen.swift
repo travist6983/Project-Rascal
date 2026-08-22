@@ -466,7 +466,7 @@ struct SettingsScreen: View {
                     ShareLink(item: url) {
                         Text("Save or share")
                             .typeRole(.body)
-                            .foregroundStyle(Color.terracotta)
+                            .foregroundStyle(Color.terracottaDeep)
                     }
                     Button("Done") { export?.clear() }
                         .typeRole(.body)
@@ -486,7 +486,7 @@ struct SettingsScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Try again") { export?.start(childId: childId) }
                     .typeRole(.body)
-                    .foregroundStyle(Color.terracotta)
+                    .foregroundStyle(Color.terracottaDeep)
             }
             .padding(Layout.cardPadding)
         }
