@@ -588,7 +588,9 @@ def test_a_saturday_that_is_also_the_first_is_still_the_five_item_ceiling() -> N
     # And nothing in four years of calendar beats it — every weekday lands on every
     # day-of-month over that span, which is what the ceiling depends on. The exhaustive
     # version is `test_every_shape_the_calendar_can_produce_is_one_of_exactly_six`, which
-    # sweeps 28 years: the Gregorian weekday cycle, and exactly 1461 whole weeks.
+    # sweeps **eight** years. (The 28-year sweep is `pool_health.serve_interval_days`, and
+    # it needs that length for a different reason: 28 years is exactly 1461 whole weeks, so
+    # a *rate* comes out even. A shape enumeration does not care.)
     day = dt.date(2026, 1, 1)
     worst = max(len(slots_for(day + dt.timedelta(days=n))) for n in range(366 * 4))
     assert worst == 5
