@@ -346,12 +346,51 @@ struct MembershipTests {
             .lastObservedAccess == nil)
     }
 
-    @Test("the trial welcome is owed once and then never again")
-    func trialWelcomeIsOwedOnce() {
+    // MARK: - The trial welcome, and who must never see it
+
+    /// **The defect this rule exists to prevent, asserted first.**
+    ///
+    /// A fresh record has `trialWelcomeShown == false`, and the key is new in this build — so a rule
+    /// of `!trialWelcomeShown` fires on the first launch after updating for **every existing
+    /// install**, including a household that has been paying for months. Telling a subscriber they
+    /// are on a free trial that ends is a false statement about money.
+    @Test("an existing install that only resumes a session is never shown the trial welcome")
+    func resumedSessionIsNeverWelcomed() {
+        // What every existing install looks like on the first launch after this build ships.
+        let existing = MembershipPresentationRecord()
+        #expect(
+            MembershipPresentation.shouldShowTrialWelcome(record: existing) == false,
+            "a record that has merely never been written is not a sign-in"
+        )
+    }
+
+    @Test("a sign-in owes the welcome, and showing it spends it")
+    func signInOwesTheWelcomeOnce() {
         var record = MembershipPresentationRecord()
+        record = MembershipPresentation.owingWelcome(in: record)
         #expect(MembershipPresentation.shouldShowTrialWelcome(record: record))
+
         record.trialWelcomeShown = true
+        record.trialWelcomeOwed = false
         #expect(MembershipPresentation.shouldShowTrialWelcome(record: record) == false)
+
+        // **Signing out and back in does not earn a second one.** The screen explains the two
+        // weeks, and the two weeks belong to the household rather than to the session.
+        record = MembershipPresentation.owingWelcome(in: record)
+        #expect(MembershipPresentation.shouldShowTrialWelcome(record: record) == false)
+    }
+
+    /// An invited second guardian joins a household that already exists. They sign in through one of
+    /// the four ordinary paths, so without this they would be owed a welcome to two weeks that are
+    /// not theirs — on a household that may have been subscribed for a year.
+    @Test("arriving by invitation spends the welcome without showing it")
+    func invitationDeclinesTheWelcome() {
+        var record = MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        #expect(MembershipPresentation.shouldShowTrialWelcome(record: record))
+
+        record = MembershipPresentation.decliningWelcome(in: record)
+        #expect(MembershipPresentation.shouldShowTrialWelcome(record: record) == false)
+        #expect(record.trialWelcomeShown, "declining spends it, so it cannot surface later either")
     }
 
     @Test("a record that cannot be decoded reads as a fresh one rather than as already-shown")
@@ -364,6 +403,140 @@ struct MembershipTests {
         #expect(record.trialWelcomeShown == false)
         #expect(record.postTrialNoticeShown == false)
         #expect(record.lastObservedAccess == nil)
+    }
+
+    // MARK: - The notice, driven through the model that actually decides it
+
+    /// **`TodayModel.observe(_:)` is the only code that decides whether the notice appears**, and it
+    /// was previously asserted only through its pure helpers. This drives the real model against a
+    /// scripted network, twice, with the store carried between the two loads — which is the shape of
+    /// the actual bug: an observation recorded on one load being read on the next.
+    @MainActor
+    @Test("the model announces the trial's end exactly once, across two real loads")
+    func modelFiresTheNoticeOnceAcrossLoads() async throws {
+        let store = InMemoryMembershipPresentationStore()
+        let child = UUID()
+
+        func model(access: String, locked: String) -> TodayModel {
+            let performer = StubPerformer()
+            let json = """
+                { "date": "2026-08-21", "access": "\(access)",
+                  "child": { "id": "\(child.uuidString)", "name": "Milo", "age_months": 50 },
+                  "today": [], "waiting": [], "done_today": [], "locked": [\(locked)] }
+                """
+            performer.on("/today") { _ in (Data(json.utf8), 200) }
+            return TodayModel(
+                childId: child,
+                api: APIClient(
+                    baseURL: URL(string: "http://localhost:8000/")!,
+                    performer: performer,
+                    tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+                ),
+                presentation: store
+            )
+        }
+
+        // Day one, in trial. Nothing to announce — and the observation is what makes day fifteen work.
+        let inTrial = model(access: "trial", locked: "")
+        await inTrial.load()
+        #expect(inTrial.membershipNotice == nil, "a household still in its trial is told nothing")
+        #expect(store.load().lastObservedAccess == "trial")
+
+        // Day fifteen, on the same device. The flip.
+        let afterTrial = model(access: "free", locked: "{ \"slot\": \"mission\", \"kind_hint\": \"photo\" }")
+        await afterTrial.load()
+        #expect(afterTrial.membershipNotice == MembershipCopy.postTrialNotice)
+        #expect(store.load().postTrialNoticeShown, "seeing it spends it, not dismissing it")
+
+        // Day sixteen. Never again.
+        let later = model(access: "free", locked: "{ \"slot\": \"mission\", \"kind_hint\": \"photo\" }")
+        await later.load()
+        #expect(later.membershipNotice == nil, "a notice that returns is a nag")
+    }
+
+    /// A network failure must not be recorded as an observation. If it were, the next genuine `free`
+    /// would look like a flip from something and the notice would fire on a household that never
+    /// had a trial end.
+    @MainActor
+    @Test("a failed load records no observation")
+    func failedLoadRecordsNothing() async throws {
+        let store = InMemoryMembershipPresentationStore()
+        let performer = StubPerformer()
+        performer.on("/today") { _ in (Data("{}".utf8), 500) }
+
+        let model = TodayModel(
+            childId: UUID(),
+            api: APIClient(
+                baseURL: URL(string: "http://localhost:8000/")!,
+                performer: performer,
+                tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+            ),
+            presentation: store
+        )
+        await model.load()
+
+        #expect(store.load().lastObservedAccess == nil, "a request that failed saw nothing")
+        #expect(model.membershipNotice == nil)
+    }
+
+    // MARK: - The offer timeout
+
+    /// **A spinner with no terminal state, closed.**
+    ///
+    /// `Product.products(for:)` has no timeout of its own and `URLSession.shared` is unconfigured
+    /// here, so a StoreKit hang left the sheet reading *"Loading the options"* forever. That was
+    /// survivable while a successful fetch was the expected path; it is not now that
+    /// **an unavailable fetch is the expected path** — no subscription product exists in App Store
+    /// Connect, so the spinner would be the ordinary experience.
+    ///
+    /// The injection points existed and nothing used them, which is how a guard rots.
+    @MainActor
+    @Test("a store that never answers resolves to unavailable rather than spinning forever")
+    func offerTimeoutTerminates() async {
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: HangingStore(),
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .milliseconds(1),
+            // The real clock, briefly — the point is that *this* sleeper wins the race, and a
+            // no-op would prove nothing about ordering.
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+
+        guard case .unavailable(.products) = model.phase else {
+            Issue.record("a hung product fetch must terminate in .products, not hold the screen")
+            return
+        }
+        // **The household is not blamed for the store's silence.** It answered.
+        #expect(model.household != nil)
+        #expect(model.canBuy == false)
+    }
+
+    /// The other half, and the regression this phase actually shipped and had to fix: reusing
+    /// `confirmationSleep` for the timeout made it resolve instantly, win every race, and turn every
+    /// load in the suite into `.unavailable`. A working store must still win.
+    @MainActor
+    @Test("a store that answers beats the timeout")
+    func offerTimeoutDoesNotPreemptAWorkingStore() async {
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: InstantStore(),
+            confirmationSchedule: [],
+            // Instant, exactly as `makeModel` stubs it — the shape that broke five tests.
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+
+        guard case .ready = model.phase else {
+            Issue.record("a store that answered should have produced an offer")
+            return
+        }
     }
 
     // MARK: - The end of the board
@@ -399,35 +572,52 @@ struct MembershipTests {
     /// is what keeps `LockedPromptCard` and `LockedSlot` legitimate names.
     @Test("no banned word reaches a parent")
     func noBannedWordShipsInUserVisibleCopy() {
-        var strings: [String] = [
-            MembershipCopy.lockedFooter,
-            MembershipCopy.title, MembershipCopy.subtitle,
-            MembershipCopy.addsLabel, MembershipCopy.freeLabel,
-            MembershipCopy.primaryAction, MembershipCopy.notNow, MembershipCopy.notNowHint,
-            MembershipCopy.footnote, MembershipCopy.productsUnavailable,
-            MembershipCopy.TrialWelcome.title, MembershipCopy.TrialWelcome.body,
-            MembershipCopy.TrialWelcome.action,
-            MembershipCopy.postTrialNotice, MembershipCopy.postTrialOpen,
-            MembershipCopy.postTrialDismiss,
-        ]
-        strings += MembershipCopy.adds
-        strings += MembershipCopy.stayFree
+        // **Both lists come from the shipped constants**, so neither can drift from what the app
+        // actually says or from what the copy file actually bans. The previous version of this test
+        // duplicated the phrases inline and enforced 8 of the 11 — a guard that agreed with itself.
+        #expect(MembershipCopy.bannedPhrases.count == 11, "the copy file's §4 lists eleven")
+        #expect(MembershipCopy.allUserVisibleStrings.count > 30, "the string list stopped collecting")
 
-        let slots: [Slot] = [.mission, .missionB, .weekly, .monthly, .letter, .unknown("seasonal")]
-        for slot in slots {
-            strings.append(MembershipCopy.lockedEyebrow(slot))
-            strings.append(MembershipCopy.lockedBody(slot))
-        }
-
-        for string in strings {
+        for string in MembershipCopy.allUserVisibleStrings {
             let lowered = string.lowercased()
-            for banned in ["unlock", "upgrade", "premium", "don't lose", "you've missed",
-                           "limited time", "members only", "free trial ending"] {
-                #expect(
-                    !lowered.contains(banned),
-                    "\"\(string)\" contains the banned phrase \"\(banned)\""
-                )
+            for banned in MembershipCopy.bannedPhrases {
+                // `Pro` is a whole word, not a fragment: "Pro" must not match "**pro**mpt", and
+                // "Only X left" is a shape rather than a literal, so it is matched on "only".
+                let needle = banned.lowercased()
+                let hit: Bool
+                switch needle {
+                case "pro":
+                    hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
+                case "only x left":
+                    hit = lowered.contains("only") && lowered.contains("left")
+                default:
+                    hit = lowered.contains(needle)
+                }
+                #expect(!hit, "\"\(string)\" contains the banned phrase \"\(banned)\"")
             }
+        }
+    }
+
+    /// **The guard above only means something if it can fail.** A banned phrase planted in a real
+    /// shipped string must be caught, which is what proves the two lists are actually connected —
+    /// the previous version would have passed with `Only X left`, `Your archive will be` and `Pro`
+    /// absent from its inline copy.
+    @Test("the banned-word guard actually catches a planted phrase")
+    func theBannedWordGuardCanFail() {
+        for banned in MembershipCopy.bannedPhrases {
+            let planted = "Become a member and \(banned) today"
+            let lowered = planted.lowercased()
+            let needle = banned.lowercased()
+            let hit: Bool
+            switch needle {
+            case "pro":
+                hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
+            case "only x left":
+                hit = lowered.contains("only") && lowered.contains("left")
+            default:
+                hit = lowered.contains(needle)
+            }
+            #expect(hit, "the guard would not have caught \"\(banned)\"")
         }
     }
 
@@ -503,4 +693,30 @@ struct MembershipTests {
             #expect(!line.lowercased().hasPrefix("his "))
         }
     }
+}
+
+/// A store that never answers. Models a StoreKit call that hangs rather than fails — the case a
+/// timeout exists for and the one a `throw`-based fake cannot reproduce.
+private actor HangingStore: SubscriptionPurchasing {
+    func loadOffer() async throws -> SubscriptionOffer {
+        // Sleeps far longer than any timeout under test, and honours cancellation so the task group
+        // can reclaim it rather than leaking one per test.
+        try await Task.sleep(for: .seconds(600))
+        throw SubscriptionStoreError.productsUnavailable
+    }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        .cancelled
+    }
+
+    func restore() async throws {}
+}
+
+/// A store that answers immediately, to prove the timeout does not pre-empt a working one.
+private actor InstantStore: SubscriptionPurchasing {
+    func loadOffer() async throws -> SubscriptionOffer { .preview }
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        .purchased
+    }
+    func restore() async throws {}
 }

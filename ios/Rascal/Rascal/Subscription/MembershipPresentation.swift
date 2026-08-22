@@ -13,6 +13,19 @@ nonisolated struct MembershipPresentationRecord: Codable, Equatable, Sendable {
     /// The trial welcome has been shown. One screen, once, ever.
     var trialWelcomeShown = false
 
+    /// A sign-in on this device has **just created a session**, and the welcome has not been spent.
+    ///
+    /// **This flag is the whole fix for the worst defect this phase shipped in review.** Without it
+    /// the rule was `!trialWelcomeShown`, which defaults to `false` for everybody — so the first
+    /// launch after updating showed *"Two weeks, everything open. No card, nothing to cancel."* to
+    /// a parent who has used the app for months, to an invited second guardian who has no trial of
+    /// their own, and, worst, **to a subscribed household**, who would be told they are on a free
+    /// trial that ends.
+    ///
+    /// A resumed session never sets it, so an existing install is silent. `OnboardingSession` sets
+    /// it at the four points a sign-in actually exchanges a credential.
+    var trialWelcomeOwed = false
+
     /// The post-trial notice has been shown — **whether or not it was dismissed.**
     ///
     /// Seeing it is what spends it. A notice that comes back because you scrolled past instead of
@@ -139,11 +152,43 @@ nonisolated enum MembershipPresentation {
 
     /// Whether the trial welcome is owed.
     ///
-    /// Once per install, and **not conditioned on `access`** — deliberately. The welcome is shown
-    /// before the first Today, and `access` arrives *with* the first Today, so gating on it would
-    /// mean showing this after the screen it is supposed to precede. The copy is written to be true
-    /// of any household that has just signed in for the first time on this device.
+    /// **Two conditions, and the first one is the one that was missing.** A sign-in on this device
+    /// must have just created a session — not merely "the flag has never been spent", which is true
+    /// of every install that has never seen this build and which therefore showed a two-weeks
+    /// welcome to months-old accounts, to invited guardians, and to paying subscribers.
+    ///
+    /// **Still not conditioned on `access`, and that part was right.** This screen comes *before*
+    /// the first Today and `access` arrives *with* it, so gating on the value would show this after
+    /// the screen it is meant to precede. The missing condition was never `access`; it was
+    /// "did somebody just sign in", which is known at sign-in time without waiting for a board.
     static func shouldShowTrialWelcome(record: MembershipPresentationRecord) -> Bool {
-        !record.trialWelcomeShown
+        record.trialWelcomeOwed && !record.trialWelcomeShown
+    }
+
+    /// A sign-in has just exchanged a credential and established a session.
+    ///
+    /// **Never re-arms a spent welcome.** Signing out and back in on the same device does not earn
+    /// a second one: the screen explains the two weeks, and the two weeks belong to the household
+    /// rather than to the session.
+    static func owingWelcome(in record: MembershipPresentationRecord) -> MembershipPresentationRecord {
+        guard !record.trialWelcomeShown else { return record }
+        var updated = record
+        updated.trialWelcomeOwed = true
+        return updated
+    }
+
+    /// This device arrived by invitation, so there is no two weeks to welcome anybody to.
+    ///
+    /// An invited second guardian joins a household that already exists and whose trial, if it ever
+    /// had one, is not theirs and may long since have ended. Spending the welcome rather than
+    /// merely un-owing it is deliberate: they should not be shown it later either, and the
+    /// household is the unit (D4).
+    static func decliningWelcome(
+        in record: MembershipPresentationRecord
+    ) -> MembershipPresentationRecord {
+        var updated = record
+        updated.trialWelcomeOwed = false
+        updated.trialWelcomeShown = true
+        return updated
     }
 }

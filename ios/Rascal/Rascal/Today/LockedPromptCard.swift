@@ -43,27 +43,30 @@ struct LockedPromptCard: View {
 
     var body: some View {
         Button(action: onOpenMembership) {
+            // Three zones at 14, which is `PromptCard`'s spacing and the only interior gap the
+            // design uses on this card.
             VStack(alignment: .leading, spacing: 14) {
+                // **The tile and the eyebrow share a row**, which is exactly the slot
+                // `PromptCard.header` gives its `KindBadge` — the thing this replaces. The eyebrow
+                // is plain rather than a pill: a pill here would hand the locked card the one piece
+                // of furniture that says "this is live". Position from the design, styling from
+                // that reasoning; they are separate decisions and both are deliberate.
                 HStack(alignment: .center, spacing: 10) {
                     glyphTile
-                    Spacer(minLength: 0)
-                }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    // Plain, deliberately — **not** a `KindBadge`. The live card's badge is a
-                    // tinted pill; a pill here would give the locked card the one piece of
-                    // furniture that says "this is live".
                     Text(eyebrow)
                         .typeRole(.label)
                         .foregroundStyle(Color.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    Text(body_)
-                        .typeRole(.promptBody)
-                        .foregroundStyle(Color.inkMuted)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
                 }
+
+                Text(body_)
+                    .typeRole(.promptBody)
+                    .foregroundStyle(Color.inkMuted)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 footer
             }
@@ -97,7 +100,7 @@ struct LockedPromptCard: View {
         .buttonStyle(TapScaleButtonStyle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(MembershipCopy.lockedAccessibilityLabel(slot, subject: promptSubject))
-        .accessibilityHint("Opens membership")
+        .accessibilityHint(MembershipCopy.lockedHint)
     }
 
     private var cardShape: RoundedRectangle {

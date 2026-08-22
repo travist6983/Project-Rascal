@@ -81,6 +81,12 @@ final class OnboardingSession {
     /// single re-offer had been spent.
     let notifications: NotificationPreference
 
+    /// What this device has already shown about membership.
+    ///
+    /// **Owned here because this is the only layer that can tell a sign-in from a resume**, and that
+    /// distinction is the whole of the trial welcome's correctness — see
+    /// `MembershipPresentation.shouldShowTrialWelcome`.
+    private let membership: MembershipPresentationStoring
     private let drafts: OnboardingDraftStoring
     private let appleIDs: AppleUserIDStoring
     private let credentials: AppleCredentialChecking
@@ -130,9 +136,11 @@ final class OnboardingSession {
         // evaluated in a nonisolated context, and the eraser is `@MainActor`. The inert one is
         // built in the body instead, which is main-actor isolated like the rest of this type.
         localArchive: LocalArchiveErasing? = nil,
-        notifications: NotificationPreference? = nil
+        notifications: NotificationPreference? = nil,
+        membership: MembershipPresentationStoring = UserDefaultsMembershipPresentationStore()
     ) {
         self.account = account
+        self.membership = membership
         self.drafts = drafts
         self.appleIDs = appleIDs
         self.credentials = credentials
@@ -294,6 +302,7 @@ final class OnboardingSession {
             // `fullName` is never cached or rendered — it went out in the request and that is the
             // last this client sees of it.
             account.apply(user: session.user)
+            oweTrialWelcome()
             notifications.apply(user: session.user)
             await resolveChild()
         } catch let error as APIError {
@@ -323,6 +332,7 @@ final class OnboardingSession {
             let exchange = try await flow.run()
             let session = try await account.api.signInWithGoogle(exchange)
             account.apply(user: session.user)
+            oweTrialWelcome()
             notifications.apply(user: session.user)
             await resolveChild()
         } catch GoogleSignInError.cancelled {
@@ -334,6 +344,33 @@ final class OnboardingSession {
         } catch {
             notice = error.localizedDescription
         }
+    }
+
+    /// A credential was just exchanged, so this device is owed the two-weeks welcome.
+    ///
+    /// **Called from the four sign-in paths and from nowhere else.** `resume()` deliberately does
+    /// not: resuming a persisted session is every launch of an existing install, and treating that
+    /// as a sign-in is what showed a trial welcome to people who have been paying for months.
+    private func oweTrialWelcome() {
+        membership.save(MembershipPresentation.owingWelcome(in: membership.load()))
+    }
+
+    /// This device arrived by invitation. There is no two weeks of its own to welcome anybody to.
+    func declineTrialWelcome() {
+        membership.save(MembershipPresentation.decliningWelcome(in: membership.load()))
+    }
+
+    /// Whether the gate owes the two-weeks screen right now.
+    var owesTrialWelcome: Bool {
+        MembershipPresentation.shouldShowTrialWelcome(record: membership.load())
+    }
+
+    /// Spent. Shown is shown, whether or not the parent read it.
+    func markTrialWelcomeShown() {
+        var record = membership.load()
+        record.trialWelcomeShown = true
+        record.trialWelcomeOwed = false
+        membership.save(record)
     }
 
     /// Plain sentences, no blame, and never the raw error. Each one says what to do next.
@@ -394,6 +431,7 @@ final class OnboardingSession {
             }
 
             account.apply(user: session.user)
+            oweTrialWelcome()
             notifications.apply(user: session.user)
             await resolveChild()
         } catch let error as APIError {
@@ -424,6 +462,7 @@ final class OnboardingSession {
                 displayName: "Dev Parent"
             )
             account.apply(user: session.user)
+            oweTrialWelcome()
             notifications.apply(user: session.user)
             await resolveChild()
         } catch let error as APIError {
@@ -755,16 +794,12 @@ struct OnboardingGate: View {
     /// tapped from. A sheet owned down there would be tearing down its own presenter.
     @State private var isPresentingAddChild = false
 
-    /// The two-weeks screen, and what it has already been told.
+    /// The two-weeks screen.
     ///
-    /// **Owned by the gate, not by Today**, for the reason every other once-per-session presentation
-    /// here is: this must appear *before* the first board, and a view inside `RootView` cannot
-    /// present something that precedes it.
-    ///
-    /// Read once, on the first `.ready`. Presentation state, never archive state — a reinstall
-    /// forgetting it is correct rather than a bug, because this is a fact about a phone.
-    @State private var membershipPresentation: MembershipPresentationStoring =
-        UserDefaultsMembershipPresentationStore()
+    /// **Presented by the gate, not by Today**, for the reason every other once-per-session
+    /// presentation here is: it must appear *before* the first board, and a view inside `RootView`
+    /// cannot present something that precedes it. The record itself lives on `OnboardingSession`,
+    /// which is the only layer that can tell a sign-in from a resume.
     @State private var showingTrialWelcome = false
 
     /// Nil while they are away signing in, so the invitation does not reappear on top of the
@@ -789,6 +824,17 @@ struct OnboardingGate: View {
                 inviteDeferred = false
             }
         )
+        // **Arriving by invitation spends the welcome**, whatever happens next.
+        //
+        // An invited second guardian joins a household that already exists; its two weeks, if it
+        // ever had any, are not theirs. They still sign in through one of the four ordinary paths,
+        // so without this they would be marked owed and told "Two weeks, everything open" on a
+        // household that may have been subscribed for a year.
+        //
+        // On presentation rather than on acceptance: somebody who opens an invite link and then
+        // backs out has still told us how they got here, and the failure direction — not showing a
+        // welcome — is the safe one.
+        .task { session.declineTrialWelcome() }
     }
 
     var body: some View {
@@ -864,22 +910,23 @@ struct OnboardingGate: View {
                 // A cover rather than a sheet, and this is the one place in the phase where that is
                 // right: it is a step in a flow with a single action, not something to dismiss.
                 .fullScreenCover(isPresented: $showingTrialWelcome) {
-                    TrialWelcomeScreen {
-                        var record = membershipPresentation.load()
-                        record.trialWelcomeShown = true
-                        membershipPresentation.save(record)
-                        showingTrialWelcome = false
-                    }
+                    // The flag is already spent — see the `.task` below. This only dismisses.
+                    TrialWelcomeScreen { showingTrialWelcome = false }
                 }
                 .task(id: child.id) {
                     // **Not conditioned on `access`, deliberately.** This screen comes *before* the
                     // first Today, and `access` arrives *with* it — gating on the value would mean
                     // showing this after the screen it is meant to precede. The copy is written to
                     // be true of any household signing in for the first time on this device.
-                    guard MembershipPresentation.shouldShowTrialWelcome(
-                        record: membershipPresentation.load()
-                    ) else { return }
+                    guard session.owesTrialWelcome else { return }
                     showingTrialWelcome = true
+                    // **Spent on being shown, not on being tapped**, which is the rule the
+                    // post-trial notice already follows and which this did not. A screen that comes
+                    // back because the app was killed before the parent reached the button is the
+                    // nag the copy rules forbid — and `.task(id:)` re-fires on a child switch and on
+                    // any rebuild of the gate, so the window was not as small as the single action
+                    // made it look.
+                    session.markTrialWelcomeShown()
                 }
             }
         }
