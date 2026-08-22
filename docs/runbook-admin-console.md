@@ -323,6 +323,11 @@ name the variable they want. The Studio's provider strip does the same.
 And the entitlement lever, from a shell rather than the page — useful when you want to check the
 answer the phone will get rather than the one the console draws:
 
+**The timestamp must carry an offset.** An offset-less one — `2026-09-01T00:00:00` — is
+refused with a `422` naming the field, deliberately: assuming UTC for a value a person typed is
+this service inventing a timezone, and a naive timestamp in an archive spanning eighteen years
+is the bug that surfaces years later. `Z` or `+13:00`, either is fine.
+
 ```bash
 # Drop a household to the free tier. `access` comes back `free`; `tier` is untouched.
 curl -s -X PUT "$API/v1/admin/families/$FAMILY_ID/trial" \

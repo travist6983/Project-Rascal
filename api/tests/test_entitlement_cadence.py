@@ -943,6 +943,63 @@ async def test_the_admin_lever_moves_a_household_between_free_and_trial(
     assert cleared.json()["trial_ends_at"] is None
 
 
+async def test_an_offset_less_trial_date_is_refused_rather_than_crashing(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**A 422, not a 500**, and before the validator it was a 500.
+
+    Pydantic parses `"2026-09-01T00:00:00"` into a naive `datetime`, `session.flush()` does not
+    expire the attribute, and `access_for` then compares that naive value against an aware
+    `now` — `TypeError`, rendered by the catch-all as `internal_error` with no field to point
+    at, on the one route in this API a person is told to reach with `curl`.
+
+    The console cannot produce it: `endOfDayIso` sends `toISOString()`. A human typing a
+    timestamp can, easily, which is the whole reason this is a boundary guard rather than a
+    normalisation inside the one authority — stamping a naive value with UTC would be this
+    service inventing a timezone for something a person wrote.
+    """
+    user, _child = await _household(session, trial_ends_at=_next_month())
+    admin = await make_user(session, display_name="Owner")
+    admin.is_admin = True
+    await session.commit()
+
+    response = await client.put(
+        f"/v1/admin/families/{user.family_id}/trial",
+        headers=auth_headers(admin),
+        json={"trial_ends_at": "2026-09-01T00:00:00"},  # future-date: explicit, and offset-less
+    )
+
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error"]["code"] == "validation_failed"
+    assert body["error"]["field"] == "trial_ends_at"
+
+    # And the household is untouched — the refusal happened before anything was written.
+    entitlement = await session.get(Entitlement, user.family_id)
+    await session.refresh(entitlement)
+    assert access_for(entitlement).access == "trial"
+
+
+async def test_an_offset_bearing_trial_date_in_any_zone_is_accepted(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The guard is about the *offset*, not about UTC. `+13:00` is a real thing a parent lives
+    in and the console is not the only caller."""
+    user, _child = await _household(session, trial_ends_at=_yesterday())
+    admin = await make_user(session, display_name="Owner")
+    admin.is_admin = True
+    await session.commit()
+
+    response = await client.put(
+        f"/v1/admin/families/{user.family_id}/trial",
+        headers=auth_headers(admin),
+        json={"trial_ends_at": "2027-03-01T00:00:00+13:00"},  # future-date: explicit, pure
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["access"] == "trial"
+
+
 async def test_the_admin_lever_404s_on_a_household_that_does_not_exist(
     client: AsyncClient, session: AsyncSession
 ) -> None:

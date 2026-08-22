@@ -13,7 +13,7 @@ import datetime as dt
 import uuid
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from rascal.constants import AccessState, Cadence, CompletionMode, PromptKind, Tier
 from rascal.schemas.common import ApiModel
@@ -90,7 +90,38 @@ class AdminTrialIn(ApiModel):
     #: When the trial should end. `null` clears it — a household with no trial, which is a
     #: real state and the way to drop somebody to the free tier immediately. A date in the
     #: past does the same thing while recording when it happened.
+    #:
+    #: **Must carry a timezone offset.** See the validator below.
     trial_ends_at: dt.datetime | None = None
+
+    @field_validator("trial_ends_at")
+    @classmethod
+    def _must_be_aware(cls, value: dt.datetime | None) -> dt.datetime | None:
+        """Refuse an offset-less timestamp, the same guard `SocialPublishIn` already carries.
+
+        **Without it an offset-less body is a 500 rather than a 422**, and the path is short:
+        Pydantic parses `"2026-09-01T00:00:00"` into a naive `datetime`, the flush does not
+        expire the attribute, and `services/guardians.access_for` then compares that naive
+        value against an aware `now` — `TypeError: can't compare offset-naive and offset-aware
+        datetimes`, rendered by the catch-all as `internal_error` with no field to point at.
+
+        **Rejecting rather than assuming UTC is the deliberate half.** `models/base.py` is
+        explicit that a naive timestamp in an archive spanning eighteen years and two zones is
+        a bug that surfaces years later; silently stamping one with UTC here would be this
+        service inventing a timezone for a value a person typed. The column is `timestamptz`,
+        so a value read back from the database is always aware — this route is the only way a
+        naive one can reach the comparison at all, which is why the guard belongs here and not
+        inside the one authority.
+
+        The console cannot trigger it (`endOfDayIso` sends `toISOString()`), so the reachable
+        caller is a person with `curl` — which is exactly what
+        `docs/runbook-admin-console.md` §4 tells them to be.
+        """
+        if value is not None and value.tzinfo is None:
+            raise ValueError(
+                "trial_ends_at must carry a timezone offset, e.g. 2026-09-01T00:00:00Z."
+            )
+        return value
 
 
 class AdminTrialOut(ApiModel):
