@@ -8,10 +8,11 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import false, or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from rascal.constants import FREE_SLOTS
 from rascal.models import Assignment, Child, Entry
 from rascal.schemas.today import AssignmentOut
 from rascal.services.dates import zone
@@ -43,19 +44,39 @@ def to_assignment_out(assignment: Assignment) -> AssignmentOut:
 
 
 async def assignments_for(
-    session: AsyncSession, child: Child, today: dt.date, viewer_id: uuid.UUID
+    session: AsyncSession,
+    child: Child,
+    today: dt.date,
+    viewer_id: uuid.UUID,
+    *,
+    entitled: bool = True,
 ) -> tuple[list[Assignment], list[Assignment], list[Assignment]]:
     """`today`, `waiting`, and `done_today` in one pass over **this guardian's** open work.
 
-    **`viewer_id` is not optional and that is deliberate.** Since phase 36 the three daily
-    slots are served per guardian, so a two-parent household has six daily rows for one day.
-    Without this filter every parent would see both boards — six items instead of three, half
-    of them somebody else's, and either of them able to complete the other's. Making the
-    parameter required means a future caller cannot forget it; there is no default that is
-    right for everybody.
+    **`viewer_id` is not optional and that is deliberate.** Since phase 36 the daily slots are
+    served per guardian, so a two-parent household has two sets of daily rows for one day.
+    Without this filter every parent would see both boards — half of them somebody else's, and
+    either of them able to complete the other's. Making the parameter required means a future
+    caller cannot forget it; there is no default that is right for everybody.
 
     Shared rows (`weekly`, `monthly`, `letter`) carry a NULL `user_id` and belong to the
     child, so they reach both parents and either one completing them clears it for both.
+
+    **`entitled=False` narrows the *pending* leg to the free tier, and only the pending leg.**
+    That is the phase 107 gate and this is where it lives — `GET /today` is the authority and
+    the scheduler is the optimisation, so a household that lapsed at 2pm with mission rows
+    already written has those rows omitted here rather than deleted, and a household that
+    subscribes at 2pm gets its missions on the next read.
+
+    Two consequences worth naming, because both are the point:
+
+    * **The exclusion is in the query rather than a filter over the result.** A lapsed
+      household genuinely *has* pending mission rows, so relying on their absence would be
+      relying on the scheduler having run after the lapse — which is exactly the dependency
+      the read path is not allowed to have. A locked slot cannot reach `today` or `waiting`.
+    * **`done_today` is untouched by it.** Those are entries this household already wrote, and
+      D3 as narrowed locks the day rather than the archive. A parent who finished a mission
+      this morning and lapsed this afternoon keeps seeing it.
     """
     # done_today is anything completed with occurred_at today — in the child's timezone, so an
     # entry logged at 11pm in Auckland does not land on yesterday's screen. The window is
@@ -103,7 +124,14 @@ async def assignments_for(
                     ),
                     Assignment.assigned_on <= today,
                     or_(
-                        Assignment.status == "pending",
+                        # The gate. `FREE_SLOTS` is one tuple in `constants.py`, so widening
+                        # the free tier is an edit there rather than a hunt through call sites.
+                        Assignment.status == "pending"
+                        if entitled
+                        else and_(
+                            Assignment.status == "pending",
+                            Assignment.slot.in_(FREE_SLOTS),
+                        ),
                         Assignment.id.in_(completed_today) if completed_today else false(),
                     ),
                 )

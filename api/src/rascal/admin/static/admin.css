@@ -1417,7 +1417,11 @@ body[data-readonly="true"] #p-release,
 body[data-readonly="true"] #m-export,
 body[data-readonly="true"] #concepts-form button[type="submit"],
 body[data-readonly="true"] #m-publish,
-body[data-readonly="true"] #v-go {
+body[data-readonly="true"] #v-go,
+/* The whole lever, not just its primary button: `Clear trial` is a quiet button and would
+   otherwise survive the rule above and fail on click, which is what this block exists to
+   prevent. */
+body[data-readonly="true"] #trial-form {
   display: none;
 }
 body[data-readonly="true"] tbody tr.is-clickable,

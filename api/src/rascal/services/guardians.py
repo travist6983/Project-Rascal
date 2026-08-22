@@ -16,6 +16,7 @@ import datetime as dt
 import hashlib
 import secrets
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +27,9 @@ from rascal.constants import (
     ISSUABLE_INVITE_ROLES,
     LAPSE_ELIGIBILITY_MONTHS,
     MAX_PARENTS_PER_FAMILY,
+    AccessState,
     GuardianRole,
+    Tier,
 )
 from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
 from rascal.models import Child, Entitlement, Family, Guardian, GuardianInvite, User
@@ -60,6 +63,90 @@ async def entitlement_for(session: AsyncSession, family_id: uuid.UUID) -> Entitl
     entitlement = await session.get(Entitlement, family_id)
     if entitlement is None:  # pragma: no cover — created_household guarantees the row
         raise RascalError(ErrorCode.INTERNAL_ERROR, "This household has no entitlement record.")
+    return entitlement
+
+
+@dataclass(frozen=True)
+class Access:
+    """What one household may reach right now. **Computed per read, never stored.**
+
+    Three fields and no behaviour, deliberately: `entitled` is what the server branches on,
+    `access` is what goes on the wire, and `trial_ends_at` is carried through so a caller that
+    has this object never has to go back to the row for it.
+    """
+
+    #: The column, unchanged and still meaning exactly what it meant before phase 107.
+    tier: Tier
+    #: The column. Null means *no trial on this household*, not *a trial that ended*.
+    trial_ends_at: dt.datetime | None
+    #: **The one boolean every gate in this codebase branches on.**
+    entitled: bool
+    #: The wire value. `subscribed` beats `trial`; `free` is what is left.
+    access: AccessState
+
+
+def access_for(entitlement: Entitlement, *, now: dt.datetime | None = None) -> Access:
+    """**The one authority on whether a household is entitled.** Pure — a row and a clock in,
+    an answer out, no database.
+
+    `api-contract.md` describes `GET /families/me` and `GET /families/{id}/entitlement` as
+    *"one authority with two shapes"*. Phase 107 added a third shape — `GET /today`'s `access`,
+    `trial_ends_at` and `locked[]` — and it is a shape rather than an authority because it
+    reads this function. **Nothing in `src/` may re-derive this formula**, and
+    `test_entitlement_cadence.py` greps for the attempt: an entitlement check copied into a
+    second place is the defect that eventually disagrees with the first one, on the question of
+    whether somebody paid.
+
+    Two properties worth stating because both are load-bearing:
+
+    * **`subscribed` beats `trial`.** A subscriber holding a stale future `trial_ends_at` reads
+      `subscribed`, so a client never renders a paying household as one on a countdown.
+    * **A trial expiring is not a lapse.** Nothing here touches `lapsed_at` or `eligible_at`;
+      `lapsed_at` is about a *subscription* ending, per D3, and a trial quietly running out
+      must not start a deletion clock on somebody's photographs. The two clocks are separate on
+      purpose and :func:`eligible_at` below still keys off `tier` and `lapsed_at` alone.
+    """
+    now = now or dt.datetime.now(tz=dt.UTC)
+    subscribed = entitlement.tier == "subscribed"
+    in_trial = entitlement.trial_ends_at is not None and now < entitlement.trial_ends_at
+    entitled = subscribed or in_trial
+    return Access(
+        tier=entitlement.tier,
+        trial_ends_at=entitlement.trial_ends_at,
+        entitled=entitled,
+        access="subscribed" if subscribed else ("trial" if entitled else "free"),
+    )
+
+
+async def access_for_family(
+    session: AsyncSession, family_id: uuid.UUID, *, now: dt.datetime | None = None
+) -> Access:
+    """:func:`entitlement_for` and :func:`access_for`, in the one call most readers want."""
+    return access_for(await entitlement_for(session, family_id), now=now)
+
+
+async def set_trial_ends_at(
+    session: AsyncSession, family_id: uuid.UUID, trial_ends_at: dt.datetime | None
+) -> Entitlement:
+    """Move or clear one household's trial. **The admin console's only entitlement lever.**
+
+    It exists because the owner is the only user and will otherwise never see the free tier he
+    is designing: setting the date to yesterday drops a household to `free`, setting it to next
+    month puts it back, and clearing it leaves `free` with no trial at all.
+
+    **It deliberately cannot write `tier`, and that is the whole reason this is the lever.** D5
+    reserves `tier` for the App Store webhook and a test asserts it has exactly one writer, so
+    an admin control that set `tier` would either fail that test or quietly become the second
+    writer of the column the decision exists to protect — and the second writer would be a
+    human clicking a button, disagreeing with Apple. Moving `trial_ends_at` reaches both states
+    this console needs without going near it.
+
+    `None` clears the trial. That is a real value rather than a reset: a household with a null
+    `trial_ends_at` has no trial, which is not the same as one whose trial ended.
+    """
+    entitlement = await entitlement_for(session, family_id)
+    entitlement.trial_ends_at = trial_ends_at
+    await session.flush()
     return entitlement
 
 

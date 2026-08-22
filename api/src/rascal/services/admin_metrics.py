@@ -499,6 +499,21 @@ async def top_themes(session: AsyncSession, limit: int = 8) -> list[dict[str, An
     return [{"theme": str(theme), "count": int(count)} for theme, count in rows.all()]
 
 
+def _access_state(tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime) -> str:
+    """`access_for` over two loose columns rather than a mapped row.
+
+    **Not a second formula and it must never become one.** This query selects columns rather
+    than entities — one `Entitlement` per row would be a second query per signup — so there is
+    no ORM object to hand to :func:`services.guardians.access_for`. A throwaway unmapped
+    instance is built for the one call instead, so the formula stays in the one place that is
+    allowed to know it. `test_entitlement_cadence.py` greps `src/` for anyone who reimplements
+    it rather than doing this.
+    """
+    from rascal.services.guardians import access_for
+
+    return access_for(Entitlement(tier=tier, trial_ends_at=trial_ends_at), now=now).access
+
+
 async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[str, Any]]:
     """Who arrived lately — enough to recognise an account, and nothing about their archive.
 
@@ -513,15 +528,18 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             User.display_name,
             User.created_at,
             User.last_sign_in_at,
+            User.family_id,
             Entitlement.tier,
+            Entitlement.trial_ends_at,
             func.count(func.distinct(Entry.id)).label("entries"),
         )
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
         .outerjoin(Entry, and_(Entry.author_id == User.id, Entry.deleted_at.is_(None)))
-        .group_by(User.id, Entitlement.tier)
+        .group_by(User.id, Entitlement.tier, Entitlement.trial_ends_at)
         .order_by(User.created_at.desc())
         .limit(limit)
     )
+    now = dt.datetime.now(tz=dt.UTC)
     return [
         {
             "id": str(row.id),
@@ -529,7 +547,17 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             "display_name": row.display_name,
             "created_at": row.created_at.isoformat(),
             "last_sign_in_at": row.last_sign_in_at.isoformat() if row.last_sign_in_at else None,
+            # **`family_id`, `access` and `trial_ends_at` are here so the console's one
+            # entitlement lever has something to aim at.** A control that sets a household's
+            # trial needs the household's id, and asking the owner to find a UUID by hand is
+            # a control nobody uses. None of the three is archive content.
+            "family_id": str(row.family_id),
             "tier": row.tier or "free",
+            # Computed by the one authority rather than restated here — a console that
+            # disagreed with `GET /today` about whether somebody is entitled would be worse
+            # than a console with no column at all.
+            "access": _access_state(row.tier or "free", row.trial_ends_at, now),
+            "trial_ends_at": row.trial_ends_at.isoformat() if row.trial_ends_at else None,
             "entries": int(row.entries),
         }
         for row in rows.all()

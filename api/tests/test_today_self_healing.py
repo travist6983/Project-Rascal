@@ -29,7 +29,8 @@ from rascal.services.scheduler import ensure_day_filled, run_scheduler
 SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
 # The 1st, and a Tuesday, so `monthly` is tested without `weekly` riding along.
 FIRST = dt.date(2026, 9, 1)  # future-date: explicit, pure
-# A plain Wednesday: the daily three and nothing else.
+# A plain Wednesday: `question` + `mission` under phase 107's rotation, and nothing else.
+# It was "the daily three" before the rotation; the date did not change, the day's shape did.
 WEEKDAY = dt.date(2026, 8, 19)  # future-date: explicit, pure
 
 # UTC+14 and UTC-11. At any instant at least one of them is on a different calendar date
@@ -265,9 +266,10 @@ async def test_the_first_of_the_month_fills_the_monthly_slot(session: AsyncSessi
 
     await ensure_day_filled(session, child, FIRST)
 
+    # FIRST is a Tuesday, so the rotation gives `question` + `mission_b`, and the 1st adds
+    # `monthly` on top.
     assert {row.slot for row in await _rows(session, child.id, FIRST)} == {
         "question",
-        "mission",
         "mission_b",
         "monthly",
     }
@@ -282,11 +284,11 @@ async def test_only_the_missing_slot_is_filled(session: AsyncSession) -> None:
 
     run = await ensure_day_filled(session, child, WEEKDAY)
 
-    # question was already there; mission and mission_b were the gaps.
-    assert run.created == 2
+    # question was already there; `mission` was the gap. A Wednesday holds those two.
+    assert run.created == 1
     assert run.skipped_existing == 1
     rows = await _rows(session, child.id, WEEKDAY)
-    assert {row.slot for row in rows} == {"question", "mission", "mission_b"}
+    assert {row.slot for row in rows} == {"question", "mission"}
     question = next(row for row in rows if row.slot == "question")
     assert question.id == kept.id
     assert question.prompt_id == existing.id
@@ -363,9 +365,7 @@ async def test_two_separate_transactions_racing_the_same_day_still_fill_each_slo
 
     rows = await _rows(session, child.id, WEEKDAY)
     slots = [row.slot for row in rows]
-    assert sorted(slots) == ["mission", "mission_b", "question"], (
-        f"a slot was filled twice: {slots}"
-    )
+    assert sorted(slots) == ["mission", "question"], f"a slot was filled twice: {slots}"
 
 
 async def test_the_read_path_does_not_expire_anything(session: AsyncSession) -> None:

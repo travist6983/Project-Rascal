@@ -22,9 +22,16 @@ from sqlalchemy import or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rascal.constants import DAILY_SLOTS, DEFAULT_EXPIRY_DAYS, SHARED_SLOTS, Slot
-from rascal.models import Assignment, Child, Guardian, Prompt, PromptSuppression
+from rascal.constants import (
+    DAILY_SLOTS,
+    DEFAULT_EXPIRY_DAYS,
+    FREE_SLOTS,
+    SHARED_SLOTS,
+    Slot,
+)
+from rascal.models import Assignment, Child, Entitlement, Guardian, Prompt, PromptSuppression, User
 from rascal.services.dates import local_date, local_hour
+from rascal.services.guardians import access_for
 
 # The two partial unique indexes' predicates, spelled exactly as `models/assignment.py`
 # spells them. ON CONFLICT against a partial index has to repeat its WHERE clause, and if
@@ -210,6 +217,65 @@ async def _active_parents(session: AsyncSession, child_id: uuid.UUID) -> list[uu
     return list(rows.scalars().all())
 
 
+async def entitled_parents(
+    session: AsyncSession, child_id: uuid.UUID, *, now: dt.datetime | None = None
+) -> dict[uuid.UUID, bool]:
+    """Each active parent of this child, mapped to whether **their** household is entitled.
+
+    Entitlement is a family-level attribute per D4, and a child is reached through `guardians`
+    rather than through a family — there is no `children.family_id` and deliberately so. This
+    is the join that closes that gap: guardian → user → family → entitlement, one query, read
+    through :func:`services.guardians.access_for` so the formula is not restated here.
+
+    **Per parent rather than per child, because a daily slot is served per parent.** In every
+    ordinary household the two parents share one `entitlements` row and this map has one value
+    repeated. It differs only where a child is guarded from two households — reachable, because
+    accepting an invite moves a user's family without revoking the guardian rows they already
+    had — and there the right answer is that each parent's own household governs their own
+    board.
+    """
+    rows = await session.execute(
+        select(Guardian.user_id, Entitlement)
+        .join(User, User.id == Guardian.user_id)
+        .join(Entitlement, Entitlement.family_id == User.family_id)
+        .where(
+            Guardian.child_id == child_id,
+            Guardian.revoked_at.is_(None),
+            Guardian.role == "parent",
+        )
+    )
+    return {user_id: access_for(entitlement, now=now).entitled for user_id, entitlement in rows}
+
+
+def _serve(slot: Slot, user_id: uuid.UUID | None, entitled: dict[uuid.UUID, bool]) -> bool:
+    """Whether the scheduler may fill this (slot, guardian) pair.
+
+    **This is an optimisation and `GET /today` is the authority** — the standing rule that the
+    scheduler is not a dependency cuts both ways, and a household that subscribes at 2pm gets
+    its missions from the next read rather than from tomorrow's run. What this buys is the
+    thing the read cannot undo: **a served prompt writes an assignment and consumes the 180-day
+    cooldown against a 133-prompt pool.** Filling slots a free parent can never see would burn
+    their runway invisibly, and hand them repeats on the day they subscribe. Do not replace this
+    with "fill it and hide it".
+
+    Three cases, and the last two both fail **open**:
+
+    * A free slot — today, the daily question — is always filled. It is the free tier.
+    * A daily slot names its guardian, so it is that guardian's own household that decides. A
+      guardian with no row in the map is unknown rather than unentitled, and an unknown
+      household is served: refusing on missing data is how a paying family loses a day.
+    * A shared slot belongs to the child rather than to a guardian, so it is filled if **any**
+      household guarding the child is entitled. A child with no active parent has no household
+      to ask and keeps the behaviour it has always had — shared slots fire, daily slots do not,
+      because there is nobody to serve them to.
+    """
+    if slot in FREE_SLOTS:
+        return True
+    if user_id is not None:
+        return entitled.get(user_id, True)
+    return not entitled or any(entitled.values())
+
+
 async def _history(
     session: AsyncSession,
     child_id: uuid.UUID,
@@ -299,21 +365,51 @@ async def select_prompt(
     )
 
 
+#: The daily slots each weekday produces, keyed on `dt.date.weekday()` — Monday is 0.
+#:
+#: **The rotation is phase 107 and it replaces "all three, every day".** A weekday now carries
+#: the question and *one* mission; the weekend carries both. That gives `mission` five days a
+#: week and `mission_b` four, which is the split row 111 of `docs/decisions.md` made the two
+#: slots for — a photo is the thing a parent can do in ten seconds, and the video, audio and
+#: activity pool is the one that needs an afternoon.
+#:
+#: **The pools are untouched.** `mission` is still photo-only and `mission_b` is still
+#: video/audio/activity, per row 112, whose narrowing is already migration-dated. The rotation
+#: is what changed; widening either pool to compensate would make rows on three sides of two
+#: decisions all "correct" at once.
+_DAILY_ROTATION: dict[int, tuple[Slot, ...]] = {
+    0: ("question", "mission"),  # Monday
+    1: ("question", "mission_b"),  # Tuesday
+    2: ("question", "mission"),  # Wednesday
+    3: ("question", "mission_b"),  # Thursday
+    4: ("question", "mission"),  # Friday
+    5: ("question", "mission", "mission_b"),  # Saturday
+    6: ("question", "mission", "mission_b"),  # Sunday
+}
+
+
 def slots_for(day: dt.date) -> list[Slot]:
-    """The daily three, the weekly on Saturday, the monthly on the 1st, a letter on the 15th.
+    """What this calendar day holds: the rotation, plus whatever the date itself fires.
 
-    The three daily slots fire every day. The weekly, monthly and letter slots fire **on top
-    of them, unconditionally** — they are not suppressed to keep the count down. So a Saturday
-    is four items, the 15th is four, and a Saturday that is also the 15th is five.
+    **`day` is a date in the child's `family_timezone`, always.** Every caller derives it
+    through :func:`rascal.services.dates.local_date` and this function takes it as given — it
+    has no clock and no zone of its own, which is what keeps a Saturday in Auckland from being
+    read as a Friday because UTC said so. A parent in Auckland is entitled to the Saturday.
 
-    That is a deliberate change to the old ceiling. The letter was originally moved off the
-    1st because "four items on one day breaks two-items-is-the-most-that-survives-a-bad-
-    Tuesday"; the third daily mission raises the floor past that on every day of the year, and
-    the owner has taken that call knowing the worst day now reaches five. Splitting the letter
-    away from the measurement mission still earns its keep — it keeps the money letter from
-    losing a coin flip to a height measurement every month — so the 15th stays.
+    The daily slots rotate by weekday (see :data:`_DAILY_ROTATION`): question plus `mission` on
+    Monday, Wednesday and Friday; question plus `mission_b` on Tuesday and Thursday; question
+    plus both at the weekend.
+
+    The weekly, monthly and letter slots fire **on top of them, unconditionally** — they are
+    not suppressed to keep the count down. So an ordinary weekday is two items, a Saturday is
+    four, the 15th is three or four, and **the worst day the calendar can produce is still
+    five**: a Saturday that is also the 1st or the 15th. The rotation lowered the floor without
+    moving that ceiling, which is why `docs/data-model.md`'s stated maximum did not change.
+
+    The letter stays on the 15th rather than the 1st for the reason it was moved there: it
+    keeps the money letter from losing a coin flip to a height measurement every month.
     """
-    slots: list[Slot] = ["question", "mission", "mission_b"]
+    slots: list[Slot] = list(_DAILY_ROTATION[day.weekday()])
     if day.weekday() == 5:  # Saturday
         slots.append("weekly")
     if day.day == 1:
@@ -321,6 +417,18 @@ def slots_for(day: dt.date) -> list[Slot]:
     if day.day == 15:
         slots.append("letter")
     return slots
+
+
+def locked_slots_for(day: dt.date, *, entitled: bool) -> list[Slot]:
+    """The slots this day holds that a household may not have. `[]` when it is entitled.
+
+    The complement of :data:`rascal.constants.FREE_SLOTS` within :func:`slots_for`, computed
+    from the same list so a slot cannot be added to the day and forgotten here. `GET /today`
+    renders these as `locked[]`, and it is the only thing that does.
+    """
+    if entitled:
+        return []
+    return [slot for slot in slots_for(day) if slot not in FREE_SLOTS]
 
 
 async def _expire_stale(session: AsyncSession, child: Child, today: dt.date) -> int:
@@ -444,12 +552,21 @@ async def _filled_slots(
     return {(slot, user_id) for slot, user_id in rows.all()}
 
 
-def _wanted_pairs(day: dt.date, parents: list[uuid.UUID]) -> list[tuple[Slot, uuid.UUID | None]]:
-    """Every (slot, guardian) this child should have on `day`.
+def _wanted_pairs(
+    day: dt.date,
+    parents: list[uuid.UUID],
+    entitled: dict[uuid.UUID, bool] | None = None,
+) -> list[tuple[Slot, uuid.UUID | None]]:
+    """Every (slot, guardian) this child should have on `day`, entitlement already applied.
 
     A daily slot is owed once per parent; a shared slot once per child. With one parent this
     produces exactly what the pre-phase-36 scheduler produced, which is what makes the change
     invisible to a single-guardian household.
+
+    `entitled` maps each active parent to whether their household may be served more than the
+    daily question — see :func:`entitled_parents`. **`None` means "do not gate"**, which is what
+    a caller that has already decided (or a test exercising the calendar alone) wants; it is
+    not a default anything in production takes.
     """
     pairs: list[tuple[Slot, uuid.UUID | None]] = []
     for slot in slots_for(day):
@@ -457,7 +574,9 @@ def _wanted_pairs(day: dt.date, parents: list[uuid.UUID]) -> list[tuple[Slot, uu
             pairs.extend((slot, parent) for parent in parents)
         else:
             pairs.append((slot, None))
-    return pairs
+    if entitled is None:
+        return pairs
+    return [pair for pair in pairs if _serve(pair[0], pair[1], entitled)]
 
 
 async def ensure_day_filled(
@@ -491,7 +610,7 @@ async def ensure_day_filled(
     """
     run = SchedulerRun(as_of=day)
     parents = await _active_parents(session, child.id)
-    wanted = _wanted_pairs(day, parents)
+    wanted = _wanted_pairs(day, parents, await entitled_parents(session, child.id))
     present = await _filled_slots(session, child.id, day)
     missing = [pair for pair in wanted if pair not in present]
     run.skipped_existing = len(wanted) - len(missing)
@@ -566,7 +685,8 @@ async def run_scheduler(
             # serve them to. Shared slots still fire — they belong to the child. Worth a line
             # in the log rather than silence: it is either a revoked guardian or a data bug.
             log.warning("child has no active parent", extra={"child_id": str(child.id)})
-        for slot, user_id in _wanted_pairs(day, parents):
+        entitled = await entitled_parents(session, child.id, now=instant)
+        for slot, user_id in _wanted_pairs(day, parents, entitled):
             await _fill_slot(session, child, slot, day, rng, run, user_id)
 
     await session.flush()

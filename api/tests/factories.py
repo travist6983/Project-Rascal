@@ -24,8 +24,15 @@ from rascal.models import (
     User,
 )
 
+#: Sentinel for "let the column default apply", so `trial_ends_at=None` can mean something
+#: different from omitting it. `None` is a real value on this column — it is a household with
+#: no trial — and a factory that could not express it could not build the free tier.
+UNSET = object()
 
-async def make_family(session: AsyncSession, *, tier: str = "free") -> Family:
+
+async def make_family(
+    session: AsyncSession, *, tier: str = "free", trial_ends_at: object = UNSET
+) -> Family:
     """A household and its entitlement, the pair `services.guardians.create_household` makes.
 
     `tier` is set here rather than through an API because **the one thing that writes it is an
@@ -33,11 +40,24 @@ async def make_family(session: AsyncSession, *, tier: str = "free") -> Family:
     fixture would make every unrelated test depend on the billing stack. A test that needs a
     subscribed family sets the column, exactly as `docs/runbook-deploy.md` §7a does by hand.
     Tests that are *about* the writer live in `test_app_store.py` and go through the webhook.
+
+    **`trial_ends_at` is left to the column default unless a test says otherwise**, which puts
+    every fixture household fourteen days into a trial — exactly where production puts a real
+    one, because phase 107 defaults the column on the model rather than in one caller. That is
+    what keeps the hundred-odd tests written before the free tier existed exercising a full
+    board: they were written when free meant everything, and a household in its trial still
+    gets everything.
+
+    Pass a datetime to move it, or `None` to clear it. A household with `tier="free"` and a
+    past-or-null `trial_ends_at` is the free tier, and that pair is what phase 107's tests use.
     """
     family = Family()
     session.add(family)
     await session.flush()
-    session.add(Entitlement(family_id=family.id, tier=tier))
+    entitlement = Entitlement(family_id=family.id, tier=tier)
+    if trial_ends_at is not UNSET:
+        entitlement.trial_ends_at = trial_ends_at
+    session.add(entitlement)
     await session.flush()
     return family
 
@@ -50,6 +70,7 @@ async def make_user(
     notify_local_time: dt.time | None = None,
     family: Family | None = None,
     tier: str = "free",
+    trial_ends_at: object = UNSET,
 ) -> User:
     """A user in a household of their own, unless `family` puts them in an existing one.
 
@@ -59,7 +80,7 @@ async def make_user(
     row now. Pass `family` to put two users in the same one.
     """
     if family is None:
-        family = await make_family(session, tier=tier)
+        family = await make_family(session, tier=tier, trial_ends_at=trial_ends_at)
     user = User(
         family_id=family.id,
         display_name=display_name,

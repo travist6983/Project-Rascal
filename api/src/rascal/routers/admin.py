@@ -11,20 +11,34 @@ version is that nothing in this router can return a sentence a parent wrote, a c
 a caption, a transcript, or an object key. If a future route here needs one of those, that is
 a product decision to take deliberately, not a field to quietly add.
 
+**One route here writes, and it is deliberately the only one.** `PUT
+/admin/families/{family_id}/trial` moves a household's `trial_ends_at`, per phase 107. It goes
+through `SessionDep` and `LocalWrites` exactly as the library edits in `routers/prompts.py`
+do, so it refuses while the console is pointed at a read-only production database. **It cannot
+write `tier`** — see the route.
+
 The console's own HTML is served by `routers/admin_ui.py`, which shares nothing with this
 module but the URL prefix.
 """
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 
 from rascal.config import Settings
-from rascal.deps import AdminReadSession, AdminUser, SettingsDep
-from rascal.schemas.admin import AdminCosts, AdminOps, AdminSnapshot
+from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
+from rascal.schemas.admin import (
+    AdminCosts,
+    AdminOps,
+    AdminSnapshot,
+    AdminTrialIn,
+    AdminTrialOut,
+)
 from rascal.services import admin_metrics, billing, readonly_db
+from rascal.services.guardians import access_for, set_trial_ends_at
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -49,6 +63,41 @@ async def snapshot(
         growth=await admin_metrics.growth(session, days),
         themes=await admin_metrics.top_themes(session),
         signups=await admin_metrics.recent_signups(session),
+    )
+
+
+@router.put(
+    "/families/{family_id}/trial",
+    response_model=AdminTrialOut,
+    summary="Move or clear a household's trial — the console's one entitlement lever",
+    description=(
+        "Sets `entitlements.trial_ends_at`. A date in the future makes the household "
+        "`trial`; a date in the past or `null` makes it `free`. **It cannot write `tier` and "
+        "there is deliberately no control that can** — D5 reserves that column for App Store "
+        "Server Notifications V2 and a test asserts it has exactly one writer, so a console "
+        "button that set it would be a person disagreeing with Apple.\n\n"
+        "It exists because the owner is the only user and would otherwise never see the free "
+        "tier he is designing: set it to yesterday to drop to `free`, to next month to come "
+        "back. **The one household affected is the one named in the path** — this reaches no "
+        "other family and reads no archive content."
+    ),
+)
+async def set_family_trial(
+    family_id: uuid.UUID,
+    payload: AdminTrialIn,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
+) -> AdminTrialOut:
+    entitlement = await set_trial_ends_at(session, family_id, payload.trial_ends_at)
+    # Rendered through the one authority rather than re-derived, so the console cannot show a
+    # different answer from the one the phone will get on its next `GET /today`.
+    access = access_for(entitlement)
+    return AdminTrialOut(
+        family_id=family_id,
+        tier=entitlement.tier,
+        access=access.access,
+        trial_ends_at=access.trial_ends_at,
     )
 
 

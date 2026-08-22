@@ -9,12 +9,13 @@ second place to update every time a query changes and would buy no caller anythi
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from rascal.constants import Cadence, CompletionMode, PromptKind
+from rascal.constants import AccessState, Cadence, CompletionMode, PromptKind, Tier
 from rascal.schemas.common import ApiModel
 from rascal.schemas.prompt import PromptOut
 
@@ -77,6 +78,30 @@ class PromptPreviewOut(ApiModel):
         description="Tokens no client can render. Non-empty means the body would print "
         "literal braces on a card, in an export, and in a printed book."
     )
+
+
+class AdminTrialIn(ApiModel):
+    """The console's one entitlement lever: move a household's trial, or clear it.
+
+    **There is deliberately no `tier` field and there is not going to be one.** See
+    `services/guardians.set_trial_ends_at`.
+    """
+
+    #: When the trial should end. `null` clears it — a household with no trial, which is a
+    #: real state and the way to drop somebody to the free tier immediately. A date in the
+    #: past does the same thing while recording when it happened.
+    trial_ends_at: dt.datetime | None = None
+
+
+class AdminTrialOut(ApiModel):
+    """What the household reads after the lever moved, computed the same way every other
+    surface computes it — `services/guardians.access_for`, the one authority."""
+
+    family_id: uuid.UUID
+    #: Untouched by this route. Present so the console can show that it did not move.
+    tier: Tier
+    access: AccessState
+    trial_ends_at: dt.datetime | None = None
 
 
 class AdminSnapshot(ApiModel):

@@ -38,8 +38,25 @@ GUARDIAN_ROLES: Final = ("parent", "viewer")
 ISSUABLE_INVITE_ROLES: Final = ("parent",)
 
 #: Entitlement tiers, per D4. Family-level, never per-user and never per-child.
+#:
+#: **There is deliberately no `trial` value here, and adding one is the mistake phase 107
+#: exists to avoid.** `entitlements.tier` has exactly one writer — the App Store notification
+#: handler, per D5 — and a test asserts that. A trial that wrote `tier` would be a second
+#: writer of the one column D5 reserves. The trial is `entitlements.trial_ends_at`, a column
+#: beside this one, and `access` below is what the two of them compute to.
 Tier = Literal["free", "subscribed"]
 TIERS: Final = ("free", "subscribed")
+
+#: What a household may actually reach today. **Computed, never stored, and never a column.**
+#: `services/guardians.access_for` is the one function that produces it; nothing else in
+#: `src/` may re-derive it. `subscribed` beats `trial`, so a subscriber holding a stale future
+#: `trial_ends_at` reads `subscribed`.
+AccessState = Literal["free", "trial", "subscribed"]
+ACCESS_STATES: Final = ("free", "trial", "subscribed")
+
+#: How long a new household is entitled for, from the moment its `entitlements` row is
+#: created. Per D1, which settles the trial at fourteen days.
+TRIAL_DAYS: Final = 14
 
 #: Two adults is the household. A third is not a pricing question, it is a different product
 #: — see `docs/decisions.md` D4 — so the invite route refuses rather than upselling.
@@ -198,6 +215,34 @@ DAILY_SLOTS: Final = ("question", "mission", "mission_b")
 #: unique indexes on `assignments` are built from exactly these two tuples. Moving a slot
 #: between them is a migration, not an edit.
 SHARED_SLOTS: Final = ("weekly", "monthly", "letter")
+
+#: What a household with no entitlement is served. **One slot, and it is the whole free tier**
+#: as of phase 107 and the D2 reversal: a free household is asked something about their child
+#: every day, forever, uncapped — and is offered nothing to go and do.
+#:
+#: A tuple rather than a bare string so the gate reads as a membership test everywhere it
+#: appears, and so widening the free tier is an edit here rather than a hunt through call
+#: sites.
+FREE_SLOTS: Final = ("question",)
+
+#: What `locked[]` tells a client about a slot it may not have. **The shape of the thing, not
+#: a teaser for it** — there is no id, no body, no prompt and no theme in a locked item, so a
+#: hint is all a client gets to draw with.
+#:
+#: `mission` hints `photo` because that slot is photo-only since migration 0008. `mission_b`
+#: hints `mission`, deliberately vaguely: its pool is video, audio and activity, and which one
+#: a day would have produced is not knowable without running the picker — which is the
+#: cooldown burn phase 107 exists to avoid. The three shared slots hint their own name because
+#: that is genuinely what they are.
+#:
+#: `question` is absent because a question is never locked.
+LOCKED_KIND_HINTS: Final = {
+    "mission": "photo",
+    "mission_b": "mission",
+    "weekly": "weekly",
+    "monthly": "monthly",
+    "letter": "letter",
+}
 
 # --- Push notifications ------------------------------------------------------------------
 

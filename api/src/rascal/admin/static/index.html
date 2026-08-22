@@ -172,6 +172,34 @@
           </p>
           <div id="signups" class="table-wrap"></div>
         </article>
+
+        <article class="card">
+          <p class="label">Membership — move a household's trial</p>
+          <p class="card-note">
+            The one entitlement lever, and deliberately the only one. Set the date to
+            yesterday to see the free tier; set it forward to come back. <strong>It cannot set
+            the tier</strong> — App Store Server Notifications are the only writer of that
+            column, and a button here that disagreed with Apple would be worse than no button.
+            Clearing the date leaves the household on <code>free</code> with no trial at all.
+          </p>
+          <form id="trial-form" class="form">
+            <div class="field-row">
+              <label class="field">
+                <span>Household</span>
+                <select id="t-family" required></select>
+              </label>
+              <label class="field">
+                <span>Trial ends</span>
+                <input id="t-date" type="date" />
+              </label>
+            </div>
+            <div class="drawer-actions">
+              <button class="btn btn-primary" type="submit">Set trial</button>
+              <button class="btn btn-quiet" id="t-clear" type="button">Clear trial</button>
+            </div>
+          </form>
+          <p id="trial-state" class="card-note"></p>
+        </article>
       </section>
 
       <!-- Library ------------------------------------------------------------------- -->
