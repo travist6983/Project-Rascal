@@ -44,17 +44,37 @@ struct SubscriptionScreenshotTests {
     /// The child the approved design draws, so a render can be compared with the artboards.
     private static let milo = PromptSubject(name: "Milo", pronouns: .heHim)
 
-    @Test("the membership sheet renders at every accessibility size, in both of its states")
+    /// **Three states, and the third is the one a parent will actually be in.**
+    ///
+    /// `membership-sheet-*` shows an introductory offer, which is what a storefront grants — and
+    /// which **no parent reaching this sheet will ever see**, because the trial is server-granted
+    /// (`entitlements.trial_ends_at`) and has ended by the time anybody opens this.
+    /// `isEligibleForIntroOffer` is then false, `TrialRule.resolve` returns nil, and both plan rows
+    /// lose their `"2 weeks free, then "` prefix.
+    ///
+    /// That is not cosmetic: it changes each row from a wrapped line to a single one, which changes
+    /// the height of the plan group and therefore the rhythm the detent is sized against. Every
+    /// visual review of this sheet before `membership-notrial-*` existed was done against copy
+    /// production cannot produce.
+    @Test("the membership sheet renders at every accessibility size, in all three of its states")
     func membershipSheetRenders() throws {
         let ready = SubscriptionModel(previewing: .ready(.preview, familyID: UUID()))
+        let noTrial = SubscriptionModel(previewing: .ready(.previewWithoutTrial, familyID: UUID()))
         // **The state every device is actually in.** No subscription product exists in App Store
         // Connect, so this is the ordinary render and not the error one.
         let unavailable = SubscriptionModel(previewing: .unavailable(.products))
+
+        try render(PaywallSheet(model: noTrial) {}.renderable, named: "membership-notrial-default", at: .large)
 
         for (label, size) in Self.sizes {
             try render(
                 PaywallSheet(model: ready) {}.renderable,
                 named: "membership-sheet-\(label)",
+                at: size
+            )
+            try render(
+                PaywallSheet(model: noTrial) {}.renderable,
+                named: "membership-notrial-\(label)",
                 at: size
             )
             try render(

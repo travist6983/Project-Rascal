@@ -596,7 +596,22 @@ enum LegalLinks {
 /// for it: a test fixture is not in the app target, and a preview that borrowed one would tie the
 /// canvas to the test suite.
 extension SubscriptionOffer {
-    static var preview: SubscriptionOffer {
+    /// With an introductory offer — the storefront state where Apple would grant a trial.
+    static var preview: SubscriptionOffer { previewOffer(trial: true) }
+
+    /// **Without one, which is the state a parent will actually be in.**
+    ///
+    /// The trial is *server*-granted — `entitlements.trial_ends_at`, phase 107 — and a parent
+    /// reaches this sheet after their fortnight has ended. `TrialRule.resolve` then returns nil
+    /// because `isEligibleForIntroOffer` is false, so both plan rows lose their `"2 weeks free,
+    /// then "` prefix and become one short line instead of a wrapped one.
+    ///
+    /// **That changes the height of the plan group**, which is what the detent and the surrounding
+    /// rhythm are judged against — so a sheet reviewed only in the `preview` state has been reviewed
+    /// against copy production cannot produce.
+    static var previewWithoutTrial: SubscriptionOffer { previewOffer(trial: false) }
+
+    private static func previewOffer(trial: Bool) -> SubscriptionOffer {
         let format = Decimal.FormatStyle.Currency(code: "USD")
         func plan(
             _ plan: SubscriptionPlan,
@@ -613,7 +628,7 @@ extension SubscriptionOffer {
                 price: amount,
                 priceFormat: format,
                 period: SubscriptionPeriodValue(value: 1, unit: unit),
-                trial: SubscriptionPeriodValue(value: 2, unit: .week)
+                trial: trial ? SubscriptionPeriodValue(value: 2, unit: .week) : nil
             )
         }
 
@@ -628,6 +643,14 @@ extension SubscriptionOffer {
             )
         )
     }
+}
+
+/// **The sheet a parent actually gets.** No introductory offer, because the trial is server-granted
+/// and has already ended by the time anybody opens this.
+#Preview("Membership sheet — no trial (the real one)") {
+    PaywallSheet(
+        model: SubscriptionModel(previewing: .ready(.previewWithoutTrial, familyID: UUID()))
+    ) {}
 }
 
 #Preview("Membership sheet — annual") {
