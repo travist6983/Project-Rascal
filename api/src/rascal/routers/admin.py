@@ -221,15 +221,18 @@ def _flags(settings: Settings) -> list[dict[str, object]]:
 
     Written out rather than dumped from `Settings` for two reasons. A dump would put secrets
     on a web page. And a boolean with no sentence beside it is unreadable six months later —
-    `marketing_email_enabled: false` looks like a bug until you know it is open item 12's
-    hard gate. The sentence is the useful half.
+    `marketing_email_enabled: false` looks like a bug until you know what it gates. The
+    sentence is the useful half — and it has to be maintained: this one described open item
+    12's hard gate for three days after the owner lifted it on Aug 22, 2026, which is worse
+    than no sentence, because an operator reads it as current.
     """
     return [
         {
             "key": "MARKETING_EMAIL_ENABLED",
             "on": settings.marketing_email_enabled,
             "means": "Off, the daily broadcast renders and logs but never calls Resend. "
-            "Open item 12: no marketing email before the P0 behavioural gate.",
+            "On, it sends once a day at the configured hour. The P0 behavioural gate that "
+            "used to forbid this was lifted by the owner on Aug 22, 2026.",
             "tone": "warn" if settings.marketing_email_enabled else "ok",
         },
         {

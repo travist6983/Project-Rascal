@@ -32,9 +32,38 @@ and 109 is the marketing site's free-tier copy. **107, 108, 109 and 110 all wrot
 across nine instances, had never once received before tonight, and has now received four times
 running.
 
-**The highest number used is 110. A genuinely new phase takes 111.** 110 is the design-conformance
+~~*The highest number used is 110. A genuinely new phase takes 111.*~~ — **struck an eighth time
+on Aug 22, 2026, by 111 taking the number this sentence offered.** 110 is the design-conformance
 pass over 108: the approved Claude Design bundle, committed to the repository, and 108's tree
 audited against it.
+
+**The highest number used is 111. A genuinely new phase takes 112.** **111 is the blocked-list
+reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
+committed and `blocked.md` §10a item 1 closed, §14 struck as resolved by phase 86, the four resolved
+`##` sections at the top of `blocked.md` moved into *Resolved since the last review*, and the
+marketing-broadcast claims corrected across five documents now that the job has been sending for
+four consecutive days.
+
+**The eighth strike is the second consecutive one that is not a failure**, and it was nearly the
+first strike caused by the thing this header cannot see. 111 was cut from a **stale local `main` at
+`6c93c39`** while `origin/main` had already moved to `9af51c8` carrying 105, 107 and 108 — so the
+four prescribed commands, run in that worktree, could see no ledger row for 107, 108 or 110 —
+~~*and would have answered **106***~~. **Struck Aug 22, 2026: that figure was derived rather than
+run, and the commands answer 109.** `roadmap-status.md` at `6c93c39` **did** carry a 109 row:
+`git show 6c93c39:docs/roadmap-status.md | grep -c '| \*\*109\*\* |'` returns **1**. And the
+fourth prescribed command is a grep of `docs/` for the phase pattern, not a grep for ledger rows —
+at that commit it finds `Phase 107`, `phase-107` and `phase-109`, so **its answer was 109**.
+**Absent-from-the-ledger and invisible-to-the-commands are two different sets and this paragraph
+had merged them**: 107 and 109 were both findable in `docs/` while having no row; **108, 110 and
+111 appear nowhere under `docs/` at `6c93c39` at all** — `git grep -ohiE 'phase[- ]1(08|10|11)'
+6c93c39 -- docs/` returns nothing — and those three are the real blind spot this paragraph exists
+to record.
+**The number was right anyway because it was read from this file rather than measured**, which is
+the case this header has been arguing for across ~~ten~~ **nine** instances — **corrected
+Aug 22, 2026 in the same pass that wrote it**; nine is the count the correction paragraph below
+rules on and the number the rest of this header carries — the file a human writes the number into
+outranks any command that counts. What caught the stale base was an
+adversarial audit of the phase's own diff, not the numbering rule.
 
 **110 is the first strike in this file's history that is not a failure**, and the distinction is
 worth keeping rather than filing it with the other nine. Every previous strike records a number
@@ -68,7 +97,18 @@ allocation that exists only in somebody's head. **Nothing is renumbered** — `C
 that a phase number is an identifier, and both PRs, both branch names and every commit subject say
 `103`. The full note is under the ledger in `roadmap-status.md`.
 
-**The remedy has not changed across eight instances and has still never been followed:** write the
+**The remedy has not changed across ~~eight~~ nine instances, and ~~has still never been
+followed~~** — **both halves corrected Aug 22, 2026 by phase 111.** The count is **nine**, which is
+the number the rest of this header already carries and ~~*this line alone did not*~~ — **that
+half was false the moment it was written and is struck Aug 22, 2026 by the same phase that wrote
+it**: the eighth-strike paragraph above, added on this same branch, said *"across ten instances"*
+and is corrected there. **Two lines disagreed, not one, and the exhaustive claim was made without
+grepping the file it was about** — which is this phase's own stated failure mode wearing the
+opposite face. The three that were already right: *"the remedy this
+header has asked for across nine instances"* above, *"the nine instances above"* below it, and
+*"109 is the ninth instance"* naming the last of them. And it **has** been followed — five times
+running, by 107, 108, 109, 110 and 111, all of which wrote their rows at allocation. The remedy
+itself is unchanged: write the
 row when you take the number, not when you ship. Every one of these strikes is a session that
 measured honestly, got the right answer, and then left a gap between reading a number and
 recording it.
@@ -224,22 +264,49 @@ iOS build, and it is the one nobody here can do.
   only signing identity on the build machine is `Apple Development`, so a TestFlight build needs a
   Distribution certificate and an App Store Connect key that live with the owner. Until one ships,
   the installed build predates `3df6cd4` and renders `mission_b` as an unknown grey "Still open"
-  slot regardless of what the server does.
+  slot regardless of what the server does. **Which key, decided Aug 22, 2026, because a key's access
+  is fixed at generation and cannot be narrowed later without revoke-and-regenerate:** mint an
+  **upload-only** key now for this, and leave the **team key with Sales and Finance access**
+  deferred until after launch, per `blocked.md` §16 — sales reports 404 on an empty period anyway.
+  Two errands rather than one, on purpose; the alternative is a single over-scoped key that can read
+  the money.
 
 ## Blocked on you, not on code
 
-- **Put Apple Root CA - G3 in the repository.** One `curl`, and `POST /v1/webhooks/app-store`
+- ~~**Put Apple Root CA - G3 in the repository.** One `curl`, and `POST /v1/webhooks/app-store`
   answers `401` to every notification until it is done — deliberately, because the alternative to
   a trust anchor is accepting unverified billing payloads. The command and the fingerprint check
   are in `docs/blocked.md` §10a and in `api/src/rascal/certs/appstore/README.md`. **The branch that
   wrote the code could not do this**: `www.apple.com` is refused by that environment's egress
-  policy, and the root is in neither `certifi` nor the system CA bundle.
+  policy, and the root is in neither `certifi` nor the system CA bundle.~~ — **done Aug 22, 2026 by
+  phase 111; line struck per this file's rule that a queue line goes when it is done.** 583 bytes at
+  `api/src/rascal/certs/appstore/AppleRootCA-G3.cer`, self-signed `CN=Apple Root CA - G3`, valid to
+  Apr 30 2039, and `load_root_certificates` now returns one anchor. **The blocker was true of its
+  own environment and false as a generalisation** — `www.apple.com` answered `200` from here — which
+  is the part worth keeping: an egress policy is a property of the machine that hit it, not of the
+  errand. **The fingerprint check it pointed at could not be performed as written**: Apple's
+  certificate authority page publishes no fingerprints at all, so the substitute is a byte-for-byte
+  `cmp` against the copy macOS ships in `SystemRootCertificates.keychain`. Written into
+  `blocked.md` §10a and the certs `README.md`.
 - **Read `APP_STORE_APP_APPLE_ID` off App Store Connect** and set it as a Fly secret. Apple's
   library refuses to build a Production verifier without it. **This one does not wait on the Paid
   Applications agreement** — the app record has existed since TestFlight — so unlike the rest of
-  `docs/blocked.md` §10 it is available today.
-- Read the **79 prompt candidates**. They were generated before `decisions.md` settled the tone as
-  warm and cheerful on Aug 11 — read for warmth as well as accuracy. All 79 are `question` kind.
+  `docs/blocked.md` §10 it is available today. **Still open, and its scope narrowed Aug 22, 2026**:
+  confirmed absent from `flyctl secrets list -a rascal-api`, and now that the root certificate is
+  in, it is the **only** thing between here and a verified notification — but only for
+  `Environment.PRODUCTION`. **The sandbox verifier builds today**, so the first sandbox purchase in
+  §10 is verifiable now and Production is not.
+- Read the ~~**79 prompt candidates**~~ **139 prompt candidates** — **corrected Aug 22, 2026 by
+  phase 111; both sets are kept, on the owner's call.** 79 from Aug 4 and **60 dated
+  2026-08-22**, five worksheets at 12 each. The Aug 4 set was generated before `decisions.md`
+  settled the tone as warm and cheerful on Aug 11 — read those for warmth as well as accuracy.
+  ~~All 79 are `question` kind.~~ — **that stops being true of the whole pile**: the new five are
+  a kind spread, one worksheet each — `fears-comfort` **question**, `outdoors` **video**,
+  `me-as-a-parent` **question**, `physical-affection` **audio**, `seasons-holidays`
+  **activity** — so three of the five land in kinds the Aug 4 pass never produced. **They target
+  the themes that are thin now** rather than the ones Aug 4 chose: `fears-comfort` 2, `outdoors`
+  4, `me-as-a-parent` 5, `physical-affection` 5, `seasons-holidays` 5, while Aug 4's
+  `making-building` and `sleep-routine` sit at 6 each and are no longer thin.
 - Run a **restore drill**. The machinery is tested; the act has never been performed. Use the
   pinned Postgres 16 binaries — a 17 client writes a dump 16 will not take back.
 
@@ -286,6 +353,10 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
   boxes asked about a navigation bar v2 removed, and §7 is new. Runnable as written now.
 - `device-verification-captions.md` — 9. **Needs a real camera roll, and its answer decides
   phase 33.** Measures how many photos already carry a written description; near-zero closes 33.
+  **The owner said Aug 22, 2026 that he will run it this week, and the probe stays until he does** —
+  so this is the one item on this list with a date attached to it. Its first line no longer says the
+  checklist is waiting on a TestFlight build; that was superseded by the owner's Aug 16 device build
+  and corrected in the checklist by phase 111.
 - `device-verification-personalization.md` — 25. Same hardware gate as extraction.
 - `device-verification-moments.md` — 44.
 - `device-verification-push.md` — 32, of which **9 are ticked** (§0–§3, Aug 12). Left: force-quit delivery, the
@@ -331,7 +402,26 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   with no later fix server-side or otherwise. `docs/api-contract.md` states it as a named client
   requirement and the shipped client honours it. **Nothing has been bought**, so it is proven in
   the suite and unproven against Apple; that waits on the same TestFlight build everything else
-  here waits on, and on `blocked.md` §10a and §16.
+  here waits on, and on ~~`blocked.md` §10a and §16~~ — **corrected Aug 22, 2026 by phase 111, and
+  it named the wrong two sections.** It waits on **§10** — the subscription products have to exist
+  in App Store Connect before anything can be bought — and on the TestFlight build. **§16 was never
+  a dependency**: its own first line is *"Not blocked, because nothing is waiting on it"*, and it
+  defers a Sales-and-Finance reporting key that no purchase needs. **§10a is no longer one either**:
+  item 1 closed today with Apple Root CA - G3 committed, and item 2 (`APP_STORE_APP_APPLE_ID`)
+  gates only the **Production** verifier — the **sandbox** verifier builds without it, so the first
+  sandbox purchase is verifiable today and only a Production notification is not.
+
+- **iOS lane: `ios/Rascal/RascalTests/Vellum.storekit` describes an introductory offer the products
+  will not have.** *New Aug 22, 2026, from phase 111, and recorded here because the API lane may not
+  edit it.* The owner decided that day that the App Store products are created with **no
+  introductory offer**: the 14-day trial is server-side only — granted at INSERT into
+  `entitlements.trial_ends_at` — and an Apple intro offer would stack on top of it, because Apple's
+  eligibility is per Apple ID and cannot see that column. Fourteen free days total, not
+  twenty-eight. The fixture carries **two** `introductoryOffer` blocks, so the local StoreKit test
+  configuration now models a product that will not exist. **Nothing is broken and nothing goes red**
+  — which is why it needs a line rather than a bug report — but a paywall verified against this
+  fixture is verified against the wrong product. The decision is written up in `blocked.md` §10 and
+  amended into D1 in `decisions.md`.
 
 - **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
   **Three errors were live in this bullet until Aug 18, 2026, and they compounded.** *(i)* It was
@@ -400,21 +490,41 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   Apple's `sub` survives a revoke-and-reauthorize cycle. **All nineteen of its tests pass
   whether or not it holds**, so nothing in CI can tell you. If it changes, the recoverability
   design is wrong rather than buggy — and that is worth knowing before anything tells a parent
-  that removing the app is reversible.
+  that removing the app is reversible. **Runnable for real as of Aug 22, 2026, and the runbook
+  changed to match**: attach an email credential first, via ~~`POST /me/credentials`~~ **`POST
+  /v1/me/credentials/email`** — **corrected Aug 22, 2026: the route named here cannot do it.**
+  `POST /v1/me/credentials` verifies a *provider token* and attaches Apple or Google; the email
+  attach is its own route, takes an address, always answers `202`, and creates the credential
+  **inactive** until the magic link is opened through `POST /v1/auth/email/complete`. Following
+  the old line literally would fail before the experiment started — so that a
+  changed `sub` is repairable with already-shipped code — sign in by magic link and the new Apple
+  subject attaches to the same `users` row — instead of stranding a production archive behind an
+  account nobody can sign in as. That pre-step only became possible now, because Resend is live and
+  the magic link actually sends.
 - **Nothing in the auth bundle has run on a phone**, and it cannot until there is a TestFlight
   build: `ios.yml` has no archive, signing or upload step, and the only identity on the build
   machine is `Apple Development`. Google sign-in has never been attempted against real Google,
   no magic link has ever been tapped, and no Dynamic Type XXL screenshots exist for either
   screen. **Merged and invisible** is the honest description.
-- **No real email has ever been sent.** `MAIL_PROVIDER` is `console` everywhere; Postmark has
-  never been called, so the magic link is proven as logic and unproven as mail.
+- ~~**No real email has ever been sent.** `MAIL_PROVIDER` is `console` everywhere; Postmark has
+  never been called, so the magic link is proven as logic and unproven as mail.~~ — **struck Aug 22,
+  2026 by phase 111. Real email has been sent.** `MAIL_PROVIDER`, `MAIL_FROM`, `MAIL_API_KEY`,
+  `MARKETING_EMAIL_ENABLED` and `RESEND_AUDIENCE_ID` are all Deployed secrets on `rascal-api`, and
+  `email_broadcasts` holds four rows, **all `status='sent'`**, for Aug 19–22. **The half of this
+  line that survives is the half about the magic link**: the marketing broadcast is what has sent,
+  and no `POST /auth/email/start` link has been tapped by a person, so that path is still proven as
+  logic and unproven as mail. Postmark cannot be called at all — `PostmarkProvider` was deleted, not
+  disabled, by phase 60.
 - ~~**60 — `POST /v1/subscribe`, and Resend replaces Postmark on both lanes.**~~ — **shipped Aug 17, 2026; line deleted per this file's own rule that a queue line goes when it is done.** The specification it carried is preserved in `roadmap-status.md`'s phase 60 row, which is where the long form belongs. **Everything it specified landed as specified**, including the two things most likely to have drifted: the `stream` argument went onto the existing `services/mail.py` port rather than beside it, and **no `subscribers` table was created** — the list is provider-held per open item 12(4).
 - **The marketing site itself — `Rascal-Marketing`, a different repository, so it takes no phase
   number here.** GitHub Pages custom domain with **Enforce HTTPS**, CSP via `<meta http-equiv>`
   (the header set is fixed on this host — an accepted exception, D7), the signup form, and the
   Turnstile widget. **`prompts.yaml` and `mission-library.md` never enter that repo**, whole or
-  sliced. Owner actions it waits on are `blocked.md` §13. **Timing: the page and its form may ship
-  before the P0 gate; no marketing email sends before it.**
+  sliced. Owner actions it waits on are `blocked.md` §13. ~~**Timing: the page and its form may ship
+  before the P0 gate; no marketing email sends before it.**~~ — **struck Aug 22, 2026 on the owner's
+  call. The P0 behavioural gate no longer gates marketing email**, and the broadcast has been
+  arming and sending since Aug 19. The timing constraint on this bullet is gone; what is left is
+  the Turnstile site key in §13, which is what stops the form saying *"signups are not open yet"*.
 - **60's port is a prerequisite for 38 (lifecycle notices), whose email channel cannot be built
   without it.** Recorded as a dependency rather than a phase. **The webhook that writes the
   `email` outcome into `lifecycle_notice_deliveries` belongs to 38 and gets no number of its own**
@@ -507,11 +617,44 @@ reports; these are only the things somebody has to *do*.
   found, one line. Open item 15. You answered *"already checked — it's fine"* on Aug 18; the repo
   holds the assurance but not the evidence, and only the second kind is auditable later.
 - **Re-capture the marketing site's onboarding screenshot** — ~~once phase 73 merges~~ **73 merged Aug 18, 2026, so this is unblocked and waiting on a build.** The old wordmark is baked into its pixels and cannot be fixed from the marketing repo. **It needs a fresh capture from a build carrying the phase 77 wordmark**, which means it is gated on the same iOS build everything else here is gated on.
-- **Exercise `POST /v1/subscribe` end to end once**, from the real GitHub Pages origin, to confirm
-  CORS and a real Turnstile verification. Never yet done against the deployed API.
-- **Run the daily broadcast once with `--date` against an audience of one** before it ever runs for
-  the list. The Resend Broadcasts API has never been called.
-- **A Fly scheduled machine for `python -m rascal.jobs.broadcast`**, once the above is verified. **The invocation is now written down** — `runbook-deploy.md` §4d, added Aug 18, 2026, along with why this is the one machine that must not be armed before the P0 gate. **And a second machine is missing that nothing here was tracking: `python -m rascal.jobs.delete`** (§4c). That one has no gate and no reason to wait — **without it a parent who asks to be forgotten is never forgotten**, the API stays green throughout, and it is an App Store commitment rather than a feature.
+- ~~**Exercise `POST /v1/subscribe` end to end once**, from the real GitHub Pages origin, to confirm
+  CORS and a real Turnstile verification. Never yet done against the deployed API.~~ — **struck
+  Aug 22, 2026 by phase 111: it has been done, and this line was the flattest of the three
+  contradicting accounts.** `blocked.md` §13 is the evidence and the form to defer to: *"`POST
+  /v1/subscribe` has now been exercised from the real origin — that signup is what revealed that
+  Resend's contacts API does **not** do double opt-in, which phase 88 then fixed. So CORS and a
+  genuine Turnstile verification have both run against the deployed API for the first time."*
+  **Nothing is owed here any more**, so it is struck rather than reworded: the errand this line
+  named is spent.
+- ~~**Run the daily broadcast once with `--date` against an audience of one** before it ever runs for
+  the list. The Resend Broadcasts API has never been called.~~ — ~~**A Fly scheduled machine for
+  `python -m rascal.jobs.broadcast`**, once the above is verified.~~ — **both struck Aug 22, 2026 by
+  phase 111, and they were struck by events rather than by anybody doing them.** The machine exists:
+  `683e1eea463d28` / `late-fire-837`, created **2026-08-19T02:15:36Z**, command
+  `["python","-m","rascal.jobs.broadcast"]`, `grp=(none)`. The Resend Broadcasts API has been called
+  four times — `email_broadcasts` holds Aug 19, 20, 21 and 22, **all `status='sent'`**, none failed
+  and none skipped. **The audience-of-one rehearsal never happened; the first real send was the
+  first send.** ⚠️ **How many people received those four emails is not knowable from this repository
+  or from Fly**, and is written as unknown rather than estimated: `MAIL_API_KEY` is send-scoped and
+  `GET /audiences/{id}/contacts` answers **403** from inside the production machine. Only the Resend
+  dashboard can answer it, and that is an owner errand nobody has run. **The invocation is written
+  down** in `runbook-deploy.md` §4d. **And a second machine is still missing, which nothing here was
+  tracking: `python -m rascal.jobs.delete`.** It has its own line below rather than a clause
+  here, because a legal deadline buried in a paragraph about email is a thing nobody reads.
+- **Create the deletion machine: `python -m rascal.jobs.delete`.** *New Aug 22, 2026, and the only
+  line on this list with a promise on the clock.* `flyctl machine list --app rascal-api`, read today,
+  returns **five** machines — two `app` running uvicorn, and one each for `rascal.jobs.scheduler`,
+  `rascal.jobs.notify` and `rascal.jobs.broadcast`. **None runs `rascal.jobs.delete`.** The job has
+  existed since phase 66 shipped on Aug 17, 2026 and `runbook-deploy.md` §4c writes down how to
+  create it, so this is one `flyctl machine run` and not a build. **Nothing goes red while it is
+  missing**: `POST /v1/me/deletion` accepts, the row lands in `deletion_requests`, the API stays
+  green, and the seven days pass with nothing scheduled to finish the erasure — so a parent who asked
+  to be forgotten is not forgotten and no instrument in this project says so. It is the one
+  hard-delete `CLAUDE.md` rule 5 carves out, an App Store commitment rather than a feature, and the
+  long form is `blocked.md`.
+- **Owner: read the Resend dashboard and write down the recipient count for the four sends.** *New
+  Aug 22, 2026.* One look, and it is the only place the number exists. Until it is written down,
+  every document in this repository can say the broadcast sends and none of them can say to whom.
 - **§0 device verification is still 0 of 45.** Unchanged by this sprint and still wants running.
 - **Render one full treatment end to end, and read the invoice afterwards.** Gemini billing is
   enabled and phase 106 proved the path with **one four-second clip**. A real treatment is seven
@@ -520,11 +663,19 @@ reports; these are only the things somebody has to *do*.
   `GEMINI_VIDEO_CENTS_PER_SECOND` is 5 because Google publishes $0.05 a second, and **that figure
   has never been reconciled against a Google invoice**, so the console is currently showing an
   estimate somebody typed. One render settles both.
-- **Owner: refresh `IG_ACCESS_TOKEN` before ~Oct 19, 2026, in two places at once.** Meta issues it
-  for about sixty days and the only real timestamp either repo has puts the lapse there. **Nothing
-  refreshes it and nothing warns**; the first sign is a failed publish with `OAuthException 190`.
-  Fly secrets and `.env` here, **and** the `Rascal-Marketing` Actions secret — refreshing one
-  leaves the other posting to the same account with a dead token. `blocked.md` §18.
+- **Owner: refresh `IG_ACCESS_TOKEN` before ~Oct 19, 2026.** ~~*in two places at once … Fly
+  secrets and `.env` here, **and** the `Rascal-Marketing` Actions secret — refreshing one leaves
+  the other posting to the same account with a dead token*~~ — **struck Aug 22, 2026 by phase 111:
+  it is a one-store errand today, and this line is where the correction had not reached.** The
+  complete `flyctl secrets list -a rascal-api`, read Aug 22, holds **no `IG_ACCESS_TOKEN`, no
+  `IG_USER_ID` and no `SOCIAL_PUBLISH_ENABLED`**, and none of the five machines on the app is a
+  social publisher — so the API-lane publisher has never been armed in production and there is no
+  second live copy to go stale. **What moves is the `Rascal-Marketing` Actions secret**, plus
+  whatever a developer keeps in a local `.env`. Meta issues the token for about sixty days and the
+  only real timestamp either repo has puts the lapse there. **Nothing refreshes it and nothing
+  warns**; the first sign is a failed publish with `OAuthException 190`. **It becomes a two-store
+  errand the day the API-lane publisher is armed** — setting `IG_ACCESS_TOKEN` on `rascal-api` is
+  the moment to un-strike the sentence above rather than rewrite this line. `blocked.md` §18.
 - **Owner: two unverified things about the Instagram integration, both one look each.** Which
   scopes the token actually carries (Meta's Access Token Debugger shows them in seconds; the
   marketing repo recorded that they were confirmed and never wrote down what they were), and

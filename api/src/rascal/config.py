@@ -226,10 +226,13 @@ class Settings(DatabaseSettings):
 
     # **The switch that lets the daily broadcast actually send, and it defaults to off.**
     #
-    # Open item 12 says it in every line that touches this work: *no marketing email sends
+    # ~~Open item 12 says it in every line that touches this work: *no marketing email sends
     # before the P0 behavioural gate*, which is seven days of unforced daily use and has not
-    # started. A job that would send the moment credentials appeared would turn setting a
-    # secret into mailing strangers, and nobody setting a secret expects that.
+    # started.~~ — **the gate was lifted by the owner on Aug 22, 2026 and the flag is set in
+    # production.** The reason the flag exists is unchanged and is the half worth keeping: a
+    # job that would send the moment credentials appeared would turn setting a secret into
+    # mailing strangers, and nobody setting a secret expects that. It defaults to off for
+    # that reason, not for the gate's.
     #
     # Off, the job does everything except the network call: picks the prompt, renders both
     # bodies, writes the ledger row as `skipped`, and logs what it would have sent. Flipping

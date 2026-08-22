@@ -24,9 +24,17 @@ no device-verification file was modified.**
 
 ### The side that supports this story
 
-`docs/blocked.md:1206`, the Phase 16 section, rewritten Aug 16, 2026 — **merged, and it corroborates
-story 6's premise exactly.** This is the first story this sprint whose central claim checks out
-against a document on `main`:
+`docs/blocked.md`'s *"Phase 16 (video audio tracks) — not blocked. Unrecorded."* section, rewritten
+Aug 16, 2026 — **merged, and it corroborates story 6's premise exactly.**
+~~`docs/blocked.md:1206`~~ — **cited by heading rather than by line, Aug 22, 2026 (phase 111), which
+reordered `blocked.md`.** The number was *right on the day*: at `33f77f5`, the commit that added this
+report, `:1206` is the "transcriber works" paragraph quoted below. On `main` it is the *Push
+notifications* heading, and here it is somewhere else again — **a correct citation that drifted
+twice without anything editing this file.** No replacement line number is given, deliberately: the
+first attempt at this sentence supplied one and it was **already wrong when written**, which is the
+argument for the heading in the first place.
+
+This is the first story this sprint whose central claim checks out against a document on `main`:
 
 > **The transcriber works, and it has been seen working.** Owner, Aug 16, 2026: `SpeechAnalyzer` has
 > produced a real transcription on a real device, on a build from that day, and the output was
@@ -166,8 +174,10 @@ commands the ledger supplies to prove them match nothing.
 
 This is worth flagging precisely because of what `roadmap-status.md` says about this exact block:
 its own comment warns that an earlier bug meant *"this block could have read 0 forever."* It reads 0
-again, for a new reason. And it is the mirror of the failure `blocked.md:1206` names — a document
-that has stopped describing the world, with the command that would have caught it also broken.
+again, for a new reason. And it is the mirror of the failure `blocked.md`'s *"Phase 16
+(video audio tracks)"* section names — a document that has stopped describing the world, with the
+command that would have caught it also broken. (~~`blocked.md:1206`~~ — **repointed to the heading
+Aug 22, 2026 (phase 111), for the reason given at the top of this report: the line moved twice.**)
 
 **Story 7 should fix the paths.** I did not, because `roadmap-status.md` is story 7's file and
 `blocked.md` is nobody's tonight.

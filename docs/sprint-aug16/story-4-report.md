@@ -126,8 +126,10 @@ against a real audience of one.
 ## Turning it on
 
 Nothing sends while `MARKETING_EMAIL_ENABLED` is false, which is the default and the shipped
-state. Open item 12 repeats in every line touching this work: **no marketing email before the P0
-behavioural gate** — seven days of unforced daily use, which has not started.
+state. ~~Open item 12 repeats in every line touching this work: **no marketing email before the P0
+behavioural gate** — seven days of unforced daily use, which has not started.~~ — **struck Aug 22,
+2026 (phase 111): the owner lifted the gate, and the broadcast has been sending daily since Aug 19.**
+The sentence above it still holds — the flag defaults to off and that is the shipped default.
 
 The flag is deliberately separate from the credentials. `MAIL_API_KEY` and `RESEND_AUDIENCE_ID`
 exist to make the *subscribe* route work; setting them must not also start mailing strangers.

@@ -128,8 +128,15 @@ Checked so the loop does not rediscover this one story at a time.
    and falsified above. Story 7's first task as chartered is a no-op.
 2. `CLAUDE.md:79` is genuinely stale, and `docs/proposed-claude-md-diff.md` is the drafted, unapplied
    fix. It needs an owner decision, not a story's improvised wording.
-3. `docs/blocked.md:809` reserved CORS tightening for "when a web client exists". The web-client era
+3. `docs/blocked.md` §2b reserved CORS tightening for "when a web client exists". The web-client era
    arrives with phase 60 whatever its final shape. Partly answered; worth recording either way.
+   ~~`docs/blocked.md:809`~~ — **repointed to §2b and the quoted sentence Aug 22, 2026 (phase 111),
+   which reordered `blocked.md`.** The number was **right on the day**: at `33f77f5`, the commit that
+   added this report, `:809` is that exact sentence. On `main` it had slid to the `7b` sub-note lower
+   in the same section — still CORS, so still plausible — and here it lands on an unrelated
+   `ANTHROPIC_MODEL` note in §4, while the sentence itself sits at `:579`. **A citation that decays
+   through *plausible* on its way to *wrong* is the worst kind**, and the section plus the quoted
+   sentence is the form that does not.
 4. Reconciling a marketing list with `users.marketing_consent` stays open **by design**, not by
    omission — `data-model.md` names the trigger as the first moment a subscriber can also be a user,
    which is post-launch.

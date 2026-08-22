@@ -140,9 +140,14 @@ Two mechanisms, and they are not interchangeable:
 `fastapi.middleware.cors.CORSMiddleware`, origins from `MARKETING_ORIGINS`, methods `POST, GET,
 OPTIONS`, no credentials. **Applied to the subscriber routes only, never globally, and never `*`.**
 
-This is the first browser client this API has ever had. `docs/blocked.md:809` reserved CORS
+This is the first browser client this API has ever had. `docs/blocked.md` §2b reserved CORS
 tightening for "when a web client exists" — note in the report that the web-client era arrived
 through a side door, and that the note in `blocked.md` is now partly answered.
+~~`docs/blocked.md:809`~~ — **repointed to §2b and the quoted sentence Aug 22, 2026 (phase 111),
+which reordered `blocked.md`.** The number was **right when this charter was written** — at
+`33f77f5`, `:809` is that exact sentence — then slid to the `7b` sub-note in the same section on
+`main`, and here to an unrelated `ANTHROPIC_MODEL` note in §4; the sentence is at `:579`. The
+section and the quoted words are what survives the next reshuffle.
 
 ### P7 — The Resend webhook
 

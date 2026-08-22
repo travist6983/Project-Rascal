@@ -55,9 +55,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # **CORS, and this is the first browser client this API has ever had.**
     #
     # Scoped three ways on purpose: to the marketing origins from config and **never `*`**, to
-    # the one path a browser calls, and to the two methods it needs. `docs/blocked.md:809`
-    # reserved CORS tightening for "when a web client exists" — it exists now, and it arrived
-    # through a marketing form rather than the web app that line was imagining.
+    # the one path a browser calls, and to the two methods it needs. `docs/blocked.md` §2b,
+    # *"CORS should be tightened when a web client exists"*, reserved that tightening for a browser
+    # client — it exists now, and it arrived through a marketing form rather than the web app that
+    # sentence was imagining. ~~`docs/blocked.md:809`~~ — **cited by section and by the sentence
+    # since Aug 22, 2026 (phase 111), which reordered `blocked.md`: that line is now 579, and a line
+    # number in this file points at whatever the next reshuffle leaves behind.**
     #
     # `allow_credentials` stays off. The subscribe route is unauthenticated and reads no cookie;
     # turning it on would be the setting that makes `*` illegal and a real origin dangerous.
