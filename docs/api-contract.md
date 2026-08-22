@@ -4,6 +4,42 @@ Plain JSON over HTTPS. No client-specific serialization anywhere in the wire for
 
 Base: `/v1`. Auth: bearer token. All timestamps ISO 8601 UTC. All IDs UUID.
 
+### Adding a field: a non-optional field on the wire still wants an Optional in the client
+
+**Added Aug 22, 2026 by phase 113, from a defect the iOS lane measured rather than recalled, and
+which would have passed review because it matched this document exactly.**
+
+A new response field is additive and safe on the server: it is always sent, and a value like
+`billing_retry: bool` with a default of `false` genuinely has two states rather than three. **The
+client has a third state anyway, and it is not "null" — it is `keyNotFound`.** There is always a
+window in which the deployed server predates the field: between merging the API change and
+actually shipping it, every response omits the key.
+
+**Swift's synthesized `Decodable` does not fall back to a property's default value for a missing
+key.** It throws. Measured:
+
+```swift
+struct WithDefault: Decodable { let a: String; var flag: Bool = false }
+// {"a":"x"}  ->  THREW  keyNotFound … ("flag")     // even WITH a default
+struct Optionally: Decodable { let a: String; let flag: Bool? }
+// {"a":"x"}  ->  decoded, flag = nil
+```
+
+So a non-optional `Bool` mirroring this contract precisely takes down the decode of **the entire
+enclosing object** against a server that has not deployed yet — not the one field, the whole
+response and every screen behind it.
+
+**The rule, and it is about the two ends answering different questions.** The server asks *what is
+true of this household*, where `false` and "not in a billing retry" are the same thing. The client
+asks *what did this particular server tell me*, where "it said false" and "it is too old to have an
+opinion" are different, and only one of them is safe to render. **Decode every additive field as an
+Optional regardless of its wire type**, and give it a non-optional accessor that supplies the safe
+default — the same direction standing rule **D9** already sets for `access`, where absent and
+unrecognised both mean *entitled*.
+
+**And test the absence, not the null.** A payload carrying `"billing_retry": null` and a payload
+that omits the key entirely prove different things, and it is the omission that production sends.
+
 Last updated: **Aug 16, 2026** — phases 51–57 (the auth bundle: `aud` allowlist, credential
 linking, Apple server-to-server notifications, Google sign-in, the mailer, magic-link sign-in),
 plus the **unbuilt** `POST /v1/subscribe` specified for phase 60.
