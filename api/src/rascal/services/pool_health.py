@@ -1,6 +1,8 @@
 """How close a child's prompt pool is to repeating itself.
 
-The library holds 113 active prompts and ~~the scheduler serves three a day~~ — **two on a
+The library holds ~~113~~ **133** active prompts — *113 has been the wrong count since phase
+25, on Aug 14, 2026, and this line is corrected rather than left because phase 107 rewrote
+the rest of it* — and ~~the scheduler serves three a day~~ — **two on a
 weekday and three at the weekend since phase 107's rotation**; the interval per slot is counted
 off `slots_for` by `serve_interval_days()` below rather than stated here. Roughly 30 questions
 are eligible at 48 months, so at one a day the question pool empties in about a month — at which

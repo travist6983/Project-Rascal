@@ -51,6 +51,8 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from rascal.config import DatabaseSettings
+from rascal.constants import DAILY_SLOTS
+from rascal.services.scheduler import slots_for
 from rascal.services.tokens import create_access_token
 
 API_DIR = Path(__file__).resolve().parents[1]
@@ -282,12 +284,25 @@ class Verifier:
             )
         body = first.json()
         slots = {item["slot"] for item in body["today"]}
-        if not {"question", "mission"} <= slots:
+        # **Derived from the calendar, never a literal pair.** This asserted
+        # `{"question", "mission"} <= slots` until Aug 22, 2026, and phase 107's weekday
+        # rotation made that false on Tuesdays and Thursdays — the days that serve `mission_b`
+        # instead. A deployment check that reports *"the read path did not fill the day"*
+        # against a correctly working production API, two days in seven, is worse than no
+        # check: it is a confident wrong diagnosis on the one instrument run after a deploy.
+        #
+        # The child is created above in `America/Detroit`, and `/today` reports the local date
+        # it computed, so the expected shape comes from that date rather than from this
+        # machine's clock — which may be on the other side of midnight from the server's.
+        on = dt.date.fromisoformat(body["date"])
+        expected = {slot for slot in slots_for(on) if slot in DAILY_SLOTS}
+        if not expected <= slots:
             return self.record(
                 "today fills itself",
                 False,
-                f"/today returned slots {sorted(slots)} for a child with no assignments. The "
-                "read path did not fill the day — or the prompt library is not seeded.",
+                f"/today returned slots {sorted(slots)} for a child with no assignments, but "
+                f"{on:%A} {on} should carry {sorted(expected)}. The read path did not fill the "
+                "day — or the prompt library is not seeded.",
             )
 
         with self.engine.connect() as conn:

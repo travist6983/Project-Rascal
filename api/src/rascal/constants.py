@@ -216,7 +216,13 @@ THEMES: Final = (
 # docs/decisions.md: items stack and expire at 14 days.
 DEFAULT_EXPIRY_DAYS: Final = 14
 
-# The three that fire every day, plus the three that only fire on their own day.
+#: The three slots served **per guardian**, as against the three below that belong to the
+#: child. ~~The three that fire every day~~ — **not since phase 107's rotation**: `question`
+#: fires daily, `mission` on Monday, Wednesday and Friday, `mission_b` on Tuesday and
+#: Thursday, and both at the weekend. **This tuple is the per-guardian/per-child split, not
+#: a cadence** — `services/scheduler.slots_for` is what decides which of them a given day
+#: holds, and the two partial unique indexes on `assignments` are built from this tuple and
+#: `SHARED_SLOTS`, so moving a slot between them is a migration rather than an edit.
 DAILY_SLOTS: Final = ("question", "mission", "mission_b")
 
 #: The other three. Since phase 36 this split is load-bearing rather than descriptive: daily

@@ -69,8 +69,19 @@ class TodayResponse(ApiModel):
     #: household — never absent, never null**, so a client has one shape to decode rather than
     #: two, and "no lock" is a value rather than an inference from a missing key.
     #:
-    #: A locked slot never appears in `waiting` and is never expired against the parent: it was
-    #: never offered, so it cannot be missed.
+    #: **A locked slot never appears in `waiting`** — it was never offered, so it cannot be
+    #: missed, and the exclusion is in the query rather than in the absence of rows.
+    #:
+    #: ~~and is never expired against the parent~~ — **struck Aug 22, 2026: a hidden row does
+    #: still expire**, on the same fourteen-day clock as any other, because `_expire_stale` has
+    #: no entitlement filter. Suppressing that was considered and rejected: a household that
+    #: lapses for a year and returns would find a year-old mission in `waiting`, which is the
+    #: infinite backlog *"items stack; expire at 14 days"* exists to prevent. **A household that
+    #: returns inside the window gets the row back with the days it has left**, which is the
+    #: case that matters and is what not deleting it buys.
+    #:
+    #: This sentence was corrected in `docs/api-contract.md` first and lived on here for a
+    #: commit — a claim worth striking is worth striking everywhere it was written.
     locked: list[LockedSlot] = Field(default_factory=list)
     # Pending assignments from previous days, oldest first. Backlog is fine; guilt is not.
     waiting: list[AssignmentOut] = Field(default_factory=list)
