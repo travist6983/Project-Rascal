@@ -171,6 +171,26 @@ function when(iso) {
   return `${Math.round(minutes / 1440)}d ago`;
 }
 
+/**
+ * A date that may be in the future, which `when` cannot render.
+ *
+ * `when` measures `now - then` and floors at "just now", so a trial ending in a fortnight
+ * came out as **"just now"** — a confident wrong answer on the one column somebody would
+ * read to decide whether to move it. Found by loading the console, not by a test.
+ *
+ * Absolute date first because that is what you act on, distance second because that is what
+ * you scan for.
+ */
+function deadline(iso) {
+  if (!iso) return "—";
+  const then = new Date(iso);
+  const on = then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const days = Math.round((then.getTime() - Date.now()) / 86400000);
+  if (days > 0) return `${on} · in ${days}d`;
+  if (days === 0) return `${on} · today`;
+  return `${on} · ${Math.abs(days)}d ago`;
+}
+
 const escape = (value) =>
   String(value ?? "").replace(
     /[&<>"']/g,
@@ -599,7 +619,7 @@ function renderToday(data) {
              <td><span class="chip ${
                row.tier === "subscribed" ? "chip-ok" : "chip-plain"
              }">${escape(row.tier)}</span></td>
-             <td>${escape(row.trial_ends_at ? when(row.trial_ends_at) : "—")}</td>
+             <td>${escape(deadline(row.trial_ends_at))}</td>
              <td class="num">${num(row.entries)}</td>
              <td>${escape(when(row.created_at))}</td>
              <td>${escape(when(row.last_sign_in_at))}</td>
@@ -637,9 +657,13 @@ function fillHouseholds(signups) {
   for (const [familyId, row] of households) {
     const option = document.createElement("option");
     option.value = familyId;
-    option.textContent = `${row.display_name || row.email || familyId.slice(0, 8)} — ${
-      row.access || "free"
-    }`;
+    // **The short family id is not decoration.** Two households whose accounts share a display
+    // name — which two dev-login fixtures do — produced two visually identical options, and
+    // picking the wrong one moves the wrong household's trial. Found by loading the console.
+    option.textContent = `${row.display_name || row.email || "unnamed"} · ${familyId.slice(
+      0,
+      8,
+    )} — ${row.access || "free"}`;
     select.append(option);
   }
   if (households.has(previous)) select.value = previous;
@@ -668,11 +692,17 @@ async function writeTrial(trialEndsAt) {
       method: "PUT",
       body: JSON.stringify({ trial_ends_at: trialEndsAt }),
     });
-    status.textContent = `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
     toast(trialEndsAt ? "Trial moved." : "Trial cleared.");
     // Repaint from the server rather than from what we just sent, so the Access column and
     // the household dropdown agree with the row that actually exists.
+    //
+    // **The confirmation is written after the repaint, not before.** `load()` runs
+    // `fillHouseholds`, which resets this line — so writing it first put the sentence on
+    // screen for exactly as long as the request took and then wiped it. The toast survived
+    // and hid the fact that the more useful message did not. Found by driving the console,
+    // not by a test.
     await load();
+    status.textContent = `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
   } catch (error) {
     status.textContent = error.message;
   }
