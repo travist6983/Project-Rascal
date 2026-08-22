@@ -203,6 +203,33 @@ final class SubscriptionModel {
         notice = nil
         if case .ready = phase {} else { phase = .loading }
 
+        // **The spinner's terminal state, and it is a deadline on the *screen* rather than a race
+        // against the store.**
+        //
+        // `Product.products(for:)` has no timeout of its own, and the call under it —
+        // `isEligibleForIntroOffer(for:)` — is `async` and **not throwing**, so it cannot report
+        // cancellation and nothing can make it stop. A hung StoreKit call therefore cannot be
+        // cancelled; it can only be stopped from holding the screen.
+        //
+        // Two racing implementations were tried and both were worse. `withTaskGroup` does not
+        // return until every child finishes — `cancelAll()` only *requests* — so it bounded
+        // nothing; measured, a 200ms sleeper racing a 3s non-cooperative child returned after
+        // **3.20s**. Racing two unstructured tasks through a one-shot continuation worked in
+        // isolation and could not be tested honestly: it depends on a `Task.sleep` continuation
+        // winning against a `DispatchQueue` timer, which stops being true the moment the
+        // cooperative pool is busy.
+        //
+        // This does the one thing the requirement actually asks for: **it moves `phase` off
+        // `.loading` on a deadline**, so the sheet stops spinning and says something true. The
+        // request is left alone to finish or not; if the products do arrive late, the `switch`
+        // below is still ahead of it and renders them.
+        let deadline = Task { [weak self, offerTimeout, offerSleep] in
+            try? await offerSleep(offerTimeout)
+            guard let self, case .loading = self.phase else { return }
+            self.phase = .unavailable(.products)
+        }
+        defer { deadline.cancel() }
+
         async let householdResult = loadHousehold()
         async let offerResult = loadOffer()
         let (family, offer) = await (householdResult, offerResult)
@@ -227,32 +254,9 @@ final class SubscriptionModel {
         try? await readHousehold()
     }
 
-    /// **Bounded, because nothing under `Subscription/` was.**
-    ///
-    /// `Product.products(for:)` has no timeout of its own and neither does `URLSession.shared` as
-    /// this app configures it, so a StoreKit hang left `.loading` on screen with no terminal state —
-    /// *"Loading the options"*, forever. That was survivable while a successful fetch was the
-    /// expected path. It is not survivable now that **an unavailable fetch is the expected path**:
-    /// the spinner would be the ordinary experience.
-    ///
-    /// `confirm()` has been hard-bounded since phase 37b on the same reasoning — *"a spinner that
-    /// never ends is worse than a sentence"* — and this closes the other half.
-    ///
-    /// A timeout resolves to `nil`, which is `.unavailable(.products)`: the honest answer, since a
-    /// fetch that never returned and a fetch that returned nothing are the same thing to a parent.
+    /// The store's answer, unbounded — see `load()` for the deadline that makes that safe.
     private func loadOffer() async -> SubscriptionOffer? {
-        await withTaskGroup(of: SubscriptionOffer?.self) { group in
-            group.addTask { [store] in try? await store.loadOffer() }
-            group.addTask { [offerTimeout, offerSleep] in
-                try? await offerSleep(offerTimeout)
-                return nil
-            }
-            // Whichever finishes first decides. The loser is cancelled rather than awaited, so a
-            // hung StoreKit call cannot hold the screen after the timeout has already answered.
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
+        try? await store.loadOffer()
     }
 
     /// Re-read the household alone — the foreground re-check, and what the transaction listener

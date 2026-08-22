@@ -292,7 +292,22 @@ struct TodayScreen: View {
             //
             // Presented from here rather than from the card, because `TodayBoardView` is a `List`
             // and a sheet owned by a row is torn down whenever the row is recycled.
+            //
+            // **`onDismiss` re-reads the board, and it has to be `onDismiss` rather than the
+            // sheet's own callback.** A parent who buys membership here leaves the server already
+            // knowing — `EntitlementConfirmation.poll` does not stop until it says `subscribed` —
+            // but nothing on Today would have noticed: `.task` does not re-run when a sheet over it
+            // closes, `scenePhase` stays `.active` for an in-app sheet, and this screen reads only
+            // `subscription == nil`, never its household. So the board behind the sheet kept
+            // rendering the pre-purchase response, locked cards and all, until the parent happened
+            // to background the app or pull to refresh.
+            //
+            // `PaywallSheet`'s own dismiss closure is not enough: it is invoked by that view's
+            // buttons and **does not run when the sheet is swiped away**, which is the more common
+            // way out. `GuardiansSection` already re-reads on the same event for the same reason.
             .sheet(isPresented: $showingMembership) {
+                Task { await model.load(showSpinner: false) }
+            } content: {
                 if let subscription {
                     PaywallSheet(model: subscription) { showingMembership = false }
                 }

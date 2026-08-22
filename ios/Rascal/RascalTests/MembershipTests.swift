@@ -491,28 +491,68 @@ struct MembershipTests {
     ///
     /// The injection points existed and nothing used them, which is how a guard rots.
     @MainActor
-    @Test("a store that never answers resolves to unavailable rather than spinning forever")
+    @Test("a hung store still gives the sheet a terminal state")
     func offerTimeoutTerminates() async {
+        let store = HangingStore()
         let model = SubscriptionModel(
             readHousehold: { .sample(tier: "free") },
-            store: HangingStore(),
+            store: store,
             confirmationSchedule: [],
             confirmationSleep: { _ in },
-            offerTimeout: .milliseconds(1),
-            // The real clock, briefly — the point is that *this* sleeper wins the race, and a
-            // no-op would prove nothing about ordering.
-            offerSleep: { try await Task.sleep(for: $0) }
+            // A deadline that has already passed, so the assertion is about *what* happens rather
+            // than about winning a race on a loaded machine.
+            offerTimeout: .zero,
+            offerSleep: { _ in }
         )
 
         await model.load()
 
+        // **`load()` does await the hung store — deliberately.** The requirement is that the sheet
+        // stops spinning, not that the request is abandoned; a StoreKit call that ignores
+        // cancellation cannot be abandoned. What matters is that a parent is never left on
+        // "Loading the options" with nothing to read.
         guard case .unavailable(.products) = model.phase else {
-            Issue.record("a hung product fetch must terminate in .products, not hold the screen")
+            Issue.record("a hung product fetch must end in .products, not hold the spinner")
             return
         }
         // **The household is not blamed for the store's silence.** It answered.
         #expect(model.household != nil)
         #expect(model.canBuy == false)
+    }
+
+    /// **The deadline has to move `phase` while the store is still hanging**, or it is not a
+    /// terminal state, only a slower one. Asserted by observing the phase *before* the store has
+    /// finished, which is the whole claim and the thing a wall-clock check cannot make.
+    @MainActor
+    @Test("the spinner ends before the store does")
+    func theSpinnerEndsBeforeTheStoreDoes() async {
+        let store = HangingStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let loading = Task { await model.load() }
+
+        // Poll for the phase to move, rather than assuming how long the deadline takes to be
+        // scheduled. Bounded well under `HangingStore`'s three seconds.
+        var settled = false
+        for _ in 0..<100 {
+            if case .unavailable(.products) = model.phase { settled = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(settled, "the phase never left .loading while the store hung")
+        #expect(
+            await store.didFinish == false,
+            "the store finished first, so this proves nothing about the deadline"
+        )
+
+        await loading.value
     }
 
     /// The other half, and the regression this phase actually shipped and had to fix: reusing
@@ -695,13 +735,29 @@ struct MembershipTests {
     }
 }
 
-/// A store that never answers. Models a StoreKit call that hangs rather than fails — the case a
-/// timeout exists for and the one a `throw`-based fake cannot reproduce.
+/// A store that never answers, and **cannot be cancelled into answering.**
+///
+/// The first version of this double used `Task.sleep`, which *is* cancellable — so it proved the
+/// easy case and said nothing about the one that matters. `SubscriptionStore.loadOffer()` awaits
+/// `Product.SubscriptionInfo.isEligibleForIntroOffer(for:)`, which is `async` and **not throwing**
+/// and therefore cannot report cancellation at all. A continuation resumed from a timer models that
+/// exactly: nothing anyone does to this task makes it finish sooner.
+///
+/// With the old task-group implementation this test hung for the full delay and then failed. That is
+/// the point of it.
 private actor HangingStore: SubscriptionPurchasing {
+    /// Whether the hung call has finished yet. **This is what the test asserts on**, rather than a
+    /// stopwatch: "did `load()` return before the store did" is the actual question, it is causal
+    /// rather than temporal, and it cannot go flaky when 1100 other tests are running in parallel.
+    private(set) var didFinish = false
+
     func loadOffer() async throws -> SubscriptionOffer {
-        // Sleeps far longer than any timeout under test, and honours cancellation so the task group
-        // can reclaim it rather than leaking one per test.
-        try await Task.sleep(for: .seconds(600))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
+                continuation.resume()
+            }
+        }
+        didFinish = true
         throw SubscriptionStoreError.productsUnavailable
     }
 
