@@ -540,7 +540,7 @@ two HIGH findings were then re-verified by hand in the source.
 | **F10** | LOW | **The trial-welcome flag is spent on tap, not on show.** `OnboardingGate:867` sets `trialWelcomeShown` inside the action closure — the opposite of the rule applied, correctly, to the post-trial notice, where `MembershipPresentationRecord:16` says *"whether or not it was dismissed. Seeing it is what spends it."* Independent of F1 and survives whatever fixes it. |
 | **F11** | LOW | **The footnote renders in the products-unavailable state**, where `2c` omits it — it lives inside the price-row group the `Notice` replaces. Weakest of the twelve: the sentence is still true in that state and this may be the artboard's grouping rather than an intended rule. |
 | **F12** | LOW | **"What stays free, always" sits outside its bordered block**; `2a`/`2b`/`2d` draw the label inside the card. **The most arguable finding here, and it cuts both ways:** `design-system.md:228` specifies the sheet-field vocabulary as *"a `SectionLabel`, then the control 8 below it on `surface` at radius 14"* — label outside — so the code follows a house pattern. But that is precedence 5, which applies only *"for anything the design does not specify"*, and the design specifies this one. |
-| **F15** | **HIGH (CI)** | **`theSpinnerEndsBeforeTheStoreDoes` flakes at ~50%, and its own comment states it cannot.** Four runs of the identical binary: ✘ ✔ ✘ ✔. Always the same test, always the **second** assertion — `await store.didFinish == false` — never the first, so the phase does leave `.loading` and the store has simply finished first. **Mechanism:** `HangingStore` suspends rather than blocking, so nothing is starved; what is contended is **MainActor**. The deadline is an unstructured `Task` whose body touches `@MainActor` state, so it must hop to MainActor — and with ~1130 tests in parallel that hop can be delayed past the store's fixed **3s** timer. **The assertion is causal in intent and temporal in practice:** it reads as *"did `load()` beat the store"* but asserts *"the deadline Task got scheduled within 3 seconds"*, which nothing guarantees. `offerTimeout: .zero` removes the sleep, not the scheduling. The comment at `MembershipTests:795-797` names this exact failure mode and rules it out — *"it is causal rather than temporal, and it cannot go flaky when 1100 other tests are running in parallel."* **Fix:** replace the fixed timer with a continuation the test releases by hand, making `didFinish == false` deterministic and dropping ~3s from the test. **A test defect, not a product defect** — production has no 1130-way MainActor contention — but it reddens CI half the time, and an intermittent red nobody can reproduce is what eventually gets a test disabled rather than fixed. |
+| **F15** ✅ | **HIGH (CI)** | **`theSpinnerEndsBeforeTheStoreDoes` flakes at ~50%, and its own comment states it cannot.** Four runs of the identical binary: ✘ ✔ ✘ ✔. Always the same test, always the **second** assertion — `await store.didFinish == false` — never the first, so the phase does leave `.loading` and the store has simply finished first. **Mechanism:** `HangingStore` suspends rather than blocking, so nothing is starved; what is contended is **MainActor**. The deadline is an unstructured `Task` whose body touches `@MainActor` state, so it must hop to MainActor — and with ~1130 tests in parallel that hop can be delayed past the store's fixed **3s** timer. **The assertion is causal in intent and temporal in practice:** it reads as *"did `load()` beat the store"* but asserts *"the deadline Task got scheduled within 3 seconds"*, which nothing guarantees. `offerTimeout: .zero` removes the sleep, not the scheduling. The comment at `MembershipTests:795-797` names this exact failure mode and rules it out — *"it is causal rather than temporal, and it cannot go flaky when 1100 other tests are running in parallel."* **Fix:** replace the fixed timer with a continuation the test releases by hand, making `didFinish == false` deterministic and dropping ~3s from the test. **A test defect, not a product defect** — production has no 1130-way MainActor contention — but it reddens CI half the time, and an intermittent red nobody can reproduce is what eventually gets a test disabled rather than fixed. |
 | **F14** | MED | **The offer deadline frees the screen but not the model.** `SubscriptionModel:196-198` — `isLoading` is cleared **only** by the `defer` inside `load()`, so while `load()` is suspended on a hung store every subsequent `load()` early-returns at the re-entry guard. The deadline correctly moves `phase` off `.loading`, so the sheet says something true; but the parent who taps *Not now* and reopens from Settings or another locked card gets the same stale *"Membership isn't open yet"* with **no retry attempted and no spinner**. **It does not need a hang that lasts forever** — any hang longer than the 10s deadline opens a window where the product is unbuyable and every retry is silently ignored, app-wide, because `SubscriptionModel` is now the single instance on `RootView`. That is phase 108's own stated rationale for the timeout, half-satisfied. **Nothing covers it:** `theSpinnerEndsBeforeTheStoreDoes` ends with `await loading.value`, so the store finishes and the `defer` runs. **Reported without a prescribed fix**, because releasing the guard early lets two loads race to assign `phase` — a generation counter resolves it, and accepting the window is also defensible, but it must then be accepted *in writing* at the guard. |
 | **F13** | MED | **There is no preview and no render of the sheet with no introductory offer — and that is the only state production will ever have.** `SubscriptionOffer.preview` hardcodes `trial: 2 weeks`; all five `#Preview`s use it, and `membershipSheetRenders` renders only `.ready(.preview)` and `.unavailable(.products)`. So every visual review of this sheet has been done against plan rows reading *"2 weeks free, then $59.99 a year"* — **copy no parent can see**, because the trial is server-granted and this sheet is only reached after it ends. The real rows lose the prefix, become one line instead of two, and change the plan group's height — most at AX3/AX5, where the current renders wrap. **Found by looking at the renders, not by reading code.** |
 
@@ -550,7 +550,9 @@ wash is the lock ground, not a tint — the tile carries kind, correctly, in per
 one day be attached); `Font.system(size:)` on four glyphs (the sanctioned `@ScaledMetric`
 exception); and the hardcoded glyph-tile radius `11` (matches `PromptCard` and `WaitingCard`).
 
-### 10.1a · Seven guards that could not fail — and the pattern recurs inside a single fix
+### 10.1a · Eight guards that could not fail — and the failure recurses down a chain of fixes
+
+> **A green suite is a sample size of one.**
 
 **This is the finding worth carrying past this phase.** It is a **seam** finding: phase 108 supplied
 the diagnosis, the marketing lane supplied the instance nobody would have predicted, and
@@ -559,14 +561,24 @@ notice it was a pattern** — that took three of them comparing notes in one nig
 what a single reviewer cannot do.
 
 **The sharper half, and it is phase 108's observation:** the pattern does not only recur across
-people. **It recurs inside one fix.** `theSpinnerEndsBeforeTheStoreDoes` was written to prove the
-offer deadline works, and was *structurally silent* on the wedge that same fix left behind (F14) —
-it ends with `await loading.value`, letting the store finish and the `defer` run. Same author, same
-sitting, one layer down. Then F15 made it recursive: **the test written to prove the fix is itself
-the seventh instance**, carrying a comment asserting it cannot flake, at a 50% flake rate.
+people. **The failure recurses down a chain of fixes.** Three layers, one sitting, one author:
 
-*A test written to prove a fix inherits that fix's model of the problem — and where the model is
-incomplete, the test is confidently silent rather than wrong.*
+1. **The timeout that bounded nothing** — its test stubbed the one property under test
+   (`Task.sleep` is cancellable; the defect was an uncancellable call).
+2. **The deadline that replaced it** — its test was *structurally silent* on the wedge that same fix
+   left behind (F14): it ended with `await loading.value`, letting the store finish and the `defer`
+   run.
+3. **The wedge fix** — its test carried a written assurance that it *"cannot go flaky when 1100
+   other tests are running in parallel"*, and flaked at 50% (F15).
+
+*Each fix's test inherited that fix's model of the problem, and each model was incomplete in a way
+its own test could not express.* That is a stronger claim than "authors write weak tests for their
+own code": **the depth is bounded only by how many times you fix the fix.**
+
+It also settles which clause of the rule is load-bearing. *Break the guard* caught layer 1. *Break
+what the fix left behind* caught layer 2. **Only *run it four times* catches the case where the
+guard is present, correct-looking, and non-deterministic** — and two of the eight were invisible to
+a single run.
 
 **This is the finding worth carrying past this phase**, and it is about method rather than about
 anyone's code. Across three repositories and three sessions, in a single evening, five tests were
@@ -581,6 +593,7 @@ found that existed, passed, and **could not fail for the reason they were writte
 | 5 | The offer timeout's `HangingStore` | used `Task.sleep`, which is **cancellable**; the defect was an *uncancellable* call, so the test proved the easy case and was silent on the real one | 108's own adversarial pass |
 | 6 | `theSpinnerEndsBeforeTheStoreDoes`, v1 | proved the deadline; ended with `await loading.value`, so the store finished and the `defer` ran — structurally could not observe the wedge the same fix left behind | F14, break-testing the fix |
 | 7 | `theSpinnerEndsBeforeTheStoreDoes`, v2 | not silent but **random** — asserts the deadline `Task` is scheduled within 3s, which nothing guarantees, while carrying a comment ruling that exact failure out | F15, running it four times |
+| 8 | The same test's `#expect(model.household != nil)` | asserted *before* `release()`, where `household` cannot yet be assigned — it is written after the join. **It had only ever passed because the flake usually let the store finish first**, so removing the flake exposed a second, deterministic error underneath it | six identical runs after the F15 fix |
 
 **The diagnosis, which is `project-rascal-39`'s and is better than the list:** *a test written from
 the same understanding as the code it guards inherits that understanding's blind spot.* `HangingStore`
@@ -603,8 +616,12 @@ multiple independent readers, this pass's six-agent adversarial sweep included. 
 3. **Then run it four times.** Two of the seven were invisible to a single run, and F15 is invisible
    to three runs out of every six.
 
-Eight break-tests and seven full-suite runs were spent this way in this pass. They found four things
+Eight break-tests and eleven full-suite runs were spent this way in this pass. They found five things
 that thirteen reviewers had not.
+
+**And one corollary, from instance 8:** removing a flake can expose a deterministic error the flake
+was hiding. That is the flake paying for itself — *"a test that is wrong is worth more than one that
+is flaky, because it tells you which."* Six identical runs, one message, no ambiguity.
 
 ### 10.2 · Two App Review requirements were deletable, and now are not
 
