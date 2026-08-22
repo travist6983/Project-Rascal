@@ -1030,11 +1030,19 @@ Computed on every call, never cached — an admin-grade read, not a hot path. **
 nothing else**; the scheduler decides.
 
 **The estimate divides by the rate the slot is *observed* to be served, never by the cadence it is
-nominally on** — corrected in phase 50, because the two had diverged in production. `mission` is
-nominally daily and was being served zero times a day, so the old arithmetic counted down to a
-first repeat that could not arrive. `served_in_window` is the observed count over
+nominally on** — corrected in phase 50, because the two had diverged in production. ~~`mission` is
+nominally daily~~ — **it was until Aug 21, 2026; phase 107's weekday rotation makes it nominally
+1.4 days and `mission_b` 1.75** — and it was being served zero times a day, so the old arithmetic
+counted down to a first repeat that could not arrive. `served_in_window` is the observed count over
 `observation_window_days` (28), and `nominal_interval_days` travels beside it so the gap between
 intended and actual is legible in the response rather than inferred.
+
+**`nominal_interval_days` is fractional and is counted off the scheduler's own calendar**, not
+written down a second time. The daily slots rotate by weekday, so `mission` is served five days in
+seven and `mission_b` four; a hand-written table saying `1` for both would have put a permanent,
+spurious gap on exactly the two slots this field exists to watch — which is the failure phase 50
+fixed, arriving by a different route. Values today: `question` 1.0, `mission` 1.4, `mission_b`
+1.75, `weekly` 7.0, `monthly` and `letter` 30.44.
 
 **A null estimate has two meanings and `estimate_basis` says which.** `pool_empty` — nothing is
 available, and a projection of zero would read as a countdown to something that has already
