@@ -8,8 +8,44 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 21, 2026.** The Aug 11 pass is described below and its findings stand; what
+Last reviewed: **Aug 22, 2026.** The Aug 11 pass is described below and its findings stand; what
 Aug 16 changed is recorded in the paragraphs immediately after it.
+
+**Aug 22, 2026 — this pass closed a section whose stated blocker was environment-specific rather
+than universal, and struck one that had been resolved for four days.** §10a item 1 said Apple Root
+CA - G3 could not be fetched because `www.apple.com` is refused at an egress proxy. That was true
+of the environment phase 37a was built in, and the section wrote it as though it were true
+everywhere. One `curl` from this machine returned the 583 bytes; the anchor is committed at
+`api/src/rascal/certs/appstore/AppleRootCA-G3.cer` and the loader returns it. **§14 was struck
+outright**: phase 86 answered its question on Aug 18 (commit `a1b25b8`, PR #137) and its central
+factual claim — that `plan_upload` does not recompute `entry_type` — has been false against `main`
+ever since. **The lesson is the one this file keeps re-learning from a new direction: a blocker
+states a reason, and the reason has a scope.** *"Refused by an egress policy"* and *"refused by
+**this** egress policy"* are different sentences, and only one of them is still true when the file
+is read on a different machine. A blocker inherits the environment it was written in; say which
+one.
+
+**Everything else this pass changed, in one place.** §13's *no marketing email before the P0
+behavioural gate* is struck — the broadcast has been armed since Aug 19 and has sent on four
+consecutive days (owner's call, Aug 22, 2026). §10 step 5's 14-day introductory offer is corrected
+to **no introductory offer**, because the server already grants the free fortnight and Apple would
+stack a second one. §9 was re-verified against the same and only installed SDK and has not moved;
+the owner will run the measurement this week. §11's runbook is rewritten so a wrong answer is
+repairable and so its step 4 stops misreporting a correct system as a failure. §16 gains the
+upload-only App Store Connect key it never mentioned. §18 is downgraded — the Instagram credential
+is not in this service at all. And the four resolved iOS sections that had sat at the top of a file
+titled "blocked" since Aug 11 are finally **moved**, which is the habit this file wrote down for
+itself in the Aug 11 second pass and then did not follow for eleven days.
+
+**And a second sweep of this pass, after the first was audited, added one section and corrected
+four counts.** **New: §20**, the deletion job that has no Fly machine — the only entry on this page
+where a promise is actively being broken rather than deferred, and it is blocked on nobody. The
+counts: the unstruck-section number went ~~nine~~ → **eleven** and is now stated as a command
+rather than a figure; §4's *"79 candidates"* → **139** across nine worksheets and four kinds; §4's
+*"the four thinnest themes"* is scoped to Aug 4, 2026 with the current bottom five named; and
+Phase 16's copy of *"Nothing in this feature has ever run"* is struck, five days after the sentence
+it quotes was corrected and **an hour after this same pass struck the identical quote at the top of
+this file without grepping for its siblings**.
 
 **Aug 21, 2026 — §17 is closed, and closing it is the argument for reading this file sceptically.**
 Gemini video billing was enabled and the render path saw its first 200. **The errand was correctly
@@ -38,8 +74,10 @@ that on Aug 15.
 
 **What changed is that phase 37a built the thing §10 was waiting for, and building it produced two
 blockers of its own** — one file and one number, both in §10a. Neither needed a decision and neither
-could be done from the branch that found them. **`POST /v1/webhooks/app-store` answers `401` to
-every notification until both are done**, deliberately and by design: it fails closed rather than
+could be done from the branch that found them. ~~**`POST /v1/webhooks/app-store` answers `401` to
+every notification until both are done**~~ — **the file half closed on Aug 22, 2026, so it now
+answers `401` to Production notifications only; Sandbox verifies.** The design is unchanged and is
+deliberate: it fails closed rather than
 accepting an unverified payload, so the failure is loud rather than a billing hole.
 
 **One thing is blocked on a platform and cannot be engineered around: §9**, on-device photo
@@ -49,9 +87,15 @@ lands. Do not soften it and do not re-derive it from memory.
 **Everything else on this list is unrecorded rather than blocked**, and that is a different
 problem with a different fix. The device-verification checklists describe work that in at least one
 case **has already been done in the world and was never written down**. Phase 16 is the example:
-`SpeechAnalyzer` has produced a real, accurate transcription on a real device, and the checklist
+`SpeechAnalyzer` has produced a real, accurate transcription on a real device, and ~~the checklist
 that gates the phase still opens with *"Nothing in this feature has ever run."* The gate is shut on
-evidence that exists. See the Phase 16 section — it is the sharpest thing in this file.
+evidence that exists.~~ — **the checklist was corrected on Aug 17, 2026 and this paragraph went on
+citing the dead sentence until Aug 22.**
+`docs/Device-Verification/device-verification-transcription.md:3` reads
+`~~**Nothing in this feature has ever run.**~~ — **corrected Aug 17, 2026**`, with the owner's
+account of the run quoted directly underneath it. **The example survives the correction, and is
+sharper for it**: the gap between the world and the written record closed after two days, and the
+gap between the written record and the page citing it took another five. See the Phase 16 section.
 
 > **This paragraph said "two things" for about an hour, and the second one had already been
 > fixed.** It named the `sandbox`/`production` description bug in `schemas/device.py` and
@@ -62,7 +106,9 @@ evidence that exists. See the Phase 16 section — it is the sharpest thing in t
 > the command that proves it.** One `git log -L` closed it.
 
 **Aug 11 second pass — the resolved sections were struck but not moved, and that was the defect.**
-The four iOS sections below (Seal control, Onboarding, Timeline v3, Settings) were all correct at
+~~The four iOS sections below (Seal control, Onboarding, Timeline v3, Settings)~~ — **they are no
+longer below; phase 111 moved all four into *Resolved since the last review* on Aug 22, 2026** —
+were all correct at
 the top of this file on Aug 11 and were still sitting under a heading that means "blocked",
 describing workarounds as current. **A struck section is not a moved section**, and a file read for
 "what is blocking me" gets skimmed by heading rather than read for strikethroughs. Two of them have
@@ -74,327 +120,17 @@ since been closed outright by phase 19 (PR #48); the remaining iOS follow-ups ar
 > reasoning is usually why the fix is shaped the way it is, and that is worth keeping, just not at
 > the top of the blocker list.
 
----
-
-## ~~iOS Seal control — `POST /entries` cannot hear "do not seal this"~~ — RESOLVED, verified Aug 11, 2026
-
-**Built.** `routers/entries.py` now passes the field's *setness* down, exactly as this section
-asked:
-
-```python
-# api/src/rascal/routers/entries.py:71
-unlock_at_age_provided="unlock_at_age" in payload.model_fields_set,
-```
-
-and `services/entries.py:431` reads `if unlock_at_age is None and not unlock_at_age_provided and
-prompt is not None:` — so an explicit null now means "not sealed" and an absent key still keeps the
-prompt's default. The two routes agree about what null means.
-
-**The client-side workaround is gone too, as of Aug 11, 2026 (PR #48, phase 19 item 1).**
-`unsealIfTheServerSealedItAnyway` and its corrective `PATCH` are deleted; a create is one request.
-Phase 19 did not take the server behaviour on trust — it exercised it against a running API on a
-`letter` prompt with `default_unlock_age = 13`, and an explicit null returned `null` while the same
-body with the key removed returned `13`. **`EntryCreateRequest`'s hand-written `encode(to:)` stayed**,
-because sending the explicit null is what makes the server's answer correct; it reads like dead
-ceremony and is the opposite.
-
-**Nothing on this section is outstanding.** It is here for the reasoning, not as work.
-
-The original entry follows, because it is the reason the fix is shaped the way it is.
-
-The seal control shipped and works. This is the one thing it cannot express through the create
-route, and it is **four lines to fix in Lane A**.
-
-`create_entry` seals a letter whenever `unlock_at_age` arrives as `None`:
-
-```python
-# api/src/rascal/services/entries.py
-if unlock_at_age is None and prompt is not None:
-    # Letters are sealed by default. The server owns this, not the client.
-    unlock_at_age = prompt.default_unlock_age
-```
-
-That default is right, and it is why a letter written by any client is sealed even if the client
-has never heard of sealing. The problem is that **Pydantic gives `None` for an omitted key and for
-an explicit `null` alike**, so the handler cannot tell "I have no opinion" from "the parent turned
-this off". A letter prompt the parent deliberately unsealed is created sealed at the prompt's
-default, whatever the client sends.
-
-**`PATCH /entries/{id}` does not have this problem** — `routers/entries.py` dumps with
-`model_dump(exclude_unset=True)`, so an explicit null reaches the service as a field that was set
-and clears it. The two routes disagree about what null means.
-
-**Worked around in the client, visibly and temporarily.** `EntryCreateRequest` now always writes
-`unlock_at_age`, including as an explicit null, so the client is already correct. Because the
-server currently collapses that, `APIClient.createEntry` compares what it sent with what came back
-and, when the server sealed a row that asked not to be sealed, says it again through `PATCH`.
-
-**It lives in `createEntry` rather than in the composer on purpose.** The composer is not the only
-writer: `EntrySync` re-sends an entry saved while offline through the same call, so a letter
-written on a train with sealing turned off would otherwise arrive sealed hours later with nobody
-told. One place, every caller. It is also self-detecting — it fires only when the response
-disagrees with the request — so the day this is fixed it stops doing anything.
-
-If the corrective `PATCH` cannot land, `Entry.applyServerResponse` copies the archive's value back
-onto the row, so the phone shows what the permanent record actually holds rather than what was
-intended, and the composer says so.
-
-**What Lane A needs to do:** have `create_entry` take the field's *setness* rather than its value —
-`payload.model_fields_set` at the router, or pass a sentinel — so an explicit null means "not
-sealed" and an absent key keeps the prompt default. The day that lands,
-`unsealIfTheServerSealedItAnyway` stops firing, and can be deleted with its round trip.
+> **And the habit was not followed for eleven days.** It was written on Aug 11, 2026, in the same
+> pass that diagnosed the defect it was meant to prevent, and the four sections it was written
+> about stayed exactly where they were until **Aug 22, 2026**. Every reader in between opened a
+> file called "blocked" and met four resolved iOS sections before the first real blocker. **A habit
+> recorded in the same document it governs is not a process**, and this is the second time this
+> page has caught itself that way — the first was the *"a shipped-status claim carries the command
+> that proves it"* rule two paragraphs up, which was also written down before it was applied. What
+> would actually have caught it is a rule with a place to run: the move belongs in the checklist of
+> whatever phase strikes the section, not in a blockquote near the top of the thing being struck.
 
 ---
-
-## ~~iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
-
-**Both columns and both routes now exist. Neither has an iOS client yet**, which is the whole of
-what is left, and it is unstarted rather than blocked.
-
-**The avatar presign pair is built**, and it is the shape this section specified:
-
-- `POST /children/{child_id}/avatar-upload-url` — `routers/children.py:117`, "one presigned PUT —
-  never multipart, because an avatar is a small square".
-- `GET /children/{child_id}/avatar-url` — `routers/children.py:151`, and it **404s when the child
-  has no avatar** rather than returning a null URL, on the stated grounds that "this child has no
-  avatar" and "here is a URL that will not resolve" are different answers.
-
-**`children.pronouns` exists** — `models/child.py:25`, `text` + a named CHECK via
-`one_of("pronouns", PRONOUNS, name="pronouns")`, and it is on `ChildCreate`/`ChildUpdate`/`ChildOut`
-(`schemas/child.py:20`) and written by `routers/children.py:80`. `constants.py:67` already
-anticipates the consumer: pronoun substitution in prompt bodies.
-
-**What is left is two unstarted iOS tasks, and they belong to different phases.** Neither is
-blocked; both are listed here only so the trail from the Lane A build to the client work survives.
-
-- **Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a comment.
-  The reason this section gave for not asking — "asking and then discarding would be worse than not
-  asking" — has expired, because there is now somewhere to put the answer. This is what
-  `docs/decisions.md` open item 10 has been waiting on, and item 10 is the tracker for it now.
-- **The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
-  mints one", which was true when it was written and is not now. `LocalAvatarStore` is the seam
-  this section named, and the crop and JPEG conversion already run. **A false comment in a file
-  nobody has opened in a week is exactly the drift this file exists to catch** — correcting it is
-  part of whichever phase takes the upload.
-
-> **A note on phase numbers, because two of them collide.** An earlier plan assigned pronouns to
-> "phase 20" and the avatar to "phase 21". **Phase 20 has since shipped as something else** — the
-> nine TestFlight defects, PR #47 — and it explicitly held pronouns and the avatar out of scope
-> while editing `ChildSetupFlow.swift` for other reasons. So neither of these has a phase number
-> any more. `docs/decisions.md` item 10 tracks the pronouns half; the avatar half is tracked here
-> until something claims it.
-
-The original entry follows.
-
-Found by building first-run setup against the merged API. Neither blocks onboarding, which ships
-complete: the avatar is optional by design and a skipped one is a finished setup. Both are Lane A's
-to own.
-
-### There is no endpoint that presigns an upload for a child's avatar
-
-`children.avatar_key` exists and `PATCH /children/{id}` accepts it, so the *destination* is
-modelled. Nothing mints a key. The only presign route is `POST /media/upload-url`, and
-`UploadUrlRequest.entry_id` is **required** — its access check is `entry_access_from_body` and
-`plan_upload` creates a `media` row against an entry. There is no child-scoped equivalent, and the
-registered router list in `main.py` has nothing else that could serve one.
-
-**Not worked around, deliberately.** Pushing avatar bytes through the entry-scoped route would
-file a picture of a child in the archive as some entry's artifact — a wrong row in a permanent
-archive, which is worse than no upload. So the processed image is stored on the device only, by
-`LocalAvatarStore` in `Application Support/avatars/`, and `avatar_key` stays null.
-
-**Consequence:** an avatar does not survive a new phone and does not reach the browser client
-reserved for 2027. Everything else about the child does.
-
-**What the client needs.** A child-scoped presign, mirroring the media one minus the entry:
-
-```
-POST /v1/children/{child_id}/avatar-upload-url
-Body:     { "content_type": "image/jpeg", "bytes": 41234 }
-Returns:  { "upload_url": "https://…", "avatar_key": "children/{id}/avatar/{uuid}.jpg",
-            "expires_in": 900 }
-```
-
-Parent role, single PUT only — an avatar is a ~512px square and never needs multipart. The client
-would then `PATCH /children/{id}` with the returned `avatar_key`, which already works today. A
-matching `GET /v1/children/{id}/avatar-url` is needed to read it back, since the bucket is private.
-`LocalAvatarStore` is the seam that would be swapped, and the crop and JPEG conversion already run.
-
-### Onboarding cannot collect pronouns, because `children` has no column for them
-
-`docs/decisions.md` open item 10 says the mission library stays he/him until **onboarding collects
-the child's pronouns**, and lists it as needed "with onboarding". This phase built onboarding and
-**could not close it.** `Child` has `name`, `birthdate`, `avatar_key`, `family_timezone` and
-nothing else (`api/src/rascal/models/child.py`), so there is nowhere to put the answer, and adding
-a column is a Lane A change the iOS lane may not make.
-
-Asking for pronouns and then discarding them would be worse than not asking, so onboarding does
-not ask. Client copy is neutral throughout and needs no pronoun to render.
-
-**What it needs:** a nullable `children.pronouns` (`text` + a named `CHECK`, per the enum
-convention), exposed on `ChildCreate`, `ChildUpdate` and `ChildOut`. The rendering half — pronoun
-substitution in prompt bodies — is separable and is the part item 10 says not to let the `{name}`
-token block.
-
----
-
-## ~~iOS Timeline v3 — two things the list endpoint cannot express~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
-
-**Both were built and neither was marked here.** The client still carries the workarounds each one
-was written to justify, and both can now go.
-
-- **`EntryOut.prompt_body` exists** — `schemas/entry.py:119`. So a list row carries its own quote,
-  and the two-direction workaround (the composer writing `assignment.body` onto the row, plus the
-  local `Assignment` lookup) is no longer load-bearing. The case this section said only the server
-  could fix — *an entry written on another device, or before this build, shows no quote until the
-  parent opens it once* — is fixed.
-- **`?sealed=` exists** — `routers/entries.py:109`, `true` for sealed only, `false` for unsealed
-  only, omitted for both, and its own description makes the point this section made: "Sealing is
-  not an `entry_type`". So the Sealed chip can be a server filter.
-
-**Both iOS halves shipped Aug 11, 2026 (PR #48, phase 19 items 2 and 3).** The Sealed chip sends
-`?sealed=true`; `TimelineModel.drain`'s paging loop, `clientFilterPageBudget`, `isClientSideOnly`,
-`PageResult` and the "reports what it found rather than what exists" caveat are deleted, and the
-local `Assignment` lookup is gone from the card's quote resolution. `drain` itself stayed — it is
-the paging entry point both callers use, and the loop inside it was the workaround, not the seam.
-
-**The paging-seed warning below was right, and it caught a real bug.** Phase 19 verified the
-`?sealed=` filter against a running API before deleting anything — 7 sealed rows of 754, pure in
-both directions, paging across three cursor pages with no repeats — and then found that
-`oldestCachedOccurredAt()` seeded page two from the oldest cached row of *any* kind. Correct while
-the request was unfiltered; silently wrong with `?sealed=true`, where it would skip every letter
-between the newest and the oldest cached entry. Fixed and pinned by a test that fails by ~600
-million seconds when reverted. **The inherited constraint was load-bearing in a way nobody had
-re-derived, which is exactly what this paragraph existed to force.**
-
-**Nothing on this section is outstanding.**
-
-The original entry follows.
-
-Neither blocks the v3 skin, which shipped complete. Both are Lane A's to own, and the client
-degrades correctly without either — recorded because they were found by building the screen
-against the merged API and are written down nowhere else.
-
-### `GET /entries` does not carry `prompt`, and v3's card is built around it
-
-`EntryOut` has no `prompt`; only `EntryDetail` from `GET /entries/{id}` does, and
-`docs/api-contract.md` says so deliberately. The v3 card leads with the prompt the entry
-answered, so on a list row there was nothing to quote.
-
-**Worked around inside the iOS lane, in two places, and the pair is good enough to ship.**
-The card reads `entries.prompt_body` when it has one, and otherwise resolves `assignment_id`
-against a locally cached `Assignment`, whose `body` is the same sentence.
-
-`prompt_body` is filled from two directions:
-
-1. `GET /entries/{id}`, whenever the parent opens the entry.
-2. **At composition.** `ComposerView` writes `assignment.body` onto the row as it creates it.
-   The sentence is on screen above the field the parent is typing into, so writing it down
-   costs nothing and the quote is correct offline, immediately, and for good.
-
-**The assignment fallback is currently the weaker of the two, and a device proved it.**
-`Assignment` rows are written *only* by `SyncEngine` from a `/sync` response, and sync pull
-ships behind `syncPullEnabled`, which is **off**. So with the app as it ships today the
-fallback resolves nothing, and the composer cache in (2) is what actually puts prompts on
-cards. The fallback becomes real the day pull is switched on — it is written and tested, not
-speculative — but it is not carrying the feature right now.
-
-**Where it still comes up short:** an entry written on another device, or before this build,
-shows no quote until the parent opens it once. The zone drops out cleanly, so the card reads
-as freeform rather than broken — but it reads as freeform when it wasn't. Only the server
-field fixes that one.
-
-The fix is a field, not a feature: `prompt_body` (or the existing `PromptRef`) on `EntryOut`.
-The join is already there — `entries.assignment_id → assignments.prompt_id → prompts.body` —
-and `EntryDetail` performs it today.
-
-### There is no way to ask the server for sealed entries
-
-The v3 filter row has seven chips and the seventh is **Sealed**. Sealed is `unlock_at_age
-IS NOT NULL`, not an `entry_type`, so `?type=` cannot express it and `GET /entries` has no
-other parameter that can.
-
-**Shipped as a client-side filter**, on the explicit call that a Sealed chip is worth having.
-The consequences are real and are handled rather than hidden:
-
-- The `@Query` narrows on `unlockAtAge != nil` against the local cache.
-- The server still pages the whole archive, so `serverType` stays nil and the paging seed stays
-  unfiltered — seeding from the oldest *sealed* row would ask for everything older than it and
-  strand every ordinary entry in between.
-- **Paging needed a loop.** The trigger hangs off the last card appearing, so a page of fifty
-  ordinary entries adds no card and therefore nothing to trigger the next page — the filter
-  stopped dead on any stretch of archive without a letter in it. `TimelineModel.drain` keeps
-  fetching while a client-side-only filter has nothing to show, bounded to
-  `clientFilterPageBudget` (10 pages, 500 entries) per load, and never retries a failure.
-
-So a sealed list is correct but can cost ten round trips to fill on an archive where letters
-are rare, and after a budget it reports what it found rather than what exists.
-
-`?sealed=true` on `GET /entries` — one `WHERE unlock_at_age IS NOT NULL` — removes the loop,
-the budget, and the caveat. It is a small change and it is not urgent.
-
-## iOS Settings — notes, not blockers. **Nothing in this section is open.**
-
-**This section has never held a blocker and should be read as a lessons file.** It has three
-entries: `GET /me`, resolved Aug 9 in PR #24; the export progress bar needing a session delegate,
-which was fixed and is recorded only because it is invisible in code review; and a note that
-`POST /v1/auth/dev-login` cannot satisfy a preflight aimed at a deployed API — which is not a
-defect but advice about how to write preflight checks.
-
-So Settings' contribution to this file is **one fix and two notes**. It is kept under this
-filename only because moving it would break the links into it; a reader scanning headings for
-"what is blocking me" should skip it entirely.
-
-The only Settings work genuinely outstanding is the **pronouns row**, and it arrives from
-`docs/decisions.md` item 10 rather than from here.
-
-Neither of the two notes blocks the Lane B Settings work, which shipped complete. Recorded because
-both were discovered by building against the merged API and neither is written down anywhere else.
-
-### ~~There is no `GET /me`, so the app cannot show your own name after a relaunch~~ — RESOLVED Aug 9, in PR #24. The route exists, the client stores the record between launches and refreshes it from `GET /me` on every launch that has a network.
-
-`PATCH /me` exists and works. The user record arrives once, with the sign-in response, and
-`AppSession` holds it in memory — so after a force quit the app has a valid keychain token, a
-signed-in session, and no idea what the person is called.
-
-Settings handles it honestly: the **Your name** row renders no value at all rather than claiming
-"Not set", which would be a statement about the server it has not checked. The Email row falls
-back to the configured account. But the correct fix is a `GET /me` returning the same `UserOut`
-that `PATCH /me` and `POST /auth/apple` already return — a handful of lines in
-`api/src/rascal/routers/me.py`, using the `CurrentUser` dependency that is already there.
-
-Deliberately not built in this run: Lane B is the iOS lane, the endpoint is Lane A's to own, and
-the client degrades correctly without it. Item 6 of `docs/Device-Verification/device-verification-settings.md` asks
-the human to judge how badly it reads on a real device.
-
-### The archive export's progress bar needs a session delegate, not the async API
-
-Not blocking anything — fixed — but written down because it is invisible in code review and the
-kind of thing that gets reintroduced.
-
-`URLSession`'s async `download(for:delegate:)` takes a per-task delegate, accepts a
-`URLSessionDownloadDelegate`, and **never calls `didWriteData` on it.** That method belongs to
-the download delegate, and the async variants only route `URLSessionTaskDelegate` callbacks.
-Instrumenting it proved the point: zero callbacks across a full 86MB transfer, on
-`URLSession.shared` and on a dedicated session alike, while the progress bar sat at nothing and
-the row read as hung — the exact failure the export was supposed to avoid.
-
-Byte progress requires a classic **session-level** delegate and a `URLSessionDownloadTask`,
-bridged back to async with a continuation. `ArchiveDownloader` does that, and the same
-instrumentation then recorded 180 delegate callbacks and 269 UI state updates from 0.2% to 100%.
-
-Worth knowing for the media path too, if a download ever needs progress there.
-
-### `POST /v1/auth/dev-login` can never satisfy a preflight aimed at a deployed API
-
-Not a defect — the opposite. `main.py` registers `auth.dev_router` only `if settings.is_local`,
-and `config.py` says in as many words that nothing else may branch on environment. A deployed
-API answering `dev-login` with a usable session would be the bug.
-
-Worth writing down because a run instruction asked for exactly that as a preflight check, and
-the only way to satisfy it is against a local API (`make up && make dev`), which is what
-`make fixtures` already defaults to. `rascal-api.fly.dev` resolves as of Aug 10, 2026 — and
-answers that route with a 404, which is the correct answer and not a preflight.
 
 ## 0. ~~GitHub Actions is not running — account billing. **Recurred Aug 10.**~~ — RESOLVED Aug 10, 2026
 
@@ -929,12 +665,15 @@ run cost in surprises is in `docs/runbook-deploy.md` §9, which is still the hon
 of what has and has not run against real infrastructure — it is just a much shorter list of
 "has not" than it was this morning.
 
-## 4. `ANTHROPIC_API_KEY` — resolved. Four batches generated, awaiting your review
+## 4. `ANTHROPIC_API_KEY` — resolved. ~~Four batches~~ **Nine batches, 139 candidates** generated, awaiting your review
 
 **No longer blocked.** The key is set as a repository secret, the *Prompt candidates*
-workflow has run, and it opened a pull request that is now merged. `docs/prompt-candidates/`
-holds four worksheets, generated by `claude-sonnet-5` against the four thinnest themes in the
-library:
+workflow has run, and it opened a pull request that is now merged. ~~`docs/prompt-candidates/`
+holds four worksheets~~ — **it holds nine, plus a `README.md`; the five dated 2026-08-22 are a
+second sweep and are tabulated after this one** — the first four generated by `claude-sonnet-5`
+against ~~the four thinnest themes in the
+library~~ — **the four thinnest themes *as of Aug 4, 2026*; two of them are no longer thin, and the
+correction is below the table**:
 
 | File | Theme | Kind | Accepted |
 |---|---|---|---|
@@ -947,9 +686,58 @@ All four batches are `question`, which is what `--thinnest` asked for and not a 
 kinds. The activity, photo, video, and audio sides of those themes are still as thin as they
 were; generating for them is another run with `--kind`.
 
-**Status, Aug 16, 2026: the 79 candidates are still unreviewed, and the owner is reviewing them
-tonight.** A second run with `--kind` — activity, photo, video and audio against the same four thin
-themes — is wanted, and is **queued deliberately behind the review rather than beside it.**
+> **Scoped to its date, Aug 22, 2026, because "the four thinnest themes" stopped being true when
+> the library reached 133.** Counted today against `api/seeds/prompts.yaml` — group the 133 rows by
+> `theme` — **the thinnest five are `fears-comfort` 2, `outdoors` 4, `me-as-a-parent` 5,
+> `physical-affection` 5 and `seasons-holidays` 5.** Only two of the Aug 4 four are still down
+> there. **`making-building` and `sleep-routine` are 6 each and are no longer thin**, which is the
+> same fact the *"How it was unblocked"* subsection below already records against the dispatch
+> numbers; it had not been carried up here to the sentence that generalises from them. The table
+> stays as it is: it is the record of a run, and a run is dated.
+
+**Status, ~~Aug 16, 2026: the 79 candidates are still unreviewed~~ — Aug 22, 2026: there are now 139
+unreviewed candidates, and the second run did not wait for the review.** The owner was
+reviewing the first 79 on Aug 16; nothing in this repository records that the review finished.
+
+| Sweep | Files | Kinds | Candidates |
+|---|---|---|---|
+| Aug 4, 2026 | 4 | `question` ×4 | 79 (one `outdoors` row rejected out of 80) |
+| Aug 22, 2026 | 5 | `question`, `video`, `question`, `audio`, `activity` | 60 (12 of 12 in every file) |
+| **Total** | **9** | — | **139** |
+
+**Keep both sets.** The Aug 22 worksheets are `fears-comfort-2026-08-22.md` (`question`),
+`outdoors-2026-08-22.md` (`video`), `me-as-a-parent-2026-08-22.md` (`question`),
+`physical-affection-2026-08-22.md` (`audio`) and `seasons-holidays-2026-08-22.md` (`activity`).
+Counted from the files: each header reads *"12 of 12 candidates passed the automated filters"* and
+each accepted table holds twelve rows.
+
+**The second sweep targeted different themes on purpose, and that is the part not to lose.** It went
+at the five themes that are thin *now* — the five in the note above — rather than repeating Aug 4's
+four, because `making-building` and `sleep-routine` had ~~roughly doubled~~ **gone from 4 prompts
+each to 6 — half again, not double; corrected Aug 22, 2026 from this section's own figures** in the
+meantime. **And it is not all `question`.** ~~Three of the five kinds in the library are
+represented~~ — **four kinds are, and the library carries seven kinds rather than five; corrected
+Aug 22, 2026** — which is the `--kind` spread the paragraph below was still describing as future
+work; the sentence *"all four batches are `question`"* is true of the Aug 4 table only and must not
+be read across the whole directory.
+
+> **Both numbers re-derived rather than trusted, Aug 22, 2026.** The Aug 22 row of the sweep table
+> above reads `question`, `video`, `question`, `audio`, `activity` — **four distinct kinds, not
+> three.** And `constants.PROMPT_KINDS` holds **seven**: `question`, `photo`, `video`, `audio`,
+> `activity`, `measurement`, `letter`, every one of which appears in `prompts.yaml`. *"The five
+> kinds"* was counting the daily ones — `letter` (8 rows) and `measurement` (3) are monthly.
+> **So `photo` is not the only kind neither sweep has touched**: `letter` is in
+> `services/candidates.py`'s `KIND_SHAPES`, can be generated, and has not been; `measurement` is
+> the one kind `--kind` cannot be asked for at all. The two sentences below that called `photo`
+> *"the one kind"* are corrected in place. The multiplier is the same arithmetic: the dispatch note
+> at the end of this section records `making-building` and `sleep-routine` at **4** each on Aug 4
+> and **6** each today, which is half again, not a doubling.
+
+~~A second run with `--kind` — activity, photo, video and audio against the same four thin
+themes — is wanted, and is **queued deliberately behind the review rather than beside it.**~~ —
+**it ran on Aug 22, 2026 without waiting, and against five newly-thin themes rather than the same
+four.** ~~`photo` is the one kind still unrepresented in either sweep.~~ — **`photo` and `letter`
+both are, and only `photo` was named; corrected Aug 22, 2026, see the note above.**
 
 **The reason is worth stating, because the efficient-looking order is the wrong one.** The review is
 the only thing that calibrates the generator. If fifteen `outdoors` questions get cut for the same
@@ -957,16 +745,37 @@ reason, that reason belongs in `generate_prompts.py`'s filters or in `mission-li
 rejection rules **before** the next batch exists. Generating first means reading the same flaw twice
 and paying for it twice.
 
-**The pool arithmetic that makes this worth doing at all:** 113 seeded prompts, with repeats
-beginning around day 31. Adding 79 questions pushes that out — but only for questions. The
+> **Kept, and it is now a record of advice that was not taken. Aug 22, 2026.** The second sweep ran
+> with the first still unread, which is exactly the order this paragraph argues against — so the
+> risk it names is live rather than hypothetical: **if the 79 turn out to share a flaw, the 60 were
+> generated before anyone could have known.** The argument is not struck because it was not
+> refuted; it was skipped. Whoever reads the 139 should read the Aug 4 four first and let what gets
+> cut there inform the Aug 22 five, which recovers most of the calibration the order gave away.
+
+**The pool arithmetic that makes this worth doing at all:** ~~113~~ **133** seeded prompts, with
+repeats beginning around day 31. ~~Adding 79 questions pushes that out — but only for questions. The
 activity, photo, video and audio sides of those four themes stay exactly as thin as they are today,
-which is what the `--kind` run is for.
+which is what the `--kind` run is for.~~ — **Aug 22, 2026: it is 139 candidates now, and they are
+not all questions.** The Aug 22 sweep put `video`, `audio` and `activity` batches into the
+directory, so accepting all of them would widen four cadence pools rather than one. **`photo` is
+still untouched by either sweep** and is ~~the one kind~~ **one of the two kinds** a `--kind` run
+would still be for — **`letter` is the other; corrected Aug 22, 2026.**
+
+> **Corrected Aug 22, 2026. The count has been wrong here since Aug 14, 2026**, which is the day
+> phase 25 added twenty already-tokenised bodies on top of phase 24's 113 — `CLAUDE.md` says so in
+> as many words, and `api/tests/test_seeding.py:35` asserts `TOTAL_PROMPTS = 133` against
+> `api/seeds/prompts.yaml`, which holds 133 rows. **The "around day 31" figure was computed from
+> 113 and has deliberately not been rewritten here**, because nobody has redone the arithmetic
+> against 133 and a plausible new number invented at this desk would be worse than a stale one with
+> its provenance attached. Whoever needs it recomputes it from the cadence pools.
 
 **These are unreviewed.** Every candidate below passed the automated filters, and each file
 says so in its own header: the filters are a spam trap, not an editor. They catch the four
-rejection rules where the rule is textually detectable and nothing else. **79 prompts still
-need a human to read them.** One candidate was rejected, in `outdoors`, and the reason is
-recorded in that file rather than discarded.
+rejection rules where the rule is textually detectable and nothing else. ~~**79 prompts still
+need a human to read them.**~~ — **139 do, as of Aug 22, 2026: the 79 from Aug 4 and 60 more from
+the second sweep.** One candidate was rejected, in `outdoors`, and the reason is
+recorded in that file rather than discarded — **that is the Aug 4 `outdoors` worksheet; all five
+Aug 22 files accepted 12 of 12.**
 
 Each file explains its own review process — delete the rows you do not want, move the
 survivors into the right table in `docs/mission-library.md`, regenerate the YAML, reseed,
@@ -988,8 +797,13 @@ the rendering. The one thing they could not cover was the model call itself, bec
 was no key in this environment — so the script was complete and entirely unproven.
 
 You added `ANTHROPIC_API_KEY` as a repository secret and the workflow was dispatched with
-`thinnest: 4`, which picked the four themes above (2, 4, 3, and 4 prompts in the library
-respectively). Two things came out of the first real run:
+`thinnest: 4`, which picked the four themes above ~~(2, 4, 3, and 4 prompts in the library
+respectively)~~ — **those were the counts on Aug 4, 2026; counted against `prompts.yaml` on Aug 22,
+2026 they are `fears-comfort` 2, `making-building` **6**, `outdoors` **4**, `sleep-routine` **6**.**
+Two of the four thin themes have since ~~roughly doubled~~ **gained two prompts each, 4 → 6 — half
+again rather than double; corrected Aug 22, 2026 against the figures in the sentence immediately
+above**, so `--thinnest 4` run again today would not necessarily pick the same four. The historical numbers are kept because they are what the run was
+dispatched against. Two things came out of the first real run:
 
 - **The first attempt returned a bare `400 Bad Request` and said nothing else**, because
   `httpx.raise_for_status()` discards the response body. The script now prints the API's own
@@ -1086,12 +900,46 @@ These were left out on purpose. Each is a small piece of work if you decide othe
 
 **Everything in the bulleted list immediately below** was on this list on Aug 3 and is now
 closed. **That sentence used to say “everything below” without qualification, and it had quietly
-stopped being true** — ~~three~~ **four** `##` sections further down are not closed: Phase 16
-(unrecorded, and runnable tonight), §9 (the one genuine platform block), §10 (an errand) and,
-since Aug 20, 2026, **§10a — two items phase 37a produced by building the thing §10 was waiting
-for**, one of them the first entry on this page blocked by a network policy. A reader skimming
-headings after this line would have read all three as resolved, which is the exact defect this
-file records against itself twice. Scoped to its list, Aug 16, 2026.
+stopped being true** — ~~three~~ ~~**four**~~ ~~**nine**~~ **eleven** `##` sections further down are
+not closed. A
+reader skimming headings after this line would have read all of them as resolved, which is the
+exact defect this file records against itself twice. Scoped to its list, Aug 16, 2026.
+
+> **The number was counted rather than incremented, Aug 22, 2026, and it had drifted by six.** The
+> line said "four" and named four — Phase 16, §9, §10, §10a. Counting every `##` heading below this
+> point that is not struck gave **ten**: Phase 16 (unrecorded), §9 (the one genuine platform
+> block), §10, §10a, §11, §13, §14, §15, §16 and §18. This pass then struck §14, which phase 86 had
+> resolved on Aug 18, leaving **nine**. **Both numbers are written here on purpose**: ten is what the
+> file actually contained when it was audited, nine is what it contains now, and the difference is
+> one section's worth of work rather than a correction. **The failure mode is worth naming, because
+> it is not staleness** — a count in prose is maintained by whoever adds the next section, and
+> nobody adding §11, §13, §14, §15, §16 or §18 came back up here to increment it. A count that
+> six consecutive authors did not update is not a count; the only durable version of this sentence
+> is one that says *how to count*, which is what this note now does.
+
+> **And "nine" was wrong within the same pass, for two reasons the stated method catches and the
+> author did not. Recounted and corrected to eleven, Aug 22, 2026.** The command is written against
+> *this heading* rather than a line number, because the line number was stale before the pass that
+> wrote it finished:
+>
+> ```bash
+> sed -n '/^## Resolved since the last review/,$p' docs/blocked.md \
+>   | grep '^## ' | grep -v '^## ~~' | tail -n +2
+> ```
+>
+> Today it prints, in file order: **Phase 16, §9, §10, §10a, §11, §13, §15, §16, §18, §19 and
+> §20** — eleven.
+>
+> **What moved it.** *First*, this pass moved four resolved iOS sections down here, and three of
+> the four carried struck headings while **iOS Settings did not** — so the method counted a section
+> whose own heading says *"Nothing in this section is open"* as open. Rather than write the number
+> with an exception attached, **its heading is now struck like its three siblings'**, which is the
+> only edit made in that move and is noted where the move is described. *Second*, **§19 arrived
+> from `origin/main` in the merge that preceded this pass** (phase 108, `09acfa6`) and is a genuine
+> open blocker, and **§20 is new below**, filed by this pass. **Neither of those is drift and both
+> are why a hand-maintained count is the wrong artifact**: the first correction blamed six
+> consecutive authors for not incrementing, and then the very next number was falsified by a merge
+> and by its own author in the same sitting. **Run the command; do not read the number.**
 
 - The `monthly` slot serving letters alongside measurements — letters have their own slot on
   the 15th.
@@ -1122,17 +970,386 @@ code older than the commit under test. Restarting it flipped the result. **A pre
 exercises a long-running local server has to first establish that the server is the code under
 test.**
 
-**Still unstarted, and not blocked:** onboarding does not ask for pronouns (tracked by
-`docs/decisions.md` item 10) and the avatar is still device-only (§iOS Onboarding).
+~~**Still unstarted, and not blocked:** onboarding does not ask for pronouns (tracked by
+`docs/decisions.md` item 10) and the avatar is still device-only (§iOS Onboarding).~~ — **both
+shipped, and this line was the last place in the repository still saying otherwise. Struck Aug 22,
+2026.**
+
+Verified by reading the iOS tree rather than by asking it: `ChildSetupFlow.swift`'s own header
+lists the steps as *"name, birthdate, pronouns, timezone, avatar, notifications"* and `:49` routes
+`case .pronouns: PronounsStep(session: session)`. The avatar half is
+`ios/Rascal/Rascal/Onboarding/` holding `AvatarStep.swift`, `AvatarStore.swift`, `AvatarSync.swift`
+and `AvatarUpload.swift` — the upload seam this file specified, built.
+
+**`docs/roadmap-status.md` struck exactly these two bullets on Aug 18, 2026 and this page never
+followed** — they are the pair under *"Two onboarding gaps remain"* in its *§ Phase 8, precisely*:
+*"The avatar is still device-only"* and *"Onboarding still does not collect pronouns"*. That is the
+failure worth recording rather than the four-day lag: the two documents describe the same two facts and neither of them points at the other, so a correction
+landing in one is invisible from the other. The durable fix is not diligence, it is a single owner
+per fact — `roadmap-status.md` owns shipped-status, and this file should cite it rather than
+restate it. **And cite it by its text.** This sentence carried `docs/roadmap-status.md:348-349`
+until Aug 22, 2026; that file has been edited since, `:348` is a note about the highest merged
+phase today, and the two bullets are nowhere near it. **A quoted bullet survives an edit above it
+and a line number does not**, which is the same reason this phase converted the other numbered
+citation on this page. `docs/decisions.md` item 10 remains the tracker for the *rendering* half
+(pronoun substitution in prompt bodies), which is a separate piece of work and is still open.
+
+---
+
+**The four sections below were moved here on Aug 22, 2026 by phase 111, eleven days after the
+habit that says to do it was written down at the top of this file.** iOS Seal control, iOS
+Onboarding, iOS Timeline v3 and iOS Settings were the **first four `##` headings in a document
+titled "blocked"**, and all four were resolved — two closed outright by phase 19 (PR #48) on
+Aug 11, 2026, one whose own heading reads *"Nothing in this section is open"*, and one whose two
+remaining follow-ups shipped and are struck a few paragraphs up.
+
+**Nothing in them was edited in the move, with one exception, named here rather than left for a
+reader to find in a diff.** Every strikethrough, every grep, every line reference
+and every *"the original entry follows"* is exactly as it was — the reasoning is usually why a fix
+is shaped the way it is, and that survives being filed correctly. **Only the position changed, and
+the position was the defect**: a reader skimming this file for what is stuck met three hundred and
+twenty lines of finished iOS work first, and the strikethroughs that said so are invisible to a
+heading skim.
+
+**The exception is iOS Settings' own `##` heading, struck Aug 22, 2026.** It was the only one of
+the four that arrived unstruck, and the sentence above is the reason it could not stay that way:
+the strikethroughs are what a heading skim reads, and the count two sections up is generated by
+literally that skim — `grep -v '^## ~~'` — so an unstruck heading on a section whose own first
+words are *"Nothing in this section is open"* made the file's stated counting method disagree with
+the file's own text. **The heading was struck rather than the number annotated**, because a count
+with a written-in exception is a count nobody can re-derive. Its body is untouched.
+
+## ~~iOS Seal control — `POST /entries` cannot hear "do not seal this"~~ — RESOLVED, verified Aug 11, 2026
+
+**Built.** `routers/entries.py` now passes the field's *setness* down, exactly as this section
+asked:
+
+```python
+# api/src/rascal/routers/entries.py:71
+unlock_at_age_provided="unlock_at_age" in payload.model_fields_set,
+```
+
+and `services/entries.py:431` reads `if unlock_at_age is None and not unlock_at_age_provided and
+prompt is not None:` — so an explicit null now means "not sealed" and an absent key still keeps the
+prompt's default. The two routes agree about what null means.
+
+**The client-side workaround is gone too, as of Aug 11, 2026 (PR #48, phase 19 item 1).**
+`unsealIfTheServerSealedItAnyway` and its corrective `PATCH` are deleted; a create is one request.
+Phase 19 did not take the server behaviour on trust — it exercised it against a running API on a
+`letter` prompt with `default_unlock_age = 13`, and an explicit null returned `null` while the same
+body with the key removed returned `13`. **`EntryCreateRequest`'s hand-written `encode(to:)` stayed**,
+because sending the explicit null is what makes the server's answer correct; it reads like dead
+ceremony and is the opposite.
+
+**Nothing on this section is outstanding.** It is here for the reasoning, not as work.
+
+The original entry follows, because it is the reason the fix is shaped the way it is.
+
+The seal control shipped and works. This is the one thing it cannot express through the create
+route, and it is **four lines to fix in Lane A**.
+
+`create_entry` seals a letter whenever `unlock_at_age` arrives as `None`:
+
+```python
+# api/src/rascal/services/entries.py
+if unlock_at_age is None and prompt is not None:
+    # Letters are sealed by default. The server owns this, not the client.
+    unlock_at_age = prompt.default_unlock_age
+```
+
+That default is right, and it is why a letter written by any client is sealed even if the client
+has never heard of sealing. The problem is that **Pydantic gives `None` for an omitted key and for
+an explicit `null` alike**, so the handler cannot tell "I have no opinion" from "the parent turned
+this off". A letter prompt the parent deliberately unsealed is created sealed at the prompt's
+default, whatever the client sends.
+
+**`PATCH /entries/{id}` does not have this problem** — `routers/entries.py` dumps with
+`model_dump(exclude_unset=True)`, so an explicit null reaches the service as a field that was set
+and clears it. The two routes disagree about what null means.
+
+**Worked around in the client, visibly and temporarily.** `EntryCreateRequest` now always writes
+`unlock_at_age`, including as an explicit null, so the client is already correct. Because the
+server currently collapses that, `APIClient.createEntry` compares what it sent with what came back
+and, when the server sealed a row that asked not to be sealed, says it again through `PATCH`.
+
+**It lives in `createEntry` rather than in the composer on purpose.** The composer is not the only
+writer: `EntrySync` re-sends an entry saved while offline through the same call, so a letter
+written on a train with sealing turned off would otherwise arrive sealed hours later with nobody
+told. One place, every caller. It is also self-detecting — it fires only when the response
+disagrees with the request — so the day this is fixed it stops doing anything.
+
+If the corrective `PATCH` cannot land, `Entry.applyServerResponse` copies the archive's value back
+onto the row, so the phone shows what the permanent record actually holds rather than what was
+intended, and the composer says so.
+
+**What Lane A needs to do:** have `create_entry` take the field's *setness* rather than its value —
+`payload.model_fields_set` at the router, or pass a sentinel — so an explicit null means "not
+sealed" and an absent key keeps the prompt default. The day that lands,
+`unsealIfTheServerSealedItAnyway` stops firing, and can be deleted with its round trip.
+
+---
+
+## ~~iOS Onboarding — the avatar has nowhere to go, and pronouns have nowhere to live~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
+
+**Both columns and both routes now exist. Neither has an iOS client yet**, which is the whole of
+what is left, and it is unstarted rather than blocked.
+
+**The avatar presign pair is built**, and it is the shape this section specified:
+
+- `POST /children/{child_id}/avatar-upload-url` — `routers/children.py:117`, "one presigned PUT —
+  never multipart, because an avatar is a small square".
+- `GET /children/{child_id}/avatar-url` — `routers/children.py:151`, and it **404s when the child
+  has no avatar** rather than returning a null URL, on the stated grounds that "this child has no
+  avatar" and "here is a URL that will not resolve" are different answers.
+
+**`children.pronouns` exists** — `models/child.py:25`, `text` + a named CHECK via
+`one_of("pronouns", PRONOUNS, name="pronouns")`, and it is on `ChildCreate`/`ChildUpdate`/`ChildOut`
+(`schemas/child.py:20`) and written by `routers/children.py:80`. `constants.py:67` already
+anticipates the consumer: pronoun substitution in prompt bodies.
+
+**What is left is two unstarted iOS tasks, and they belong to different phases.** Neither is
+blocked; both are listed here only so the trail from the Lane A build to the client work survives.
+
+- **Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a comment.
+  The reason this section gave for not asking — "asking and then discarding would be worse than not
+  asking" — has expired, because there is now somewhere to put the answer. This is what
+  `docs/decisions.md` open item 10 has been waiting on, and item 10 is the tracker for it now.
+- **The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
+  mints one", which was true when it was written and is not now. `LocalAvatarStore` is the seam
+  this section named, and the crop and JPEG conversion already run. **A false comment in a file
+  nobody has opened in a week is exactly the drift this file exists to catch** — correcting it is
+  part of whichever phase takes the upload.
+
+> **A note on phase numbers, because two of them collide.** An earlier plan assigned pronouns to
+> "phase 20" and the avatar to "phase 21". **Phase 20 has since shipped as something else** — the
+> nine TestFlight defects, PR #47 — and it explicitly held pronouns and the avatar out of scope
+> while editing `ChildSetupFlow.swift` for other reasons. So neither of these has a phase number
+> any more. `docs/decisions.md` item 10 tracks the pronouns half; the avatar half is tracked here
+> until something claims it.
+
+The original entry follows.
+
+Found by building first-run setup against the merged API. Neither blocks onboarding, which ships
+complete: the avatar is optional by design and a skipped one is a finished setup. Both are Lane A's
+to own.
+
+### There is no endpoint that presigns an upload for a child's avatar
+
+`children.avatar_key` exists and `PATCH /children/{id}` accepts it, so the *destination* is
+modelled. Nothing mints a key. The only presign route is `POST /media/upload-url`, and
+`UploadUrlRequest.entry_id` is **required** — its access check is `entry_access_from_body` and
+`plan_upload` creates a `media` row against an entry. There is no child-scoped equivalent, and the
+registered router list in `main.py` has nothing else that could serve one.
+
+**Not worked around, deliberately.** Pushing avatar bytes through the entry-scoped route would
+file a picture of a child in the archive as some entry's artifact — a wrong row in a permanent
+archive, which is worse than no upload. So the processed image is stored on the device only, by
+`LocalAvatarStore` in `Application Support/avatars/`, and `avatar_key` stays null.
+
+**Consequence:** an avatar does not survive a new phone and does not reach the browser client
+reserved for 2027. Everything else about the child does.
+
+**What the client needs.** A child-scoped presign, mirroring the media one minus the entry:
+
+```
+POST /v1/children/{child_id}/avatar-upload-url
+Body:     { "content_type": "image/jpeg", "bytes": 41234 }
+Returns:  { "upload_url": "https://…", "avatar_key": "children/{id}/avatar/{uuid}.jpg",
+            "expires_in": 900 }
+```
+
+Parent role, single PUT only — an avatar is a ~512px square and never needs multipart. The client
+would then `PATCH /children/{id}` with the returned `avatar_key`, which already works today. A
+matching `GET /v1/children/{id}/avatar-url` is needed to read it back, since the bucket is private.
+`LocalAvatarStore` is the seam that would be swapped, and the crop and JPEG conversion already run.
+
+### Onboarding cannot collect pronouns, because `children` has no column for them
+
+`docs/decisions.md` open item 10 says the mission library stays he/him until **onboarding collects
+the child's pronouns**, and lists it as needed "with onboarding". This phase built onboarding and
+**could not close it.** `Child` has `name`, `birthdate`, `avatar_key`, `family_timezone` and
+nothing else (`api/src/rascal/models/child.py`), so there is nowhere to put the answer, and adding
+a column is a Lane A change the iOS lane may not make.
+
+Asking for pronouns and then discarding them would be worse than not asking, so onboarding does
+not ask. Client copy is neutral throughout and needs no pronoun to render.
+
+**What it needs:** a nullable `children.pronouns` (`text` + a named `CHECK`, per the enum
+convention), exposed on `ChildCreate`, `ChildUpdate` and `ChildOut`. The rendering half — pronoun
+substitution in prompt bodies — is separable and is the part item 10 says not to let the `{name}`
+token block.
+
+---
+
+## ~~iOS Timeline v3 — two things the list endpoint cannot express~~ — BOTH RESOLVED IN LANE A, verified Aug 11, 2026
+
+**Both were built and neither was marked here.** The client still carries the workarounds each one
+was written to justify, and both can now go.
+
+- **`EntryOut.prompt_body` exists** — `schemas/entry.py:119`. So a list row carries its own quote,
+  and the two-direction workaround (the composer writing `assignment.body` onto the row, plus the
+  local `Assignment` lookup) is no longer load-bearing. The case this section said only the server
+  could fix — *an entry written on another device, or before this build, shows no quote until the
+  parent opens it once* — is fixed.
+- **`?sealed=` exists** — `routers/entries.py:109`, `true` for sealed only, `false` for unsealed
+  only, omitted for both, and its own description makes the point this section made: "Sealing is
+  not an `entry_type`". So the Sealed chip can be a server filter.
+
+**Both iOS halves shipped Aug 11, 2026 (PR #48, phase 19 items 2 and 3).** The Sealed chip sends
+`?sealed=true`; `TimelineModel.drain`'s paging loop, `clientFilterPageBudget`, `isClientSideOnly`,
+`PageResult` and the "reports what it found rather than what exists" caveat are deleted, and the
+local `Assignment` lookup is gone from the card's quote resolution. `drain` itself stayed — it is
+the paging entry point both callers use, and the loop inside it was the workaround, not the seam.
+
+**The paging-seed warning below was right, and it caught a real bug.** Phase 19 verified the
+`?sealed=` filter against a running API before deleting anything — 7 sealed rows of 754, pure in
+both directions, paging across three cursor pages with no repeats — and then found that
+`oldestCachedOccurredAt()` seeded page two from the oldest cached row of *any* kind. Correct while
+the request was unfiltered; silently wrong with `?sealed=true`, where it would skip every letter
+between the newest and the oldest cached entry. Fixed and pinned by a test that fails by ~600
+million seconds when reverted. **The inherited constraint was load-bearing in a way nobody had
+re-derived, which is exactly what this paragraph existed to force.**
+
+**Nothing on this section is outstanding.**
+
+The original entry follows.
+
+Neither blocks the v3 skin, which shipped complete. Both are Lane A's to own, and the client
+degrades correctly without either — recorded because they were found by building the screen
+against the merged API and are written down nowhere else.
+
+### `GET /entries` does not carry `prompt`, and v3's card is built around it
+
+`EntryOut` has no `prompt`; only `EntryDetail` from `GET /entries/{id}` does, and
+`docs/api-contract.md` says so deliberately. The v3 card leads with the prompt the entry
+answered, so on a list row there was nothing to quote.
+
+**Worked around inside the iOS lane, in two places, and the pair is good enough to ship.**
+The card reads `entries.prompt_body` when it has one, and otherwise resolves `assignment_id`
+against a locally cached `Assignment`, whose `body` is the same sentence.
+
+`prompt_body` is filled from two directions:
+
+1. `GET /entries/{id}`, whenever the parent opens the entry.
+2. **At composition.** `ComposerView` writes `assignment.body` onto the row as it creates it.
+   The sentence is on screen above the field the parent is typing into, so writing it down
+   costs nothing and the quote is correct offline, immediately, and for good.
+
+**The assignment fallback is currently the weaker of the two, and a device proved it.**
+`Assignment` rows are written *only* by `SyncEngine` from a `/sync` response, and sync pull
+ships behind `syncPullEnabled`, which is **off**. So with the app as it ships today the
+fallback resolves nothing, and the composer cache in (2) is what actually puts prompts on
+cards. The fallback becomes real the day pull is switched on — it is written and tested, not
+speculative — but it is not carrying the feature right now.
+
+**Where it still comes up short:** an entry written on another device, or before this build,
+shows no quote until the parent opens it once. The zone drops out cleanly, so the card reads
+as freeform rather than broken — but it reads as freeform when it wasn't. Only the server
+field fixes that one.
+
+The fix is a field, not a feature: `prompt_body` (or the existing `PromptRef`) on `EntryOut`.
+The join is already there — `entries.assignment_id → assignments.prompt_id → prompts.body` —
+and `EntryDetail` performs it today.
+
+### There is no way to ask the server for sealed entries
+
+The v3 filter row has seven chips and the seventh is **Sealed**. Sealed is `unlock_at_age
+IS NOT NULL`, not an `entry_type`, so `?type=` cannot express it and `GET /entries` has no
+other parameter that can.
+
+**Shipped as a client-side filter**, on the explicit call that a Sealed chip is worth having.
+The consequences are real and are handled rather than hidden:
+
+- The `@Query` narrows on `unlockAtAge != nil` against the local cache.
+- The server still pages the whole archive, so `serverType` stays nil and the paging seed stays
+  unfiltered — seeding from the oldest *sealed* row would ask for everything older than it and
+  strand every ordinary entry in between.
+- **Paging needed a loop.** The trigger hangs off the last card appearing, so a page of fifty
+  ordinary entries adds no card and therefore nothing to trigger the next page — the filter
+  stopped dead on any stretch of archive without a letter in it. `TimelineModel.drain` keeps
+  fetching while a client-side-only filter has nothing to show, bounded to
+  `clientFilterPageBudget` (10 pages, 500 entries) per load, and never retries a failure.
+
+So a sealed list is correct but can cost ten round trips to fill on an archive where letters
+are rare, and after a budget it reports what it found rather than what exists.
+
+`?sealed=true` on `GET /entries` — one `WHERE unlock_at_age IS NOT NULL` — removes the loop,
+the budget, and the caveat. It is a small change and it is not urgent.
+
+## ~~iOS Settings — notes, not blockers. **Nothing in this section is open.**~~ — NEVER A BLOCKER, and struck Aug 22, 2026 so the heading says so to a skim
+
+**This section has never held a blocker and should be read as a lessons file.** It has three
+entries: `GET /me`, resolved Aug 9 in PR #24; the export progress bar needing a session delegate,
+which was fixed and is recorded only because it is invisible in code review; and a note that
+`POST /v1/auth/dev-login` cannot satisfy a preflight aimed at a deployed API — which is not a
+defect but advice about how to write preflight checks.
+
+So Settings' contribution to this file is **one fix and two notes**. It is kept under this
+filename only because moving it would break the links into it; a reader scanning headings for
+"what is blocking me" should skip it entirely.
+
+The only Settings work genuinely outstanding is the **pronouns row**, and it arrives from
+`docs/decisions.md` item 10 rather than from here.
+
+Neither of the two notes blocks the Lane B Settings work, which shipped complete. Recorded because
+both were discovered by building against the merged API and neither is written down anywhere else.
+
+### ~~There is no `GET /me`, so the app cannot show your own name after a relaunch~~ — RESOLVED Aug 9, in PR #24. The route exists, the client stores the record between launches and refreshes it from `GET /me` on every launch that has a network.
+
+`PATCH /me` exists and works. The user record arrives once, with the sign-in response, and
+`AppSession` holds it in memory — so after a force quit the app has a valid keychain token, a
+signed-in session, and no idea what the person is called.
+
+Settings handles it honestly: the **Your name** row renders no value at all rather than claiming
+"Not set", which would be a statement about the server it has not checked. The Email row falls
+back to the configured account. But the correct fix is a `GET /me` returning the same `UserOut`
+that `PATCH /me` and `POST /auth/apple` already return — a handful of lines in
+`api/src/rascal/routers/me.py`, using the `CurrentUser` dependency that is already there.
+
+Deliberately not built in this run: Lane B is the iOS lane, the endpoint is Lane A's to own, and
+the client degrades correctly without it. Item 6 of `docs/Device-Verification/device-verification-settings.md` asks
+the human to judge how badly it reads on a real device.
+
+### The archive export's progress bar needs a session delegate, not the async API
+
+Not blocking anything — fixed — but written down because it is invisible in code review and the
+kind of thing that gets reintroduced.
+
+`URLSession`'s async `download(for:delegate:)` takes a per-task delegate, accepts a
+`URLSessionDownloadDelegate`, and **never calls `didWriteData` on it.** That method belongs to
+the download delegate, and the async variants only route `URLSessionTaskDelegate` callbacks.
+Instrumenting it proved the point: zero callbacks across a full 86MB transfer, on
+`URLSession.shared` and on a dedicated session alike, while the progress bar sat at nothing and
+the row read as hung — the exact failure the export was supposed to avoid.
+
+Byte progress requires a classic **session-level** delegate and a `URLSessionDownloadTask`,
+bridged back to async with a continuation. `ArchiveDownloader` does that, and the same
+instrumentation then recorded 180 delegate callbacks and 269 UI state updates from 0.2% to 100%.
+
+Worth knowing for the media path too, if a download ever needs progress there.
+
+### `POST /v1/auth/dev-login` can never satisfy a preflight aimed at a deployed API
+
+Not a defect — the opposite. `main.py` registers `auth.dev_router` only `if settings.is_local`,
+and `config.py` says in as many words that nothing else may branch on environment. A deployed
+API answering `dev-login` with a usable session would be the bug.
+
+Worth writing down because a run instruction asked for exactly that as a preflight check, and
+the only way to satisfy it is against a local API (`make up && make dev`), which is what
+`make fixtures` already defaults to. `rascal-api.fly.dev` resolves as of Aug 10, 2026 — and
+answers that route with a 404, which is the correct answer and not a preflight.
 
 ---
 
 ## ~~Phase 22 — Entry Detail v2: two design questions that are not the agent's to answer~~ — RESOLVED, all three, confirmed by the owner Aug 16, 2026
 
 Owner, Aug 16: *"22 is long done and perfect in all of these."* The phase merged as **PR #54** —
-`docs/roadmap-status.md:219`, *"Entry Detail v2 … Full-bleed media, the cream sheet, per-shape
-backdrops | #54 | ✅ merged"*. Moved here rather than struck in place, per this file's standing
-habit: **a struck section is not a moved section.**
+`docs/roadmap-status.md`'s phase ledger, under *§ The iOS build, phase by phase*: *"22 — Entry
+Detail v2 | The screen rebuilt against its own design export. Full-bleed media, the cream sheet,
+per-shape backdrops | #54 | ✅ merged"*. **Cited by its text since Aug 22, 2026** — the
+`docs/roadmap-status.md:219` that stood here points at a blank line in that file today. Moved here
+rather than struck in place, per this file's standing habit: **a struck section is not a moved
+section.**
 
 **The three outcomes:**
 
@@ -1265,10 +1482,32 @@ produced a real transcription on a real device, on a build from that day, and th
 accurate enough to capture his son's actual pronunciation of words. That is precisely the question
 `docs/Device-Verification/device-verification-transcription.md` §0 — per-recording word accuracy — exists to answer.
 
-**So the blocker is the file, not the feature.** The checklist still records **0 of 45** and still
+~~**So the blocker is the file, not the feature.** The checklist still records **0 of 45** and still
 opens with *"Nothing in this feature has ever run."* Phase 16's preflight #1 reads that document
 rather than the world, so it hard-stops — **correctly, given what the document says.** The gate is
-doing its job on stale input.
+doing its job on stale input.~~ — **struck Aug 22, 2026. Both halves of that sentence are wrong,
+and the same false quote was struck sixteen hundred lines further up in this very pass while this
+copy went on repeating it.**
+
+**The opening sentence was corrected on Aug 17, 2026, five days before this page stopped citing
+it.** `docs/Device-Verification/device-verification-transcription.md` §0's opening now reads
+`~~**Nothing in this feature has ever run.**~~ — **corrected Aug 17, 2026**`, with the owner's
+account of the run quoted directly beneath it. So the gate is no longer shut on that sentence.
+
+**And the count was stale in the other direction: it is `0 of ~~45~~ 52`, not 0 of 45.** Phase 79
+added §4a's seven boxes on Aug 18, 2026 and the checklist says so on its own line 13. Counted
+today: `grep -c '^- \[ \]'` returns **52** and `grep -c '^- \[x\]'` returns **0**, so *nothing has
+been ticked* remains true and *how much there is to tick* grew by seven. **The 45 is not only
+here** — `docs/roadmap-status.md`, `docs/phase-queue.md` and two files under `docs/sprint-aug16/`
+carry it too, and they belong to other lanes and other phases; this page corrects only itself and
+says where the rest are.
+
+**The lesson is the narrow one, and it is about this document rather than that one.** The
+correcting sentence at the top of this file — *"the checklist was corrected on Aug 17, 2026 and
+this paragraph went on citing the dead sentence until Aug 22"* — was written in this same pass, and
+**the author fixed the instance they were looking at and did not grep for the others.** A quotation
+is a copy, and a copy has siblings: when a quoted sentence turns out to be dead, the fix is
+`grep -rn` for the quote across `docs/`, not an edit at the cursor.
 
 **The single action:** run `docs/Device-Verification/device-verification-transcription.md` on the current build and
 record results, dates and device names. Start with §0, which is now largely **retrospective** — it
@@ -1414,6 +1653,32 @@ section previously said it needed a TestFlight build. The owner has a current de
 Aug 16 carrying `CaptionProbe` and its Settings row, so the only remaining input is a real camera
 roll and an evening. Run it with `docs/Device-Verification/device-verification-captions.md`.
 
+### Re-verified Aug 22, 2026. The platform block has not moved, and the owner will measure this week
+
+**Owner's call, Aug 22, 2026: keep the probe, run the measurement this week.** No code changes.
+The threshold table immediately below already decides the outcome the moment the number exists, so
+there is nothing to design and nothing to argue about — there is a number to go and get.
+
+**The section's own re-check command was re-run today, against the same and only installed SDK.**
+iPhoneOS26.4, Xcode 26.4.1 (17E202). `Transcript.Segment` is still exactly `case text` and
+`case structure`, and the `CGImage|CVPixelBuffer|UIImage|CIImage` count against the
+FoundationModels swiftinterface is still **0**. **Eight days on, nothing about the platform half of
+this section has changed** — so §9's factual core is *re-verified, not stale*, and the right
+treatment is this note rather than a rewrite. That distinction is the reason for running the grep
+instead of trusting the paragraph: a section that turns out to be correct should be marked correct
+with a date, so the next reader knows how old the last look was rather than how old the prose is.
+
+**The checklist itself was carrying a dead prerequisite until today, and that is fixed.**
+`docs/Device-Verification/device-verification-captions.md:3` opened *"Needs a TestFlight build and
+a real camera roll"* — superseded on Aug 16, 2026, when the owner took a device build carrying
+`CaptionProbe` and its Settings row. **The paragraph directly above recorded that six days ago and
+the checklist never heard.** That matters more than an ordinary stale line because **the checklist
+is the instrument somebody opens in order to do this**: its first sentence named the thing that had
+stopped it, so the reader most likely to run the measurement was the reader most likely to be told
+not to bother. Phase 111 struck it; the real remaining input is a real camera roll, years of it,
+which a simulator cannot supply. **The historical entry in `docs/decisions-log.md` was deliberately
+left alone** — it was true on the day it was written, and a log is not a status page.
+
 ### The decision rule, set before the number is known
 
 This section already warns that a disappointing result can be quietly reinterpreted later as a
@@ -1474,8 +1739,10 @@ have.
 - **Enrol in the App Store Small Business Program.** D5 assumes 15%, and enrollment is what makes
   that true in year one. Subscriptions fall to 15% in year two regardless, so this is a year-one
   difference of 15 percentage points on every payment.
-- **Create the subscription products in App Store Connect** — the annual and the monthly, with the
-  14-day trial and annual preselected per D1. Without product identifiers there is no StoreKit
+- **Create the subscription products in App Store Connect** — the annual and the monthly, ~~with the
+  14-day trial and~~ **with no introductory offer** (corrected Aug 22, 2026 — the fourteen days are
+  granted server-side and an Apple offer would stack a second fourteen on top; see step 5 below) and
+  annual preselected per D1. Without product identifiers there is no StoreKit
   transaction to receive, no sandbox to test against, and nothing for the webhook to be sent about.
 
 **Nothing else in D1–D6 is blocked.** 38 (lifecycle notices) needs no Apple account at all — it is a
@@ -1491,6 +1758,15 @@ out of scope for the phase that wrote this, and doing either from here would be 
 **D1 settled the price on Aug 15** — $59.99/year or $5.99/month, annual exactly two months free,
 annual preselected, a 14-day trial, and a permanent free tier. Creating these products no longer
 requires a decision from anybody. What is left is data entry.
+
+> **One word of that needed amending, Aug 22, 2026: *where* the 14-day trial lives.** D1 says
+> "a 14-day trial" and does not say who grants it, and the runbook below read that as *an Apple
+> introductory offer*. It is **server-side** — `constants.TRIAL_DAYS` and
+> `entitlements.trial_ends_at`, written at family INSERT — and Apple is configured with none. The
+> owner's call, today. `docs/decisions.md` carries the amendment against D1 with the same date;
+> this is a note, not the record. **The reason it matters here is that this section is the runbook
+> somebody types from**, and a decision that is ambiguous about implementation gets disambiguated
+> by whoever writes the runbook, silently and once.
 
 **This section blocks nothing currently in the queue.** Phase 37 sits downstream of the P0
 behavioural gate — seven days of unforced use — which has nothing to do with money. Building
@@ -1528,10 +1804,35 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
    corrected would have carried the dead name for the life of the listing. Nothing has been
    created yet, which is the only reason this edit was still possible.
 4. **Create the two products** with the identifiers above, at **$5.99/month** and **$59.99/year**.
-5. **Set the annual as the preselected option**, and configure the **14-day free trial** as an
-   introductory offer, per D1.
+5. **Set the annual as the preselected option**, and create both products with **no introductory
+   offer at all.** ~~configure the **14-day free trial** as an introductory offer, per D1.~~ —
+   **corrected Aug 22, 2026 by the owner's call. This step would have given away twenty-eight free
+   days, not fourteen.**
+
+   The trial is **server-side and already granted**. A family row gets `entitlements.trial_ends_at`
+   at INSERT from `constants.TRIAL_DAYS` (`models/family.py`), so day 0–14 is full membership for
+   free before Apple is involved at all; on day 15 the board locks to the daily question and shows
+   a CTA, and **when the parent taps Join, Apple charges immediately.** An Apple introductory offer
+   on top of that is a *second* free fortnight: **Apple's introductory-offer eligibility is per
+   Apple ID and per subscription group, and it cannot see `trial_ends_at`** — there is no field to
+   tell it the fourteen days were already spent. The two clocks stack, and fourteen becomes
+   twenty-eight.
+
+   **This is the step where a wrong line costs money rather than time.** Nothing has been created
+   yet, which is the only reason this is an edit and not an incident; a configured introductory
+   offer is visible to every purchaser from the moment the product goes live.
 6. **Record the App Store Server Notifications V2 endpoint URL.** D5 holds that the server writes
    the entitlement and every gate reads the server, so this URL is what phase 37 is built against.
+
+**`ios/Rascal/RascalTests/Vellum.storekit` is now inconsistent with step 5, and it is iOS-lane
+work.** The local StoreKit configuration phase 37b was written against carries two
+`introductoryOffer` blocks — one per product — so the simulator's purchase flow currently rehearses
+a free trial that App Store Connect will not be configured to offer. **Nobody working from this
+file may edit it**: `CLAUDE.md` is explicit that an agent working in `api/` never edits `ios/`.
+It is recorded here, and in `docs/phase-queue.md`, so that the inconsistency is owned rather than
+discovered during the first sandbox purchase — where the symptom would be a paywall that offers a
+trial in the simulator and charges immediately in sandbox, which reads as a StoreKit bug and is not
+one.
 
 **Apple's exact menu wording is not verified here.** These steps name destinations rather than
 click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
@@ -1547,47 +1848,74 @@ steps 1–5 are done there is no sandbox purchase to make, and **the `appAccount
 
 ---
 
-## §10a — The webhook is built and cannot verify anything yet (Aug 20, 2026)
+## §10a — The webhook is built; ~~and cannot verify anything yet~~ **it verifies Sandbox today and still cannot verify Production** (Aug 20, 2026; item 1 closed Aug 22, 2026)
 
 **Phase 37a shipped `POST /v1/webhooks/app-store`, the only code that writes
-`entitlements.tier`.** It is tested, reviewed twice, and **refuses every notification with `401`**
-until the two items below are done. That is the designed behaviour, not a bug: the signature is the
+`entitlements.tier`.** It is tested, reviewed twice, and ~~**refuses every notification with
+`401`** until the two items below are done~~ — **that was true until Aug 22, 2026. Item 1 is now
+closed and only Production is still blocked.** The fail-closed design is unchanged and is still the
+point: the signature is the
 only thing standing between a stranger and somebody's billing state, so there is no branch that
 accepts an unverified payload and no local bypass.
 
-**Neither of these is the errand in §10, and neither waits on it.** §10 needs the Paid Applications
-agreement before anything else can happen. These two do not: the app record already exists, and the
-certificate is a public download.
+**Neither of these was the errand in §10, and neither waited on it.** §10 needs the Paid
+Applications agreement before anything else can happen. These two did not: the app record already
+exists, and the certificate was a public download — **which is how item 1 came to be closed on a
+day when nothing about §10 had moved at all.**
 
-### 1. Apple Root CA - G3 is not in the repository
+### ~~1. Apple Root CA - G3 is not in the repository~~ — **CLOSED Aug 22, 2026. It is in the repository.**
 
-The trust anchor the `x5c` chain must terminate at. Without it the verifier builds nothing and says
-so at `ERROR` on every startup.
+**Fetched, verified twice, and committed.** `https://www.apple.com/certificateauthority/AppleRootCA-G3.cer`
+answered **HTTP 200** with **583 bytes**, now at `api/src/rascal/certs/appstore/AppleRootCA-G3.cer`.
+
+What the file is, read out of the file itself:
+
+- `subject` and `issuer` are both `CN=Apple Root CA - G3, OU=Apple Certification Authority,
+  O=Apple Inc., C=US` — self-signed, as a root must be.
+- Valid `Apr 30 18:19:06 2014 GMT` → `Apr 30 18:19:06 2039 GMT`.
+- SHA-256 `63:34:3A:BF:B8:9A:6A:03:EB:B5:7E:9B:3F:5F:A7:BE:7C:4F:5C:75:6F:30:17:B3:A8:C4:88:C3:65:3E:91:79`.
+
+And what the code does with it: `rascal.services.app_store.load_root_certificates(CERTS_DIR)`
+returns **1** anchor of 583 bytes, where it returned none, and the startup `ERROR` this item
+described is gone. `pytest -k "app_store or webhook"` → **96 passed**.
+
+**Why the blocker was real and why it was still stale, which are both true at once.** This section
+said `www.apple.com` is refused at the egress proxy and that the root is carried by neither
+`certifi` nor the container's system CA bundle. **All of that was correct — of the environment
+phase 37a was built in.** What went stale is not the observation, it is the scope the sentence
+implied. Written as *"the environment refuses it"* it reads as a property of the work; it was a
+property of one machine, and the very next machine to open the file had ordinary internet access.
+**A blocker inherits the environment it was written in, and the environment is part of the claim.**
+The correct form was *"cannot be done from the branch that found it"*, which the top of this file
+happens to say and this section did not.
+
+**The documented verification step could not be followed as written, and replacing it was the real
+work.** Both this item and `api/src/rascal/certs/appstore/README.md` said to compare the SHA-256
+against *"the fingerprint Apple publishes beside the download"* on
+<https://www.apple.com/certificateauthority/>. **That page was fetched on Aug 22, 2026 and contains
+no fingerprints at all** — zero occurrences of *"fingerprint"* or *"SHA-256"*; it is a bare list of
+download links. So the one instruction standing between a downloaded root and a trusted root was
+unfollowable, and had been for however long. **An unfollowable verification step is worse than no
+step**, because the next person either skips it or invents a substitute under time pressure.
+
+**The substitute, and why it is a genuine second source rather than a file checked against
+itself.** Apple Root CA - G3 also ships inside macOS, in the system keychain, put there by Apple
+through an entirely different distribution channel:
 
 ```sh
-curl -o api/src/rascal/certs/appstore/AppleRootCA-G3.cer \
-  https://www.apple.com/certificateauthority/AppleRootCA-G3.cer
+security find-certificate -a -c "Apple Root CA - G3" -Z \
+  /System/Library/Keychains/SystemRootCertificates.keychain
+#  -> SHA-256 hash: 63343ABFB89A6A03EBB57E9B3F5FA7BE7C4F5C756F3017B3A8C488C3653E9179
+cmp downloaded.der keychain.der
+#  -> identical
 ```
 
-Then check what arrived before committing it — the subject must be **Apple Root CA - G3**, and it is
-self-signed, so subject and issuer match:
-
-```sh
-openssl x509 -inform DER -in api/src/rascal/certs/appstore/AppleRootCA-G3.cer \
-  -noout -subject -issuer -dates -fingerprint -sha256
-```
-
-**Compare the SHA-256 against the fingerprint Apple publishes** beside the download on
-<https://www.apple.com/certificateauthority/> — against Apple's page, not against a value written
-into this repository, which would be checking a file against itself. Commit it as a binary; it is
-about 500 bytes. `api/src/rascal/certs/appstore/README.md` says the same thing next to the code.
-
-**Why this is filed here rather than done.** The environment phase 37a was built in refuses
-`www.apple.com` at the egress proxy, and the root is carried by neither the Mozilla trust store
-(`certifi`) nor the container's system CA bundle — both were checked, not assumed. There was
-nowhere honest to get the bytes, and fabricating a trust anchor is the one thing this file would
-never record as done. **This is the only item on this page blocked by a network policy rather than
-by a credential**, which is a first, and the effect is the same: the work cannot proceed from here.
+Two Apple-controlled channels, byte for byte identical. **This is macOS-specific and that is a real
+limitation**: a Linux checker cannot run `security` and needs a different second source. **The
+method replaced the dead instruction in `api/src/rascal/certs/appstore/README.md` in the same
+phase**, along with the macOS caveat — that file sits next to the code and is where somebody stands
+when they need it, so a verification step that lives only on this page is a step that will not be
+run.
 
 ### 2. `APP_STORE_APP_APPLE_ID` is unset
 
@@ -1601,6 +1929,22 @@ It is on the app's page in App Store Connect and takes a minute to read off. Set
 **This does not wait on the Paid Applications agreement.** The app record has existed since
 TestFlight, so unlike everything in §10 this one is available today.
 
+**Still open, confirmed Aug 22, 2026.** `flyctl secrets list -a rascal-api` was read in full and
+`APP_STORE_APP_APPLE_ID` is **absent**.
+
+**What closing item 1 changed about this one, precisely.** Apple's library refuses to construct a
+verifier without the app's numeric Apple ID **only for `Environment.PRODUCTION`** — a Sandbox
+verifier needs the root and the bundle id and nothing else. So as of today **the Sandbox verifier
+builds and Production does not.** Two consequences follow and they point in opposite directions:
+
+- **The first sandbox purchase in §10 is now verifiable end to end.** The `appAccountToken` round
+  trip that §10's closing paragraph calls never-observed is observable the moment steps 1–5 of that
+  errand are done — the webhook will accept a Sandbox notification, and there is no longer a second
+  thing to fix before the evidence exists.
+- **Production is still blocked, and it fails the same way it always did**: `401`, loudly, on every
+  Production notification. That is one secret away, and it is a minute at a keyboard rather than a
+  decision.
+
 ### What is *not* blocked
 
 Everything else in phase 37a. The table, the four guards, the ordering and sandbox isolation, the
@@ -1612,7 +1956,10 @@ calls it, and the existing paywall reads `entitlements` exactly as it did before
 
 ## §11 — Apple's `sub` has never been observed across a revoke and re-authorize (Aug 16, 2026)
 
-> **Owner, Aug 19, 2026: deferred — "not today, but remind me about it."** So this stays open by
+> ~~**Owner, Aug 19, 2026: deferred — "not today, but remind me about it."**~~ — **the reminder was
+> delivered on Aug 22, 2026 and the owner's answer was to run it, with a pre-step. See *Rewritten
+> Aug 22, 2026* below; this note is kept because the deferral is why the experiment is three days
+> older than the code it tests.** So this stayed open by
 > decision rather than by neglect, and the reminder is this paragraph: it is a five-minute errand on a
 > device, and it is the last unobserved assumption underneath account recoverability.
 >
@@ -1643,7 +1990,44 @@ every one of the nineteen passing tests would still pass. **Stop and say so rath
 patching it** — the fix would be a redesign, and it would need to happen before anybody relies
 on revocation being recoverable.
 
+### Rewritten Aug 22, 2026 — two pre-steps, and one query that would have misreported
+
+**Owner's call, Aug 22, 2026: run it for real, but attach an email credential first.** What makes
+that possible today and not on Aug 19 is that **Resend is live** — `MAIL_PROVIDER`, `MAIL_API_KEY`
+and `MAIL_FROM` are all `Deployed` on `rascal-api` and this service has sent real mail (§13). The
+magic link actually arrives now. Before that it was a route that returned `202` into a `console`
+provider, which is not a way back into an account.
+
+**Pre-step A — attach an email credential to the account before revoking anything.**
+
+```
+POST /v1/me/credentials/email        { "email": "<an inbox you control>" }
+```
+
+Then open the link it mails, which completes through `POST /auth/email/complete`; the credential is
+created inactive and **the click is what activates it**, so nothing is proved until the mail lands.
+Confirm with `GET /v1/me/credentials` that the row is there and live.
+
+**This is not belt-and-braces, it is what makes the bad branch survivable.** If step 5 comes back
+with a different `subject_id`, the failure this section describes is *a production archive sitting
+behind a `users` row nobody can sign in as* — and with an email credential attached, that stops
+being true: sign in by magic link, land on the same `users` row, and the new Apple subject attaches
+to the account that already owns the archive. **The repair uses only shipped code.** Without the
+pre-step, discovering the answer and losing the archive are the same event.
+
+**Pre-step B — confirm Apple is actually configured to call us.** Step 3 below reads the log for a
+server-to-server notification, and **nothing in this repository records that the Sign in with Apple
+notification endpoint was ever registered with Apple** — it is a field on the Services ID / primary
+App ID configuration in the Apple Developer portal, and it is set by hand. Check it before the run.
+If it is unregistered, step 3 prints nothing, and **an unregistered webhook and a broken handler
+look identical from the log side** — the experiment would report a code defect that does not exist.
+`services/auth.py` and phase 53's nineteen tests all exercise the handler given a delivered
+notification; none of them can tell you that Apple was told where to deliver it.
+
 ### The run
+
+- [ ] **0.** Do pre-steps A and B above. Neither is optional: A is what makes a wrong answer
+  survivable, B is what stops step 3 misreporting.
 
 - [ ] **1.** Sign in on the device. Record `users.id` and `credentials.subject_id`:
   ```bash
@@ -1670,20 +2054,40 @@ on revocation being recoverable.
   ```
   What it printed: ______________________
 
-- [ ] **4.** Confirm `revoked_at` is set on the credential, and that every refresh token for
-  that user is revoked. Re-run the query from step 1, and:
+  **If this prints nothing, do not conclude anything about the code until pre-step B is
+  confirmed.** An endpoint Apple was never told about and a handler that does not run produce the
+  identical silence here.
+
+- [ ] **4.** Confirm `revoked_at` is set on the credential, and that every refresh token **for that
+  user** is revoked. Re-run the query from step 1, and — **substituting the `users.id` you wrote
+  down in step 1** — run:
   ```bash
   fly ssh console -a rascal-api -C "python -c \"
   import asyncio
   from sqlalchemy import text
   from rascal.db import get_sessionmaker
+  USER_ID = 'PASTE_USER_ID_FROM_STEP_1'
   async def m():
       async with get_sessionmaker()() as s:
           print((await s.execute(text('''select count(*) from refresh_tokens
-              where revoked_at is null'''))).scalar())
+              where user_id = :u and revoked_at is null'''), {'u': USER_ID})).scalar())
   asyncio.run(m())\""
   ```
   Expect `0`. Got: ______
+
+  > **The query was unscoped until Aug 22, 2026, and it would have failed a correct system.** It
+  > read `select count(*) from refresh_tokens where revoked_at is null` across **every user**, but
+  > `revoke_all_refresh_tokens` (`api/src/rascal/services/tokens.py:99-110`) revokes
+  > `where RefreshToken.user_id == user_id` — per user, by design, because Apple told us about one
+  > parent's consent and not about anybody else's. Any other live session in production makes the
+  > count non-zero, **including the session belonging to whoever is running this checklist**, and
+  > the step would then read as *"revocation did not work"* on a system where it worked perfectly.
+  >
+  > **The general shape: a verification query has to be scoped exactly as tightly as the behaviour
+  > it verifies.** Wider is not safer — it is a different assertion, and here it is one the code
+  > never promised and should never satisfy. `PASTE_USER_ID_FROM_STEP_1` is deliberately not valid
+  > input: pasting this command unedited fails loudly rather than deploying a blank, which is the
+  > rule §13 wrote down after a placeholder ellipsis reached Fly as a real secret value.
 
 - [ ] **5. Sign in again, and confirm you land on the same `users.id`.** **This is the box the
   phase turns on.** Compare against what you wrote in step 1.
@@ -1695,6 +2099,13 @@ on revocation being recoverable.
 **If step 5 shows a different `subject_id`**, stop. Do not adjust anything. Record what you saw
 here and raise it: the recoverability design needs rethinking, and until it is rethought,
 nothing should tell a parent that removing the app is reversible.
+
+**"Stop" no longer means "and lose the archive", which is the whole point of pre-step A.** With an
+email credential attached, sign in by magic link: that lands on the same `users` row, and the new
+Apple subject attaches beside the email credential rather than founding a second account. The
+archive is reachable again with shipped code and no migration. **Do that as recovery, not as
+investigation** — write down both `subject_id` values first, because they are the finding, and the
+repair overwrites the state that proves it.
 
 **Not blocked on a credential.** This is on the list because it needs a physical device and a
 real Apple ID, which is the same reason the twelve device-verification checklists are.
@@ -1776,11 +2187,15 @@ is a domain purchase, three vendor accounts and a repository audit — this file
 exactly: a credential or an account only you have.
 
 **None of this blocks anything currently in the queue**, and it is filed here for the same reason
-§10 says it about StoreKit rather than as a warning. **The marketing send is downstream of the P0
+§10 says it about StoreKit rather than as a warning. ~~**The marketing send is downstream of the P0
 behavioural gate — seven days of unforced daily use — which has not started.** The page and the
 `POST /v1/subscribe` endpoint may be built before any of this exists; only the *marketing send*
-waits on it. (Transactional mail is a separate question and is not gated on P0 — phase 57's
-magic-link path already sends, or would if `MAIL_PROVIDER` were ever set.)
+waits on it.~~ — **struck Aug 22, 2026 on the owner's call. The gate no longer gates marketing
+email: the broadcast has been armed since Aug 19, 2026 and has sent on four consecutive days.** The
+evidence is in *The broadcast is live* below. (Transactional mail is a separate question and was
+never gated on P0 — phase 57's
+magic-link path already sends, ~~or would if `MAIL_PROVIDER` were ever set~~ — **`MAIL_PROVIDER` is
+`Deployed` and it does send**.)
 Phase 60 is buildable today against a Turnstile test key and a Resend test key, and nothing about
 it needs a domain.
 
@@ -1894,29 +2309,58 @@ yet."* Done: site key `0x4AAAAAAEUwlZkn4ah9zsvA` committed and deployed.
 
 **Deliberately not in that table: `MARKETING_EMAIL_ENABLED`.** It is the switch that lets the daily
 broadcast actually send, it defaults false, and it is kept separate from the credentials precisely
-so that finishing the table above does not start mailing anybody. Open item 12: **no marketing
+so that finishing the table above does not start mailing anybody. ~~Open item 12: **no marketing
 email before the P0 behavioural gate**, which is seven days of unforced daily use and has not
-started. When it is time: `fly secrets set --app rascal-api MARKETING_EMAIL_ENABLED=true`.
+started. When it is time: `fly secrets set --app rascal-api MARKETING_EMAIL_ENABLED=true`.~~ —
+**that time came on Aug 19, 2026. The switch is on and the design worked exactly as written**: the
+credentials landed on Aug 18 and mailed nobody, and a separate deliberate act armed the send a day
+later. Keeping the flag out of the credentials table is why "the errand finished" and "we started
+emailing people" were two events rather than one. **The evidence is in *The broadcast is live* at
+the end of this section**; everything between here and there is the history of getting to it.
 
-**Two things to do before that flag, in this order.** Exercise `POST /v1/subscribe` once from the
+~~**Two things to do before that flag, in this order.** Exercise `POST /v1/subscribe` once from the
 real GitHub Pages origin, which is the first test of CORS and of a genuine Turnstile verification —
 neither has ever run against the deployed API. Then run
 `python -m rascal.jobs.broadcast --date <a day> ` against an audience containing **only your own
 address**, because the Resend Broadcasts API has never been called by this service and its
-two-step create-then-send shape is implemented from documentation rather than observation.
+two-step create-then-send shape is implemented from documentation rather than observation.~~
+
+**Struck Aug 22, 2026: this is history, not an instruction, and it was reading as one.** *"Before
+that flag"* names a moment that passed on **Aug 19, 2026**, when `MARKETING_EMAIL_ENABLED` was set —
+and its second half rests on a premise the paragraphs below it demolish: the Resend Broadcasts API
+**has** been called by this service, four times, and its two-step create-then-send shape is observed
+rather than documented — the four `resend_id`s in *The broadcast is live* are what came back. It is
+kept in place because what each half was worth is the record of how the send was armed, and because
+the second half's caution turned out to be unfalsifiable after the fact, which is its own lesson.
+**With this struck, the one thing §13 still owes is at the end of this section: revoke the exposed
+Resend key at Resend** — a click, no deploy, no code. (The contacts-scope question in *The broadcast
+is live* is a diagnostic to run before anyone widens that key, not a thing owed.)
 
 **Of those two, the first is done.** `POST /v1/subscribe` has now been exercised from the real origin
 — that signup is what revealed that Resend's contacts API does **not** do double opt-in, which phase
 88 then fixed. So CORS and a genuine Turnstile verification have both run against the deployed API
 for the first time.
 
-**The second has not, and the machine for it does not exist.** `fly machine list --app rascal-api`,
+~~**The second has not, and the machine for it does not exist.** `fly machine list --app rascal-api`,
 Aug 19, 2026, returns four: two `app` running uvicorn, one running `python -m rascal.jobs.scheduler`,
 one running `python -m rascal.jobs.notify`. **There is no broadcast machine**, so §4d of
 `runbook-deploy.md` is still accurate that it was never created. The broadcast dry run against an
 audience containing only the owner's own address is therefore still ahead, and it remains the right
 first call: the Resend Broadcasts API has never been invoked by this service, and its two-step
-create-then-send shape is implemented from documentation rather than from observation.
+create-then-send shape is implemented from documentation rather than from observation.~~
+
+**Struck Aug 22, 2026: the machine exists, and it was created on Aug 19 — the same day this
+paragraph was written.** `683e1eea463d28` / `late-fire-837`, created **2026-08-19T02:15:36Z**,
+running `python -m rascal.jobs.broadcast`. There are **five** machines now, not four. The Resend
+Broadcasts API has been invoked four times and its two-step create-then-send shape is observed
+rather than documented — the four `resend_id`s in *The broadcast is live* are what came back.
+
+**Whether the dry run against a one-address audience actually happened first is not recorded
+anywhere**, and this file cannot recover it: the earliest row in `email_broadcasts` is
+`2026-08-19`, hours after the machine was created, and a dry run would have produced a row exactly
+like a real one. **So the advice was taken or it was skipped, and the evidence does not
+distinguish.** That is the cost of a caution written in prose with no artifact behind it, and it is
+the reason to prefer a check that leaves a trace.
 
 **One item on this page is still open, is not in the table, and got worse rather than better:** the
 Resend key that went through a chat transcript and **has not been rotated** — confirmed by the owner
@@ -1947,9 +2391,98 @@ mitigation — *"it is inert, so this is not urgent yet"* — has a shelf life m
 mitigation still holds, and nothing re-reads it on the day it stops holding. This one was written
 about a `console` provider roughly two hours before the provider became `resend`.
 
+### The broadcast is live, and that is intended (Aug 22, 2026)
+
+**Owner's call, Aug 22, 2026: the P0 behavioural gate no longer gates marketing email.** Read from
+Fly and from the production database rather than inferred from a commit:
+
+- The machine exists. `683e1eea463d28` / `late-fire-837`, created **2026-08-19T02:15:36Z**, command
+  `["python","-m","rascal.jobs.broadcast"]`, process group `(none)`.
+- `MARKETING_EMAIL_ENABLED`, `MAIL_PROVIDER`, `MAIL_FROM` and `RESEND_AUDIENCE_ID` are all
+  **Deployed** secrets on `rascal-api`.
+- `email_broadcasts` holds **four rows, every one `status='sent'`** — none failed, none skipped:
+
+  | send_date | pool_index | resend_id | sent_at |
+  |---|---|---|---|
+  | 2026-08-22 | 11 | `d9e6b965-c54c-406a-9fa0-b89fd5f5a512` | 12:15:05Z |
+  | 2026-08-21 | 10 | `f3e802d5-f091-43e5-a66b-4772adae4223` | 12:15:06Z |
+  | 2026-08-20 | 9  | `6f8ab6f3-e217-45bc-bbea-c4fe02ead438` | 12:15:07Z |
+  | 2026-08-19 | 8  | `c4a32683-7972-4658-9710-300be51e407c` | 12:15:08Z |
+
+- **The hourly wake is safe because the job checks its own hour, not because the machine is
+  scheduled precisely.** Today's 13:15Z run logged
+  `broadcast: not the send hour — it is 09:15 EDT, sending at 08:00.` and did nothing.
+
+**One thing is not known, and it is written down as unknown rather than estimated.** `MAIL_API_KEY`
+is send-scoped: `GET /audiences/{id}/contacts` answers **403** from inside the production machine.
+So **how many people received those four emails, and who they are, cannot be determined from this
+repository, from Fly, or from the production database.** Only the Resend dashboard can answer it.
+**No recipient count appears anywhere in this file on purpose** — a plausible number written here
+would be indistinguishable from a measured one a week from now, and this is the first thing this
+service has ever sent to people who are not the owner.
+
+**That the key cannot read the audience is worth noticing rather than quietly fixing.** Row 3 of
+the table above specifies a **full-access** Resend key, *"not `sending_access`, because the contacts
+upsert needs more than send"* — and the key actually deployed answers `403` to a contacts read. Two
+readings fit and this phase settled neither: it may be a narrower key that still covers every call
+the service makes, or a latent failure that the next contacts call will find. **Do not widen the
+key on the strength of this paragraph.** The check that would decide it is one `POST /v1/subscribe`
+against the deployed API and a look at whether the contact appears — cheap, and nobody has run it
+since the key was deployed.
+
 ---
 
-## §14 — `entry_type` is provisional for as long as an upload is, and permanent if the upload dies (Aug 18, 2026)
+## ~~§14 — `entry_type` is provisional for as long as an upload is, and permanent if the upload dies~~ (Aug 18, 2026) — **RESOLVED Aug 18, 2026 by phase 86. Struck Aug 22, 2026, four days late.**
+
+**The owner ruled for shape 1 — recompute at plan time — and it shipped the same day this section
+was written.** Commit `a1b25b8`, *"Phase 86: entry\_type follows the media, not the bytes"*, merged
+as **PR #137** on Aug 18, 2026.
+
+**This section's central factual claim is false against the current tree, and has been since that
+merge.** It says `plan_upload` does not call the recompute. Counted today, `retype_owning_entry` has
+four call sites:
+
+| Call site | What it is |
+|---|---|
+| `api/src/rascal/services/media.py:130` | `plan_upload`, single-PUT return path |
+| `api/src/rascal/services/media.py:158` | `plan_upload`, multipart return path |
+| `api/src/rascal/services/media.py:208` | `complete_upload` — kept, and its comment now says why: `bytes` and `duration_seconds` may have moved, and rows created before phase 86 were never typed at plan time |
+| `api/src/rascal/services/sync.py:352` (in `_apply_media`) | the push-delete path, the only route that removes media |
+
+Both of `plan_upload`'s exits call it. **The dead-upload case this section was written about —
+an entry whose recording never uploads staying `did_it` for the life of the archive — cannot
+happen any more**, because the type is written when the server first learns the media row exists
+rather than when its bytes land.
+
+> **The fourth call site was drafted as `sync.py:352`, "corrected" to `:316` mid-phase, and is
+> `:352`.** `grep -n retype_owning_entry api/src/rascal/services/sync.py` answers `350` (a deferred
+> import) and `352` (the call); `316` is a blank line. **The correction asserted a `grep` that was
+> never run, and it overwrote a right answer with a wrong one inside the very section being struck
+> for carrying a stale line reference.** It survived one adversarial audit and was caught by a
+> second. Recorded rather than quietly reverted, because the failure is not the wrong number — it
+> is that a confident citation is indistinguishable from a verified one once it is written down.
+> **Line numbers are the least durable evidence this file uses**; the symbol and the file are worth
+> more, and both are given above.
+
+**Why this sat open for four days, which is the part worth keeping.** Phase 86 shipped the code and
+did none of the bookkeeping: no row in `docs/roadmap-status.md`, no entry in
+`docs/decisions-log.md`, and `docs/data-model.md`'s `entry_type` row still described the column as
+*"denormalized from the prompt for filtering"*. **That last one is the dangerous one and it is not
+a tidiness complaint**: `CLAUDE.md` says that when the code and `data-model.md` disagree, *the code
+is wrong* — so a false sentence there is a standing authorisation for the next agent to "fix"
+correct code back to the behaviour phase 86 deliberately changed. **All three were done in phase
+111 alongside this strike**, and `data-model.md` now states the derivation rule and says a media
+row counts from the moment it exists rather than from the moment its bytes land.
+
+**The client half never waited on any of it.** Phase 80 made the detail screen prefer local staged
+bytes over the server's type, so *"Nothing was recorded"* could not appear over a recording that
+exists — and that remains the right division: the screen should not have been trusting the server's
+type for that question in the first place.
+
+The original entry follows, because the two shapes it lays out are why the ruling went the way it
+did.
+
+### The original entry, Aug 18, 2026
 
 **Not blocked, not a bug report, and not an errand. It is a contract question that needs one
 decision, and it is API-lane.** Raised by the iOS lane during phase 80, verified against `main`
@@ -1995,7 +2528,9 @@ over a recording that exists. **That is the right division and it is worth stati
 should not have been trusting the server's type here in the first place.** This item is only about
 whether the *server's* answer should also be right.
 
-**Whoever takes this owns the `data-model.md` sentence too**, not just the call site.
+**Whoever takes this owns the `data-model.md` sentence too**, not just the call site. — **Phase 86
+took the call site and left the sentence, which is exactly what this line was written to prevent.
+Phase 111 is doing the rest.**
 
 ---
 
@@ -2023,12 +2558,35 @@ visible anywhere until CI simply stopped. This is the instrument that was missin
 warn before a halt** — the API exposes no budget or quota, and the card says that too — but a
 dollar figure that moves is better than the nothing there was before.
 
+**Re-verified Aug 22, 2026: unchanged and still correct.** `GITHUB_BILLING_TOKEN` is confirmed
+absent from `flyctl secrets list -a rascal-api`. The code path is built, tested, and degrades to an
+`unconfigured` card, so nothing here needs writing — this note exists to record that somebody
+looked, and when. **A section marked correct with a date is more useful than a section nobody has
+touched**, because "unchanged" and "unread" are indistinguishable otherwise.
+
+**When it is minted, read the second bullet above before reading anything else.** A token missing
+`Plan: read` answers **404, not 403** — a bare "not found" reads as a mistyped account name and
+sends you checking `GITHUB_ACCOUNT`, which will not be the problem. **That line was already in this
+section and needed no addition**, which is worth saying rather than quietly adding a duplicate: the
+phase 111 review flagged it as missing, and it was not.
+
 ---
 
 ## §16 — App Store Connect: **deferred**, and deliberately not requested yet (Aug 20, 2026)
 
-Not blocked, because nothing is waiting on it. Recorded here so the credential requirement lives
+~~Not blocked, because nothing is waiting on it.~~ — **true of the reporting key and only the
+reporting key. Qualified Aug 22, 2026**: a second App Store Connect key, for uploading builds, is
+owed now and a CI-driven TestFlight upload is waiting on it. See *Two different App Store Connect
+keys* below. Recorded here so the credential requirement lives
 where credential requirements live, and so the next person costing this out does not rediscover it.
+
+> **`docs/phase-queue.md` said phase 37b's purchase proof "waits on §10a and §16", and it did
+> not.** It waits on §10 — the Paid Applications agreement and the two products — and on a
+> TestFlight build. §10a's remaining item gates *Production* notification verification, not a
+> sandbox purchase, and this section's reporting key gated nothing at all. **Corrected in
+> `phase-queue.md` on Aug 22, 2026 by phase 111**, and noted here because the wrong pointer was
+> aimed at *this* section: a section whose own first line said nothing was waiting on it was named
+> as a blocker by another document for two days, and neither page could see the other.
 
 **Nothing App Store Connect can report before launch is a cost.** Revenue, proceeds, downloads,
 impressions and conversion are all built from public App Store activity, and an app that has
@@ -2048,6 +2606,37 @@ panel rather than this one:
   ES256 provider token from a `.p8`, cached against its expiry. That is the pattern to copy.
 
 **Not worth requesting until there is an app on the store**, since the data would be empty.
+
+### Two different App Store Connect keys, and only one of them is deferred (Aug 22, 2026)
+
+**This section was about a reporting key and said so nowhere.** Everything above concerns a **team**
+key with **Sales and Finance** access, for revenue reporting — and that deferral stands exactly as
+written: `GET /v1/salesReports` 404s on an empty period, App Analytics needs one to two days after
+launch before a first report exists, and there is nothing to read until an app is on the store.
+
+**A second, different key is owed now, for an unrelated reason, and this section never mentioned
+it.** `.github/workflows/ios.yml` is **test-only** — it selects an Xcode, picks a simulator, runs
+`xcodebuild test`, greps the log for new warnings, and uploads the log as an artifact. There is no
+`archive` step and no upload step, so **CI cannot ship a TestFlight build at all.** That needs a
+**build-upload** key, which is a completely different grant from Sales and Finance.
+
+**Owner's call, Aug 22, 2026: mint the upload-only key now, defer the Sales and Finance key until
+after launch.**
+
+**The reason it is two keys rather than one wide one is that a key's access is fixed at
+generation.** App Store Connect does not let you narrow or widen an existing key — changing access
+means revoke and regenerate, and a revoke breaks whatever is already signing with it. So the
+choices are one broad key today, minted for a reporting job that has no data to report and would
+sit in CI holding Sales and Finance access for months, or two narrow keys minted when each is
+actually needed. **This is the least-privilege choice and it costs a second errand during launch
+week** — that cost is real and is accepted deliberately, not overlooked.
+
+**What the upload key needs** is the same three-secret shape the reporting key would: a `.p8` EC
+private key, its key id, and the issuer id. The ES256 signing pattern above is unchanged and is
+still `services/push.py`'s. **Which role to pick is not settled here** — pick the narrowest one App
+Store Connect offers that can upload a build, read it off Apple's own access list at generation
+time rather than from this page, and **write down which one was chosen**, because it cannot be
+changed afterwards and the next person will need to know what the key can and cannot do.
 
 ---
 
@@ -2111,12 +2700,23 @@ query string and the missing aspect ratio, above. **The refusal-on-an-unrecognis
 what turned a documentation error into a 400 with a sentence instead of an empty MP4 in the
 bucket**, which is the one claim in this section that was load-bearing and is now evidence.
 
-## §18 — the Instagram token expires, and two repositories hold a copy
+## §18 — the Instagram token expires, and ~~two repositories hold a copy~~ **only one does** — the clause struck Aug 22, 2026 so the heading says what the body already says
 
 > **Renumbered from §17 on Aug 21, 2026.** It was filed as a second §17 on Aug 20 — two sections
-> on this page carried the same number for a day. Nothing anywhere referenced this one, so the
-> collision was cheap to close by moving it; the Gemini §17 above **keeps its number** because
-> `roadmap-status.md` points at it. This is not the phase-number rule in `CLAUDE.md` — collisions
+> on this page carried the same number for a day. ~~Nothing anywhere referenced this one, so the
+> collision was cheap to close by moving it~~ — **that was wrong, and it was wrong on the day it
+> was written. Corrected Aug 22, 2026.** `.env.example` referenced it, in a comment added by the
+> *same commit* that created the section; the renumbering in `a94d6f7` moved the heading and left
+> the pointer aimed at §17, which by then was the resolved Gemini section. So for a day the one
+> cross-reference that existed pointed a reader at the wrong entry. It reads §18 now.
+>
+> **The renumbering itself was correct and is not being undone** — the Gemini §17 above keeps its
+> number because `roadmap-status.md` points at it, and one inbound link beats none. What was wrong
+> was the *justification*: "nothing references this" was asserted rather than grepped, and the
+> reference was two files away in the same commit. **A claim about inbound links is a `grep -rn`,
+> and it takes about four seconds.**
+>
+> This is not the phase-number rule in `CLAUDE.md` — collisions
 > at 3, 11, 19 and 20 stay exactly as they are, because those are identifiers with history
 > attached. A section heading a day old with no inbound links is not.
 
@@ -2129,13 +2729,44 @@ either repository has is the creation time of the `Rascal-Marketing` Actions sec
 error: `OAuthException 190`. On this side that surfaces as `publish_failed` carrying Meta's own
 sentence; on the marketing side it is a red workflow run.
 
-**Two stores hold the same credential and both must be updated in one sitting** — this service's
+~~**Two stores hold the same credential and both must be updated in one sitting** — this service's
 Fly secrets and `.env`, and the marketing repository's Actions secrets. Refreshing one leaves the
-other posting to the same account with a dead token.
+other posting to the same account with a dead token.~~ — **wrong about this service, corrected
+Aug 22, 2026. It is a one-store errand.**
+
+**The complete production secret list on `rascal-api`, read today**, is:
+
+```
+ANTHROPIC_API_KEY APNS_KEY_ID APNS_PRIVATE_KEY APNS_TEAM_ID APPLE_BUNDLE_ID
+AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY DATABASE_URL DIRECT_DATABASE_URL FLY_API_TOKEN
+GOOGLE_CLIENT_IDS JWT_SECRET MAIL_API_KEY MAIL_FROM MAIL_PROVIDER MARKETING_EMAIL_ENABLED
+MARKETING_ORIGINS NAME NEON_API_KEY NEON_PROJECT_ID RESEND_AUDIENCE_ID S3_BUCKET
+TURNSTILE_SECRET_KEY
+```
+
+**No `IG_ACCESS_TOKEN`, no `IG_USER_ID`, no `SOCIAL_PUBLISH_ENABLED`**, and none of the five
+machines on `rascal-api` is a social publisher. So the API-lane publisher — `routers/social.py`,
+`jobs/social.py`, `services/social/publishing.py`, `services/social/instagram.py` — **has never
+been armed in production**. Only the marketing repository's Actions secrets hold a live copy.
+
+**That lowers this section's urgency, and it is the honest reading rather than a technicality.**
+The refresh around **2026-10-19** is one store, not two, and the failure it prevents is one red
+workflow run rather than two pipelines posting with a dead token. **If the API-lane publisher is
+ever armed, this becomes a two-store errand again and this paragraph is the thing to un-strike** —
+which is the reason it is struck in place rather than deleted.
 
 What would close this: a refresh, and a note here with the new date. Automating it is worth its
 own phase and is not this one — a calendar reminder and a written date beat a half-built
 refresher that nobody checks.
+
+**Where else this needed saying, and one of them is the document somebody would have open at the
+time.** `.env.example:307` pointed at "§17" until Aug 22, 2026 and now points here. And
+`docs/runbook-deploy.md` — **the one page a person reads while doing a deploy or a secret
+rotation** — described a scheduled social machine that is not deployed and did not mention
+`IG_ACCESS_TOKEN` at all, so the lapse date and the `OAuthException 190` symptom lived only on this
+page. Both are being corrected in phase 111. **A credential with an expiry date belongs in the
+runbook, not only in the blocked list**, because the blocked list is read when somebody is looking
+for what is stuck and the runbook is read when somebody is holding the keyboard.
 
 **Not yet known: which permission the token actually carries.** `docs/social-setup-checklist.md`
 in the marketing repository records that scopes were confirmed in Meta's Access Token Debugger
@@ -2189,3 +2820,66 @@ the right values; copying them across is the whole task.
 site is building them. **Nothing in either lane's code changes.** Recorded here rather than fixed
 because setting build variables is a signing-and-config change, which every phase this week has been
 explicitly scoped out of.
+
+---
+
+## §20 — The deletion job has no machine, so nobody who asks to be forgotten is (Aug 22, 2026)
+
+**Blocked on nobody.** No credential, no vendor account, no decision. It is one `fly machine run`
+that has not been typed, and it is filed here because it is the only entry on this page where the
+gap is a **promise the service is currently breaking** rather than work not yet started.
+
+**What is built, and it is all of it.** `api/src/rascal/jobs/delete.py` exists and is finished —
+`python -m rascal.jobs.delete`, with a `--dry-run` that lists what is due and touches nothing,
+delegating to `services/deletion.py`'s `run_due_deletions`. `api/tests/test_deletion.py` covers it.
+`POST` and `DELETE /v1/me/deletion` are live, the `deletion_requests` table is migrated, and
+phase 67 shipped the Settings card and `DeleteAccountSheet` that reach them. The runbook has a
+section for the machine — `docs/runbook-deploy.md` §4c — with the exact invocation, added Aug 18,
+2026.
+
+**What is not deployed: the machine.** Read today, Aug 22, 2026, `flyctl machines list -a
+rascal-api` returns **five**, and none of them is it:
+
+| Name | Schedule | Command |
+|---|---|---|
+| `patient-wood-1946` | *(none)* | the API itself |
+| `delicate-wind-1252` | *(none)* | the API itself |
+| `divine-hill-1816` | hourly | `python -m rascal.jobs.scheduler` |
+| `throbbing-water-1063` | hourly | `python -m rascal.jobs.notify` |
+| `late-fire-837` | hourly | `python -m rascal.jobs.broadcast` |
+
+**So a `deletion_requests` row sits out its seven days and then sits there.** `execute_after`
+passes, the request stays pending because nothing wakes up to read it, and **the API stays green
+throughout** — there is no failing check, no error rate, no log line, because the failure is the
+absence of a process rather than a fault in one. That is why it has gone unnoticed on this page
+since the job shipped: phase 66 landed `jobs/delete.py` on Aug 17, 2026 — **five days ago as this
+is written** — and every artifact since has described a system that is not running.
+
+**Why this one is worse than a missed notification, and it is not a matter of degree.** `CLAUDE.md`
+rule 5 makes account deletion **the single deliberate exception** to soft-delete in this entire
+service — *"account deletion hard-deletes … because a soft delete on an erasure would be the
+service keeping exactly what it was asked to stop keeping."* The exception was argued for and
+written down **so that the data would actually be destroyed.** With no machine, the erasure never
+runs, and the exception buys nothing: the row is neither soft-deleted nor hard-deleted, it is
+pending. **The one rule this service broke on purpose is currently not being kept either way.**
+Apple's in-app-deletion requirement (decisions.md item 14) is satisfied by a button that files a
+request; it is not satisfied by a request nobody executes.
+
+**What to do, and it is the whole task:** run `docs/runbook-deploy.md` §4c's command against the
+currently deployed image, then `python -m rascal.jobs.delete --dry-run` once on the machine to see
+what is already due before anything is destroyed. **`--schedule daily` is sufficient** — the job
+takes its deadline from each row's `execute_after`, so a late run deletes what was due and an early
+one deletes nothing, and every run is idempotent because a completed request has no row left.
+
+**Two things to know before running it.** `--dry-run` first is not ceremony: this is the only job
+in the service that destroys user data, and anything that has been waiting since Aug 17 will go on
+the first real pass. And §5 of the runbook applies the moment the machine exists — a scheduled
+machine is **not** updated by `fly deploy`, so it will keep running whatever image it was created
+against until somebody moves it, which is the trap §4b was written about.
+
+**Not a new finding, and that is the part worth recording.** `docs/runbook-deploy.md` §4d's machine
+inventory already says in terms that there is *"no `python -m rascal.jobs.delete` machine"*, and
+`docs/phase-queue.md` carries it as a follow-up. **It has never been on this page**, which is the
+page whose job is to be read for what is not done — so the one document an operator opens to ask
+*"what is outstanding"* was the one document that did not say it. Filed here now; the other two
+already have it and neither is this lane's to edit.
