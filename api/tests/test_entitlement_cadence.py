@@ -18,9 +18,9 @@ that test ever fails the trial has been written wrong.
 
 from __future__ import annotations
 
+import ast
 import datetime as dt
 import pathlib
-import re
 
 import sqlalchemy as sa
 from httpx import AsyncClient
@@ -238,30 +238,125 @@ async def test_the_two_family_routes_and_today_report_one_answer(
     assert me["tier"] == entitlement["tier"] == "free"
 
 
-def test_nothing_else_in_src_recomputes_the_entitlement_formula() -> None:
-    """**The adversarial one.** An entitlement check copied into a second place is the one
-    that eventually disagrees with the first about whether somebody paid.
+#: The one function allowed to know how a trial turns into an entitlement.
+THE_ONE_AUTHORITY = ("services/guardians.py", "access_for")
 
-    Greps for the shape of the formula rather than for a name, because the failure this
-    guards against is somebody writing it out by hand rather than importing it.
+
+def _comparisons_touching(src: pathlib.Path, name: str) -> list[str]:
+    """Every `<`/`>`/`<=`/`>=` comparison anywhere under `src` that reads `.<name>`.
+
+    **Parsed rather than grepped, and the difference is the whole point of the test.** A regex
+    over lines is defeated by anything the author happens to write differently — a comparison
+    split across two lines by the formatter, an intermediate variable, `x > y` instead of
+    `y < x`, or a walrus. Every one of those is a second entitlement authority and every one of
+    them slips past a line-oriented pattern. The AST sees the comparison whatever it looks like.
+    """
+    found: list[str] = []
+    for path in sorted(src.rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        # Which function each node sits inside, so a failure names it rather than a line number.
+        enclosing: dict[ast.AST, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                for child in ast.walk(node):
+                    enclosing.setdefault(child, node.name)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Compare):
+                continue
+            if not any(isinstance(op, ast.Lt | ast.LtE | ast.Gt | ast.GtE) for op in node.ops):
+                continue
+            operands = [node.left, *node.comparators]
+            reads_it = any(
+                isinstance(sub, ast.Attribute) and sub.attr == name
+                for operand in operands
+                for sub in ast.walk(operand)
+            )
+            if reads_it:
+                where = enclosing.get(node, "<module>")
+                found.append(f"{path.relative_to(src)}::{where}:{node.lineno}")
+    return found
+
+
+def test_nothing_else_in_src_recomputes_the_entitlement_formula() -> None:
+    """**The adversarial one, and it is aimed at the failure the phase prompt named.**
+
+    An entitlement check copied into a second place is the one that eventually disagrees with
+    the first about whether somebody paid — and the disagreement is silent, because both
+    answers look reasonable.
+
+    So: **exactly one ordering comparison against `.trial_ends_at` may exist anywhere in
+    `src/`**, and it must be inside `services/guardians.access_for`. Anything else — a router
+    deciding for itself, a job with its own opinion, a metric that "just needs a boolean" — is
+    a second authority and fails here.
+
+    Deliberately an AST walk rather than a grep. A line-oriented pattern is defeated by a
+    comparison the formatter split across two lines, by an intermediate variable, or by writing
+    the operands the other way round; all three are the same defect and none of them would have
+    tripped a regex. See :func:`_comparisons_touching`.
     """
     src = pathlib.Path(__file__).resolve().parents[1] / "src" / "rascal"
-    pattern = re.compile(r"trial_ends_at\s*(?:is not None\s*and\s*)?[<>]|now\s*<\s*.*trial_ends")
-    offenders = []
-    for path in sorted(src.rglob("*.py")):
-        for number, line in enumerate(path.read_text().splitlines(), start=1):
-            stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith("#:"):
-                continue
-            if pattern.search(stripped):
-                offenders.append(f"{path.relative_to(src)}:{number}")
+    sites = _comparisons_touching(src, "trial_ends_at")
 
-    assert len(offenders) == 1, (
-        "the trial comparison must exist in exactly one place. Found: " + ", ".join(offenders)
+    assert len(sites) == 1, (
+        "exactly one place may compare `trial_ends_at` against a clock, and it is "
+        f"{THE_ONE_AUTHORITY[0]}::{THE_ONE_AUTHORITY[1]}. Found: " + ", ".join(sites)
     )
-    assert offenders[0].startswith("services/guardians.py:"), (
-        f"the one place must be services/guardians.access_for, not {offenders[0]}"
+    module, function = sites[0].split("::")[0], sites[0].split("::")[1].rsplit(":", 1)[0]
+    assert (module, function) == THE_ONE_AUTHORITY, (
+        f"the one authority moved to {module}::{function}; it must stay "
+        f"{THE_ONE_AUTHORITY[0]}::{THE_ONE_AUTHORITY[1]}"
     )
+
+
+def test_the_ast_walk_would_actually_catch_a_second_authority() -> None:
+    """**A test for the test**, because a tripwire that cannot fire is worse than none.
+
+    `test_nothing_else_in_src_recomputes_the_entitlement_formula` is the only thing standing
+    between this codebase and a second opinion about whether somebody paid. If it silently
+    stopped matching — a rename, a refactor, an over-narrowed walk — it would go on passing
+    forever while the thing it guards rotted.
+
+    So it is exercised against four shapes a real second authority could take, including the
+    three a line-oriented grep would have missed.
+    """
+    import tempfile
+
+    shapes = {
+        "the obvious copy": (
+            "def f(e, now):\n    return e.trial_ends_at is not None and now < e.trial_ends_at\n"
+        ),
+        "operands reversed": "def f(e, now):\n    return e.trial_ends_at > now\n",
+        "split by the formatter": (
+            "def f(entitlement, now):\n"
+            "    return (\n"
+            "        now\n"
+            "        < entitlement.trial_ends_at\n"
+            "    )\n"
+        ),
+        "inside a comprehension": (
+            "def f(rows, now):\n    return [r for r in rows if r.trial_ends_at >= now]\n"
+        ),
+    }
+    for label, source in shapes.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "impostor.py").write_text(source)
+            assert _comparisons_touching(root, "trial_ends_at"), (
+                f"the AST walk would not have caught a second authority written as: {label}"
+            )
+
+    # And it does not fire on something that merely mentions the attribute.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "innocent.py").write_text(
+            "def f(e):\n"
+            "    #: a comment about e.trial_ends_at < now\n"
+            '    """A docstring mentioning trial_ends_at."""\n'
+            "    return {'trial_ends_at': e.trial_ends_at, 'same': e.trial_ends_at == None}\n"
+        )
+        assert _comparisons_touching(root, "trial_ends_at") == [], (
+            "the AST walk fires on a read that is not an ordering comparison"
+        )
 
 
 # --- Task 2: the weekday rotation --------------------------------------------------------------
