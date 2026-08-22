@@ -125,6 +125,27 @@ async def pull(
         .all()
     )
 
+    # **`/sync` is deliberately NOT gated by entitlement, and phase 107 left it that way on
+    # purpose rather than by omission.** A free household's device does pull the rows for
+    # slots `GET /today` refuses to serve it, prompt bodies included. Three reasons, and the
+    # second is the one that decides it:
+    #
+    # 1. This is a delta feed keyed on `updated_at` and a *mirror* of rows, not a decision
+    #    about what to show. The client is told what it may reach by `access` and `locked[]`
+    #    on `GET /today`; that is the surface that renders a board.
+    # 2. **There is no tombstone for "no longer yours to see."** Absences never signal
+    #    anything here — that is the whole reason deletions sync as rows with `deleted_at`
+    #    set. So a filter would withhold nothing from a device that had already synced, and
+    #    it would break the far more important direction: on re-subscribing, those rows'
+    #    `updated_at` has not moved, so they would never be sent again and the cache would be
+    #    permanently missing work the household is now entitled to.
+    # 3. Suppressing the `body` while keeping the row corrupts the cache in the same way, and
+    #    for the same reason.
+    #
+    # **What is left open, and it is an iOS-lane question rather than one this file can
+    # answer:** a client rendering from its local cache while offline can show a cached
+    # mission the server would not serve. Making that impossible needs sync to be able to say
+    # *hidden but not deleted*, which is a schema decision and not a line change.
     assignments = list(
         (
             await session.execute(
