@@ -27,6 +27,12 @@ from rascal.models import (
 #: Sentinel for "let the column default apply", so `trial_ends_at=None` can mean something
 #: different from omitting it. `None` is a real value on this column — it is a household with
 #: no trial — and a factory that could not express it could not build the free tier.
+#:
+#: **Distinguishing them takes more than the sentinel, and that is the trap this comment used
+#: to walk into.** `Entitlement.trial_ends_at` carries a Python-side `default=`, and SQLAlchemy
+#: omits a `None`-valued attribute from the INSERT — an explicit `None` is indistinguishable
+#: from an absent one, so the default fires and the row gets a trial. See
+#: :func:`make_family` for what that costs and how it is avoided.
 UNSET = object()
 
 
@@ -50,15 +56,36 @@ async def make_family(
 
     Pass a datetime to move it, or `None` to clear it. A household with `tier="free"` and a
     past-or-null `trial_ends_at` is the free tier, and that pair is what phase 107's tests use.
+
+    **`None` is written by a second flush, and it has to be.** The column has a Python-side
+    `default=`, and SQLAlchemy leaves a `None`-valued attribute out of the INSERT entirely — an
+    explicit `None` is indistinguishable from an omitted one, so the default fires and the row
+    is given a fourteen-day trial. Setting it *after* the row exists is an UPDATE, which stores
+    NULL, and is also what production does: the admin lever loads the row and assigns.
+
+    **The failure this avoids is a test that passes against no gate at all.** A test written to
+    build the free tier with `trial_ends_at=None` would have got a household in its trial, and
+    then `assert locked == []` or `assert today <= FREE_SLOTS` would hold for the wrong reason.
+    A fixture that silently builds the opposite world is worse than a missing fixture, so the
+    result is asserted below rather than trusted.
     """
     family = Family()
     session.add(family)
     await session.flush()
     entitlement = Entitlement(family_id=family.id, tier=tier)
-    if trial_ends_at is not UNSET:
+    if trial_ends_at is not UNSET and trial_ends_at is not None:
         entitlement.trial_ends_at = trial_ends_at
     session.add(entitlement)
     await session.flush()
+    if trial_ends_at is None:
+        # An UPDATE on a row that now exists, which is the only way to store NULL here.
+        entitlement.trial_ends_at = None
+        await session.flush()
+    if trial_ends_at is not UNSET:
+        assert entitlement.trial_ends_at == trial_ends_at, (
+            "make_family did not store the trial it was asked for: wanted "
+            f"{trial_ends_at!r}, row holds {entitlement.trial_ends_at!r}"
+        )
     return family
 
 

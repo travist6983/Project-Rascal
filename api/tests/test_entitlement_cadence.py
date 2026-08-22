@@ -194,6 +194,65 @@ async def test_a_lapsed_trial_on_a_free_tier_reads_free(session: AsyncSession) -
     assert access.entitled is False
 
 
+async def test_the_factory_can_actually_build_a_household_with_no_trial(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**A fixture that silently builds the opposite world is worse than a missing fixture.**
+
+    `Entitlement.trial_ends_at` has a Python-side `default=`, and SQLAlchemy omits a
+    `None`-valued attribute from the INSERT — an explicit `None` is indistinguishable from an
+    absent one, so the default fires and the row gets a fourteen-day trial. `make_family` used
+    to hit exactly that: `trial_ends_at=None` wrote `now + 14 days`.
+
+    Nothing caught it, because no test used that path yet. A test written next week to build
+    the free tier would have got a household in its trial, and `assert locked == []` would have
+    held for the wrong reason — passing against an implementation with no gate at all.
+
+    So this drives the value all the way to the wire rather than stopping at the row.
+    """
+    family = await make_family(session, tier="free", trial_ends_at=None)
+    user = await make_user(session, family=family)
+    child = await make_child(session, parent=user)
+    await _pool(session)
+    await session.commit()
+
+    stored = await session.get(Entitlement, family.id)
+    assert stored is not None
+    assert stored.trial_ends_at is None, (
+        "the factory gave a trial to a household asked to have none"
+    )
+
+    body = (
+        await client.get(
+            f"/v1/children/{child.id}/today?date={SATURDAY.isoformat()}",
+            headers=auth_headers(user),
+        )
+    ).json()
+    assert body["access"] == "free"
+    assert body["trial_ends_at"] is None
+    assert [item["slot"] for item in body["locked"]] == ["mission", "mission_b", "weekly"]
+
+
+async def test_the_factory_stores_the_trial_it_is_given(session: AsyncSession) -> None:
+    """The other two paths, so the fix above cannot break them silently.
+
+    Omitting the argument must still produce the column default — that is what keeps the
+    hundred-odd tests written before the free tier existed exercising a full board.
+    """
+    default_trial = await make_family(session)
+    await session.commit()
+    row = await session.get(Entitlement, default_trial.id)
+    assert row is not None and row.trial_ends_at is not None
+    expected = dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=TRIAL_DAYS)
+    assert abs((row.trial_ends_at - expected).total_seconds()) < 120
+
+    moment = dt.datetime(2027, 3, 1, 12, 0, tzinfo=dt.UTC)  # future-date: explicit, pure
+    explicit = await make_family(session, trial_ends_at=moment)
+    await session.commit()
+    row = await session.get(Entitlement, explicit.id)
+    assert row is not None and row.trial_ends_at == moment
+
+
 async def test_a_cleared_trial_reads_free_rather_than_erroring(session: AsyncSession) -> None:
     """`null` is a real value: a household with no trial, which is what the admin lever's
     Clear button produces. It must not be mistaken for a missing row."""
