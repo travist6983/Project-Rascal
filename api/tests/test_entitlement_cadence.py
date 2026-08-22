@@ -26,11 +26,19 @@ import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from factories import grant, make_assignment, make_child, make_family, make_prompt, make_user
+from factories import (
+    grant,
+    make_assignment,
+    make_child,
+    make_device,
+    make_family,
+    make_prompt,
+    make_user,
+)
 from helpers import auth_headers
 from rascal.constants import DAILY_SLOTS, FREE_SLOTS, LOCKED_KIND_HINTS, SLOTS, TRIAL_DAYS
 from rascal.models import Assignment, Entitlement, Prompt
-from rascal.services.dates import local_date
+from rascal.services.dates import local_date, zone
 from rascal.services.guardians import access_for, eligible_at
 from rascal.services.scheduler import _active_parents as active_parents
 from rascal.services.scheduler import (
@@ -802,6 +810,99 @@ async def test_a_finished_mission_stays_on_the_board_after_a_lapse(
     assert str(done.id) in {item["id"] for item in body["done_today"]}, (
         "a free household lost sight of work it had already finished"
     )
+
+
+# --- The leak the gate is really about ---------------------------------------------------------
+
+
+async def test_a_lapsed_household_is_never_pushed_a_locked_missions_body(
+    session: AsyncSession,
+) -> None:
+    """**The lock screen is the one surface a parent cannot dismiss without reading.**
+
+    `ensure_day_filled` will not *create* a locked slot for a free household, so a household
+    that has always been free is safe by construction. A household that **lapsed** is not: it
+    still has the pending mission rows written while it was entitled, and
+    `NOTIFICATION_SLOT_PRIORITY` puts the mission first on purpose — a nudge is for doing.
+
+    Ungated, that pushes the body of a library prompt to a phone whose app correctly refuses
+    to show it. A prompt on a lock screen with nothing behind it in the app is worse than no
+    notification, and D7 calls the library the one asset a competitor would want.
+
+    So the notification job reads the same one authority every other surface reads, and the
+    only thing a free household can be sent is the question.
+    """
+    from rascal.services.notifications import run_notifications
+    from rascal.services.push import StubPushClient
+
+    family = await make_family(session, trial_ends_at=_yesterday())
+    user = await make_user(
+        session, family=family, notify_enabled=True, notify_local_time=dt.time(19, 0)
+    )
+    child = await make_child(session, parent=user, timezone=DETROIT)
+    await make_device(session, user)
+    question = await make_prompt(
+        session, kind="question", cadence="daily", body="What did he say today?"
+    )
+    mission = await make_prompt(
+        session,
+        kind="photo",
+        cadence="daily",
+        completion_mode="media",
+        body="Photograph the thing he built today.",
+    )
+
+    # The world a lapse leaves behind: both slots filled while entitled, both still pending.
+    today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    await make_assignment(session, child, question, slot="question", assigned_on=today, user=user)
+    await make_assignment(session, child, mission, slot="mission", assigned_on=today, user=user)
+    await session.commit()
+
+    at = dt.datetime.combine(today, dt.time(19, 5), tzinfo=zone(DETROIT)).astimezone(dt.UTC)
+    push = StubPushClient()
+    run = await run_notifications(session, client=push, as_of=at)
+    await session.commit()
+
+    assert run.sent == 1, "the free household should still get its question"
+    assert len(push.sent) == 1
+    assert push.sent[0].body == question.body
+    assert mission.body not in push.sent[0].body, (
+        "a locked mission's body reached a lock screen the app will not show it on"
+    )
+
+
+async def test_an_entitled_household_is_still_pushed_the_mission(
+    session: AsyncSession,
+) -> None:
+    """The other half, so the test above cannot pass by breaking notifications outright."""
+    from rascal.services.notifications import run_notifications
+    from rascal.services.push import StubPushClient
+
+    family = await make_family(session, trial_ends_at=_next_month())
+    user = await make_user(
+        session, family=family, notify_enabled=True, notify_local_time=dt.time(19, 0)
+    )
+    child = await make_child(session, parent=user, timezone=DETROIT)
+    await make_device(session, user)
+    await make_prompt(session, kind="question", cadence="daily", body="What did he say today?")
+    mission = await make_prompt(
+        session,
+        kind="photo",
+        cadence="daily",
+        completion_mode="media",
+        body="Photograph the thing he built today.",
+    )
+    today = local_date(dt.datetime.now(tz=dt.UTC), child.family_timezone)
+    await make_assignment(session, child, mission, slot="mission", assigned_on=today, user=user)
+    await session.commit()
+
+    at = dt.datetime.combine(today, dt.time(19, 5), tzinfo=zone(DETROIT)).astimezone(dt.UTC)
+    push = StubPushClient()
+    run = await run_notifications(session, client=push, as_of=at)
+    await session.commit()
+
+    assert run.sent == 1
+    assert push.sent[0].body == mission.body
 
 
 # --- Task 5: the one admin lever ---------------------------------------------------------------
