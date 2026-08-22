@@ -316,6 +316,12 @@ extension FamilySummary {
             familyId: UUID(),
             tier: tier,
             access: tier == "subscribed" ? .subscribed : .free,
+            lapsedAt: nil,
+            plan: nil,
+            billingRetry: nil,
+            // Unset, so every existing render keeps the Manage control it had: unknown is not
+            // `false`, and `mayManageSubscription` is `isPayer != false`.
+            isPayer: nil,
             guardians: [
                 GuardianSummary(
                     userId: UUID(), displayName: "Travis", role: "parent",

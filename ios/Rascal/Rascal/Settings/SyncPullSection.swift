@@ -124,7 +124,7 @@ struct SyncAdvancedSection: View {
                 HStack(spacing: 16) {
                     Button("Read the report") { showingReport = true }
                         .typeRole(.body)
-                        .foregroundStyle(Color.terracotta)
+                        .foregroundStyle(Color.terracottaDeep)
                     Button("Run it again") { Task { await model.runDryRun() } }
                         .typeRole(.body)
                         .foregroundStyle(Color.inkMuted)
@@ -143,7 +143,7 @@ struct SyncAdvancedSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Try again") { Task { await model.runDryRun() } }
                     .typeRole(.body)
-                    .foregroundStyle(Color.terracotta)
+                    .foregroundStyle(Color.terracottaDeep)
             }
             .padding(Layout.cardPadding)
         }

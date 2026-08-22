@@ -229,6 +229,27 @@ struct SettingsValueRow: View {
 /// Terracotta because it is a thing you do, with the same restraint as everywhere else: no
 /// filled button inside a list, and nothing red however irreversible the action is. Red is an
 /// urgency state and this screen has none.
+///
+/// **The label is `terracottaDeep`, not `terracotta`, and that is a WCAG fix rather than a
+/// preference.** `terracotta` `#C05A2B` on `surface` `#FFFDF9` measures **4.36:1**, and this label
+/// is `.typeRole(.body)` — 16pt regular, which is *not* WCAG large text — so it needed 4.5:1 and
+/// missed it. `terracottaDeep` `#9A431E` measures **6.47:1** on the same ground.
+///
+/// **Chosen over `ink` and `inkMuted` by the owner on Aug 22, 2026**, both of which also pass:
+/// `ink` would make this row byte-identical to `SettingsValueRow` and cost the vocabulary the one
+/// signal that says *a thing you do*, and `inkMuted` would render an action quieter than the label
+/// above it. `terracottaDeep` is an existing token — `Palette.swift:16`, already carried by the
+/// post-trial notice's action — so nothing was invented to fix this.
+///
+/// **Six other sites had the identical failure** and were corrected with it in phase 112:
+/// `SyncPullSection` ×2, `SettingsScreen` ×2, `NotificationSettingsSection` and `GuardiansSection`.
+/// The phase's own brief described this as *"every action row"*; it was every action row **and**
+/// six standalone body-size terracotta labels, found by sweeping `.typeRole(.body)` against the
+/// palette rather than by reading the component list.
+///
+/// Prior measurements recorded elsewhere are of **different** cases and none of them is this one:
+/// `design-system.md:298` is 4.25:1 at 13pt, and `design-conformance-110.md` §8 is 4.36:1 at 17pt
+/// semibold — which is large text, and therefore passes at the 3:1 bar this one cannot use.
 struct SettingsActionRow: View {
     let label: String
     /// One quiet line under the label saying what the action does, where that is not obvious.
@@ -243,7 +264,7 @@ struct SettingsActionRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(label)
                         .typeRole(.body)
-                        .foregroundStyle(isEnabled ? Color.terracotta : Color.inkMuted)
+                        .foregroundStyle(isEnabled ? Color.terracottaDeep : Color.inkMuted)
                     if let detail {
                         Text(detail)
                             .typeRole(.metadata)
@@ -253,7 +274,7 @@ struct SettingsActionRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if isBusy { ProgressView().tint(.terracotta) }
+                if isBusy { ProgressView().tint(.terracottaDeep) }
             }
             .padding(Layout.cardPadding)
             .contentShape(Rectangle())

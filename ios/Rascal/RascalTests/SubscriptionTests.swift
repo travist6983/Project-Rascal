@@ -137,6 +137,10 @@ private func household(_ tier: String, id: UUID = UUID()) -> FamilySummary {
         // because they can disagree — a household on the free tier may still be inside its trial —
         // and nothing here depends on that.
         access: tier == "subscribed" ? .subscribed : .free,
+        lapsedAt: nil,
+        plan: nil,
+        billingRetry: nil,
+        isPayer: nil,
         guardians: [
             GuardianSummary(
                 userId: UUID(), displayName: "Travis", role: "parent",

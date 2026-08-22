@@ -73,11 +73,80 @@ nonisolated struct FamilySummary: Decodable, Equatable, Sendable {
     /// distinguishable from `free`.
     let access: Access?
 
+    /// When the subscription lapsed. **Null on a household that has never subscribed as well as on
+    /// one that currently is** — `tier` is what tells those apart, which is why this alone cannot
+    /// answer "are they lapsed".
+    ///
+    /// Added by phase 113. **A trial expiring never writes it**: `lapsed_at` is about a
+    /// *subscription* ending, and a trial quietly running out must not read as a lapse.
+    ///
+    /// **Decoded and rendered by nothing.** `free-tier-copy.md` has no string for the lapsed state,
+    /// and the copy file forbids an agent writing one — so this is carried, not shown, until the
+    /// owner approves the words. See *Proposed additions* 6.
+    let lapsedAt: Date?
+
+    /// `annual` | `monthly`, or null. Added by phase 113, derived from the most recent App Store
+    /// transaction's `product_id` through a **lookup, never a substring parse**.
+    ///
+    /// **Null is a real answer and is not a guess**: no transaction row, an unrecognised product id,
+    /// **or the household is not currently subscribed.** That last clause is a server-side
+    /// invariant, so `plan` can never arrive beside `access: "free"` — a household that lapsed from
+    /// annual reports null, not `"annual"`.
+    ///
+    /// **A `String?` rather than an enum, deliberately.** Nothing renders it — the Settings row has
+    /// no approved copy for annual-vs-monthly, and Apple's own sheet already shows the plan, which
+    /// the brief calls a fallback rather than a gap. A `String?` cannot fail to decode a third value
+    /// a later server invents, which is the only property this field needs today.
+    let plan: String?
+
+    /// The card is failing and Apple is still retrying. Added by phase 113.
+    ///
+    /// **`bool` non-optional on the wire — and `Bool?` here, which is not a disagreement.** The two
+    /// answer different questions: the *server* always sends a value, so `false` and "not in grace"
+    /// are the same thing there; the *client* must also survive a server that predates the field and
+    /// sends no key at all — which is production, today, until 113 deploys.
+    ///
+    /// **Swift's synthesized `Decodable` does not fall back to a property's default value for a
+    /// missing key.** A non-optional `Bool` here would make the whole of `FamilySummary` fail to
+    /// decode against every server now running, taking the entire membership card with it. Read it
+    /// through `isInBillingRetry`, which collapses the tri-state back to the two states that exist.
+    ///
+    /// **It gates nothing, and that is the point.** A household in grace still reads
+    /// `access: "subscribed"` and is still fully entitled — keeping the archive open while Apple
+    /// retries is the product call, and this field exists so a client can *say* something without
+    /// the gate moving. Nothing says anything yet: there is no approved copy for grace either.
+    let billingRetry: Bool?
+
+    /// Whether **the calling user** is the one paying. Added by phase 113. Never another member's
+    /// id — that is somebody else's UUID and does not belong in a response body.
+    ///
+    /// **Null means unknown, and unknown is not `false`.** `payer_user_id` is deliberately left null
+    /// in exactly the two-guardian case, which is the only case where the question is meaningful,
+    /// and the server cannot fix it: Apple's `appAccountToken` carries a *family* id, so no
+    /// notification can ever name a user. Phase 113 shipped the read and recorded the rest in
+    /// `blocked.md` §21.
+    ///
+    /// **So the Manage control shows on `true` and on nil, and hides only on an explicit `false`.**
+    /// Hiding it on a null would strip a working control from a parent who is paying.
+    let isPayer: Bool?
+
     let guardians: [GuardianSummary]
     /// Only invites still acceptable. Accepted, revoked and expired ones are history.
     let pendingInvites: [InviteSummary]
 
     var isSubscribed: Bool { tier == "subscribed" }
+
+    /// `billingRetry`, with absent and `false` collapsed — which is every state that exists.
+    /// **Nothing renders this yet**: there is no approved copy for the grace state, and a household
+    /// in grace is fully entitled and correctly reads as subscribed either way.
+    var isInBillingRetry: Bool { billingRetry ?? false }
+
+    /// **Whether to offer Apple's subscription-management sheet.** True on an explicit `true` *and*
+    /// on unknown — only a definite `false` hides it.
+    ///
+    /// The asymmetry is the whole point: `is_payer` is null in exactly the two-guardian case, and
+    /// hiding the control on a null would strip a working affordance from a parent who is paying.
+    var mayManageSubscription: Bool { isPayer != false }
 
     /// Two adults is the household. A third is a different product, not a bigger bill, so the
     /// invite affordance disappears rather than offering an upsell that goes nowhere.

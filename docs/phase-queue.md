@@ -43,6 +43,21 @@ committed and `blocked.md` §10a item 1 closed, §14 struck as resolved by phase
 `##` sections at the top of `blocked.md` moved into *Resolved since the last review*, and the
 marketing-broadcast claims corrected across five documents now that the job has been sending for
 four consecutive days.
+**112 is the Settings membership surface** (iOS lane, branch `ios/phase-112-settings-membership`),
+allocated Aug 22, 2026 and **paired with 113 in the API lane rather than queued behind it** — 113 is
+the wire half and 112's second tranche consumes it. Its first tranche needs nothing from 113 and is
+built. **The header sentence above is phase 113's to move, not this paragraph's**, and it is
+deliberately left alone here so two concurrent branches do not both rewrite one line.
+
+**What 112 found that its own brief did not know**, recorded because the brief was written from the
+component list rather than from the tree: the 16pt-terracotta contrast failure is **nine** sites, not
+one. The brief called it *"every action row in Settings"* — it is every action row **and** eight
+standalone labels, across `SettingsRow`, `SyncPullSection` ×2, `SettingsScreen` ×2,
+`NotificationSettingsSection`, `GuardiansSection` and `TranscriptionBacklogSection` ×2. **Six more
+survive outside Settings** — `Onboarding/` ×4, `Timeline/` ×1, `DesignSystemCatalog` ×1 — on `canvas`
+`#FDFAF4`, which is within a hair of `surface` and fails identically. They are **not** fixed by 112
+and are a free-standing candidate for a later number.
+
 
 **The eighth strike is the second consecutive one that is not a failure**, and it was nearly the
 first strike caused by the thing this header cannot see. 111 was cut from a **stale local `main` at

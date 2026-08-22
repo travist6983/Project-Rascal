@@ -249,6 +249,83 @@ missions always"* — so the row is not built and the string is **not rendered a
 in `MembershipCopy.membershipMissingAction` so the next person to want a compact lock finds the
 proposal rather than writing a second one.
 
+**4 · The Settings membership row — four status strings, added by phase 112 on Aug 22, 2026.**
+
+**This file has never described the Settings card**, and the approved design does not draw one —
+*"Settings"* appears in the bundle five times and every one is the tab-bar label. So the row that
+reports what a household is on had no approved copy at all, while shipping since phase 37a.
+
+The row is `Household`, and it can now give four answers:
+
+| `access` | Answer | Note |
+|---|---|---|
+| `subscribed` | `Subscribed` | shipped since 37a, reproduced not authored |
+| `trial` | `Everything open` | **the new string** |
+| `free` | `Free` | shipped since 37a, reproduced not authored |
+| absent / unrecognised / no household yet | `—` | shipped since 37a |
+
+**Only one string is new, and it is derived from §3 rather than written.** §3's approved title is
+*"Two weeks, everything open."* — `Everything open` is that phrase's second half, moved to a second
+surface. **The owner chose it on Aug 22, 2026** from three candidates: `Trial`, `Two weeks`, and this
+one. `Two weeks` was rejected as reading like a duration in a value row, which is one step from the
+countdown rule 1 bans.
+
+**What the row deliberately does not say.** No date, no day count, no "ends on". `trial_ends_at` is
+decoded by the client and read by nothing, and a test now pins that the membership surface contains
+no date arithmetic at all. A digit in any of these four answers fails the suite.
+
+**Why `Everything open` and not the trial's *name*:** the row reports what the household *has*, not
+what stage it is at. That is the same reason `Free` is not `Free tier` and why rule 2's *membership*
+vocabulary is not violated by either — nobody is being told to upgrade.
+
+**5 · An archive-scoped reassurance for the Settings card — resolved without a new string.**
+
+Phase 112 was asked to put the archive reassurance on the membership card **in every state**. This
+file has no one-line form of it, and the file forbids an agent writing one. Rather than propose a
+sentence, the phase renders §2's approved **"What stays free, always"** block — the label and its
+three lines, verbatim and in order — on the Settings card as well as in the sheet. Nothing was
+authored, and the two surfaces now say the same three things in the same words.
+
+**It renders for a subscribed household too**, which is deliberate: rule 3 is a promise to
+everybody, and a reassurance shown only on the free tier reads as a sales argument rather than a
+standing fact.
+
+---
+
+**6 · Four states phase 113 can now express and nothing renders, for want of a string.**
+
+Phase 113 shipped `lapsed_at`, `plan`, `billing_retry` and `is_payer` on `GET /families/me`. Phase
+112 **decodes all four and renders three of them nowhere**, because this file has no copy for them
+and the file forbids an agent writing any. Each needs one decision, not a paragraph:
+
+- **Free, lapsed (state 6).** `lapsed_at` now distinguishes a household that subscribed and stopped
+  from one that never subscribed. **They currently read identically — both `Free`.** Whether they
+  *should* differ is a product call: the honest argument for leaving them the same is that the free
+  tier is the same tier either way, and rule 3 says the archive is never the thing being sold. **No
+  string is proposed here**, deliberately — anything in this slot risks becoming the *"Your archive
+  will be…"* shape §4 bans, in a friendlier voice.
+- **Annual vs monthly (states 2 and 3).** `plan` is decoded. The row says `Subscribed` for both.
+  Apple's own management sheet already shows the plan, which makes this a **fallback rather than a
+  gap** — a string here would duplicate Apple's, and go stale if they change it. Proposed only if
+  the owner wants the cadence on the card: `Subscribed — annual` / `Subscribed — monthly`.
+- **Billing grace (state 7).** `billing_retry` is decoded and **gates nothing, by design** — the
+  household is fully entitled and reads `Subscribed`, which is correct and must not change. The
+  open question is whether to say anything at all. **Note the trap:** almost every natural sentence
+  here — *"there's a problem with your payment"* — is an urgency state, and the tone rules ban
+  those outright. If anything is wanted, it wants writing carefully rather than quickly.
+- **Member, not the payer (state 4).** `is_payer` is decoded. On an explicit `false` the **Manage
+  subscription row is hidden entirely** and nothing replaces it, because there is no approved
+  sentence naming the other parent. That is the state most likely to read as a bug rather than a
+  decision. Proposed, if the owner wants the row to speak: `Managed by the other parent.` — a
+  `SettingsValueRow`, not an action, since there is nothing for this parent to tap.
+
+**`is_payer` is null far more often than it is `false`**, and null keeps the Manage control. The
+hidden state is reachable only when the server is certain, which today means a one-guardian
+household — so the state above is rare now and becomes common only if the client ever starts
+telling the server who transacted. See `blocked.md` §21.
+
+---
+
 ---
 
 ## Conflicts

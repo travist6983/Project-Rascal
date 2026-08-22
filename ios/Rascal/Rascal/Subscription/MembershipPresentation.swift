@@ -150,6 +150,78 @@ nonisolated enum MembershipPresentation {
         return updated
     }
 
+    /// Which control the membership card offers beneath the status row.
+    nonisolated enum MembershipAction: Equatable {
+        /// Apple's own subscription sheet.
+        case manage
+        /// The membership sheet — a household that has not joined.
+        case offer
+        /// **Neither, and no row at all.** A subscribed household whose caller is explicitly *not*
+        /// the payer. There is no approved copy naming the other parent, so the card says nothing
+        /// rather than inventing a sentence about somebody else's card.
+        case hidden
+    }
+
+    /// **What the membership card offers, as a pure function.**
+    ///
+    /// `hidden` exists only for one state and is reachable only on an **explicit `false`**:
+    /// `is_payer` is null in exactly the two-guardian case — the one case where the question is
+    /// meaningful — and hiding Apple's management sheet on a null would strip a working control
+    /// from a parent who is paying. `FamilySummary.mayManageSubscription` is the `!= false` that
+    /// makes unknown behave as yes.
+    ///
+    /// **`offer` when there is no household yet**, which is the shipped behaviour and is not this
+    /// phase's question to reopen.
+    ///
+    /// **Keyed on `tier`, not `access`, and deliberately.** Manage opens *Apple's* subscription
+    /// sheet, and a household inside its server-granted trial has no Apple subscription to manage —
+    /// there is nothing there for them to see. `access` answers what may be *served*; this answers
+    /// whether somebody is paying Apple, which is `tier`'s question and always was.
+    static func settingsAction(for household: FamilySummary?) -> MembershipAction {
+        guard let household, household.isSubscribed else { return .offer }
+        return household.mayManageSubscription ? .manage : .hidden
+    }
+
+    /// **What the Settings *Household* row reports.** A pure function, for the same reason the two
+    /// above are: the case that matters — a household three days into its trial — can then be
+    /// asserted without rendering a view or touching `UserDefaults`.
+    ///
+    /// **It reads `access`, never `tier`, and that is the defect phase 112 fixes.** `tier` is
+    /// constrained to `free | subscribed` and has no word for a trial, so from phase 37a until now
+    /// this row told a household inside its two weeks that it was **Free**.
+    ///
+    /// Four answers, and the two null cases are deliberately *different*:
+    ///
+    /// * **No household yet** — the server has not answered. `—`, because not knowing is a
+    ///   different answer from `free` and this row must not claim on the strength of never
+    ///   having looked.
+    /// * **`access` absent** — a server predating phase 107, where `tier` is the whole truth
+    ///   rather than a lossy half of it, because such a server has no trial to be wrong about.
+    ///   Falling back to it is the only correct answer available and keeps every pre-107 build
+    ///   behaving exactly as it did.
+    /// * **A word this build does not know** — `—`. Under D9 an unrecognised `access` still means
+    ///   *entitled*, and `Access.isEntitled` is untouched and still enforces that; but "entitled"
+    ///   is not the claim "Subscribed", and naming the wrong membership is worse than naming none.
+    ///
+    /// **Nothing here is arithmetic.** No `trial_ends_at`, no date, no StoreKit receipt — the
+    /// server said a word and this maps it. The device never decides entitlement.
+    static func settingsStatus(for household: FamilySummary?) -> String {
+        guard let household else { return MembershipCopy.Status.unknown }
+
+        guard let access = household.access else {
+            return household.isSubscribed
+                ? MembershipCopy.Status.subscribed
+                : MembershipCopy.Status.free
+        }
+
+        switch access {
+        case .subscribed: return MembershipCopy.Status.subscribed
+        case .trial: return MembershipCopy.Status.everythingOpen
+        case .free: return MembershipCopy.Status.free
+        case .unrecognised, .notReported: return MembershipCopy.Status.unknown
+        }
+    }
+
     /// Whether the trial welcome is owed.
     ///
     /// **Two conditions, and the first one is the one that was missing.** A sign-in on this device

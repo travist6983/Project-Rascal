@@ -172,6 +172,42 @@ nonisolated enum MembershipCopy {
     static let postTrialOpen = "See what's included"
     static let postTrialDismiss = "Dismiss"
 
+    // MARK: - The Settings membership row (phase 112)
+
+    /// What the **Household** row in Settings reports, and the four answers it can give.
+    ///
+    /// **These four are the only strings in this file the owner's copy does not contain.**
+    /// `free-tier-copy.md` covers the locked card, the membership sheet and the two weeks; it has
+    /// never described the Settings card, which has no approved design either. `Subscribed` and
+    /// `Free` are reproduced from the shipped row rather than authored here. `everythingOpen` is
+    /// the one genuinely new string, chosen by the owner on Aug 22, 2026 from three candidates and
+    /// derived from §3's approved title *"Two weeks, everything open."* — so it is the owner's
+    /// phrase moved to a second surface rather than an agent's sentence.
+    ///
+    /// All four are recorded under *Proposed additions* in `docs/design/free-tier-copy.md` and are
+    /// carried in `allUserVisibleStrings`, so the banned-phrase guard covers them like every other.
+    ///
+    /// **No countdown and no date.** The trial reads as a state, never as time remaining: a row
+    /// that said "9 days left" is the counting rule 1 forbids, and `trial_ends_at` is decoded by
+    /// nothing on purpose.
+    enum Status {
+        /// `tier == subscribed`. Somebody is paying.
+        static let subscribed = "Subscribed"
+
+        /// `access == trial`. **The state this phase exists to make visible** — it read `Free`
+        /// from phase 37a until now, because the row asked `tier`, which has no word for a trial.
+        static let everythingOpen = "Everything open"
+
+        /// `access == free`. Not a lapse and not a failure — the daily question, forever.
+        static let free = "Free"
+
+        /// **The server has not answered, or answered in a word this build does not know.**
+        ///
+        /// Not knowing is a different answer from `Free`, and under D9 the failure direction is
+        /// never a claim: this row says nothing rather than guessing at somebody's membership.
+        static let unknown = "—"
+    }
+
     // MARK: - 4 · Strings that must not appear anywhere
 
     /// The copy file keeps this list explicit *"so a review can grep for them"*, and
@@ -228,6 +264,7 @@ nonisolated enum MembershipCopy {
             TrialWelcome.title, TrialWelcome.body, TrialWelcome.action,
             postTrialNotice, postTrialOpen, postTrialDismiss,
             membershipMissingAction,
+            Status.subscribed, Status.everythingOpen, Status.free, Status.unknown,
         ]
         strings += adds
         strings += stayFree
