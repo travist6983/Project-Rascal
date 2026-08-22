@@ -184,7 +184,14 @@ function when(iso) {
 function deadline(iso) {
   if (!iso) return "—";
   const then = new Date(iso);
-  const on = then.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  // **The last day the trial is still active, not the instant it stops.** `trial_ends_at` is an
+  // exclusive end — `access_for` compares `now < trial_ends_at` — and `endOfDayIso` stores local
+  // midnight *after* the chosen day. Rendering the instant meant picking "Sep 4" and being told
+  // "Sep 5", which contradicts both the date you typed and the runbook's "the date you pick is
+  // the last day of the trial". One millisecond back lands inside the last active day, in local
+  // time, for any value: one the lever set, one the migration backfilled, or one already past.
+  const lastDay = new Date(then.getTime() - 1);
+  const on = lastDay.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const days = Math.round((then.getTime() - Date.now()) / 86400000);
   if (days > 0) return `${on} · in ${days}d`;
   if (days === 0) return `${on} · today`;
@@ -715,7 +722,14 @@ async function writeTrial(trialEndsAt) {
     // and hid the fact that the more useful message did not. Found by driving the console,
     // not by a test.
     await load();
-    status.textContent = `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
+    // **Say why nothing moved, at the moment it did not move.** A subscribed household reads
+    // `subscribed` whatever this writes, because `subscribed` beats `trial`. Reporting only
+    // "Access is now subscribed" is accurate and reads like a control that failed silently.
+    status.textContent =
+      result.tier === "subscribed"
+        ? `Saved, but access stays “subscribed” — the tier outranks the trial. Set tier back to ` +
+          `“free” (runbook-deploy.md §7a) to see the free tier.`
+        : `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
   } catch (error) {
     status.textContent = error.message;
   }

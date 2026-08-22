@@ -56,6 +56,7 @@ from rascal.services.dates import local_date, zone
 from rascal.services.guardians import access_for, eligible_at
 from rascal.services.scheduler import _active_parents as active_parents
 from rascal.services.scheduler import (
+    _history,
     ensure_day_filled,
     locked_slots_for,
     run_scheduler,
@@ -324,18 +325,62 @@ async def test_the_two_family_routes_and_today_report_one_answer(
 THE_ONE_AUTHORITY = ("services/guardians.py", "access_for")
 
 
+def _aliases_of(tree: ast.AST, name: str) -> set[str]:
+    """Local names assigned straight from something that reads `.<name>`.
+
+    `ends = entitlement.trial_ends_at` and its walrus form both put the value behind a plain
+    `Name`, which a comparison can then use without the attribute appearing in it at all. One
+    pass over the module collects those names so the comparison walk can see through them.
+
+    Module-wide rather than per-function on purpose: it costs a handful of false positives at
+    worst — a name reused for something else in another function — and a false positive here is
+    a loud test failure somebody reads, while a false negative is a second entitlement authority
+    nobody ever hears about.
+    """
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        value = None
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            value, targets = node.value, list(node.targets)
+        # `AnnAssign` is `x: T = ...`; `NamedExpr` is the walrus. Both bind one target.
+        elif isinstance(node, ast.AnnAssign | ast.NamedExpr):
+            value, targets = node.value, [node.target]
+        if value is None:
+            continue
+        if not any(isinstance(sub, ast.Attribute) and sub.attr == name for sub in ast.walk(value)):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                aliases.add(target.id)
+    return aliases
+
+
 def _comparisons_touching(src: pathlib.Path, name: str) -> list[str]:
-    """Every `<`/`>`/`<=`/`>=` comparison anywhere under `src` that reads `.<name>`.
+    """Every `<`/`>`/`<=`/`>=` comparison anywhere under `src` that reads `.<name>`, directly or
+    through a local name assigned from it.
 
     **Parsed rather than grepped, and the difference is the whole point of the test.** A regex
     over lines is defeated by anything the author happens to write differently — a comparison
-    split across two lines by the formatter, an intermediate variable, `x > y` instead of
-    `y < x`, or a walrus. Every one of those is a second entitlement authority and every one of
-    them slips past a line-oriented pattern. The AST sees the comparison whatever it looks like.
+    the formatter split across two lines, `x > y` instead of `y < x`, one inside a
+    comprehension, an intermediate variable, a walrus. Every one of those is a second
+    entitlement authority and every one slips past a line-oriented pattern.
+
+    **What it still cannot see, measured rather than guessed.** Two shapes get past it: a value
+    returned from a helper (`now < get(e)`) and one stored on *another object's* attribute
+    (`o.x = e.trial_ends_at; now < o.x`). Following either is a dataflow analysis, and a test
+    helper is the wrong place for one. What it does catch is every shape a person writing the
+    comparison by hand would plausibly produce, which is the failure being guarded against.
+
+    It is a tripwire, not a proof, and
+    :func:`test_the_ast_walk_would_actually_catch_a_second_authority` pins both halves — the
+    shapes it catches *and* the two it does not — so the limit is a known quantity rather than
+    something a future reader discovers while trusting it.
     """
     found: list[str] = []
     for path in sorted(src.rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
+        aliases = _aliases_of(tree, name)
         # Which function each node sits inside, so a failure names it rather than a line number.
         enclosing: dict[ast.AST, str] = {}
         for node in ast.walk(tree):
@@ -349,7 +394,8 @@ def _comparisons_touching(src: pathlib.Path, name: str) -> list[str]:
                 continue
             operands = [node.left, *node.comparators]
             reads_it = any(
-                isinstance(sub, ast.Attribute) and sub.attr == name
+                (isinstance(sub, ast.Attribute) and sub.attr == name)
+                or (isinstance(sub, ast.Name) and sub.id in aliases)
                 for operand in operands
                 for sub in ast.walk(operand)
             )
@@ -452,6 +498,14 @@ def test_the_ast_walk_would_actually_catch_a_second_authority() -> None:
         "inside a comprehension": (
             "def f(rows, now):\n    return [r for r in rows if r.trial_ends_at >= now]\n"
         ),
+        "through an intermediate variable": (
+            "def f(e, now):\n"
+            "    ends = e.trial_ends_at\n"
+            "    return ends is not None and now < ends\n"
+        ),
+        "through a walrus": (
+            "def f(e, now):\n    return (ends := e.trial_ends_at) is not None and now < ends\n"
+        ),
     }
     for label, source in shapes.items():
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,6 +527,27 @@ def test_the_ast_walk_would_actually_catch_a_second_authority() -> None:
         assert _comparisons_touching(root, "trial_ends_at") == [], (
             "the AST walk fires on a read that is not an ordering comparison"
         )
+
+    # **And the blind spots, pinned as blind spots.** Following a value out through a helper's
+    # return or onto another object's attribute is a dataflow analysis, and a test helper is the
+    # wrong place for one. Asserting them here makes the limit a known quantity rather than
+    # something a future reader discovers while trusting the tripwire — and if the walk ever
+    # does grow that reach, this fails and the docstring gets corrected with it.
+    blind = {
+        "through a helper's return": (
+            "def get(e):\n    return e.trial_ends_at\ndef f(e, now):\n    return now < get(e)\n"
+        ),
+        "onto another object's attribute": (
+            "def f(e, o, now):\n    o.x = e.trial_ends_at\n    return now < o.x\n"
+        ),
+    }
+    for label, source in blind.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "indirect.py").write_text(source)
+            assert _comparisons_touching(root, "trial_ends_at") == [], (
+                f"the walk now catches {label} — good, but update its docstring to say so"
+            )
 
 
 # --- Task 2: the weekday rotation --------------------------------------------------------------
@@ -711,27 +786,58 @@ async def test_a_free_households_day_does_not_burn_the_cooldown(session: AsyncSe
     )
 
 
-async def test_the_cooldown_is_still_intact_181_days_later(session: AsyncSession) -> None:
-    """Requirement 8's own wording, asserted literally: the prompts that would have gone to
-    `mission` and `mission_b` are still available to the household 181 days on.
+async def test_a_free_households_prompts_never_enter_the_cooldown_window(
+    session: AsyncSession,
+) -> None:
+    """Requirement 8's own wording, asserted against the thing the cooldown is actually made of.
 
-    The 181 matters because 180 is the cooldown. A prompt served on day 0 is outside it on day
-    181 — so a test that only looked *after* the window would pass even if every prompt had
-    been burned. This looks at whether an assignment row exists at all.
+    **The first version of this test could not fail, and the reason is worth keeping.** It
+    asserted `select_prompt(...) is not None` 181 days on — but `choose_prompt`'s ladder ends
+    with *"anything in the pool"*, so it returns a prompt whether or not the cooldown was burnt.
+    Every assertion in it held just as well against an implementation that served the whole day
+    to a free household. A test whose subject is a 180-day window has to look at the window.
+
+    `_history` is that window: it maps prompt id → how many days ago this child saw it, over the
+    180-day horizon, and it is the exact input `choose_prompt` filters on. So this compares two
+    households that differ in one respect, and asserts the cooldown map differs the same way.
     """
-    _user, child = await _household(session, trial_ends_at=_yesterday())
-    await run_scheduler(session, as_of_date=MONDAY, child_id=child.id, seed=2)
+    entitled_user, entitled_child = await _household(session, trial_ends_at=_next_month())
+    free_user, free_child = await _household(session, trial_ends_at=_yesterday())
+    rows = await session.execute(sa.select(Prompt).where(Prompt.kind == "photo"))
+    photos = list(rows.scalars().all())
+    assert photos, "the fixture must contain a photo prompt or this proves nothing"
+
+    assert "mission" in slots_for(MONDAY), "MONDAY must be a photo-mission day"
+    await run_scheduler(session, as_of_date=MONDAY, child_id=entitled_child.id, seed=2)
+    await run_scheduler(session, as_of_date=MONDAY, child_id=free_child.id, seed=2)
     await session.commit()
 
-    later = MONDAY + dt.timedelta(days=181)
-    mission = await select_prompt(child, "mission", later, session)
-    mission_b = await select_prompt(child, "mission_b", later, session)
-    assert mission is not None and mission.kind == "photo"
-    assert mission_b is not None and mission_b.kind in ("video", "audio", "activity")
+    entitled_served, _ = await _history(session, entitled_child.id, MONDAY, entitled_user.id)
+    free_served, _ = await _history(session, free_child.id, MONDAY, free_user.id)
 
-    # And the far more interesting version: they are available on day 1, because they were
-    # never served in the first place.
-    assert await select_prompt(child, "mission", MONDAY + dt.timedelta(days=1), session) is not None
+    # **The control.** The entitled household really did spend a photo prompt, so the mechanism
+    # this test is about demonstrably works — without this line the assertion below could pass
+    # because nothing was ever served to anybody.
+    assert any(prompt.id in entitled_served for prompt in photos), (
+        "the entitled household did not consume a photo prompt, so there is no cooldown to compare"
+    )
+
+    # **The property.** The free household spent none of them.
+    assert not any(prompt.id in free_served for prompt in photos), (
+        "a free household burnt a photo prompt's 180-day cooldown on a slot it cannot see"
+    )
+    # And it was served at all — otherwise the line above would hold for an empty run.
+    assert free_served, "the free household's scheduler run served nothing whatsoever"
+
+    # **Where the 181 comes from.** `_history`'s horizon is `as_of_date - 180 days`, so the
+    # entitled household's prompt leaves the window on day 181 and the free household's was
+    # never in it. Asserting both is what makes 180 a real number rather than a comment.
+    entitled_later, _ = await _history(
+        session, entitled_child.id, MONDAY + dt.timedelta(days=181), entitled_user.id
+    )
+    assert not any(prompt.id in entitled_later for prompt in photos), (
+        "the 180-day horizon does not appear to be 180 days"
+    )
 
 
 async def test_a_household_that_subscribes_mid_day_gets_its_missions_on_the_next_read(
@@ -1350,6 +1456,52 @@ async def test_the_admin_lever_404s_on_a_household_that_does_not_exist(
     )
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "not_found"
+
+
+async def test_the_admin_lever_cannot_free_a_subscribed_household(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**The lever exists for the owner, and the owner's household is `subscribed`.**
+
+    `subscribed` beats `trial`, so setting the trial to yesterday leaves such a household on
+    `subscribed` — the one control built so the owner could see the free tier he is designing
+    does nothing for him. That is not fixable here: `tier` has exactly one writer by D5, and a
+    console button that set it would be a person disagreeing with Apple.
+
+    So it is pinned rather than papered over. The date **is** stored — it matters the day the
+    subscription lapses — and the response reports the truth instead of implying success. The
+    route description, the service docstring, the console copy and both runbooks now say the
+    same thing, and point at `runbook-deploy.md` §7a as the way out.
+    """
+    user, _child = await _household(session, tier="subscribed", trial_ends_at=_next_month())
+    admin = await make_user(session, display_name="Owner")
+    admin.is_admin = True
+    await session.commit()
+
+    response = await client.put(
+        f"/v1/admin/families/{user.family_id}/trial",
+        headers=auth_headers(admin),
+        json={"trial_ends_at": _yesterday().isoformat().replace("+00:00", "Z")},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["access"] == "subscribed", "the tier outranks the trial and must keep doing so"
+    assert body["tier"] == "subscribed", "the lever must never touch the tier"
+    # The write still happened — a lapse later has to find the date the owner set.
+    stored = await session.get(Entitlement, user.family_id)
+    await session.refresh(stored)
+    assert stored.trial_ends_at is not None
+    assert stored.trial_ends_at < dt.datetime.now(tz=dt.UTC)
+
+    # And the same household, once its tier goes back to free, does move — which is what makes
+    # the runbook's reverse statement the actual answer rather than a shrug.
+    stored.tier = "free"
+    await session.commit()
+    after = (
+        await client.get(f"/v1/families/{user.family_id}/entitlement", headers=auth_headers(user))
+    ).json()
+    assert after["access"] == "free"
 
 
 async def test_the_admin_lever_refuses_a_caller_who_is_not_an_admin(

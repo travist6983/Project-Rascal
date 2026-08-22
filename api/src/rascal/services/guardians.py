@@ -134,6 +134,14 @@ async def set_trial_ends_at(
     is designing: setting the date to yesterday drops a household to `free`, setting it to next
     month puts it back, and clearing it leaves `free` with no trial at all.
 
+    **All of that is true only while `tier` is `free`.** `subscribed` beats `trial` in
+    :func:`access_for`, so a subscribed household reads `subscribed` whatever this writes. The
+    date is still stored, and it matters the day the subscription lapses — but the access state
+    does not move. **The owner's own household is exactly that case**, by `runbook-deploy.md`
+    §7a, which is worth stating in the same breath as "it exists because the owner is the only
+    user": reaching the free tier from there needs §7a's statement run in reverse first. This
+    function does not do that, and must not — `tier` has one writer.
+
     **It deliberately cannot write `tier`, and that is the whole reason this is the lever.** D5
     reserves `tier` for the App Store webhook and a test asserts it has exactly one writer, so
     an admin control that set `tier` would either fail that test or quietly become the second

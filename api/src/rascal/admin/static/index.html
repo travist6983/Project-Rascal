@@ -182,6 +182,13 @@
             column, and a button here that disagreed with Apple would be worse than no button.
             Clearing the date leaves the household on <code>free</code> with no trial at all.
           </p>
+          <p class="card-note">
+            <strong>A household already on <code>subscribed</code> will not move</strong>, because
+            <code>subscribed</code> beats <code>trial</code>. The date is still saved — it matters
+            the day the subscription lapses — but access stays <code>subscribed</code>. Your own
+            household is one of these: set <code>tier</code> back to <code>free</code> with the
+            statement in <code>runbook-deploy.md</code> §7a first, then use this.
+          </p>
           <form id="trial-form" class="form">
             <div class="field-row">
               <label class="field">

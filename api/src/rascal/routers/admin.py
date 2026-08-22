@@ -79,7 +79,16 @@ async def snapshot(
         "It exists because the owner is the only user and would otherwise never see the free "
         "tier he is designing: set it to yesterday to drop to `free`, to next month to come "
         "back. **The one household affected is the one named in the path** — this reaches no "
-        "other family and reads no archive content."
+        "other family and reads no archive content.\n\n"
+        "**It cannot move a household whose `tier` is already `subscribed`, and that is "
+        "the one case worth knowing about.** `subscribed` beats `trial`, so such a "
+        'household reads `access: "subscribed"` whatever this route writes. The date is '
+        "still stored — it matters the day the subscription lapses — but the access state "
+        "does not move, and the response says so rather than implying success.\n\n"
+        "**The owner's own household is one of these**: `runbook-deploy.md` §7a wrote "
+        "`tier = 'subscribed'` by hand and there is no App Store transaction behind it. "
+        "To see the free tier from there, set `tier` back to `free` with the statement in "
+        "§7a first, then use this."
     ),
 )
 async def set_family_trial(

@@ -560,8 +560,10 @@ def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
     slots. The invariant this test exists for did not move.
     """
     for day in (FIRST, FIFTEENTH):
-        # Both fixtures are Tuesdays. Stated rather than assumed: on a Saturday the count below
-        # would be four and the test would look broken when it was only badly dated.
+        # Both fixtures are Tuesdays, and both are an occasional day (the 1st, the 15th).
+        # Stated rather than assumed: on a Saturday these same dates would hold five slots —
+        # three daily plus `weekly` plus the occasional one — and the test would look broken
+        # when it was only badly dated.
         assert day.weekday() != 5, f"{day} is a Saturday; this test's count assumes it is not"
         assert day.weekday() == 1, f"{day} is not a Tuesday; this test's count assumes it is"
         slots = slots_for(day)

@@ -279,6 +279,22 @@ full-access role. The role is the belt; that is the braces.
 | Go back to a full board | Set the date to **next month** | `trial` |
 | A household with no trial at all | **Clear trial** | `free` |
 
+**Every row above assumes `tier` is `free`, and yours is not.** `subscribed` beats `trial`, so a
+subscribed household reads `access: "subscribed"` whatever this lever writes — the date is stored
+and will matter the day the subscription lapses, but the board does not change. `runbook-deploy.md`
+§7a wrote `tier = 'subscribed'` for your own household by hand and says it *"always will be"*, so
+**to see the free tier you have to undo that first**:
+
+```sql
+-- runbook-deploy.md §7a in reverse. Put it back afterwards or you cannot mint an invite.
+UPDATE entitlements SET tier = 'free'
+WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
+```
+
+The console says so too, at the moment it happens: setting a trial on a subscribed household
+reports *"Saved, but access stays subscribed — the tier outranks the trial."* rather than implying
+it worked.
+
 The *Newest accounts* table above it shows `Access` beside `Tier`, so you can read the result
 without reloading the app. They answer different questions and both are shown deliberately:
 **`Tier` is whether Apple has told us somebody is paying; `Access` is what a phone will actually

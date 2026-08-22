@@ -21,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from factories import grant, make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
+from rascal.constants import DAILY_SLOTS
 from rascal.models import Assignment, Child
 from rascal.services.dates import local_date
-from rascal.services.scheduler import ensure_day_filled, run_scheduler
+from rascal.services.scheduler import ensure_day_filled, run_scheduler, slots_for
 
 # A Saturday that is neither the 1st nor the 15th, so `weekly` is tested on its own.
 SATURDAY = dt.date(2026, 8, 22)  # future-date: explicit, pure
@@ -105,11 +106,20 @@ async def test_today_creates_the_days_assignments_when_the_scheduler_never_ran(
 
     assert response.status_code == 200
     body = response.json()
-    assert {item["slot"] for item in body["today"]} >= {"question", "mission"}
+    # **Derived, not literal, and phase 107 is why.** This read deliberately omits `?date=`, so
+    # it runs on whatever weekday it happens to be — and since the rotation, a weekday holds
+    # `question` + one mission rather than all three. A literal `{"question", "mission"}` was
+    # correct on Monday, Wednesday, Friday and the weekend and **failed on Tuesday and
+    # Thursday**, which is a suite that goes red two days in seven for a reason nobody reading
+    # it would guess. What the test is about — the read filled a day nothing had filled — is
+    # unchanged.
+    on = local_date(now, child.family_timezone)
+    expected_daily = {slot for slot in slots_for(on) if slot in DAILY_SLOTS}
+    assert {item["slot"] for item in body["today"]} >= expected_daily
     assert body["waiting"] == []
 
     created = await _rows(session, child.id)
-    assert {row.slot for row in created} >= {"question", "mission"}
+    assert {row.slot for row in created} >= expected_daily
     assert all(row.status == "pending" for row in created)
     # Written for the child's local date, not the server's.
     expected = local_date(now, child.family_timezone)
@@ -147,6 +157,9 @@ async def test_two_concurrent_reads_produce_exactly_one_assignment_per_slot(
 
     headers = auth_headers(user)
     url = f"/v1/children/{child.id}/today"
+    # Read before the calls, so a local-midnight crossing during them cannot make the
+    # expectation disagree with a server that behaved correctly.
+    now = dt.datetime.now(tz=dt.UTC)
     left, right = await asyncio.gather(
         client.get(url, headers=headers), client.get(url, headers=headers)
     )
@@ -157,7 +170,10 @@ async def test_two_concurrent_reads_produce_exactly_one_assignment_per_slot(
     rows = await _rows(session, child.id)
     slots = [row.slot for row in rows]
     assert sorted(slots) == sorted(set(slots)), f"a slot was filled twice: {slots}"
-    assert set(slots) >= {"question", "mission"}
+    # Derived for the same reason as above: no `?date=`, so the weekday is whatever it is.
+    on = local_date(now, child.family_timezone)
+    expected_daily = {slot for slot in slots_for(on) if slot in DAILY_SLOTS}
+    assert set(slots) >= expected_daily
 
 
 async def test_today_is_the_childs_local_date_not_the_servers(
