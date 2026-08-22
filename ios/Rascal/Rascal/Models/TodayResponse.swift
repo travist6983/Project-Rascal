@@ -231,7 +231,13 @@ nonisolated enum LockedKind: RawRepresentable, Equatable, Sendable {
     var symbolName: String {
         switch self {
         case .photo: "camera"
-        case .mission: "figure.walk"
+        // **`video`, not `figure.walk`, and the design settles it.** `mission_b` genuinely spans
+        // voice, video and activity, so a walking figure is a defensible reading of the slot — but
+        // the artboards draw a play triangle beside the camera, and distinguishing the two locked
+        // missions *by glyph* is the job this tile is doing. The copy agrees on the ordering:
+        // "{Their} voice, a video, or something to do together" puts activity last, and it was the
+        // one the walking figure had picked.
+        case .mission: "video"
         case .weekly, .monthly: "calendar"
         case .letter: "envelope"
         case .other: "sparkles"

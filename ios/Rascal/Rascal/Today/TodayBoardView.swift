@@ -67,40 +67,52 @@ struct TodayBoardView: View {
                 .plainRow()
             }
 
-            // `failures`/`onEdit` are plumbed here for completeness rather than because this
-            // section reaches them: `TodayBoard.merge` routes anything with a local entry into
-            // `done_today`, so a card in this section is never done. `PromptCard` keeps its
-            // documented done state — `design-system.md` specifies one — but on this board a
-            // finished item becomes a `DoneCard`, which is where the retry list actually lives.
-            section("Today", board.today) { item in
-                PromptCard(
-                    item: item,
-                    today: board.date,
-                    onPrimary: { onOpen(item) },
-                    onDismiss: { onSkip(item) },
-                    onEdit: item.localEntryId == nil ? nil : { onEdit(item) },
-                    failures: failures(item),
-                    onRetry: onRetry,
-                    onRetryAll: { onRetryAll(item) }
-                )
-            }
+            // **One header over the live rows and the locked ones, because they are the same
+            // day.**
+            //
+            // Emitted here rather than through `section(_:_:)` for a reason that is not tidiness:
+            // that helper draws its header only when *its own* array is non-empty. With the locked
+            // rows as a separate `ForEach` after it, the moment a free parent answered the daily
+            // question `today` emptied into `doneToday`, the header disappeared, and the locked
+            // cards were left floating above "Waiting" with nothing naming them — **which is the
+            // state a free household is in for the rest of every day.** No artboard draws that.
+            //
+            // The locked rows still get **no header and no count of their own**: they are today's
+            // slots, and a second quieter board is a place the eye learns to skip and a place a
+            // count could one day be attached to. The copy file's first rule is that nothing
+            // anywhere counts locked items.
+            if !board.today.isEmpty || !board.locked.isEmpty {
+                BoardSectionHeader(title: "Today")
+                    .plainRow(bottom: 10)
 
-            // **Below the live prompts, above `waiting`.**
-            //
-            // Deliberately *inside* the "Today" grouping rather than under a heading of its own:
-            // these are today's slots, and a `SectionLabel` over them would be a second, quieter
-            // board — which is a place a parent's eye learns to skip and, worse, a place a count
-            // could one day be attached to. There is no header and **there is no count**; the copy
-            // file's first rule is that nothing anywhere counts locked items.
-            //
-            // `id: \.slot` rather than the array index, so the `List` re-uses rows correctly when
-            // the set changes — a Saturday's four become a Monday's one.
-            ForEach(board.locked) { locked in
-                LockedPromptCard(locked: locked, onOpenMembership: onOpenMembership)
-                    // **No `swipeActions`.** The row above this one has a skip; this one must not.
-                    // A lock you can dismiss becomes a thing to dismiss every morning, and there is
-                    // nothing to decline — it was never offered.
+                // `failures`/`onEdit` are plumbed here for completeness rather than because this
+                // section reaches them: `TodayBoard.merge` routes anything with a local entry into
+                // `done_today`, so a card here is never done. `PromptCard` keeps its documented
+                // done state — `design-system.md` specifies one — but on this board a finished item
+                // becomes a `DoneCard`, which is where the retry list actually lives.
+                ForEach(board.today) { item in
+                    PromptCard(
+                        item: item,
+                        today: board.date,
+                        onPrimary: { onOpen(item) },
+                        onDismiss: { onSkip(item) },
+                        onEdit: item.localEntryId == nil ? nil : { onEdit(item) },
+                        failures: failures(item),
+                        onRetry: onRetry,
+                        onRetryAll: { onRetryAll(item) }
+                    )
                     .plainRow()
+                }
+
+                // Below the live prompts, above `waiting`, in the order the server sent them.
+                //
+                // **No `swipeActions`.** The rows above have a skip; these must not. A lock you can
+                // dismiss becomes a thing to dismiss every morning, and there is nothing to decline
+                // — it was never offered.
+                ForEach(board.locked) { locked in
+                    LockedPromptCard(locked: locked, onOpenMembership: onOpenMembership)
+                        .plainRow()
+                }
             }
 
             section("Waiting", board.waiting, count: board.waiting.count) { item in

@@ -81,13 +81,23 @@ nonisolated enum MembershipCopy {
     /// deprivation."*
     static let lockedFooter = "Included with membership"
 
-    /// Eyebrow, body, footer, then what the tap does — assembled once so the card and its VoiceOver
-    /// label cannot say different things.
+    /// Eyebrow, body, footer — assembled once so the card and its VoiceOver label cannot say
+    /// different things.
+    ///
+    /// **What the tap does is deliberately not here.** It is the `accessibilityHint`, which is where
+    /// VoiceOver expects it and which it reads immediately after the label. Carrying it in both
+    /// announced the phrase twice on every card — four times on a Saturday-the-15th board.
     static func lockedAccessibilityLabel(_ slot: Slot, subject: PromptSubject) -> String {
         let eyebrow = PromptTokens.render(lockedEyebrow(slot), for: subject)
         let body = PromptTokens.render(lockedBody(slot), for: subject)
-        return "\(eyebrow). \(body). \(lockedFooter). Opens membership."
+        return "\(eyebrow). \(body). \(lockedFooter)."
     }
+
+    /// The hint on a locked card. Here rather than at the call site, because it is a string a
+    /// parent hears and every one of those lives in this file.
+    static let lockedHint = "Opens membership"
+
+    // MARK: - 2 · The membership sheet (continued)
 
     // MARK: - 2 · The membership sheet
 
@@ -171,8 +181,32 @@ nonisolated enum MembershipCopy {
     static let bannedPhrases = [
         "Unlock", "Upgrade", "Premium", "Pro",
         "Free trial ending", "Don't lose", "You've missed",
-        "Limited time", "Only", "Your archive will be", "Members only",
+        "Limited time", "Only X left", "Your archive will be", "Members only",
     ]
+
+    /// **Every string this phase can put in front of a parent**, so the guard has something to run
+    /// against rather than a list a test happens to duplicate.
+    ///
+    /// A constant nothing reads is not a guard, it is cover — and a doc comment claiming enforcement
+    /// that nobody runs is worse than no comment. `MembershipTests` iterates exactly this.
+    static var allUserVisibleStrings: [String] {
+        var strings = [
+            lockedFooter, lockedHint,
+            title, subtitle, addsLabel, freeLabel,
+            primaryAction, notNow, notNowHint, footnote, productsUnavailable,
+            TrialWelcome.title, TrialWelcome.body, TrialWelcome.action,
+            postTrialNotice, postTrialOpen, postTrialDismiss,
+            membershipMissingAction,
+        ]
+        strings += adds
+        strings += stayFree
+        for slot in [Slot.question, .mission, .missionB, .weekly, .monthly, .letter,
+                     .unknown("seasonal")] {
+            strings.append(lockedEyebrow(slot))
+            strings.append(lockedBody(slot))
+        }
+        return strings
+    }
 
     // MARK: - Not shipped
 

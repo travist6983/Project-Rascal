@@ -40,6 +40,15 @@ struct PaywallSheet: View {
     var body: some View {
         ScrollView { content }
             .background(Color.canvas)
+            // **Seeded at 700 with `.large` in the set, and never `.medium`.**
+            //
+            // The design's `2d` annotation is specific, and the reasoning is the `AddToArchiveSheet`
+            // rule: a fixed `.medium` clips at accessibility sizes, and a sheet that only offers a
+            // fraction of the screen cannot show a paywall's required disclosures without a scroll
+            // the parent has to discover. `.large` stays in the set so the sheet can grow to the
+            // whole screen when the type does. 700 is a seed rather than a measurement — the pinned
+            // action means the way out never moves whatever the detent resolves to.
+            .presentationDetents([.height(700), .large])
             // Pinned rather than trailing the scroll, per the design: *"the sheet is never a page
             // you have to reach the end of to escape."* On a 667pt phone everything from the free
             // block down needs a scroll, and the way out must not be down there with it.
@@ -76,7 +85,11 @@ struct PaywallSheet: View {
             addsBlock
             freeBlock
             offerBlock
-            footnote
+            // **Absent when there is nothing to buy**, because it belongs to the price group the
+            // `Notice` replaces — the artboards draw it inside that group and `2c` has no footnote
+            // at all. The sentence stays true either way; it is simply not a thing to say about a
+            // membership that is not open yet.
+            if canOffer { footnote }
             legalRow
         }
         .padding(.horizontal, 24)
@@ -120,18 +133,9 @@ struct PaywallSheet: View {
     private var addsBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(MembershipCopy.addsLabel)
-            // **14, not 10, and it is a legibility fix rather than taste.** `body` carries 0.45×
-            // line spacing — about 7pt — so at 10 the gap *between* rows was barely larger than the
-            // gap *inside* one. At default type every row is a single line and it reads fine; at
-            // XXL, where the first and third rows wrap, the five items ran together as one
-            // paragraph. The design draws this list at default size only.
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 11) {
                 ForEach(MembershipCopy.adds, id: \.self) { line in
-                    Text(neutral(line))
-                        .typeRole(.body)
-                        .foregroundStyle(Color.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    BulletRow(text: neutral(line))
                 }
             }
         }
@@ -147,9 +151,22 @@ struct PaywallSheet: View {
     /// a door, and compressing it is the specific failure both the design and the phase brief call
     /// out.
     private var freeBlock: some View {
+        // **The label sits inside the card**, which is what the artboards draw: one
+        // `surface`/`border`/radius-14 block at padding 16 holding the label and the three lines,
+        // gap 12 between them.
+        //
+        // `design-system.md:228`'s sheet-field vocabulary puts a `SectionLabel` *outside* and 8
+        // above its control, and following that here would have been reasonable — but that pattern
+        // governs what the design does not specify, and the design specifies this. The grouping is
+        // also the point: these three lines are one statement, and a label floating above the box
+        // reads as a heading over the sheet rather than a title on the block.
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(MembershipCopy.freeLabel)
-            // Same reason as the adds list above.
+
+            // No dot here. The adds list enumerates things you would gain and the design marks each
+            // one; this is a single statement about what is already true, and the design draws it as
+            // plain lines. 14 rather than the design's 9 because without a dot to separate them,
+            // `body`'s ~7pt line spacing leaves wrapped rows running together at XXL.
             VStack(alignment: .leading, spacing: 14) {
                 ForEach(MembershipCopy.stayFree, id: \.self) { line in
                     Text(neutral(line))
@@ -159,17 +176,17 @@ struct PaywallSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .padding(Layout.cardPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                Color.surface,
-                in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
-                    .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
-            )
         }
+        .padding(Layout.cardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color.surface,
+            in: RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
+                .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
+        )
     }
 
     // MARK: The offer, or the reason there isn't one
@@ -508,6 +525,38 @@ private struct PlanRow: View {
         .disabled(!isEnabled)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// One line of *what membership adds*, marked with the design's 5pt terracotta dot.
+///
+/// **The dot is not an icon.** The copy file asks for *"no icons competing with the terracotta"* and
+/// the design draws this dot anyway, in terracotta — they are not in conflict: an icon per row would
+/// be five competing shapes, and a dot is a list marker.
+///
+/// The top offset is scaled so the dot stays on the first line's centre as the type grows; at a
+/// fixed 9pt it drifts toward the cap-height of a much larger line and reads as misaligned.
+private struct BulletRow: View {
+    let text: String
+
+    @ScaledMetric(relativeTo: .body) private var dot: CGFloat = 5
+    @ScaledMetric(relativeTo: .body) private var topOffset: CGFloat = 9
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Circle()
+                .fill(Color.terracotta)
+                .frame(width: dot, height: dot)
+                .padding(.top, topOffset)
+                .accessibilityHidden(true)
+
+            Text(text)
+                .typeRole(.body)
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
