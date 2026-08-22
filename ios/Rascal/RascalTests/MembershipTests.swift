@@ -882,6 +882,35 @@ struct MembershipTests {
         )
     }
 
+    // MARK: - The Today heading over a locked board
+
+    /// **The state a free household is in for most of every day**, and the one that shipped wrong:
+    /// the heading rendered only when `today` was non-empty, so the moment the daily question was
+    /// answered the locked cards were left floating above *Waiting* with nothing naming them.
+    ///
+    /// A property rather than a condition in the view, because `TodayBoardView` is a `List` —
+    /// `ImageRenderer` will not rasterize one and there is no UI test target, so the rule was
+    /// expressible nowhere.
+    @MainActor
+    @Test("the Today heading survives the question being answered on a locked board")
+    func theTodayHeadingCoversLockedCards() {
+        let locked = [LockedSlot(slot: "mission", kindHint: "photo")]
+
+        // The ordinary free morning: one live question above one lock.
+        #expect(TodayPreview.board(today: [TodayPreview.item(.question)], locked: locked).showsTodaySection)
+
+        // **The same board, after the question is answered.** `merge` routes a done item out of
+        // `today`, so this is `today == [] && locked != []` — the case that shipped headerless.
+        #expect(TodayPreview.board(done: [TodayPreview.item(.question, done: true)], locked: locked).showsTodaySection)
+
+        // An entitled board with live prompts and no locks still gets one.
+        #expect(TodayPreview.board(today: [TodayPreview.item(.photo)]).showsTodaySection)
+
+        // And a board with neither does not — a heading over nothing is furniture.
+        #expect(TodayPreview.board(done: [TodayPreview.item(.question, done: true)]).showsTodaySection == false)
+        #expect(TodayPreview.board().showsTodaySection == false)
+    }
+
     // MARK: - The end of the board
 
     /// *"Nothing waiting. Today's prompts arrive in the morning"* under four locked cards is a flat

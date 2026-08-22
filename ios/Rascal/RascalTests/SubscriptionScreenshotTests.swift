@@ -234,18 +234,38 @@ struct SubscriptionScreenshotTests {
         // is `inkFraction` — "did anything draw" — and that is unchanged for every caller.
         minimumHeight: CGFloat = 100
     ) throws {
-        let renderer = ImageRenderer(
-            content:
-                view
-                .environment(\.dynamicTypeSize, size)
-                .frame(width: 393)
-                .background(Color.canvas)
-        )
-        renderer.scale = 2
-        renderer.proposedSize = ProposedViewSize(width: 393, height: nil)
+        func render(scale: CGFloat) -> (UIImage, Data)? {
+            let renderer = ImageRenderer(
+                content:
+                    view
+                    .environment(\.dynamicTypeSize, size)
+                    .frame(width: 393)
+                    .background(Color.canvas)
+            )
+            renderer.scale = scale
+            renderer.proposedSize = ProposedViewSize(width: 393, height: nil)
+            guard let image = renderer.uiImage, let data = image.pngData() else { return nil }
+            return (image, data)
+        }
 
-        guard let image = renderer.uiImage, let data = image.pngData() else {
-            Issue.record("\(name) produced no image")
+        // **Falls back to 1× when 2× cannot be encoded, rather than failing.**
+        //
+        // The membership sheet at `.accessibility5` with an introductory offer is roughly 4,300pt
+        // tall — about five screens — which at 2× is over 8,600px and past what the PNG encoder
+        // will write here; it returns no IDATs rather than an error. The layout is what these
+        // renders are for, and a 1× image shows the same layout, so dropping the scale keeps the
+        // coverage instead of losing the tallest and most interesting state.
+        //
+        // Recorded in the printed line so nobody compares a 1× render against a 2× one and
+        // concludes something moved.
+        var scale: CGFloat = 2
+        var rendered = render(scale: scale)
+        if rendered == nil {
+            scale = 1
+            rendered = render(scale: scale)
+        }
+        guard let (image, data) = rendered else {
+            Issue.record("\(name) produced no image at 2x or 1x")
             return
         }
         // **Height alone is not evidence.** A `ScrollView` renders its ground and none of its
@@ -258,7 +278,7 @@ struct SubscriptionScreenshotTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent("\(name).png")
         try data.write(to: url)
-        print("RASCAL_SCREENSHOT \(url.path) \(Int(image.size.width))x\(Int(image.size.height))")
+        print("RASCAL_SCREENSHOT \(url.path) \(Int(image.size.width))x\(Int(image.size.height)) @\(Int(scale))x")
     }
 }
 

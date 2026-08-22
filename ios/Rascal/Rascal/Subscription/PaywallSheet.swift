@@ -133,9 +133,11 @@ struct PaywallSheet: View {
     private var addsBlock: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionLabel(MembershipCopy.addsLabel)
-            VStack(alignment: .leading, spacing: 11) {
-                ForEach(MembershipCopy.adds, id: \.self) { line in
-                    BulletRow(text: neutral(line))
+            // Spacing 0 here: each row carries its own gap, because a `@ScaledMetric` on *this*
+            // struct does not scale — see `ListRow`.
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(MembershipCopy.adds.enumerated()), id: \.element) { index, line in
+                    ListRow(text: neutral(line), isFirst: index == 0, base: 11, bulleted: true)
                 }
             }
         }
@@ -165,15 +167,10 @@ struct PaywallSheet: View {
 
             // No dot here. The adds list enumerates things you would gain and the design marks each
             // one; this is a single statement about what is already true, and the design draws it as
-            // plain lines. 14 rather than the design's 9 because without a dot to separate them,
-            // `body`'s ~7pt line spacing leaves wrapped rows running together at XXL.
-            VStack(alignment: .leading, spacing: 14) {
-                ForEach(MembershipCopy.stayFree, id: \.self) { line in
-                    Text(neutral(line))
-                        .typeRole(.body)
-                        .foregroundStyle(Color.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            // plain lines. Wider than the design's 9 for the reason `rowSpacing(_:)` states.
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(MembershipCopy.stayFree.enumerated()), id: \.element) { index, line in
+                    ListRow(text: neutral(line), isFirst: index == 0, base: 14, bulleted: false)
                 }
             }
         }
@@ -542,34 +539,51 @@ private struct PlanRow: View {
     }
 }
 
-/// One line of *what membership adds*, marked with the design's 5pt terracotta dot.
+/// One line of a list on the sheet, owning the gap above it.
 ///
-/// **The dot is not an icon.** The copy file asks for *"no icons competing with the terracotta"* and
-/// the design draws this dot anyway, in terracotta — they are not in conflict: an icon per row would
-/// be five competing shapes, and a dot is a list marker.
+/// **The gap has to live here, not on the sheet, and that is not a style choice.**
+/// `.typeRole(.body)` applies `lineSpacing(0.45 × size)` where `size` is itself scaled, so the
+/// leading *inside* a wrapped item grows with Dynamic Type. A fixed gap *between* items does not —
+/// so from the accessibility sizes upward the gap inside a sentence becomes **larger** than the gap
+/// between two different ones, and three separate facts read as one run-on paragraph. Measured on
+/// the committed baseline: 74pt within against 68pt between, at `.accessibility5`.
 ///
-/// The top offset is scaled so the dot stays on the first line's centre as the type grows; at a
-/// fixed 9pt it drifts toward the cap-height of a much larger line and reads as misaligned.
-private struct BulletRow: View {
+/// A `@ScaledMetric` on `PaywallSheet` itself does **not** fix it, which is the part worth knowing:
+/// the screenshot harness reads `renderable` as a *property* off a struct that is never installed in
+/// a view graph, so the metric resolves to its base and the render silently shows the unscaled
+/// layout. `TrialWelcomeScreen` had the identical bug. A metric inside a row is evaluated where the
+/// environment actually is.
+///
+/// The bullet is the design's 5pt terracotta dot. **It is not an icon** — the copy file asks for
+/// *"no icons competing with the terracotta"* and the design draws this dot anyway: an icon per row
+/// would be five competing shapes; a dot is a list marker.
+private struct ListRow: View {
     let text: String
+    let isFirst: Bool
+    let base: CGFloat
+    let bulleted: Bool
 
+    @ScaledMetric(relativeTo: .body) private var gap: CGFloat = 1
     @ScaledMetric(relativeTo: .body) private var dot: CGFloat = 5
-    @ScaledMetric(relativeTo: .body) private var topOffset: CGFloat = 9
+    @ScaledMetric(relativeTo: .body) private var dotTop: CGFloat = 9
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Circle()
-                .fill(Color.terracotta)
-                .frame(width: dot, height: dot)
-                .padding(.top, topOffset)
-                .accessibilityHidden(true)
+        HStack(alignment: .top, spacing: bulleted ? 11 : 0) {
+            if bulleted {
+                Circle()
+                    .fill(Color.terracotta)
+                    .frame(width: dot, height: dot)
+                    .padding(.top, dotTop)
+                    .accessibilityHidden(true)
+            }
 
             Text(text)
                 .typeRole(.body)
-                .foregroundStyle(Color.ink)
+                .foregroundStyle(bulleted ? Color.ink : Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.top, isFirst ? 0 : base * gap)
         .accessibilityElement(children: .combine)
     }
 }

@@ -33,6 +33,16 @@ struct TodayBoard: Equatable {
     // post-trial notice. A board that stored it as well would be a second copy of an entitlement
     // answer, which is the one thing this phase is most careful not to have.
 
+    /// Whether the board draws its **Today** heading.
+    ///
+    /// **A property rather than a condition inside the view, because the view cannot be tested.**
+    /// `TodayBoardView` is a `List`, which `ImageRenderer` will not rasterize, and there is no UI
+    /// test target — so the rule was expressible nowhere. It was also a shipped defect: the heading
+    /// used to render only when `today` was non-empty, and the moment a free parent answered the
+    /// daily question their locked cards were left floating above *Waiting* with nothing naming
+    /// them. That is the state a free household is in for the rest of every day.
+    var showsTodaySection: Bool { !today.isEmpty || !locked.isEmpty }
+
     /// An assignment plus whatever the client knows that the server may not.
     struct BoardItem: Equatable, Identifiable {
         let assignment: AssignmentResponse

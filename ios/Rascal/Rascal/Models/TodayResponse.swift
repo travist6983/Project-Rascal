@@ -222,8 +222,19 @@ nonisolated enum LockedKind: RawRepresentable, Equatable, Sendable {
         return true
     }
 
-    /// The SF Symbol, drawn from the vocabulary `PromptCard`'s glyph tile already uses so that a
-    /// locked photo mission and a live one are recognisably the same kind of thing.
+    /// The SF Symbol on a locked card's tile.
+    ///
+    /// **Four of these are `PromptKind.symbol`'s vocabulary and two deliberately are not.**
+    /// `photo` → `camera` and `letter` → `envelope` match their live counterparts exactly, which is
+    /// the point: a locked photo mission and a live one are recognisably the same kind of thing.
+    ///
+    /// `weekly` and `monthly` draw a **`calendar`, which `PromptKind.symbol` does not contain** — so
+    /// they cannot match their live counterparts, and a live weekly renders whatever its prompt's
+    /// *kind* is (`figure.walk`, `camera`, …). That is deliberate rather than an oversight: the
+    /// server tells a locked card only which **slot** was withheld, never which kind of prompt would
+    /// have filled it, so there is no kind to echo. A calendar says *this week* and *this month*,
+    /// which is the only thing actually known. Recorded here because the alternative — guessing a
+    /// kind glyph — would be the client inventing a fact the server withheld on purpose.
     var symbolName: String {
         switch self {
         case .photo: "camera"
