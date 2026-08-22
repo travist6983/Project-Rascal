@@ -78,7 +78,7 @@ struct SubscriptionSection: View {
             Task { await model.refreshHousehold() }
         }
         .sheet(isPresented: $showingPaywall) {
-            PaywallSheet(model: model, context: .settings) { showingPaywall = false }
+            PaywallSheet(model: model) { showingPaywall = false }
         }
         // **The system sheet, not a link to a Safari URL.** A parent cancelling should be doing it
         // in the place Apple already keeps their subscriptions, and a web page here would be one
