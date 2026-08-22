@@ -295,6 +295,7 @@ extension FamilySummary {
         FamilySummary(
             familyId: UUID(),
             tier: tier,
+            access: tier == "subscribed" ? .subscribed : .free,
             guardians: [
                 GuardianSummary(
                     userId: UUID(), displayName: "Travis", role: "parent",

@@ -253,17 +253,30 @@ final class SubscriptionModel {
         }
         defer { deadline.cancel() }
 
+        // Both halves start together and are awaited separately, so the household can be published
+        // the moment it lands rather than waiting on the store.
         async let householdResult = loadHousehold()
         async let offerResult = loadOffer()
-        let (family, offer) = await (householdResult, offerResult)
 
-        // **A load the deadline gave up on does not get to change anything.** By the time a hung
+        let family = await householdResult
+        // **Published here, not at the join, and that is what closes the stomp.**
+        //
+        // The store can hang for as long as it likes; `refreshHousehold()` and `restore()` can both
+        // publish a newer household while it does — driven by `Transaction.updates` and by a
+        // foreground, from two different screens. If this load held its `t=0` summary until the
+        // offer arrived, it would then write that stale answer over the newer one, and `household`
+        // is exactly what `canBuy` and the Settings row read.
+        //
+        // The generation check still applies: a load the deadline gave up on before the household
+        // even arrived has nothing worth publishing.
+        if generation == loadGeneration, let family { household = family }
+
+        let offer = await offerResult
+
+        // **A load the deadline gave up on does not get to move the screen.** By the time a hung
         // store finally answers, a newer `load()` may have run and found the truth; last writer wins
-        // would make that the stale one — for `household` as much as for `phase`, which is why the
-        // guard sits above both rather than between them.
+        // would make that the stale one.
         guard generation == loadGeneration else { return }
-
-        if let family { household = family }
 
         switch (family, offer) {
         case (let family?, let offer?):

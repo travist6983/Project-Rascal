@@ -133,6 +133,10 @@ private func household(_ tier: String, id: UUID = UUID()) -> FamilySummary {
     FamilySummary(
         familyId: id,
         tier: tier,
+        // `tier` and `access` agree in every case this suite exercises. They are separate fields
+        // because they can disagree — a household on the free tier may still be inside its trial —
+        // and nothing here depends on that.
+        access: tier == "subscribed" ? .subscribed : .free,
         guardians: [
             GuardianSummary(
                 userId: UUID(), displayName: "Travis", role: "parent",

@@ -502,7 +502,7 @@ struct MembershipTests {
             MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
         )
         let performer = StubPerformer()
-        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "subscribed").utf8), 200) }
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "subscribed", access: "subscribed").utf8), 200) }
         let session = onboardingSession(performer, tokens: signedIn, membership: store)
 
         #expect(await session.owesTrialWelcome() == false, "a paying household must not be shown a trial")
@@ -520,11 +520,57 @@ struct MembershipTests {
             MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
         )
         let performer = StubPerformer()
-        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "free").utf8), 200) }
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "free", access: "trial").utf8), 200) }
         let session = onboardingSession(performer, tokens: signedIn, membership: store)
 
         #expect(await session.owesTrialWelcome())
         #expect(store.load().trialWelcomeShown == false, "asking is not showing")
+    }
+
+    /// **The case `tier` could never have seen.**
+    ///
+    /// A returning parent signing in on a new phone, whose fortnight ended long ago, is
+    /// `tier: "free"` — identical to a household three days into its trial. Gating on
+    /// `isSubscribed` would have told them *"Two weeks, everything open. No card, nothing to
+    /// cancel."* `access` is the only field that distinguishes them, and phase 107 already returns
+    /// it on `/families/me`.
+    @MainActor
+    @Test("a free household whose trial has already ended is not welcomed to a new one")
+    func aLapsedHouseholdIsNotWelcomedAgain() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in
+            (Data(Self.familyJSON(tier: "free", access: "free").utf8), 200)
+        }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeShown, "settled — they should not be asked again either")
+    }
+
+    /// A server that does not report `access` cannot confirm a trial, so nothing is shown — **and
+    /// nothing is spent**, so a later launch against a server that does report it asks again.
+    @MainActor
+    @Test("a server that does not report access neither welcomes nor settles")
+    func aServerWithoutAccessDefersTheWelcome() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in
+            let json = """
+                { "family_id": "33333333-3333-3333-3333-333333333333", "tier": "free",
+                  "guardians": [], "pending_invites": [] }
+                """
+            return (Data(json.utf8), 200)
+        }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeOwed, "the flag must survive so a later launch retries")
+        #expect(store.load().trialWelcomeShown == false)
     }
 
     /// **Fails closed, and does not spend the flag.** A household we could not ask about is not
@@ -546,10 +592,10 @@ struct MembershipTests {
     }
 
     /// A `/families/me` body good enough for `FamilySummary`.
-    private static func familyJSON(tier: String) -> String {
+    private static func familyJSON(tier: String, access: String) -> String {
         """
         { "family_id": "33333333-3333-3333-3333-333333333333", "tier": "\(tier)",
-          "guardians": [], "pending_invites": [] }
+          "access": "\(access)", "guardians": [], "pending_invites": [] }
         """
     }
 

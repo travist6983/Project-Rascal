@@ -382,13 +382,27 @@ final class OnboardingSession {
             return false
         }
         guard let household = try? await account.api.family() else { return false }
-        guard !household.isSubscribed else {
-            // Not merely un-owed: **spent**. A subscriber should not be shown this later either, and
-            // one confirmed answer is enough to settle it forever.
+
+        switch household.access {
+        case .trial:
+            return true
+        case .none:
+            // A server that does not report `access` cannot confirm a trial, so this does not show
+            // — and the flag is **not** spent, so a launch against a server that does report it
+            // asks again.
+            return false
+        default:
+            // Subscribed, free, or a value newer than this build. **Spent, not merely un-owed:**
+            // none of them has two weeks ahead of it, and one confirmed answer settles it forever.
+            //
+            // `free` matters as much as `subscribed` here, and `tier` could not have told them
+            // apart — a household whose fortnight ended last year is `tier: "free"` exactly like one
+            // three days into its trial. Gating on `isSubscribed` was blind in precisely the place
+            // the copy depends on: it would still have told a returning parent on a new phone that
+            // they had "Two weeks, everything open."
             declineTrialWelcome()
             return false
         }
-        return true
     }
 
     /// Spent. Shown is shown, whether or not the parent read it.

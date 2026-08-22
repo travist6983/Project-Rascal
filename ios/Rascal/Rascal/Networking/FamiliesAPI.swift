@@ -61,6 +61,18 @@ nonisolated struct FamilySummary: Decodable, Equatable, Sendable {
     /// `free` or `subscribed`. **The server is the only thing that decides this** — the device
     /// never does, for the same reason it never decides what day it is.
     let tier: String
+
+    /// What this household may be served, added to `/families/me` by phase 107.
+    ///
+    /// **`tier` cannot answer this and never could.** It is constrained to `free | subscribed` —
+    /// *"there is deliberately no `trial` value here"* — so a household three days into its trial
+    /// and one whose fortnight ended a year ago are both `free`. Anything that needs to tell those
+    /// apart has to read this.
+    ///
+    /// Optional because a server predating phase 107 does not send it, and absent must stay
+    /// distinguishable from `free`.
+    let access: Access?
+
     let guardians: [GuardianSummary]
     /// Only invites still acceptable. Accepted, revoked and expired ones are history.
     let pendingInvites: [InviteSummary]
