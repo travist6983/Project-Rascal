@@ -25,8 +25,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from rascal.models.base import Base, created, one_of, optional_moment, updated, uuid_pk
 
-#: `sent` reached Resend. `skipped` is a dry run, which is the state everything is in until the
-#: P0 behavioural gate passes. `failed` tried and did not.
+#: `sent` reached Resend. `skipped` is a dry run — ~~the state everything is in until the P0
+#: behavioural gate passes~~, which stopped being true on Aug 19, 2026 when the flag was set;
+#: every row since is `sent`. `failed` tried and did not.
 BROADCAST_STATUSES: tuple[str, ...] = ("sent", "skipped", "failed")
 
 

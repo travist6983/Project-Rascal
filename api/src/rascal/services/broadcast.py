@@ -11,9 +11,12 @@ the three ways forward; picking one is the owner's call, not this module's.
 A broadcast needs none of that. It goes to an audience id, Resend expands it, and nothing about
 any individual passes through this process.
 
-**Nothing sends until `MARKETING_EMAIL_ENABLED=true`.** Open item 12 repeats in every line that
-touches this work: no marketing email before the P0 behavioural gate. Everything below runs in
-full without it — the send is the one withheld step.
+**Nothing sends until `MARKETING_EMAIL_ENABLED=true`.** ~~Open item 12 repeats in every line that
+touches this work: no marketing email before the P0 behavioural gate.~~ — **the owner lifted that
+gate on Aug 22, 2026; the flag is set on `rascal-api` and this job has been sending daily since
+Aug 19.** The flag itself is unchanged and still defaults to off, because setting a mail credential
+must not also start mailing a list. Everything below runs in full without it — the send is the one
+withheld step.
 """
 
 from __future__ import annotations
@@ -259,7 +262,7 @@ def is_live(settings: Settings) -> bool:
 def why_not_live(settings: Settings) -> str:
     """The specific missing piece, so a dry run says which one rather than just 'dry run'."""
     if not settings.marketing_email_enabled:
-        return "MARKETING_EMAIL_ENABLED is false (the P0 behavioural gate has not passed)"
+        return "MARKETING_EMAIL_ENABLED is false, so the send is withheld"
     if not settings.mail_api_key:
         return "MAIL_API_KEY is unset"
     if not settings.resend_audience_id:
