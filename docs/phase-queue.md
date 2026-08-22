@@ -24,11 +24,27 @@ is the video renderer's provider switch — **built and green in the working tre
 branch, uncommitted**, which is a state this header had never had to describe before and the reason
 its row went into `roadmap-status.md` before the commit rather than after it.
 
-**The highest number used is 109. A genuinely new phase takes 110.** 107 is the entitlement and
-cadence work (API lane), 108 is the locked board and membership sheet (iOS lane), and 109 is the
-marketing site's free-tier copy. **107 and 108 both wrote their rows into `roadmap-status.md` at
-allocation rather than at ship** — the remedy this header has asked for across nine instances and
-had never once received.
+~~*The highest number used is 109. A genuinely new phase takes 110.*~~ — **struck a seventh time on
+Aug 21, 2026, within the hour, by 110 itself taking the number this sentence offered.** 107 is the
+entitlement and cadence work (API lane), 108 is the locked board and membership sheet (iOS lane),
+and 109 is the marketing site's free-tier copy. **107, 108, 109 and 110 all wrote their rows into
+`roadmap-status.md` at allocation rather than at ship** — the remedy this header has asked for
+across nine instances, had never once received before tonight, and has now received four times
+running.
+
+**The highest number used is 110. A genuinely new phase takes 111.** 110 is the design-conformance
+pass over 108: the approved Claude Design bundle, committed to the repository, and 108's tree
+audited against it.
+
+**110 is the first strike in this file's history that is not a failure**, and the distinction is
+worth keeping rather than filing it with the other nine. Every previous strike records a number
+found spent *after* somebody had already taken it. This one records the sentence being consumed
+**as designed** — 110 read *"a genuinely new phase takes 110"*, took 110, and rewrote the line in
+the same commit, before a line of its own work existed. **The header went stale in under an hour
+and that is the system working**, not drifting: a next-number claim is meant to be consumed and
+replaced, and the nine instances above are all cases where it was consumed and *not* replaced.
+**The failure this file records has never been staleness. It is the gap between reading a number
+and writing it down**, and four phases in one evening have now closed it.
 
 **109 is the ninth instance, and it is the fifth blind spot rather than any of the four before it.**
 All four prescribed commands were run on Aug 21 before 108 took its number. They returned: commits
