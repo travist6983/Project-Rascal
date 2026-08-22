@@ -975,6 +975,16 @@ struct MembershipTests {
 
     /// And that it does **not** fire on the near-misses the rule deliberately allows — a matcher
     /// that flags everything is as useless as one that flags nothing.
+    /// A typographic apostrophe is the same word. A ban that only recognises `'` is one somebody
+    /// evades by pasting prose from a document.
+    @Test("the banned-word guard reads both apostrophes as the same character")
+    func theBannedWordGuardNormalisesApostrophes() {
+        #expect(MembershipCopy.contains("Don't lose", in: "Don\u{2019}t lose your archive"))
+        #expect(MembershipCopy.contains("You've missed", in: "You\u{2019}ve missed four missions"))
+        // And the plain spelling still matches, so normalising did not break the ordinary case.
+        #expect(MembershipCopy.contains("Don't lose", in: "Don't lose your archive"))
+    }
+
     @Test("the banned-word guard does not fire on words that merely contain a banned one")
     func theBannedWordGuardIsNotOverEager() {
         #expect(MembershipCopy.contains("Pro", in: "Today's photo mission prompt") == false)

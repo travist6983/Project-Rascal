@@ -196,14 +196,22 @@ nonisolated enum MembershipCopy {
     /// `Pro` is matched as a whole word so it does not fire on "**pro**mpt"; `Only X left` is a
     /// shape rather than a literal.
     static func contains(_ phrase: String, in string: String) -> Bool {
-        let haystack = string.lowercased()
-        switch phrase.lowercased() {
+        // **Apostrophes are normalised before matching.** Half these phrases contain one — "Don't
+        // lose", "You've missed" — and prose that reaches a screen may carry either the straight
+        // `'` or the typographic `\u{2019}`. A ban that only recognises one spelling of the same
+        // word is a ban somebody evades by accident.
+        func flatten(_ text: String) -> String {
+            text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
+        }
+
+        let haystack = flatten(string)
+        switch flatten(phrase) {
         case "pro":
             return haystack.split(whereSeparator: { !$0.isLetter }).contains("pro")
         case "only x left":
             return haystack.contains("only") && haystack.contains("left")
         default:
-            return haystack.contains(phrase.lowercased())
+            return haystack.contains(flatten(phrase))
         }
     }
 

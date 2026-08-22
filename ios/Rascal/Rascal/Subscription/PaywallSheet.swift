@@ -136,7 +136,7 @@ struct PaywallSheet: View {
             // Spacing 0 here: each row carries its own gap, because a `@ScaledMetric` on *this*
             // struct does not scale — see `ListRow`.
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(MembershipCopy.adds.enumerated()), id: \.element) { index, line in
+                ForEach(Array(MembershipCopy.adds.enumerated()), id: \.offset) { index, line in
                     ListRow(text: neutral(line), isFirst: index == 0, base: 11, bulleted: true)
                 }
             }
@@ -169,7 +169,7 @@ struct PaywallSheet: View {
             // one; this is a single statement about what is already true, and the design draws it as
             // plain lines. Wider than the design's 9 for the reason `rowSpacing(_:)` states.
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(MembershipCopy.stayFree.enumerated()), id: \.element) { index, line in
+                ForEach(Array(MembershipCopy.stayFree.enumerated()), id: \.offset) { index, line in
                     ListRow(text: neutral(line), isFirst: index == 0, base: 14, bulleted: false)
                 }
             }
