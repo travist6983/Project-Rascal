@@ -552,13 +552,25 @@ exception); and the hardcoded glyph-tile radius `11` (matches `PromptCard` and `
 
 ### 10.1a · Eight guards that could not fail — and the failure recurses down a chain of fixes
 
-> **A green suite is a sample size of one.**
+> **A green suite is a sample size of one.** — phase 108's phrase for it.
 
 **This is the finding worth carrying past this phase.** It is a **seam** finding: phase 108 supplied
-the diagnosis, the marketing lane supplied the instance nobody would have predicted, and
-break-testing supplied the method that caught three. **What none of the three sessions did alone was
-notice it was a pattern** — that took three of them comparing notes in one night, which is precisely
-what a single reviewer cannot do.
+the recursion insight and the diagnosis of instance 5, the marketing lane supplied the instance
+nobody would have predicted, and phase 110 supplied the break-testing that caught three and the
+repetition that caught two more. **What none of the three sessions did alone was notice it was a
+pattern** — that took three of them comparing notes in one night, which is precisely what a single
+reviewer cannot do.
+
+**The transferable part is a method, not the slogan above it**, and it is worth stating separately
+so the next reader learns the first rather than the second: **run the identical binary repeatedly
+and compare.** Not "re-run if it looks flaky" — run it four times as a matter of course, without a
+prior suspicion, because the failure being hunted is one that *presents as a pass*. That is what
+turned F15 from an intuition into a measurement (four runs: ✘ ✔ ✘ ✔), and it is what made the
+mechanism findable — MainActor contention delaying an unstructured `Task`'s hop past a fixed timer,
+which converts an assertion that reads as causal into one that is temporal. The fix followed from
+the mechanism: **remove the clock rather than tune it.** A shorter timer or a longer poll would have
+made the test luckier; only deleting the wall clock made the assertion mean what its comment
+claimed.
 
 **The sharper half, and it is phase 108's observation:** the pattern does not only recur across
 people. **The failure recurses down a chain of fixes.** Three layers, one sitting, one author:
@@ -622,6 +634,46 @@ that thirteen reviewers had not.
 **And one corollary, from instance 8:** removing a flake can expose a deterministic error the flake
 was hiding. That is the flake paying for itself — *"a test that is wrong is worth more than one that
 is flaky, because it tells you which."* Six identical runs, one message, no ambiguity.
+
+#### The cost of reading it wrong, recorded because the next reader will read it the same way
+
+**Phase 108 hit this flake before anyone named it, and drew the opposite conclusion from the same
+data.** The 5.4s `didFinish == true` failures were read as *the implementation is wrong*, and **two
+design changes were made on that basis** across four runs — a `withTaskGroup` race, then a one-shot
+continuation between unstructured tasks — before the instrument was suspected instead of the
+subject. This is recorded at that session's own request, and it is the most useful paragraph in the
+section.
+
+**Both halves have to survive, and dropping either one misleads:**
+
+- **The design change stands independently.** `withTaskGroup` really does await every child;
+  `cancelAll()` only *requests*. Measured on this toolchain: a 200ms sleeper racing a 3s
+  non-cooperative child returned after **3.20s**. The timeout genuinely bounded nothing, and
+  replacing it was correct regardless of the flake.
+- **The flake was always the test.** `HangingStore` blocked no thread — it suspended. Nothing was
+  starved. The failures were never evidence about the implementation at all.
+
+Drop the first half and the fix looks unnecessary. Drop the second and it looks sufficient. **The
+tell that separates them is repetition**: a wrong implementation fails every run, and this failed
+about half of them. **Nobody counted until the fourth run.**
+
+#### Why the two shipping defects came from the seam rather than from either session
+
+**Neither is a review technique, and that is the point.** The two defects that would have reached a
+parent — F1, a paying subscriber told they were on a free trial, and F13, a sheet reviewed only in a
+state that cannot occur — were each found by one session holding a different model of the *same
+artefact* than the session that made it.
+
+- **F1 needed someone else's break-test against 108's code.** That session could not have broken it
+  usefully: it would have broken it the way it built it, which is instances 1, 2 and 3 of the list
+  above, three times over.
+- **F13 needed someone reading renders 108 had generated and not opened.** The images existed and
+  were committed; nobody had looked at the one that mattered, because the harness's purpose was
+  understood as *producing* them.
+
+**Both are consequences of two agents comparing models of one artefact**, not of either reviewing
+harder. It is the same property that made the eight-instance pattern visible at all — no single
+session saw more than two of them.
 
 ### 10.2 · Two App Review requirements were deletable, and now are not
 
