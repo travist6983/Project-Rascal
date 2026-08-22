@@ -323,9 +323,17 @@ old enough"*. That is a change to the owner's words — mechanical, but real.
 `{They}` / `{Them}` / `{Their}`, so *"His other parent"* → `{Their} other parent` renders correctly
 at sentence start; capitalisation is explicit and never positional. `children.pronouns` exists,
 onboarding **does** collect it (`ChildSetupFlow.swift:49`, `PronounsStep`), and both `AddChildSheet`
-and `EditChildSheet` carry pickers. **`docs/blocked.md:170` is stale** where it says *"Onboarding
-does not ask for pronouns"*. An unanswered pronoun renders the they/them column, so a parent who
-skipped the step gets grammatical English and never a visible `{token}`.
+and `EditChildSheet` carry pickers. **`docs/blocked.md` is stale** where its *"iOS Onboarding — the
+avatar has nowhere to go, and pronouns have nowhere to live"* section says *"Onboarding does not ask
+for pronouns"*. ~~`docs/blocked.md:170`~~ — **cited by section and quoted sentence instead of by line,
+Aug 22, 2026 (phase 111).** The number was correct when this report was written — it is the pronouns
+bullet on `main` — and phase 111's reordering of `blocked.md` moved that bullet elsewhere in the file
+and left `:170` on an unrelated paragraph about a CI outage. **No replacement number is given:** the
+first attempt at this sentence named one and it was wrong on the day it was written, which is the
+argument this sentence is making. **Nothing edited this file to break it**, which is
+the argument for the section and the quoted sentence over the number. An unanswered pronoun renders
+the they/them column, so a parent who skipped the step gets grammatical English and never a visible
+`{token}`.
 
 **Still open for the owner**, and neither agent may decide it: on the sheet, *"Their other parent, on
 the same archive"* is grammatical but stilted beside the owner's *"His other parent."* A sentence

@@ -800,8 +800,14 @@ The alternative was to type it only once bytes landed, and it had a hole with no
 that never completes never calls `POST /media/{id}/complete`, so the entry kept its creation-time
 type **permanently** and fell out of the `?type=` filters forever. A recording made off Wi-Fi
 whose upload later died was a voice note filed as an entry with nothing in it. `upload_status` is
-the field that answers "are the bytes there"; `entry_type` answers "what is this". See
-`docs/blocked.md` §14.
+the field that answers "are the bytes there"; `entry_type` answers "what is this".
+
+The full derivation, including every route that recomputes it, is `docs/data-model.md`'s `entries`
+section under *"`entry_type` is derived, and this row is the one that has to say so"*. ~~See
+`docs/blocked.md` §14.~~ — **struck Aug 22, 2026 (phase 111): §14 was resolved on Aug 18, 2026 by
+phase 86 and is struck through in `blocked.md`, so it is where this was open, not where the rule
+is written down.** It is named rather than dropped because the pointer stood here for four days
+and a reader who followed it should land somewhere that explains why.
 
 A freeform entry has no assignment and so falls through to (3)/(4). What was asked is still
 reachable through `assignment_id` → `prompt.kind`. The values are `photo`, `video`, `audio`,
@@ -1702,9 +1708,15 @@ reusing that limiter is the fix and it is a small one.
 middleware is configured on this app today; this endpoint is what introduces it, and it must not
 be introduced as a wildcard.
 
-**Timing.** The endpoint and the page it serves may ship before the P0 behavioural gate. **No
+**Timing.** ~~The endpoint and the page it serves may ship before the P0 behavioural gate. **No
 marketing email sends before that gate passes** — the send job is a separate, later phase, and
-nothing in this section authorizes one.
+nothing in this section authorizes one.~~ — **struck Aug 22, 2026 (phase 111). Both halves are
+overtaken.** The send job shipped as phase 69, and the owner lifted the gate on Aug 22: the daily
+broadcast has been arming and sending since Aug 19, 2026. **This paragraph is one of four places
+that carried the holding after it was lifted**, and it survived the first correction pass because
+that pass edited this file for an unrelated pointer without grepping it for the sentence — the
+same failure the strike in `blocked.md` §13 records. The evidence is in `blocked.md` §13 under
+*"The broadcast is live, and that is intended"*.
 
 ---
 

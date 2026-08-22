@@ -1,7 +1,15 @@
 # Device verification — the photo caption check
 
-**9 boxes.** Needs a TestFlight build and **a real camera roll** — years of it, from a real phone.
-A simulator's photo library is a handful of Apple-supplied samples and answers nothing.
+**9 boxes.** ~~Needs a TestFlight build and~~ — **struck Aug 22, 2026: it has not needed one since
+Aug 16, 2026**, when the owner took a device build carrying `CaptionProbe` and its Settings row.
+`docs/blocked.md` §9 recorded that six days ago — *"the measurement is runnable now, and is no
+longer waiting on a build"* — but this line, which is the first thing anyone opening the checklist
+reads, still named the thing that had stopped it. What it needs is **a real camera roll** — years
+of it, from a real phone. A simulator's photo library is a handful of
+Apple-supplied samples and answers nothing.
+
+**So the only remaining inputs are that phone and an evening.** Run it from a release build on the
+device you already have; there is nothing to wait for and nothing to request.
 
 **This is not a feature checklist. It is a measurement, and its result decides a phase.**
 

@@ -146,13 +146,15 @@ fly secrets set --app rascal-api \
 | `APNS_PRIVATE_KEY` | Fly secret | Same as above. The **contents** of the `.p8`, not a path. |
 | `APNS_TOPIC` | Fly secret, optional | Defaults to `APPLE_BUNDLE_ID`, which is correct. Set it only if the two ever legitimately differ. **Wrong** is worse than unset: the app starts and APNs rejects every token with `DeviceTokenNotForTopic`. |
 | `MAIL_PROVIDER` | Fly secret | **Now `console` or `resend`** — phase 60 deleted the Postmark adapter rather than disabling it, per D8, and the swap was cheap only because it had never run. **Still unset in production, and unlike the rest of this table that is its actual state.** Unset defaults to `console`, which never opens a socket. The app starts, the health check is green, `POST /auth/email/start` returns its unconditional `202`, and **the magic link is printed to the Fly logs instead of being emailed.** Both call sites swallow delivery failures by design — the response must not become a timing oracle — so nothing is logged as an error and nothing fails. **A parent who asks for a sign-in link simply never gets one.** Verified Aug 16, 2026: no `MAIL_*` value is set on `fly.toml` or as a secret, so this is production's actual state, not a hypothetical. |
-| `MAIL_API_KEY` | Fly secret | Only read when `MAIL_PROVIDER` names a real provider; with the provider unset it does nothing at all. **Set the provider and leave this unset** and every send raises `MailDeliveryError` at the first call — which the two callers swallow, so the symptom is again `202`-and-no-email, with one `warning` line per attempt. **Wrong** value is identical from the outside: the provider answers `4xx`, which is deliberately never retried, and the parent still sees a cheerful "check your email". The decision conversation called this `RESEND_API_KEY`; **phase 60 kept the provider-agnostic name**, because the port behind it is provider-agnostic by decision (D8a) and a rename would rotate a secret for nothing a parent ever sees. It is now also what `POST /v1/subscribe` authenticates to Resend's contacts API with, so one key covers both the send and the list. **It must be a full-access key, not `sending_access`** — the contacts write needs more than send. |
+| `MAIL_API_KEY` | Fly secret | Only read when `MAIL_PROVIDER` names a real provider; with the provider unset it does nothing at all. **Set the provider and leave this unset** and every send raises `MailDeliveryError` at the first call — which the two callers swallow, so the symptom is again `202`-and-no-email, with one `warning` line per attempt. **Wrong** value is identical from the outside: the provider answers `4xx`, which is deliberately never retried, and the parent still sees a cheerful "check your email". The decision conversation called this `RESEND_API_KEY`; **phase 60 kept the provider-agnostic name**, because the port behind it is provider-agnostic by decision (D8a) and a rename would rotate a secret for nothing a parent ever sees. It is now also what `POST /v1/subscribe` authenticates to Resend's contacts API with, so one key covers both the send and the list. ~~**It must be a full-access key, not `sending_access`** — the contacts write needs more than send.~~ — **struck Aug 22, 2026 (phase 111): the deployed key contradicts it and this row was restating as settled a thing that is open.** The key on `rascal-api` answers **403** to `GET /audiences/{id}/contacts` from inside the production machine, and §13 records two readings that fit and settles neither: a narrower key that still covers every call this service makes, or a latent failure the next contacts call will find. **Nobody has run a `POST /v1/subscribe` since the key was deployed**, so nothing here shows the contacts *write* working under it either. **`docs/blocked.md` §13 holds the unresolved note and the one cheap check that would settle it** (one `POST /v1/subscribe` against the deployed API, then look for the contact); read it there rather than deciding from this table. **Do not widen the key on the strength of this row.** |
 | `MAIL_FROM` | Fly secret | The address mail is sent as, and therefore **the sending subdomain**, never the apex — D8. Nothing in the app validates it. A wrong or unauthenticated domain sends successfully as far as the API is concerned, and the message is then junked or rejected downstream by the recipient's DMARC evaluation. **The app cannot see this failure**; only the provider dashboard and a test send to a real inbox can. |
 | `TURNSTILE_SECRET_KEY` | Fly secret | **Built, phase 60, and it fails closed.** This row previously called out the defect before the code existed — verification written to skip when the key is unset, turning the spam gate off while everything looked healthy. It does the opposite: **no key is a `503`, and so is no answer from Cloudflare.** Unset therefore means the signup endpoint refuses, visibly, rather than accepting junk quietly. There is deliberately **no `ENVIRONMENT == "local"` bypass** — Cloudflare publishes test keys that always pass, which is what a local run uses, because a second way through the gate is the one that survives into production by accident. `POST /v1/subscribe` still carries no rate limit by decision, so this key remains the entire protection on a public unauthenticated write endpoint. |
 | `RESEND_AUDIENCE_ID` | Fly secret | **Where a subscriber actually lives**, because there is no `subscribers` table — the list is provider-held per open item 12(4). Unset means `POST /v1/subscribe` answers `503` rather than accepting an address it cannot store, which is the same rule as the Turnstile key above and for the same reason: **accepting a signup we cannot keep would make the marketing page look like it worked.** |
 | `MARKETING_ORIGINS` | Fly secret or `fly.toml` | **Built, phase 60. Plural, and it replaces the `MARKETING_ORIGIN` this table used to name** — a list from the first commit, so a custom domain beside the github.io one is a config change rather than a migration off a scalar. Defaults to `https://travist6983.github.io`, which is where D7 puts the marketing site. **Unset or wrong is the quiet failure**: the endpoint keeps working perfectly under `curl` and under every test, while the browser silently refuses the form on the real site — a preflight failure in a console nobody has open. **An empty value means no origin at all, never `*`**: a wildcard is the failure in the other direction and is worse, because any page anywhere may then post to it. |
 | `APP_STORE_APP_APPLE_ID` | Fly secret | **Phase 37a, and unset today.** The app's *numeric* Apple ID from App Store Connect, not the bundle id. Apple's library refuses to build a Production verifier without it, so while it is missing `POST /v1/webhooks/app-store` answers **`401` to every notification** and no entitlement is ever written. The app starts and the health check is green — this failure is visible only in the logs and in a household whose payment did nothing. See `docs/blocked.md` §10a. |
 | `APP_STORE_BUNDLE_ID` | Fly secret, optional | Defaults to `APPLE_BUNDLE_ID` while that names exactly one audience, which is correct today. **Deliberately not chained to `APNS_TOPIC`** — that setting aims push at one audience, and letting it also decide whose receipts we accept would couple a delivery detail to an authorization boundary. Required once `APPLE_BUNDLE_ID` names more than one audience; unset-and-ambiguous fails closed at the verifier (`401`, with an `ERROR` naming the setting) rather than refusing to start, because nothing here is configured yet and taking the API down for it would be worse than the webhook staying shut. |
+| `GITHUB_BILLING_TOKEN` | Fly secret, optional | **Absent today**, verified against `flyctl secrets list -a rascal-api` on Aug 22, 2026, and the only consequence is that the admin console's Actions-spend card renders `unconfigured` with its own setup text. Nothing else degrades and no other card is affected. It must be a **fine-grained** personal access token whose one permission is **Account permissions → Plan → Read-only**. A classic token will not work, and neither will the repo-scoped token CI already holds — this endpoint reads the *account's plan*, not a repository. **A token missing that permission answers `404`, not `403`**, which is the trap: a bare "not found" reads as a mistyped account name and sends you renaming `GITHUB_ACCOUNT` instead of regenerating the token. `403` here means something else entirely — the account is not on GitHub's enhanced billing platform. `services/billing/github.py` says all of this on the card's face for that reason. Only the account owner can mint it. |
+| `GITHUB_ACCOUNT` | `fly.toml` `[env]` or Fly secret, optional | Defaults to `travist6983` (`config.py:290`), which is correct, so this is normally left alone. Named here only because it is the thing you will be tempted to change when the row above answers `404`, and it is almost never the problem. |
 
 ### 4a. APNs — the push credentials, and where the `.p8` comes from
 
@@ -336,6 +338,13 @@ taps *delete my account*, is signed out, sees every confirmation the app can giv
 sits in `deletion_requests` forever. The API stays green the entire time. There is no read path
 that repairs it, exactly as there is none for notifications.
 
+**That is the state production is in today, and it is not hypothetical.** `flyctl machines list -a
+rascal-api` on Aug 22, 2026 returns **five** machines and none of them runs `python -m
+rascal.jobs.delete` — the inventory is at the end of §4d. So nothing on any schedule finishes a
+seven-day erasure, and nothing in this repository records the machine described above ever having
+been created. `blocked.md` carries the long-form entry; this paragraph is here so that an operator
+reading the deletion job's own section does not have to reach §4d to learn that it does not exist.
+
 **`--dry-run` exists because this is the only job in the service that destroys user data**, and it
 prints what would go without touching anything. Use it the first time, and after any change to the
 grace period. Note that the deletion is a **hard** delete by deliberate exception to the
@@ -343,7 +352,7 @@ soft-delete rule — `data-model.md`'s `deletion_requests` section explains why 
 being gone rather than a `completed_at` column, which also means **a run you did not want cannot be
 undone from the database.**
 
-### 4d. The broadcast job — a fourth scheduled machine, and it is the one that must NOT be armed yet
+### 4d. The broadcast job — a fourth scheduled machine, ~~and it is the one that must NOT be armed yet~~ — **armed Aug 19, 2026, and sending daily**
 
 **Added to this runbook Aug 18, 2026, and it had zero mentions here before that.** The job is
 `python -m rascal.jobs.broadcast`, shipped in phase 69 on Aug 17.
@@ -358,15 +367,46 @@ ran `fly machine run`. So the machine runs hourly and **the job decides which ru
 ever changed. A row claims the day, so an off-hour run recording `skipped` would silently cancel
 that day's send rather than defer it.
 
-**Read the rest of this section before creating it, because arming it is a decision and not a
-step.**
+**That decision has been taken. The machine exists and the mail is going out.** Machine
+`683e1eea463d28` / `late-fire-837` was created **2026-08-19T02:15:36Z**, the owner's call, and the
+first send landed the same day. As of Aug 22, 2026 `email_broadcasts` holds four rows, **all
+`status='sent'`** — none failed, none skipped:
+
+| `send_date` | `pool_index` | `resend_id` | `sent_at` |
+|---|---|---|---|
+| 2026-08-22 | 11 | `d9e6b965-c54c-406a-9fa0-b89fd5f5a512` | 12:15:05Z |
+| 2026-08-21 | 10 | `f3e802d5-f091-43e5-a66b-4772adae4223` | 12:15:06Z |
+| 2026-08-20 | 9  | `6f8ab6f3-e217-45bc-bbea-c4fe02ead438` | 12:15:07Z |
+| 2026-08-19 | 8  | `c4a32683-7972-4658-9710-300be51e407c` | 12:15:08Z |
+
+`MARKETING_EMAIL_ENABLED`, `MAIL_PROVIDER`, `MAIL_FROM` and `RESEND_AUDIENCE_ID` all read
+**Deployed** in `flyctl secrets list -a rascal-api`, checked Aug 22, 2026. The hourly wake is
+working as designed: today's 13:15Z run logged `broadcast: not the send hour — it is 09:15 EDT,
+sending at 08:00. Nothing written.` and did exactly that. **The last two words are part of the log
+line, not a gloss** — `jobs/broadcast.py` emits the whole thing from one f-string — and this page
+quotes it in full because a runbook is read while somebody is holding a log beside it, and a quote
+that stops early is a quote a reader cannot match.
+
+**How many people received those four emails is not knowable from here, and must not be guessed.**
+`MAIL_API_KEY` is send-scoped, so `GET /audiences/{id}/contacts` answers **403** from inside the
+production machine. The Resend dashboard is the only place that can answer it. **Do not write a
+recipient count into this runbook or anywhere else in `docs/` from a number you inferred** — a
+send ledger records that a send happened, not who it reached.
+
+**Read the rest of this section before creating one in a new environment, because arming it is a
+decision and not a step.**
 
 `MARKETING_EMAIL_ENABLED` defaults false and is **deliberately kept separate from the mail
 credentials** so that configuring `MAIL_API_KEY` to make `POST /v1/subscribe` work cannot start
 mailing strangers. Without it the job does the entire run except the network call and logs the
-rendered mail. **`decisions.md` open item 12 forbids any marketing send before the P0 behavioural
+rendered mail. ~~**`decisions.md` open item 12 forbids any marketing send before the P0 behavioural
 gate**, and `blocked.md` §13 deliberately omits `MARKETING_EMAIL_ENABLED` from its
-value-and-destination table for this exact reason: completing that table must not send anything.
+value-and-destination table for this exact reason: completing that table must not send anything.~~
+— **struck Aug 22, 2026 by the owner's call: the behavioural gate no longer gates marketing email,
+and the four sends above are intended.** The separation between the flag and the credentials is
+kept for what it was actually protecting — setting `MAIL_API_KEY` so that sign-in links work still
+does not, by itself, mail a marketing list — but it is no longer a prohibition waiting on a
+milestone.
 
 Two properties worth knowing before you run it by hand:
 
@@ -375,21 +415,55 @@ Two properties worth knowing before you run it by hand:
 2. **`--show` renders today's mail and sends nothing, ever** — that is the safe way to look at it,
    and `--date` lets you inspect a future day.
 
-**Unverified as of Aug 18, 2026: the Resend Broadcasts API has never been called from anything.**
+~~**Unverified as of Aug 18, 2026: the Resend Broadcasts API has never been called from anything.**
 Neither CORS, nor a real Turnstile verification, nor this job's network path has run against the
-deployed service. The two steps before arming it are in `blocked.md` §13: exercise the subscribe
-route from the real origin, then broadcast to an audience of one.
+deployed service.~~ — **struck Aug 22, 2026: this job's network path has now run four times against
+the deployed service and returned a `resend_id` each time.** ~~CORS and a real Turnstile
+verification from the marketing origin are separate claims and are still not evidenced here~~ —
+**struck the same day, for being the fourth account of something already settled two files over.**
+`docs/blocked.md` §13 records that `POST /v1/subscribe` **has** been exercised from the real origin
+— that signup is what revealed Resend's contacts API does no double opt-in, which phase 88 then
+fixed — **so CORS and a genuine Turnstile verification have both run against the deployed API.**
+`phase-queue.md` and `roadmap-status.md` already defer to §13 for it; **this page defers there too
+rather than keeping its own copy**, because a claim held in four places is a claim that will be
+corrected in three. The broadcast path never sat behind either of them.
 
-**All four machines are independent, and having one is not having the others.** As of this writing
-the scheduler (`185d762c643778`) and notify (`8900ddf6719058`) machines exist; **the deletion and
-broadcast machines are not recorded as created anywhere in this repo.** §5's rule covers all of
-them — every machine with a non-empty `schedule` is moved onto the deployed image by the deploy
-workflow, so the image-pinning trap in §4b applies to these two the moment they exist.
+**The full machine inventory, read with `flyctl machines list -a rascal-api` on Aug 22, 2026.**
+~~As of this writing the scheduler (`185d762c643778`) and notify (`8900ddf6719058`) machines exist;
+**the deletion and broadcast machines are not recorded as created anywhere in this repo.**~~ —
+**corrected Aug 22, 2026: there are five machines, the broadcast one is among them, and the
+deletion one is still not.**
 
-### 4f. The social publishing job — a fifth scheduled machine
+| ID | Name | Process group | Command | Created |
+|---|---|---|---|---|
+| `e826d3df469118` | `patient-wood-1946` | `app` | the API itself | 2026-08-11T00:20:51Z |
+| `2870901b4761d8` | `delicate-wind-1252` | `app` | the API itself | 2026-08-11T00:20:39Z |
+| `185d762c643778` | `divine-hill-1816` | *(none)* | `python -m rascal.jobs.scheduler` | 2026-08-11T00:26:19Z |
+| `8900ddf6719058` | `throbbing-water-1063` | *(none)* | `python -m rascal.jobs.notify` | 2026-08-13T00:36:14Z |
+| `683e1eea463d28` | `late-fire-837` | *(none)* | `python -m rascal.jobs.broadcast` | 2026-08-19T02:15:36Z |
 
-**Added Aug 20, 2026 by phase 104.** The job is `python -m rascal.jobs.social`, same shape as
-§4b, §4c and §4d, **not created or updated by `fly deploy`**:
+**Every machine is independent, and having one is not having the others.** Two that this runbook
+describes are not in that list: there is **no `python -m rascal.jobs.delete` machine** — §4c's, the
+one with the legal deadline, so anything sitting in `deletion_requests` has nothing scheduled to
+finish it and the seven-day promise is not being kept by anything — and **no `python -m rascal.jobs.social`
+machine**, §4f's. §5's rule covers all of them: every machine with a non-empty `schedule` is moved
+onto the deployed image by the deploy workflow, so the image-pinning trap in §4b applies to those
+two the moment they exist.
+
+### 4f. The social publishing job — ~~a fifth scheduled machine~~ — **not deployed, and neither are its secrets**
+
+**Added Aug 20, 2026 by phase 104**, and **nothing described below exists in production.** Read
+today, Aug 22, 2026: `flyctl machines list -a rascal-api` shows five machines and none of them
+runs `rascal.jobs.social` (see §4d's inventory), and `flyctl secrets list -a rascal-api` holds
+**no `IG_USER_ID`, no `IG_ACCESS_TOKEN` and no `SOCIAL_PUBLISH_ENABLED`**. So this section is a
+plan, not a description: the API-lane social publisher has never been armed, and the only pipeline
+posting to that Instagram account today is the `Rascal-Marketing` repository's hourly workflow.
+
+**That is worth knowing before you go looking for a bug.** A console publish that fails, or a post
+that appears without one of ours explaining it, is this — not a broken job.
+
+The job is `python -m rascal.jobs.social`, same shape as §4b, §4c and §4d, **not created or
+updated by `fly deploy`**:
 
     fly machine run registry.fly.io/rascal-api:deployment-<id> \
       --app rascal-api --schedule hourly --region ord \
@@ -425,6 +499,52 @@ Three properties worth knowing:
    *"there is a post on the account you are looking at"* are different claims, and the marketing
    session lost hours to exactly that distinction.
 
+#### Refreshing the Instagram token — the errand nobody has a calendar entry for
+
+**This procedure had no entry in this runbook until Aug 22, 2026, and `grep IG_ACCESS_TOKEN
+docs/runbook-deploy.md` returned nothing.** That is the wrong way round: the one document somebody
+opens *while* a publish is failing is the one that did not describe the credential.
+
+**The deadline is roughly 2026-10-19.** `IG_ACCESS_TOKEN` is a long-lived Instagram token, which
+Meta issues for about sixty days. The only real timestamp either repository holds is the creation
+time of the `Rascal-Marketing` Actions secret, **2026-08-20T00:57:19Z**, so the lapse is inferred
+from that and is approximate. See `docs/blocked.md` §18.
+
+**Nothing refreshes it and nothing warns.** The first sign is a failed publish carrying Meta's own
+auth error, **`OAuthException 190`** — on this side it surfaces as `publish_failed` with that
+sentence attached; on the marketing side it is a red workflow run. There is no expiry check, no
+scheduled reminder and no dashboard card that goes amber first.
+
+**Where the credential actually lives today, which is not where §18 says.** §18 describes *"two
+stores … this service's Fly secrets and the marketing repository's Actions secrets"*. This
+service's Fly secrets are **not** one of them: neither Instagram value is set on `rascal-api`,
+verified Aug 22, 2026. The two copies are:
+
+1. **`Rascal-Marketing`'s Actions secrets** — `IG_USER_ID` and `IG_ACCESS_TOKEN`. This is the copy
+   that is actually posting.
+2. **A developer `.env`** — this worktree's, from `.env.example`'s Instagram block.
+
+So the refresh is currently a **one-store** errand plus a local file, not the two-sitting
+coordination §18 warns about. **The day `SOCIAL_PUBLISH_ENABLED` is set on `rascal-api`, it
+becomes a two-store errand and §18 becomes correct** — mint once, and set it in both places before
+the next hour rolls over, or whichever pipeline you did not update posts with a dead token.
+
+**Doing it:**
+
+1. Mint a fresh long-lived token in Meta's tooling against the same professional account, and
+   note the minting time — that timestamp is the only thing that dates the next lapse.
+2. `gh secret set IG_ACCESS_TOKEN --repo <owner>/Rascal-Marketing` (and `IG_USER_ID` if the
+   account changed).
+3. Update your local `.env`.
+4. Only if the API-lane publisher has been armed by then:
+   `flyctl secrets set -a rascal-api IG_ACCESS_TOKEN=… IG_USER_ID=…`. Setting secrets restarts the
+   app machines; the scheduled machines in §4d's inventory pick the values up on their next wake.
+5. **Confirm against the account, not against a green run.** `python -m rascal.jobs.social
+   --account` prints which account the credentials control and its recent posts. A run that says
+   *holding off* proves the credentials read; it does not prove they post.
+6. Write the new date into `docs/blocked.md` §18. A written date is the whole mechanism here — the
+   section says so itself, and a half-built refresher nobody checks would be worse.
+
 ---
 
 ### 4e. App Store Server Notifications V2 — the endpoint, and the file that is not a secret
@@ -434,12 +554,22 @@ Three properties worth knowing:
 what to do when it does.
 
 **The trust anchor is a repository file, not a secret.** `POST /v1/webhooks/app-store` verifies
-Apple's `x5c` chain against roots bundled inside the image at
-`api/src/rascal/certs/appstore/`, and that directory ships **empty**. Every notification is
-refused with `401` until `AppleRootCA-G3.cer` is committed into it — see `docs/blocked.md` §10a
-for the command and the fingerprint check. A root fetched at request time would be a root
-whoever controls DNS at that moment gets to choose, which is why it is bundled and why this is a
-deploy-time concern rather than a runtime one.
+Apple's `x5c` chain against roots bundled inside the image at `api/src/rascal/certs/appstore/`.
+~~That directory ships **empty**. Every notification is refused with `401` until
+`AppleRootCA-G3.cer` is committed into it — see `docs/blocked.md` §10a for the command and the
+fingerprint check.~~ — **corrected Aug 22, 2026: `AppleRootCA-G3.cer` is committed, 583 bytes,
+and `load_root_certificates()` returns one anchor.** The fingerprint check named there could not
+be followed as written — Apple publishes no fingerprints beside the download — so the README in
+that directory now documents the macOS system-keychain comparison that was actually used, and
+says why the reference value cannot live in this repository. A root fetched at request time would
+be a root whoever controls DNS at that moment gets to choose, which is why it is bundled and why
+this is a deploy-time concern rather than a runtime one.
+
+**Production still answers `401` regardless, for the other reason.** `APP_STORE_APP_APPLE_ID` is
+absent from `flyctl secrets list -a rascal-api`, verified Aug 22, 2026, and Apple's library
+refuses to build a `Environment.PRODUCTION` verifier without it. The **sandbox** verifier does
+build now that the root is in place, so a first sandbox purchase is verifiable today and a
+Production notification is not.
 
 **Then set the endpoint URL in App Store Connect**, on the app's App Information page, for both
 environments:
@@ -462,7 +592,7 @@ outside:
 
 | Symptom | Almost certainly |
 |---|---|
-| `401` on every notification | No root certificate in `api/src/rascal/certs/appstore/`, or `APP_STORE_APP_APPLE_ID` unset. Both log at `ERROR` on startup, naming themselves |
+| `401` on every notification | No root certificate in `api/src/rascal/certs/appstore/`, or `APP_STORE_APP_APPLE_ID` unset. Both log at `ERROR` on startup, naming themselves. **Since Aug 22, 2026 the root is present, so on Production this is the missing `APP_STORE_APP_APPLE_ID`** |
 | `202` but no row in `app_store_transactions` | Nothing — a `202` always writes a row unless the payload carried no `originalTransactionId`. Check the `status` in the response body |
 | Row written, `family_id` null | The purchase carried no `appAccountToken`. **This is the 37b obligation** and it is not recoverable server-side — see `docs/api-contract.md` |
 | Row written, tier unchanged | Read the `status` field. `ignored:out-of-order`, `recorded:demotion-refused` and `ignored:environment-mismatch` are all deliberate, and all three log at `warning` with the reason |

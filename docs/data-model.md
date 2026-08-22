@@ -360,7 +360,7 @@ which see below.
 | `child_age_months` | int | computed at write from `occurred_at` − birthdate, then stored |
 | `title` | text | nullable |
 | `body` | text | nullable |
-| `entry_type` | text | denormalized from the prompt for filtering |
+| `entry_type` | text + CHECK `entry_type` | `photo` \| `video` \| `audio` \| `text` \| `did_it`. ~~denormalized from the prompt for filtering~~ — **struck Aug 22, 2026: it is derived from what the entry holds, never from what was asked, and this line had been wrong since migration `0002_entry_type_artifact`. See below.** |
 | `unlock_at_age` | int | nullable. Sealed until the child is this age. |
 | `visibility` | text | `shared` \| `private`. **NOT NULL, defaults `shared`.** Who may read it — see below. Orthogonal to `unlock_at_age`. |
 | `deleted_at` | timestamptz | soft delete |
@@ -368,6 +368,37 @@ which see below.
 | `search_vector` | tsvector | **stored generated** — `setweight(title, 'A') \|\| setweight(body, 'B')`, config `english` |
 
 Indexes: `(child_id, occurred_at desc)`, a functional index on `(child_id, extract(month from occurred_at), extract(day from occurred_at))` for On This Day, and a GIN index on `search_vector`.
+
+#### `entry_type` is derived, and this row is the one that has to say so
+
+**It is computed server-side from what the entry actually holds, and any value a client sends is
+ignored.** The rule is `derive_entry_type` (`api/src/rascal/services/entries.py:311`), in order:
+attached media wins and the type is that media's `kind`, ordered by `(created_at, id)` so that
+*"the first attached kind"* means the same thing on every recompute; otherwise an entry completing
+a `did_it`-mode mission stays `did_it` however much was written about it; otherwise any `title` or
+`body` makes it `text`; otherwise `did_it`. Both halves of that are guards against the same lie in
+opposite directions — denormalizing the prompt's kind put entries with no audio in the Voice
+filter, and deriving purely from content pushed noted did-its out of the Did it filter. What was
+*asked* is still reachable, through `assignment_id` → `prompt.kind`; it is simply not what this
+column records.
+
+**A media row counts from the moment it exists, not from the moment its bytes land.** That is the
+owner's ruling of Aug 18, 2026, shipped by phase 86 (`a1b25b8`, merged as PR #137).
+`derive_entry_type` does not filter on `upload_status`, so a `pending` row already answers `audio`,
+and `retype_owning_entry` (`services/media.py:70`) runs on **both** of `plan_upload`'s return
+paths — `services/media.py:130` and `:158` — as well as on `complete_upload` (`:208`) and on the
+`/sync/push` path that removes a media row (`services/sync.py:352`, in `_apply_media`). Recomputing only once bytes
+landed was a hole with no floor: an upload that never completes never calls `POST
+/media/{id}/complete`, so the entry kept its creation-time type **permanently**, and a voice note
+recorded off Wi-Fi whose upload later died was filed forever as an entry with nothing in it,
+invisible to the Voice filter. `upload_status` is the field that answers *"are the bytes there"*;
+`entry_type` answers *"what is this"*.
+
+**Why the struck cell above was worse than merely stale.** `CLAUDE.md` says that when the code and
+this file disagree, *the code is wrong* — so a sentence here describing a derivation the service
+abandoned before its first release does not read as out of date, it reads as a licence to undo
+phase 86. `docs/api-contract.md` has carried the correct rule since Aug 18, 2026; only this file
+was left behind, and it is the authoritative one.
 
 ### `media`
 | Column | Type | Notes |
