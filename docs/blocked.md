@@ -2148,3 +2148,44 @@ accepts it without complaint, but nobody has opened the Instagram app and looked
 accessibility info. Meta ignores that field on some flows. Worth checking on the first real post
 from here, and telling the marketing session either way — it has been shipping the field for a
 day with no evidence it does anything.
+
+## §19 — The paywall has no Terms and no Privacy link, and it is **two lines in a gitignored file** (Aug 22, 2026)
+
+**An errand, not an engineering problem — and the one entry here that is a Review rejection rather
+than a delay.** Found by phase 108 and independently confirmed by phase 110.
+
+`Info.plist:154-157` and `Info-Debug.plist:136-139` both map `$(TERMS_URL)` and `$(PRIVACY_URL)`
+through to the bundle. **`ios/Rascal/Config.xcconfig` defines neither key.** Not empty — absent. So
+both expand to the empty string, `LegalLinks` returns `nil` at its `!trimmed.isEmpty` guard, and the
+paywall renders **no Terms of Use link and no Privacy Policy link at all.**
+
+**App Review Guideline 3.1.2 requires both on any screen selling a subscription.** A submission today
+is rejected.
+
+**Why nothing caught it, which is the part worth carrying:**
+
+- The behaviour is *correct*. `LegalLinks` is written to render an absent link rather than a dead one
+  — the xcconfig `//` trap truncates `https://getvellumapp.com/terms` to `https:`, which
+  `URL(string:)` happily accepts, so the host check exists on purpose and **must not be relaxed.**
+  Nothing crashes and nothing looks broken.
+- `SubscriptionTests.swift:938-946` pins the half that is in the repository — both `Info.plist` files
+  carry the keys — and **says in terms that it cannot detect this half**, because `Config.xcconfig`
+  is gitignored and no test can see whether a developer copied the keys across.
+- It is visible in the committed renders as blank space under *"Restore a purchase"*. Nobody looked
+  until phase 110 read the PNGs rather than the code.
+
+**What is needed, and it is yours because the file is gitignored and machine-local:**
+
+```
+TERMS_URL = https:$()/$()/getvellumapp.com/terms
+PRIVACY_URL = https:$()/$()/getvellumapp.com/privacy
+```
+
+**The `$()` split is not decoration** — `//` starts a comment in xcconfig, so a literal `https://`
+written inline is silently truncated. `Config.xcconfig.example:93-94` already carries both keys with
+the right values; copying them across is the whole task.
+
+**Depends on §16** only in that the pages must exist at those URLs before submission; the marketing
+site is building them. **Nothing in either lane's code changes.** Recorded here rather than fixed
+because setting build variables is a signing-and-config change, which every phase this week has been
+explicitly scoped out of.

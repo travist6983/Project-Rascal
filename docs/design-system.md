@@ -295,7 +295,7 @@ One screen, top to bottom, on `canvas`:
 | Row | Spec |
 | --- | --- |
 | Header | `ChildSwitcherPill`, the age greeting beneath it in `metadata`/`inkMuted` |
-| Notice | `surface`, radius 14, `border` hairline, info glyph + a `metadata` line + a terracotta Dismiss. A quiet note, never a dialog over the parent's evening |
+| Notice | `surface`, radius 14, `border` hairline, padding 14, info glyph + a `metadata` line + a **`terracottaDeep`** dismiss. A quiet note, never a dialog over the parent's evening. **`terracotta` measures 4.25:1 on canvas and fails AA at 13pt**, which is why the dismiss is the deeper tone. A second action is permitted: opener in `terracottaDeep` semibold, dismiss in plain `inkMuted`, so the row has one thing that looks like an action. The pair sits on one line and **stacks under the copy when it will not fit**, via `ViewThatFits`. Each label carries a 44pt minimum tap height **inside the button**, never around it — a frame around a composed `Button` centres the label in a box the control does not own, growing the row without growing the hit area. Implemented in `DesignSystem/Notice.swift`; four private copies predate it and are not yet migrated |
 | Today | `PromptCard` per item |
 | Waiting | `WaitingCard` per item, count chip in the header, swipe-to-skip |
 | Done today | `DoneCard` per item |

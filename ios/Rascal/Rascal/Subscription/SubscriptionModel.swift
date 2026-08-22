@@ -253,17 +253,49 @@ final class SubscriptionModel {
         }
         defer { deadline.cancel() }
 
+        // Both halves start together and are awaited separately, so the household can be published
+        // the moment it lands rather than waiting on the store.
         async let householdResult = loadHousehold()
         async let offerResult = loadOffer()
-        let (family, offer) = await (householdResult, offerResult)
 
-        // **A load the deadline gave up on does not get to change anything.** By the time a hung
+        let family = await householdResult
+        // **Published here, not at the join, and that is what closes the stomp.**
+        //
+        // The store can hang for as long as it likes; `refreshHousehold()` and `restore()` can both
+        // publish a newer household while it does — driven by `Transaction.updates` and by a
+        // foreground, from two different screens. If this load held its `t=0` summary until the
+        // offer arrived, it would then write that stale answer over the newer one, and `household`
+        // is exactly what `canBuy` and the Settings row read.
+        //
+        // The generation check still applies: a load the deadline gave up on before the household
+        // even arrived has nothing worth publishing.
+        if generation == loadGeneration, let family {
+            household = family
+
+            // **A load must settle a purchase the server has since answered, exactly as
+            // `refreshHousehold()` does.**
+            //
+            // Only `refreshHousehold()`, `restore()` and `confirm()` carried this repair, and
+            // `load()` is the call the sheet makes on every `.task` — so reopening the sheet after
+            // a failed purchase published a *subscribed* household while leaving `purchase` on
+            // `.failed`. That pair is what let an enabled "Become a member" render for somebody who
+            // already had one, with `buy()` returning at its own `guard canBuy`. Reconciling here
+            // removes the state rather than guarding one rendering of it.
+            //
+            // `.failed` is in the list for the reason `refreshHousehold()` states: a purchase that
+            // threw locally and turned out to have gone through must stop saying it failed the
+            // moment the server disagrees.
+            if family.isSubscribed, purchase != .idle, purchase != .subscribed {
+                purchase = .subscribed
+            }
+        }
+
+        let offer = await offerResult
+
+        // **A load the deadline gave up on does not get to move the screen.** By the time a hung
         // store finally answers, a newer `load()` may have run and found the truth; last writer wins
-        // would make that the stale one — for `household` as much as for `phase`, which is why the
-        // guard sits above both rather than between them.
+        // would make that the stale one.
         guard generation == loadGeneration else { return }
-
-        if let family { household = family }
 
         switch (family, offer) {
         case (let family?, let offer?):
@@ -342,10 +374,10 @@ final class SubscriptionModel {
         do {
             outcome = try await store.purchase(chosen, familyID: familyID)
         } catch let error as SubscriptionStoreError {
-            purchase = .failed(error.userMessage)
+            settleFailure(error.userMessage)
             return
         } catch {
-            purchase = .failed(error.localizedDescription)
+            settleFailure(error.localizedDescription)
             return
         }
 
@@ -361,6 +393,28 @@ final class SubscriptionModel {
     }
 
     /// The confirmation gap. **The app does not become subscribed here — it asks until the server
+    /// **A throw from the store never overwrites an entitlement the server has already granted.**
+    ///
+    /// `buy()` awaits `store.purchase` on the main actor, and that await is a suspension point
+    /// other main-actor work interleaves with. The sheet's own `scenePhase` handler calls
+    /// `refreshHousehold()` on every foreground — which is exactly what happens when the parent
+    /// leaves the app for the App Store's payment sheet and comes back. If that read returns a
+    /// subscribed household, it settles `purchase` to `.subscribed`; a moment later the awaited
+    /// call throws, and the unguarded `purchase = .failed` wrote straight over it.
+    ///
+    /// The parent is then told the purchase failed, by a device that has already been told
+    /// otherwise by the server — the exact inversion `refreshHousehold()`'s own comment forbids:
+    /// *"a purchase that threw locally and then turned out to have gone through … must stop
+    /// telling the parent it failed the moment the server says otherwise."* This is the same rule
+    /// facing the other way, and it is the last of the four writers to `household` to learn it.
+    private func settleFailure(_ message: String) {
+        guard household?.isSubscribed != true else {
+            purchase = .subscribed
+            return
+        }
+        purchase = .failed(message)
+    }
+
     /// says so, or stops asking and says something true.**
     /// Internal rather than private so the confirmation window can be driven directly in a test.
     /// It is not a call site any view has: `buy()` and `transactionArrived()` are the two doors.

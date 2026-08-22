@@ -73,9 +73,18 @@ struct Notice: View {
             RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
                 .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
         )
-        // Combined so VoiceOver reads the sentence and then offers the controls, rather than landing
-        // on a bare "Dismiss" with no idea what it dismisses.
-        .accessibilityElement(children: .combine)
+        // **`.contain`, not `.combine`, and the difference is whether a VoiceOver user can act at
+        // all.**
+        //
+        // `.combine` merges every child into one element. That is right for a view whose whole body
+        // is a single button — `LockedPromptCard` uses it for exactly that reason — and wrong here:
+        // this row can carry **two** actions, and merging them yields one element reading
+        // "…See what's included Dismiss" with no way to invoke either. `.contain` groups them while
+        // leaving each reachable.
+        //
+        // It is also what the tree already does for this shape: `OnboardingNotice` and `SkipToast`
+        // both contain rather than combine.
+        .accessibilityElement(children: .contain)
     }
 
     /// **Under the copy, not on its trailing edge.**
@@ -86,23 +95,69 @@ struct Notice: View {
     @ViewBuilder
     private var actions: some View {
         if primaryLabel != nil || onDismiss != nil {
-            HStack(spacing: 16) {
-                if let primaryLabel, let onPrimary {
-                    Button(primaryLabel, action: onPrimary)
-                        .typeRole(.metadata)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.terracottaDeep)
+            // **`ViewThatFits`, for the reason `PromptCard.footer` has one.** Two labels on one row
+            // do not fit a 361pt notice at accessibility sizes — "See what's included" alone is
+            // wider than the row — and a clipped action reads as a rendering fault rather than as a
+            // control. Falling back to a stack keeps both readable.
+            ViewThatFits(in: .horizontal) {
+                // The trailing `Spacer` belongs to this branch alone. In the stacked fallback it
+                // would be a *vertical* spacer and would push the two labels apart to fill whatever
+                // height was offered.
+                HStack(spacing: 16) {
+                    actionButtons
+                    Spacer(minLength: 0)
                 }
-                if let onDismiss {
-                    Button(dismissLabel, action: onDismiss)
-                        .typeRole(.metadata)
-                        // Plain `inkMuted` when it sits beside an opener, so the row has one
-                        // primary. `terracottaDeep` when it is the only control.
-                        .foregroundStyle(primaryLabel == nil ? Color.terracottaDeep : Color.inkMuted)
-                }
-                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 4) { actionButtons }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        if let primaryLabel, let onPrimary {
+            Button(action: onPrimary) {
+                Text(primaryLabel)
+                    .typeRole(.metadata)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color.terracottaDeep)
+                    .tappable()
+            }
+        }
+        if let onDismiss {
+            Button(action: onDismiss) {
+                Text(dismissLabel)
+                    .typeRole(.metadata)
+                    // Plain `inkMuted` when it sits beside an opener, so the row has one primary.
+                    // `terracottaDeep` when it is the only control.
+                    .foregroundStyle(primaryLabel == nil ? Color.terracottaDeep : Color.inkMuted)
+                    .tappable()
+            }
+        }
+    }
+}
+
+private extension View {
+    /// A 13pt label is a **16pt tall tap target**, which is well under the 44 the HIG asks for and
+    /// is genuinely hard to hit — especially "Dismiss", which a parent reaches for one-handed.
+    ///
+    /// **Applied inside a `Button`'s label, never to the `Button` itself**, and the first version of
+    /// this got it wrong: a frame around the composed button centres the label in a 44pt box that
+    /// belongs to the frame rather than to the control, so the row grew by 28pt and the hit area
+    /// stayed 16pt — strictly worse than doing nothing. `EntryDetailScreen`'s chrome buttons, which
+    /// this borrows `Layout.Chrome.tapTarget` from, put both modifiers inside the label for exactly
+    /// this reason.
+    ///
+    /// Leading alignment because the stacked fallback wraps, and a centred wrap beside a
+    /// leading-aligned sentence reads as a rendering fault.
+    func tappable() -> some View {
+        // **Height only, never width.** `maxWidth: .infinity` here stretched both labels inside the
+        // horizontal branch, pushing them apart to share the row rather than sitting 16 apart as
+        // the design draws them. The stacked branch gets its leading alignment from the `VStack`
+        // itself, which is the right level for it.
+        multilineTextAlignment(.leading)
+            .frame(minHeight: Layout.Chrome.tapTarget)
+            .contentShape(Rectangle())
     }
 }
 

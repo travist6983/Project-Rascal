@@ -27,15 +27,21 @@ struct TodayBoard: Equatable {
     /// them by default and been noticed in whichever one nobody checks.
     var locked: [LockedSlot] = []
 
-    /// What the **server** says this household may be served. Rendered, never computed.
+    // **`access` is deliberately not carried here.** It was, briefly, with a comment claiming two
+    // readers — and nothing ever read it. The two decisions it was supposed to serve each read the
+    // *response*: `lockedSlots(in:)` below gates the cards, and `TodayModel.observe(_:)` decides the
+    // post-trial notice. A board that stored it as well would be a second copy of an entitlement
+    // answer, which is the one thing this phase is most careful not to have.
+
+    /// Whether the board draws its **Today** heading.
     ///
-    /// Carried on the board so the one place that decides whether to draw locks reads the same value
-    /// the one place that decides whether to show the post-trial notice does.
-    ///
-    /// Defaulted at the declaration so every existing construction site — previews, and the push
-    /// routing tests — keeps compiling and keeps meaning what it meant: a board nobody told about
-    /// entitlement is a full board.
-    var access: Access = .notReported
+    /// **A property rather than a condition inside the view, because the view cannot be tested.**
+    /// `TodayBoardView` is a `List`, which `ImageRenderer` will not rasterize, and there is no UI
+    /// test target — so the rule was expressible nowhere. It was also a shipped defect: the heading
+    /// used to render only when `today` was non-empty, and the moment a free parent answered the
+    /// daily question their locked cards were left floating above *Waiting* with nothing naming
+    /// them. That is the state a free household is in for the rest of every day.
+    var showsTodaySection: Bool { !today.isEmpty || !locked.isEmpty }
 
     /// An assignment plus whatever the client knows that the server may not.
     struct BoardItem: Equatable, Identifiable {
@@ -131,20 +137,30 @@ struct TodayBoard: Equatable {
             today: today,
             waiting: waiting,
             doneToday: done,
-            // **`isEntitled` is what gates the cards, not `access == .free`.**
-            //
-            // The distinction is the whole of D5 on this side. `.notReported` — the field absent,
-            // which is every build talking to a server older than phase 107 — and `.unrecognised` —
-            // a fourth value from a server newer than this build — both read as entitled, so the
-            // board renders in full. The failure direction must be *"you can see everything"*, never
-            // *"here is a paywall"*: a parent in a tunnel does not get sold to, and a device never
-            // decides whether a household has paid.
-            //
-            // A server that sends `locked[]` while saying `subscribed` is contradicting itself; the
-            // generous reading wins, and the locks are dropped.
-            locked: response.access.isEntitled ? [] : response.locked,
-            access: response.access
+            // Gated and de-duplicated — see `lockedSlots(in:)`, which is where the one entitlement
+            // decision on this side lives.
+            locked: lockedSlots(in: response)
         )
+    }
+
+    /// The slots to draw as locked, gated and de-duplicated.
+    ///
+    /// **`isEntitled` is what gates the cards, not `access == .free`.** `.notReported` — the field
+    /// absent, which is every build talking to a server older than phase 107 — and `.unrecognised`
+    /// — a fourth value from a server newer than this build — both read as entitled, so the board
+    /// renders in full. The failure direction must be *"you can see everything"*, never *"here is a
+    /// paywall"*: a parent in a tunnel does not get sold to, and a device never decides whether a
+    /// household has paid. A server that sends `locked[]` while saying `subscribed` is contradicting
+    /// itself; the generous reading wins.
+    ///
+    /// **Deduplicated by slot**, on the same reasoning the `done_today` dedupe above states: the
+    /// server should never list one slot twice, but `ForEach` keys these on `slot`, and duplicate
+    /// ids are undefined behaviour in a `List` rather than a merely duplicated card. One line to
+    /// rule out.
+    private static func lockedSlots(in response: TodayResponse) -> [LockedSlot] {
+        guard !response.access.isEntitled else { return [] }
+        var seen = Set<String>()
+        return response.locked.filter { seen.insert($0.slot).inserted }
     }
 
     private static func progress(for media: [Media]) -> MediaProgress? {

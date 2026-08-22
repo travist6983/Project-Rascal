@@ -81,7 +81,7 @@ struct TodayBoardView: View {
             // slots, and a second quieter board is a place the eye learns to skip and a place a
             // count could one day be attached to. The copy file's first rule is that nothing
             // anywhere counts locked items.
-            if !board.today.isEmpty || !board.locked.isEmpty {
+            if board.showsTodaySection {
                 BoardSectionHeader(title: "Today")
                     .plainRow(bottom: 10)
 

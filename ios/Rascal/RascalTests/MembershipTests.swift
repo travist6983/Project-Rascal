@@ -61,7 +61,6 @@ struct MembershipTests {
 
         // The load-bearing line: not-known means entitled.
         #expect(response.access.isEntitled)
-        #expect(response.access.wasReported == false)
 
         let board = TodayBoard.merge(response: response, entries: [], media: [])
         #expect(board.today.count == 1)
@@ -180,6 +179,28 @@ struct MembershipTests {
 
         let board = TodayBoard.merge(response: response, entries: [], media: [])
         #expect(board.locked.isEmpty)
+    }
+
+    /// **A slot the server listed twice must draw one card, not two.**
+    ///
+    /// `ForEach` keys these on `slot`, and duplicate ids in a `List` are undefined behaviour rather
+    /// than merely a duplicated row. `TodayBoard.merge` already de-duplicates `done_today` on the
+    /// same reasoning, and its comment says why: *"a card appearing twice is the most visible
+    /// possible bug and costs one line to rule out."*
+    @Test("a slot the server repeated draws one card")
+    func duplicateLockedSlotsAreCollapsed() throws {
+        let json = Self.preEntitlementPayload
+            .replacingOccurrences(of: "\"done_today\": []", with: """
+                "done_today": [], "access": "free",
+                "locked": [
+                  { "slot": "mission", "kind_hint": "photo" },
+                  { "slot": "mission", "kind_hint": "photo" },
+                  { "slot": "weekly", "kind_hint": "weekly" }
+                ]
+                """)
+
+        let board = TodayBoard.merge(response: try decode(json), entries: [], media: [])
+        #expect(board.locked.map(\.slot) == ["mission", "weekly"])
     }
 
     // MARK: - Against the server's actual bytes
@@ -394,15 +415,188 @@ struct MembershipTests {
     }
 
     @Test("a record that cannot be decoded reads as a fresh one rather than as already-shown")
-    func corruptRecordFailsTowardsShowing() {
-        let defaults = try! #require(UserDefaults(suiteName: "membership.tests.\(UUID().uuidString)"))
-        defaults.set(Data("not json".utf8), forKey: "membership.presentation")
-        let store = UserDefaultsMembershipPresentationStore(defaults: defaults, key: "membership.presentation")
+    func corruptRecordFailsTowardsShowing() throws {
+        // **A named suite that is removed afterwards.** The first version minted a fresh
+        // `UUID`-named suite on every run and never cleaned it up, so each pass left a plist behind
+        // in the simulator; and it used `try!` on the initialiser, which traps the whole test
+        // process rather than failing one test if the suite cannot be opened.
+        let name = "membership.presentation.tests"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let key = "membership.presentation"
+        defaults.set(Data("not json".utf8), forKey: key)
+        let store = UserDefaultsMembershipPresentationStore(defaults: defaults, key: key)
 
         let record = store.load()
         #expect(record.trialWelcomeShown == false)
+        #expect(record.trialWelcomeOwed == false)
         #expect(record.postTrialNoticeShown == false)
         #expect(record.lastObservedAccess == nil)
+    }
+
+    /// **The banned-word guard covers `MembershipCopy`. This covers everywhere else.**
+    ///
+    /// The sheet still renders strings authored at the call site — `"Loading the options"`,
+    /// `"Restore a purchase"`, the purchase-outcome sentences — which phase 37b wrote and this phase
+    /// did not move. None of them contains a banned word today, and nothing would notice if a later
+    /// edit introduced one.
+    ///
+    /// A source scan rather than a runtime check, which is the idiom this suite already uses for
+    /// `noCurrencyLiterals`: it sees strings no test path renders, and it sees them in files nobody
+    /// thought to add to a list.
+    @Test("no banned word appears in any string literal in the surfaces this phase ships")
+    func noBannedWordInAnySurfaceSource() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Rascal")
+
+        let files = [
+            "Subscription/PaywallSheet.swift",
+            "Subscription/SubscriptionSection.swift",
+            "Today/LockedPromptCard.swift",
+            "Today/TodayBoardView.swift",
+            "Onboarding/TrialWelcomeScreen.swift",
+            "DesignSystem/Notice.swift",
+        ].map { root.appendingPathComponent($0) }
+
+        for file in files {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            #expect(!source.isEmpty, "\(file.lastPathComponent) moved and this test stopped looking")
+
+            for (index, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                let code = line.trimmingCharacters(in: .whitespaces)
+                // Comments are where these words are allowed to be discussed, and this phase
+                // discusses them at length.
+                if code.hasPrefix("//") || code.hasPrefix("///") || code.hasPrefix("*") { continue }
+
+                for match in code.matches(of: /"([^"]*)"/) {
+                    let literal = String(match.output.1)
+                    for banned in MembershipCopy.bannedPhrases
+                    where MembershipCopy.contains(banned, in: literal) {
+                        let where_ = "\(file.lastPathComponent):\(index + 1)"
+                        Issue.record("banned phrase \"\(banned)\" in \"\(literal)\" at \(where_)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// **The population the local flag alone could not exclude: a subscriber signing in on a new
+    /// phone.**
+    ///
+    /// `trialWelcomeOwed` is set by every successful sign-in, which correctly excludes an existing
+    /// install resuming a session and — through `declineTrialWelcome()` — an invited guardian. It
+    /// cannot exclude a household that is already paying, because the client does not know the tier
+    /// at sign-in. Telling that parent *"Two weeks, everything open. No card, nothing to cancel."*
+    /// is a false statement about money on their first screen.
+    ///
+    /// Driven through the real `OnboardingSession` against a scripted network, because the defect is
+    /// in the **wiring** — which method asks the server, and what it does with the answer — and a
+    /// test of the pure rules is structurally blind to that.
+    @MainActor
+    @Test("a subscribed household signing in on a new device is not welcomed to a trial")
+    func aSubscriberIsNotWelcomedToATrial() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "subscribed", access: "subscribed").utf8), 200) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false, "a paying household must not be shown a trial")
+        #expect(
+            store.load().trialWelcomeShown,
+            "one confirmed answer settles it — a subscriber should not be asked again later either"
+        )
+    }
+
+    /// The other half, so the guard above cannot be satisfied by never showing the screen at all.
+    @MainActor
+    @Test("a free household signing in is still owed the two weeks")
+    func aFreeHouseholdIsStillWelcomed() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data(Self.familyJSON(tier: "free", access: "trial").utf8), 200) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome())
+        #expect(store.load().trialWelcomeShown == false, "asking is not showing")
+    }
+
+    /// **The case `tier` could never have seen.**
+    ///
+    /// A returning parent signing in on a new phone, whose fortnight ended long ago, is
+    /// `tier: "free"` — identical to a household three days into its trial. Gating on
+    /// `isSubscribed` would have told them *"Two weeks, everything open. No card, nothing to
+    /// cancel."* `access` is the only field that distinguishes them, and phase 107 already returns
+    /// it on `/families/me`.
+    @MainActor
+    @Test("a free household whose trial has already ended is not welcomed to a new one")
+    func aLapsedHouseholdIsNotWelcomedAgain() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in
+            (Data(Self.familyJSON(tier: "free", access: "free").utf8), 200)
+        }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeShown, "settled — they should not be asked again either")
+    }
+
+    /// A server that does not report `access` cannot confirm a trial, so nothing is shown — **and
+    /// nothing is spent**, so a later launch against a server that does report it asks again.
+    @MainActor
+    @Test("a server that does not report access neither welcomes nor settles")
+    func aServerWithoutAccessDefersTheWelcome() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in
+            let json = """
+                { "family_id": "33333333-3333-3333-3333-333333333333", "tier": "free",
+                  "guardians": [], "pending_invites": [] }
+                """
+            return (Data(json.utf8), 200)
+        }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeOwed, "the flag must survive so a later launch retries")
+        #expect(store.load().trialWelcomeShown == false)
+    }
+
+    /// **Fails closed, and does not spend the flag.** A household we could not ask about is not
+    /// shown the screen — but the next launch tries again rather than either lying to a subscriber
+    /// or swallowing the welcome for good.
+    @MainActor
+    @Test("a household the server cannot confirm is not welcomed, and is asked again later")
+    func anUnreachableHouseholdIsNotWelcomedYet() async {
+        let store = InMemoryMembershipPresentationStore(
+            MembershipPresentation.owingWelcome(in: MembershipPresentationRecord())
+        )
+        let performer = StubPerformer()
+        performer.on("/families/me") { _ in (Data("{}".utf8), 500) }
+        let session = onboardingSession(performer, tokens: signedIn, membership: store)
+
+        #expect(await session.owesTrialWelcome() == false)
+        #expect(store.load().trialWelcomeOwed, "the flag must survive so the next launch retries")
+        #expect(store.load().trialWelcomeShown == false)
+    }
+
+    /// A `/families/me` body good enough for `FamilySummary`.
+    private static func familyJSON(tier: String, access: String) -> String {
+        """
+        { "family_id": "33333333-3333-3333-3333-333333333333", "tier": "\(tier)",
+          "access": "\(access)", "guardians": [], "pending_invites": [] }
+        """
     }
 
     // MARK: - The notice, driven through the model that actually decides it
@@ -525,16 +719,28 @@ struct MembershipTests {
         // Nothing may be bought while there is no offer.
         #expect(model.canBuy == false)
 
-        // **`household` is deliberately still nil here, and asserting otherwise was wrong.** It is
-        // assigned after the join, so it cannot land while the store is hanging — six identical
-        // runs said so, deterministically, which is the difference between a test that is wrong and
-        // one that is flaky. The claim it was reaching for is below, once the call has completed.
+        // **The household is published while the store is still hanging, and this is the only
+        // assertion in the suite that says so.**
+        //
+        // It used to be asserted *after* `release()`, with a comment explaining that `household`
+        // "is assigned after the join" and therefore could not have landed yet. That comment
+        // described the code accurately when it was written and was made false an hour later, by
+        // the change that publishes the household as soon as it arrives — which exists to stop an
+        // abandoned load writing its stale summary over a newer one. Asserting it here is what
+        // pins that change; asserting it after the release proved only that a completed load
+        // eventually publishes something.
+        var published = false
+        for _ in 0..<400 {
+            if model.household != nil { published = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(published, "the household waited on a store that has nothing to do with it")
+        #expect(await store.didFinish == false, "and it landed before the store did")
+
         await store.release()
         await loading.value
 
-        // **The household is not blamed for the store's silence.** It answered all along.
-        #expect(model.household != nil)
-        // And the terminal state survives the hung call finally returning.
+        // The terminal state survives the hung call finally returning.
         guard case .unavailable(.products) = model.phase else {
             Issue.record("a late failure should not have moved the phase off .products")
             return
@@ -611,6 +817,258 @@ struct MembershipTests {
         }
     }
 
+    /// **A load the deadline gave up on must not overwrite a newer one.**
+    ///
+    /// This is what `loadGeneration` is for, and nothing exercised it: the two timeout tests both
+    /// end with a single load in flight. Here the first load hangs past its deadline, a second runs
+    /// to completion and finds an offer, and only then does the first return.
+    @MainActor
+    @Test("a load abandoned at the deadline cannot overwrite a newer one")
+    func aStaleLoadCannotOverwriteANewerOne() async {
+        let store = HangThenAnswerStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let first = Task { await model.load() }
+        for _ in 0..<400 {
+            if case .unavailable(.products) = model.phase { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        // The second load answers, and its answer is the current one.
+        await model.load()
+        guard case .ready = model.phase else {
+            Issue.record("the second load should have found an offer")
+            return
+        }
+
+        // Now let the abandoned first load finish. It reports *no* offer, and if it were allowed to
+        // speak it would replace a working paywall with `.unavailable`.
+        await store.release()
+        await first.value
+
+        guard case .ready = model.phase else {
+            Issue.record("a stale load overwrote the newer answer")
+            return
+        }
+    }
+
+    /// **`.products` must not re-run a full load on every foreground.**
+    ///
+    /// It is the ordinary state — no subscription product exists in App Store Connect — so the old
+    /// `if case .unavailable` would have re-run `Product.products(for:)` every time the app came
+    /// forward, forever, for an answer that cannot change until somebody creates a product.
+    /// `.household` is a genuine transient failure and does retry.
+    @MainActor
+    @Test("a foreground re-reads the household but does not re-run a settled product load")
+    func foregroundRetriesOnlyTheHouseholdFailure() async {
+        let store = HangThenAnswerStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let first = Task { await model.load() }
+        for _ in 0..<400 {
+            if case .unavailable(.products) = model.phase { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        await store.release()
+        await first.value
+
+        let before = await store.attempts
+        await model.refreshHousehold()
+        #expect(
+            await store.attempts == before,
+            "a foreground re-ran the product fetch for an answer that cannot have changed"
+        )
+    }
+
+    /// **The mirror, so the rule above cannot be satisfied by never retrying anything.**
+    ///
+    /// `.household` is a genuine transient failure and a foreground *must* re-run the load. A guard
+    /// that only asserts the negative half is satisfied by deleting the retry entirely.
+    @MainActor
+    @Test("a foreground does re-run a load that failed on the household")
+    func foregroundRetriesTheHouseholdFailure() async {
+        let store = InstantStore()
+        let attempts = FailureCount()
+
+        let model = SubscriptionModel(
+            readHousehold: {
+                // Fails once, then answers — so the first load lands in `.unavailable(.household)`.
+                if await attempts.next() == 1 { throw SubscriptionStoreError.productsUnavailable }
+                return .sample(tier: "free")
+            },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+        guard case .unavailable(.household) = model.phase else {
+            Issue.record("a household that did not answer should be the household's failure")
+            return
+        }
+
+        await model.refreshHousehold()
+        guard case .ready = model.phase else {
+            Issue.record("a foreground did not retry a household failure that would now succeed")
+            return
+        }
+    }
+
+    // MARK: - A failed purchase, and a household that has since paid
+
+    /// **A subscribed household must not coexist with `purchase == .failed`.**
+    ///
+    /// That pair is what let an enabled "Become a member" render for somebody who already had one:
+    /// the sheet gated the retry on the phase, `buy()` guards on `canBuy`, and `canBuy` is false for
+    /// a subscriber — so the button was live and inert, which is worse than the greyed one it
+    /// replaced.
+    ///
+    /// It is reachable with no transaction on this device: the second guardian buys, or the App
+    /// Store webhook lands from another Apple ID, so nothing bumps `transactionRevision` and no
+    /// foreground happens. Reopening the sheet runs `load()` — and `load()` used to publish the
+    /// subscribed household while leaving `purchase` alone, which `refreshHousehold()`, `restore()`
+    /// and `confirm()` all knew not to do.
+    @MainActor
+    @Test("a load settles a failed purchase the server has since answered")
+    func aLoadSettlesAFailedPurchaseAgainstTheHousehold() async {
+        let reads = FailureCount()
+        let model = SubscriptionModel(
+            // Free on the first read, subscribed on every one after — somebody else paid.
+            readHousehold: {
+                await reads.next() == 1 ? .sample(tier: "free") : .sample(tier: "subscribed")
+            },
+            store: FailingPurchaseStore(),
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        // Reach `.failed` the way a parent would.
+        await model.load()
+        await model.buy()
+        guard case .failed = model.purchase else {
+            Issue.record("the store was supposed to refuse the purchase")
+            return
+        }
+
+        // The sheet is reopened, which is a `load()` and nothing else.
+        await model.load()
+
+        #expect(
+            model.purchase == .subscribed,
+            "a load left a failed purchase standing over a subscribed household"
+        )
+        #expect(model.canBuy == false)
+    }
+
+    // MARK: - A throw that lands after the server has already granted
+
+    /// **The server's answer outranks a local throw, in both directions.**
+    ///
+    /// `refreshHousehold()` has always handled one direction — a purchase that threw and then
+    /// turned out to have gone through stops claiming failure the moment the server disagrees.
+    /// This is the same collision arriving in the other order, and it went the wrong way.
+    ///
+    /// `buy()` awaits `store.purchase` on the main actor, and leaving for Apple's payment sheet is
+    /// exactly what makes the app background and then foreground — which runs the sheet's
+    /// `scenePhase` handler, and `refreshHousehold()` with it. So a household that goes subscribed
+    /// mid-purchase is the ordinary case, not a contrived one. The awaited call then threw and
+    /// `purchase = .failed` wrote straight over the granted entitlement, telling a parent the
+    /// purchase failed on a device that had already been told otherwise.
+    @MainActor
+    @Test("a throw after the server has granted does not report a failure")
+    func aLateThrowDoesNotOverwriteAGrantedEntitlement() async {
+        let store = HangingPurchaseStore()
+        let granted = GrantFlag()
+
+        let model = SubscriptionModel(
+            readHousehold: {
+                await granted.isSet ? .sample(tier: "subscribed") : .sample(tier: "free")
+            },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .seconds(30),
+            offerSleep: { try await Task.sleep(for: $0) }
+        )
+
+        await model.load()
+        #expect(model.canBuy, "a free household with an offer should be able to buy")
+
+        // The parent taps Become a member and Apple's sheet comes up.
+        let buying = Task { await model.buy() }
+        var reached = false
+        for _ in 0..<400 {
+            if model.purchase == .purchasing { reached = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(reached, "the purchase never started")
+
+        // They come back to the app. The server has granted meanwhile — the second guardian paid,
+        // or the App Store webhook landed — and the foreground read picks it up.
+        await granted.set()
+        await model.refreshHousehold()
+        #expect(model.purchase == .subscribed)
+
+        // Only now does Apple's call fail.
+        await store.release()
+        await buying.value
+
+        #expect(
+            model.purchase == .subscribed,
+            "a local throw overwrote an entitlement the server had already granted"
+        )
+        if case .failed = model.purchase {
+            Issue.record("a subscribed household was told its purchase failed")
+        }
+    }
+
+    // MARK: - The Today heading over a locked board
+
+    /// **The state a free household is in for most of every day**, and the one that shipped wrong:
+    /// the heading rendered only when `today` was non-empty, so the moment the daily question was
+    /// answered the locked cards were left floating above *Waiting* with nothing naming them.
+    ///
+    /// A property rather than a condition in the view, because `TodayBoardView` is a `List` —
+    /// `ImageRenderer` will not rasterize one and there is no UI test target, so the rule was
+    /// expressible nowhere.
+    @MainActor
+    @Test("the Today heading survives the question being answered on a locked board")
+    func theTodayHeadingCoversLockedCards() {
+        let locked = [LockedSlot(slot: "mission", kindHint: "photo")]
+
+        // The ordinary free morning: one live question above one lock.
+        #expect(TodayPreview.board(today: [TodayPreview.item(.question)], locked: locked).showsTodaySection)
+
+        // **The same board, after the question is answered.** `merge` routes a done item out of
+        // `today`, so this is `today == [] && locked != []` — the case that shipped headerless.
+        #expect(TodayPreview.board(done: [TodayPreview.item(.question, done: true)], locked: locked).showsTodaySection)
+
+        // An entitled board with live prompts and no locks still gets one.
+        #expect(TodayPreview.board(today: [TodayPreview.item(.photo)]).showsTodaySection)
+
+        // And a board with neither does not — a heading over nothing is furniture.
+        #expect(TodayPreview.board(done: [TodayPreview.item(.question, done: true)]).showsTodaySection == false)
+        #expect(TodayPreview.board().showsTodaySection == false)
+    }
+
     // MARK: - The end of the board
 
     /// *"Nothing waiting. Today's prompts arrive in the morning"* under four locked cards is a flat
@@ -644,53 +1102,52 @@ struct MembershipTests {
     /// is what keeps `LockedPromptCard` and `LockedSlot` legitimate names.
     @Test("no banned word reaches a parent")
     func noBannedWordShipsInUserVisibleCopy() {
-        // **Both lists come from the shipped constants**, so neither can drift from what the app
-        // actually says or from what the copy file actually bans. The previous version of this test
-        // duplicated the phrases inline and enforced 8 of the 11 — a guard that agreed with itself.
+        // **Both lists and the matcher are the shipped ones**, so none of the three can drift from
+        // what the app says, what the copy file bans, or how the ban is meant to be read.
         #expect(MembershipCopy.bannedPhrases.count == 11, "the copy file's §4 lists eleven")
         #expect(MembershipCopy.allUserVisibleStrings.count > 30, "the string list stopped collecting")
 
         for string in MembershipCopy.allUserVisibleStrings {
-            let lowered = string.lowercased()
             for banned in MembershipCopy.bannedPhrases {
-                // `Pro` is a whole word, not a fragment: "Pro" must not match "**pro**mpt", and
-                // "Only X left" is a shape rather than a literal, so it is matched on "only".
-                let needle = banned.lowercased()
-                let hit: Bool
-                switch needle {
-                case "pro":
-                    hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
-                case "only x left":
-                    hit = lowered.contains("only") && lowered.contains("left")
-                default:
-                    hit = lowered.contains(needle)
-                }
-                #expect(!hit, "\"\(string)\" contains the banned phrase \"\(banned)\"")
+                #expect(
+                    !MembershipCopy.contains(banned, in: string),
+                    "\"\(string)\" contains the banned phrase \"\(banned)\""
+                )
             }
         }
     }
 
-    /// **The guard above only means something if it can fail.** A banned phrase planted in a real
-    /// shipped string must be caught, which is what proves the two lists are actually connected —
-    /// the previous version would have passed with `Only X left`, `Your archive will be` and `Pro`
-    /// absent from its inline copy.
-    @Test("the banned-word guard actually catches a planted phrase")
+    /// **The guard above only means something if it can fail**, and this proves it against the
+    /// *production* matcher rather than a copy of it. An earlier version of this test carried its
+    /// own `switch` and therefore proved only that the test file worked.
+    @Test("the banned-word guard catches a phrase planted in a real string")
     func theBannedWordGuardCanFail() {
         for banned in MembershipCopy.bannedPhrases {
             let planted = "Become a member and \(banned) today"
-            let lowered = planted.lowercased()
-            let needle = banned.lowercased()
-            let hit: Bool
-            switch needle {
-            case "pro":
-                hit = lowered.split(whereSeparator: { !$0.isLetter }).contains("pro")
-            case "only x left":
-                hit = lowered.contains("only") && lowered.contains("left")
-            default:
-                hit = lowered.contains(needle)
-            }
-            #expect(hit, "the guard would not have caught \"\(banned)\"")
+            #expect(
+                MembershipCopy.contains(banned, in: planted),
+                "the guard would not have caught \"\(banned)\""
+            )
         }
+    }
+
+    /// A typographic apostrophe is the same word. A ban that only recognises `'` is one somebody
+    /// evades by pasting prose from a document.
+    @Test("the banned-word guard reads both apostrophes as the same character")
+    func theBannedWordGuardNormalisesApostrophes() {
+        #expect(MembershipCopy.contains("Don't lose", in: "Don\u{2019}t lose your archive"))
+        #expect(MembershipCopy.contains("You've missed", in: "You\u{2019}ve missed four missions"))
+        // And the plain spelling still matches, so normalising did not break the ordinary case.
+        #expect(MembershipCopy.contains("Don't lose", in: "Don't lose your archive"))
+    }
+
+    /// And that it does **not** fire on the near-misses the rule deliberately allows — a matcher
+    /// that flags everything is as useless as one that flags nothing.
+    @Test("the banned-word guard does not fire on words that merely contain a banned one")
+    func theBannedWordGuardIsNotOverEager() {
+        #expect(MembershipCopy.contains("Pro", in: "Today's photo mission prompt") == false)
+        #expect(MembershipCopy.contains("Only X left", in: "The only thing left is the question"))
+        #expect(MembershipCopy.contains("Only X left", in: "Only the daily question is free") == false)
     }
 
     /// **Every locked string renders for a real child**, which is what the pronoun decision is for.
@@ -814,6 +1271,86 @@ private actor HangingStore: SubscriptionPurchasing {
     }
 
     func restore() async throws {}
+}
+
+/// Hangs the **first** call until released, then answers every later one.
+///
+/// The shape the generation guard exists for: an abandoned load still in flight while a newer one
+/// completes. A store that only ever hangs cannot produce it, and one that always answers cannot
+/// either.
+private actor HangThenAnswerStore: SubscriptionPurchasing {
+    private(set) var attempts = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func loadOffer() async throws -> SubscriptionOffer {
+        attempts += 1
+        if attempts == 1 {
+            await withCheckedContinuation { waiting.append($0) }
+            // The abandoned load reports no offer, which is what would overwrite a working paywall.
+            throw SubscriptionStoreError.productsUnavailable
+        }
+        return .preview
+    }
+
+    func release() {
+        for continuation in waiting { continuation.resume() }
+        waiting.removeAll()
+    }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        .cancelled
+    }
+
+    func restore() async throws {}
+}
+
+/// Answers `loadOffer` and refuses every purchase, so `.failed` is reachable in one call.
+private actor FailingPurchaseStore: SubscriptionPurchasing {
+    func loadOffer() async throws -> SubscriptionOffer { .preview }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        throw SubscriptionStoreError.storeKit("The App Store could not complete that.")
+    }
+
+    func restore() async throws {}
+}
+
+/// Hangs inside `purchase` until released, then throws — so a foreground can land in the gap.
+private actor HangingPurchaseStore: SubscriptionPurchasing {
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func loadOffer() async throws -> SubscriptionOffer { .preview }
+
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome {
+        if !released {
+            await withCheckedContinuation { waiting = $0 }
+        }
+        throw SubscriptionStoreError.storeKit("The App Store could not complete that.")
+    }
+
+    func release() {
+        released = true
+        waiting?.resume()
+        waiting = nil
+    }
+
+    func restore() async throws {}
+}
+
+/// A one-way switch, so the household read can change its answer mid-test.
+private actor GrantFlag {
+    private(set) var isSet = false
+    func set() { isSet = true }
+}
+
+/// Counts calls, so a double can fail the first and answer the rest.
+private actor FailureCount {
+    private var count = 0
+    func next() -> Int {
+        count += 1
+        return count
+    }
 }
 
 /// A store that answers immediately, to prove the timeout does not pre-empt a working one.

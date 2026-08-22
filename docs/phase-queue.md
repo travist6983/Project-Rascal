@@ -301,7 +301,8 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 - **107 — the trial, the entitlement gate, and the weekday cadence.** API lane. `entitlements.trial_ends_at` and a computed `access`; the free tier serves the daily question and locks the rest of the day, never the archive. Reverses D2, narrows D3. Paired with **108** (iOS: the locked board and the membership sheet) and **109** (the marketing site's pricing page). The long form is the 107 row in `roadmap-status.md`.
 
 - **108 — the locked board, the membership sheet, the trial welcome. iOS lane, open on
-  `ios/phase-108-locked-today-membership`.** The client half of 107. A `LockedPromptCard` below the
+  `ios/phase-108-locked-today-membership`, PR #158 — merged with `main` after 107 and 110
+  landed, green and mergeable, awaiting the owner.** The client half of 107. A `LockedPromptCard` below the
   live prompts on Today, a membership sheet reached from it and from Settings, a one-time trial
   welcome and a one-time post-trial `Notice`. **Three things a reader needs before touching it, and
   the first is not a task:** *(i)* this phase and 107 **reverse D2 and D3**, which `CLAUDE.md` marks
@@ -314,7 +315,13 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   source for every string, **did not exist**; this phase authored it and **it is unreviewed**. The
   standing rule the phase must not break, whatever else changes: **`access` absent or unrecognised
   means entitled** — the device never decides entitlement, and the failure direction is the full
-  board, never a paywall.
+  board, never a paywall; settled as **D9**. **Three things it found that outlive it and belong on
+  somebody's list, none of them fixable inside this phase:** the free tier **has no 100-photo cap**
+  and D2 promises one; **the paywall has no Terms or Privacy link** because `Config.xcconfig`
+  defines neither key, which is an App Review rejection under 3.1.2 rather than a cosmetic gap
+  (`blocked.md` §19); and **`PrimaryButtonStyle` fails AA at 4.36:1** on every screen in the app —
+  `terracottaDeep` as the resting fill measures 6.47:1, but that is a palette change touching
+  every screen and was deliberately not taken here.
 
 - ~~**37b — StoreKit, the client half.**~~ — **shipped Aug 20, 2026, merged as PR #154; line
   struck per this file's rule that a queue line goes when it is done.** The long form is the 37b

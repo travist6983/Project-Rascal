@@ -117,6 +117,10 @@ enum TodayPreview {
         today todayItems: [TodayBoard.BoardItem] = [],
         waiting: [TodayBoard.BoardItem] = [],
         done: [TodayBoard.BoardItem] = [],
+        // **Without this, no preview could draw a locked board at all** — which is how the missing
+        // Today heading shipped: sixteen previews in `TodayBoardPreviews`, and not one could express
+        // the state a free household is in for most of every day.
+        locked: [LockedSlot] = [],
         child: ChildSummary = TodayPreview.child
     ) -> TodayBoard {
         TodayBoard(
@@ -124,9 +128,17 @@ enum TodayPreview {
             child: child,
             today: todayItems,
             waiting: waiting,
-            doneToday: done
+            doneToday: done,
+            locked: locked
         )
     }
+
+    /// The two locked slots a free household sees on a weekday and at the weekend.
+    static let lockedWeekday = [LockedSlot(slot: "mission", kindHint: "photo")]
+    static let lockedWeekend = [
+        LockedSlot(slot: "mission", kindHint: "photo"),
+        LockedSlot(slot: "mission_b", kindHint: "mission"),
+    ]
 
     /// Eight-plus waiting items, for the scroll case. Each gets its own id so `ForEach` is stable.
     static func manyWaiting(_ count: Int = 9) -> [TodayBoard.BoardItem] {

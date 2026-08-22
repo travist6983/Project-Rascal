@@ -188,7 +188,11 @@ private func _family(
     tier: String, guardians: [GuardianSummary], invites: [InviteSummary] = []
 ) -> FamilySummary {
     FamilySummary(
-        familyId: UUID(), tier: tier, guardians: guardians, pendingInvites: invites
+        familyId: UUID(),
+        tier: tier,
+        access: tier == "subscribed" ? .subscribed : .free,
+        guardians: guardians,
+        pendingInvites: invites
     )
 }
 
