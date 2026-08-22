@@ -200,7 +200,13 @@ struct SettingsMembershipTests {
     /// A source scan, in the idiom this suite already uses: it sees code no test path executes.
     @Test("the membership row does no date arithmetic and never reads the trial's end")
     func theRowDoesNoArithmetic() throws {
-        let banned = ["trialEndsAt", "trial_ends_at", "timeIntervalSince", "Date()", "dateComponents"]
+        // **`lapsedAt` is deliberately not here.** It was, briefly, and it fired on the
+        // preview fixture that plumbs the field through — which is neither arithmetic nor a
+        // read of the trial's end. Reading a lapse date is not the defect this guards.
+        let banned = [
+            "trialEndsAt", "trial_ends_at",
+            "timeIntervalSince", "Date()", "Date.now", "dateComponents", "Calendar",
+        ]
 
         for name in ["Subscription/SubscriptionSection.swift", "Subscription/MembershipPresentation.swift"] {
             let file = Self.sourceRoot.appendingPathComponent(name)
@@ -296,7 +302,21 @@ struct SettingsMembershipTests {
                     // follows.
                     for offset in 1...2 where index + offset < lines.count {
                         let next = String(lines[index + offset])
-                        guard next.firstMatch(of: /Color\.terracotta\b/) != nil else { continue }
+                        // **Keyed on `foregroundStyle`, then on a bare `.terracotta`.** This is
+                        // wider than the reachable defect on purpose. Two forms it now catches that
+                        // `Color.terracotta` alone did not: `Color .terracotta` with a space, and
+                        // the SwiftUI shorthand `.foregroundStyle(.terracotta)`. **The shorthand
+                        // does not compile today** — these are `static let`s on `Color`, not
+                        // `ShapeStyle` members, so the compiler rejects it — but it starts
+                        // compiling the day somebody adds a `ShapeStyle` extension, and a guard
+                        // that has to be widened at that moment is a guard nobody widens.
+                        //
+                        // Requiring `foregroundStyle` on the line is what keeps
+                        // `ProgressView().tint(.terracotta)` out — a spinner is not text and is
+                        // held to the 3:1 non-text bar, which `terracotta` clears at 4.36:1.
+                        guard next.contains("foregroundStyle"),
+                              next.firstMatch(of: /\.terracotta\b/) != nil
+                        else { continue }
                         offenders.append("\(file.lastPathComponent):\(index + offset + 1)")
                     }
                 }
