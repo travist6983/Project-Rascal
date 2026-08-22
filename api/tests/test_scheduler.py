@@ -1082,20 +1082,28 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
 def test_every_registry_keyed_by_slot_covers_every_slot() -> None:
     """`mission_b` had to be added to five separate places, and a sixth would be easy to miss.
 
-    `constants.SLOTS` is the list; `SLOT_SPECS` says what each slot draws; `SERVE_INTERVAL_DAYS`
-    says how often it is served; `NOTIFICATION_SLOT_PRIORITY` says which one a notification
-    carries. A slot missing from the first two is a `KeyError` in production. Missing from the
-    third is worse — `.get(slot, 1)` returns a plausible wrong answer and the pool report is
-    quietly incorrect. Missing from the fourth is a silent fallback to "first pending item".
+    `constants.SLOTS` is the list; `SLOT_SPECS` says what each slot draws;
+    `pool_health.serve_interval_days()` says how often it is served; `NOTIFICATION_SLOT_PRIORITY`
+    says which one a notification carries. A slot missing from the first two is a `KeyError` in
+    production. Missing from the third is worse — `.get(slot, 1.0)` returns a plausible wrong
+    answer and the pool report is quietly incorrect. Missing from the fourth is a silent
+    fallback to "first pending item".
 
     This is the test that fails when slot number seven is added to only some of them.
+
+    **The third one stopped being a hand-written registry in phase 107 and this assertion
+    changed meaning with it.** It was a dict — `mission: 1`, `mission_b: 1` — and the rotation
+    made both entries false while the test went on passing, because the test only ever checked
+    that the *keys* were complete. It is counted off `slots_for` now, so for that registry this
+    line proves the derivation reaches every slot rather than catching a human who forgot one.
+    The other two are still hand-written and this is still their drift check.
     """
     from rascal.constants import NOTIFICATION_SLOT_PRIORITY, SLOTS
-    from rascal.services.pool_health import SERVE_INTERVAL_DAYS
+    from rascal.services.pool_health import serve_interval_days
     from rascal.services.scheduler import SLOT_SPECS
 
     assert set(SLOT_SPECS) == set(SLOTS), "SLOT_SPECS and constants.SLOTS disagree"
-    assert set(SERVE_INTERVAL_DAYS) == set(SLOTS), "SERVE_INTERVAL_DAYS and SLOTS disagree"
+    assert set(serve_interval_days()) == set(SLOTS), "the serve intervals and SLOTS disagree"
     assert set(NOTIFICATION_SLOT_PRIORITY) == set(SLOTS), "the push ladder is missing a slot"
 
 
