@@ -168,6 +168,32 @@ than reading a 429 twice. Propagation after enabling is minutes, not instant.
 results still name were shut down on June 30, 2026 — confirmed absent from a live model list.
 `GEMINI_VIDEO_MODEL` is a setting so a moved id is a secret change rather than a deploy.
 
+### After billing, the next refusal is not about money — and it decided the default model
+
+**Billing was enabled Aug 21, 2026 and the section above stopped being the last hurdle.** The
+first render past the 429 came back **200** and then refused a shot: `gemini-omni-flash-preview`
+rejected **a static shot of a photograph, captioned *"Why did you take this one?"*, as "harmful
+content"**. It is ordinary product copy, there is nothing to appeal, and every Veo 3.1 tier
+accepts the identical prompt byte for byte.
+
+**So the default is `veo-3.1-lite-generate-preview`.** Two things follow that matter when you are
+sitting in front of the console:
+
+- **Renders take minutes and the number is real.** Veo is asynchronous — the service starts an
+  operation, polls it, then downloads the clip — and one four-second Lite clip measured **about
+  ninety seconds**. A seven-shot treatment is seven of those plus a concatenation. The panel polls
+  `shots_done` of `shots_total`; it is working, not hung. The ceiling is eight minutes **per
+  clip**, after which the render is failed deliberately and the clips already paid for are kept.
+- **The price changed with the model, and you have to change it too.** Lite is **$0.05 a second**
+  against Omni Flash's $0.10 ($0.40 for Veo Standard), so `GEMINI_VIDEO_CENTS_PER_SECOND` is `5`.
+  **If you repoint `GEMINI_VIDEO_MODEL` and leave the price, the console confidently prices the
+  wrong model.** Nothing detects this — it is two independent settings by design, because the
+  price is a figure somebody typed, and it has **never been reconciled against a Google invoice**.
+
+**Omni Flash still works if you set it** — the service speaks both API shapes and picks by the
+model id prefix. It is worth trying again if the filter loosens, because it remains the only model
+documenting legible on-screen text, which every captioned shot needs.
+
 ### The GitHub billing token is not the token CI uses
 
 Two separate mistakes lead to the same dead end here, and both produce a **404**.

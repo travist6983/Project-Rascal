@@ -14,8 +14,29 @@ again Aug 20, 2026. The highest number used is 101**; 98 is the console's second
 console sign-in, 100 the extended cost panel and 101 the fixes found by driving it. ~~**A genuinely
 new phase takes 102.**~~ — **struck a fourth time the same day, Aug 20, 2026, and this one lasted
 hours rather than a day.** 102 was taken within the hour by `api/phase-102-console-tweaks` and PR
-#152, and 103 by the prompt-candidate queue on the same branch. **The highest number used is 103.
-A genuinely new phase takes 104.**
+#152, and 103 by the prompt-candidate queue on the same branch. ~~**The highest number used is 103.
+A genuinely new phase takes 104.**~~ — **struck a fifth time on Aug 21, 2026, and this strike is
+different from the four before it: the collision it warned about actually happened.**
+
+**The highest number used is 106. A genuinely new phase takes 107.** 104 is Instagram publishing,
+105 is the phase 104 review (open as PR #155), and 106 is the video renderer's provider switch —
+**built and green in the working tree on `main`, on no branch, uncommitted**, which is a state this
+header has never had to describe before and the reason its row went into `roadmap-status.md`
+before the commit rather than after it.
+
+**103 was spent twice and both halves shipped.** *The shot list becomes a video* (PR #153) and
+*LLM prompt generation* (PR #152) were allocated hours apart on Aug 20 by two branches running in
+parallel, neither of which had written a row in `roadmap-status.md` yet — so **the four commands
+below would have answered 102 for both of them, correctly, at the moment each one asked.** That is
+not a gap in the measurement; it is the measurement being unable, in principle, to see an
+allocation that exists only in somebody's head. **Nothing is renumbered** — `CLAUDE.md` is explicit
+that a phase number is an identifier, and both PRs, both branch names and every commit subject say
+`103`. The full note is under the ledger in `roadmap-status.md`.
+
+**The remedy has not changed across eight instances and has still never been followed:** write the
+row when you take the number, not when you ship. Every one of these strikes is a session that
+measured honestly, got the right answer, and then left a gap between reading a number and
+recording it.
 
 **The fourth strike is the first one this file's own rule predicted.** `:76` already says a number
 is taken the moment a branch or a PR carries it — 102 was carried by both while this paragraph
@@ -242,14 +263,15 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
 
 Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in order**, per Aug 12.
 
-- **37b — StoreKit, the client half.** `Product.products(for:)`, the paywall, the purchase flow,
-  restore. **37a shipped the server half on Aug 20, 2026**, so a purchase now has somewhere real to
-  land: `entitlements.tier` has exactly one writer and it is Apple's notification, per D5.
-  **One obligation, and it is unforgiving: `appAccountToken` must carry the purchasing user's
-  `family_id`.** It is the only channel Apple has for carrying one, and a transaction made without
-  it is unattributable permanently — there is no later fix, server-side or otherwise.
-  `docs/api-contract.md` states it as a named client requirement. Still downstream of the P0
-  behavioural gate, and of the two errands above.
+- ~~**37b — StoreKit, the client half.**~~ — **shipped Aug 20, 2026, merged as PR #154; line
+  struck per this file's rule that a queue line goes when it is done.** The long form is the 37b
+  row in `roadmap-status.md`. **What does not go with it, because it is an obligation rather than a
+  task:** `appAccountToken` must carry the purchasing user's `family_id` — it is the only channel
+  Apple has for carrying one, and a transaction made without it is **unattributable permanently**,
+  with no later fix server-side or otherwise. `docs/api-contract.md` states it as a named client
+  requirement and the shipped client honours it. **Nothing has been bought**, so it is proven in
+  the suite and unproven against Apple; that waits on the same TestFlight build everything else
+  here waits on, and on `blocked.md` §10a and §16.
 
 - **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
   **Three errors were live in this bullet until Aug 18, 2026, and they compounded.** *(i)* It was
@@ -431,3 +453,20 @@ reports; these are only the things somebody has to *do*.
   the list. The Resend Broadcasts API has never been called.
 - **A Fly scheduled machine for `python -m rascal.jobs.broadcast`**, once the above is verified. **The invocation is now written down** — `runbook-deploy.md` §4d, added Aug 18, 2026, along with why this is the one machine that must not be armed before the P0 gate. **And a second machine is missing that nothing here was tracking: `python -m rascal.jobs.delete`** (§4c). That one has no gate and no reason to wait — **without it a parent who asks to be forgotten is never forgotten**, the API stays green throughout, and it is an App Store commitment rather than a feature.
 - **§0 device verification is still 0 of 45.** Unchanged by this sprint and still wants running.
+- **Render one full treatment end to end, and read the invoice afterwards.** Gemini billing is
+  enabled and phase 106 proved the path with **one four-second clip**. A real treatment is seven
+  generations plus an ffmpeg concatenation, and **nothing has exercised the concatenation against
+  clips a vendor actually produced** — only against fixtures. The other half is the number:
+  `GEMINI_VIDEO_CENTS_PER_SECOND` is 5 because Google publishes $0.05 a second, and **that figure
+  has never been reconciled against a Google invoice**, so the console is currently showing an
+  estimate somebody typed. One render settles both.
+- **Owner: refresh `IG_ACCESS_TOKEN` before ~Oct 19, 2026, in two places at once.** Meta issues it
+  for about sixty days and the only real timestamp either repo has puts the lapse there. **Nothing
+  refreshes it and nothing warns**; the first sign is a failed publish with `OAuthException 190`.
+  Fly secrets and `.env` here, **and** the `Rascal-Marketing` Actions secret — refreshing one
+  leaves the other posting to the same account with a dead token. `blocked.md` §18.
+- **Owner: two unverified things about the Instagram integration, both one look each.** Which
+  scopes the token actually carries (Meta's Access Token Debugger shows them in seconds; the
+  marketing repo recorded that they were confirmed and never wrote down what they were), and
+  whether `alt_text` lands on a published post — both pipelines have been sending it for a day
+  with no evidence Meta does anything with it on this flow.
