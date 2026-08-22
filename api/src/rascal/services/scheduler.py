@@ -666,6 +666,13 @@ async def run_scheduler(
     `only_local_hour` skips children for whom it is not currently that hour on the wall. The
     hourly job passes 5, so every timezone gets its 5am regardless of where it sits against
     UTC — and regardless of what DST did to that offset last weekend.
+
+    **Entitlement is evaluated as of the run, never as of `as_of_date`, and a backfill is the
+    case that makes the difference visible.** Backfilling a week a household was subscribed
+    for, after it has lapsed, fills only the question — because the alternative is writing
+    assignment rows for a household that cannot see them, which burns the 180-day cooldown
+    exactly as filling today's would. The archive is not being reconstructed here; slots are
+    being offered, and an offer is made in the present.
     """
     if as_of is not None and as_of_date is not None:
         raise ValueError("pass as_of or as_of_date, not both")
