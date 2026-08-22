@@ -109,6 +109,21 @@ final class SubscriptionModel {
     /// `phase`, and a transient failure in the later one replaces a working paywall with a retry.
     private var isLoading = false
 
+    /// Which `load()` is allowed to speak.
+    ///
+    /// **The mutex alone was not enough once the deadline existed.** `isLoading` is released by a
+    /// `defer`, so a `load()` suspended on a hung store held it for the whole hang — the deadline
+    /// freed the *screen* and left the *model* stuck, and every retry from a locked card or from
+    /// Settings early-returned in silence. Any hang longer than the deadline opened a window where
+    /// membership was unbuyable and nothing a parent did was even attempted.
+    ///
+    /// Releasing the mutex from the deadline fixes that and creates a second problem: the abandoned
+    /// load is still running and will eventually assign `phase`, clobbering whatever a newer one
+    /// found. This is what stops it — a late completion may only write if it is still the current
+    /// one. That preserves phase 37b's reason for the mutex (two screens loading at once must not
+    /// let a transient failure replace a working paywall) while making it impossible to wedge.
+    private var loadGeneration = 0
+
     init(
         readHousehold: @escaping @Sendable () async throws -> FamilySummary,
         store: any SubscriptionPurchasing = SubscriptionStore(),
@@ -195,7 +210,11 @@ final class SubscriptionModel {
         if isPreview { return }
         guard !isLoading else { return }
         isLoading = true
-        defer { isLoading = false }
+        loadGeneration += 1
+        let generation = loadGeneration
+        // Only release the mutex if a newer load has not already taken it. Without the check, an
+        // abandoned load returning after the deadline would clear a flag belonging to somebody else.
+        defer { if generation == loadGeneration { isLoading = false } }
         // **`notice` is one string shared by the Membership card and the paywall sheet**, and
         // `noticeDismissed()` had no caller anywhere — so a restore's "nothing has arrived yet"
         // followed the parent onto the paywall and sat under the buy button indefinitely. Opening
@@ -225,14 +244,24 @@ final class SubscriptionModel {
         // below is still ahead of it and renders them.
         let deadline = Task { [weak self, offerTimeout, offerSleep] in
             try? await offerSleep(offerTimeout)
-            guard let self, case .loading = self.phase else { return }
-            self.phase = .unavailable(.products)
+            guard let self, generation == self.loadGeneration else { return }
+            // **Frees the model, not only the screen.** Releasing this is what lets a parent who
+            // reopens the sheet actually get another attempt instead of a silent no-op; the
+            // generation guard below is what stops this abandoned load from overwriting it.
+            self.isLoading = false
+            if case .loading = self.phase { self.phase = .unavailable(.products) }
         }
         defer { deadline.cancel() }
 
         async let householdResult = loadHousehold()
         async let offerResult = loadOffer()
         let (family, offer) = await (householdResult, offerResult)
+
+        // **A load the deadline gave up on does not get to change anything.** By the time a hung
+        // store finally answers, a newer `load()` may have run and found the truth; last writer wins
+        // would make that the stale one — for `household` as much as for `phase`, which is why the
+        // guard sits above both rather than between them.
+        guard generation == loadGeneration else { return }
 
         if let family { household = family }
 

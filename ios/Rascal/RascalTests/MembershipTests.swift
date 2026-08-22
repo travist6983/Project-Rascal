@@ -555,6 +555,52 @@ struct MembershipTests {
         await loading.value
     }
 
+    /// **The deadline has to free the model, not only the screen.**
+    ///
+    /// `isLoading` is released by a `defer`, so a `load()` suspended on a hung store held it for the
+    /// whole hang. The deadline moved `phase` and the sheet said something true — but the next
+    /// `load()`, from a locked card or from Settings, early-returned in silence. Any hang longer
+    /// than the deadline opened a window where membership was unbuyable **and every retry was
+    /// ignored**, app-wide, because this is now the single instance on `RootView`.
+    ///
+    /// Asserted by counting the store's calls, which is the only way to tell a retry that ran from
+    /// one that was swallowed: the phase looks identical either way.
+    @MainActor
+    @Test("a retry after the deadline is actually attempted, not swallowed")
+    func aRetryAfterTheDeadlineIsAttempted() async {
+        let store = HangingStore()
+        let model = SubscriptionModel(
+            readHousehold: { .sample(tier: "free") },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in },
+            offerTimeout: .zero,
+            offerSleep: { _ in }
+        )
+
+        let first = Task { await model.load() }
+
+        // Wait for the deadline to have given up on the first load.
+        for _ in 0..<100 {
+            if case .unavailable(.products) = model.phase { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        // The parent reopens the sheet.
+        let second = Task { await model.load() }
+        for _ in 0..<100 where await store.attempts < 2 {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(
+            await store.attempts >= 2,
+            "the second load never reached the store — the re-entry guard swallowed it"
+        )
+
+        await first.value
+        await second.value
+    }
+
     /// The other half, and the regression this phase actually shipped and had to fix: reusing
     /// `confirmationSleep` for the timeout made it resolve instantly, win every race, and turn every
     /// load in the suite into `.unavailable`. A working store must still win.
@@ -751,7 +797,12 @@ private actor HangingStore: SubscriptionPurchasing {
     /// rather than temporal, and it cannot go flaky when 1100 other tests are running in parallel.
     private(set) var didFinish = false
 
+    /// How many times the store was actually asked. The only way to tell a retry that ran from one
+    /// the model swallowed at its re-entry guard.
+    private(set) var attempts = 0
+
     func loadOffer() async throws -> SubscriptionOffer {
+        attempts += 1
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             DispatchQueue.global().asyncAfter(deadline: .now() + 3) {
                 continuation.resume()
