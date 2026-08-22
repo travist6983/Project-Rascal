@@ -456,3 +456,85 @@ def test_the_slot_check_constraint_admits_exactly_the_slots_the_code_knows(
 
     admitted = {value for value in SLOTS if f"'{value}'" in definition}
     assert admitted == set(SLOTS), f"the CHECK does not admit: {sorted(set(SLOTS) - admitted)}"
+
+
+def test_the_trial_backfill_reaches_a_household_written_before_it(scratch_url: str) -> None:
+    """0022 is a data migration, so — as 0009's test puts it — **the rows are the test.**
+
+    The stated reason for the backfill is that *"there is one real household and it must not
+    land on the free tier because a migration ran"*: phase 107 reverses D2, so the day this
+    deploys the free tier stops carrying missions, and an entitlements row without a
+    `trial_ends_at` reads `access: "free"` immediately. Nothing else in the suite covers that —
+    every other test builds its households through the ORM, which supplies the column default
+    and therefore cannot see whether the `UPDATE` runs at all.
+
+    So this writes a household **at the revision before 0022**, where the column does not
+    exist, then upgrades and asserts what the real one will get: fourteen days from the moment
+    the migration ran, not null.
+    """
+    # **Reach 0021 from wherever the module left the scratch database.** `scratch_url` is
+    # module-scoped and every test above leaves it somewhere different — `upgrade 0021` alone
+    # is a no-op when the database is already at head, and the column would then exist before
+    # this test had written anything. Up then down lands on 0021 from any state.
+    _alembic("upgrade head", scratch_url)
+    _alembic("downgrade 0021_social_renders", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    with engine.begin() as conn:
+        assert _column_exists(conn, "entitlements", "trial_ends_at") is False, (
+            "0021 must not already have the column, or this proves nothing about 0022"
+        )
+        family_id = conn.execute(
+            sa.text("INSERT INTO families (id) VALUES (gen_random_uuid()) RETURNING id")
+        ).scalar_one()
+        # `free` explicitly: the household this exists for is on the tier that loses missions.
+        conn.execute(
+            sa.text("INSERT INTO entitlements (family_id, tier) VALUES (:id, 'free')"),
+            {"id": family_id},
+        )
+    engine.dispose()
+
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        ends_at, days = conn.execute(
+            sa.text(
+                "SELECT trial_ends_at, "
+                "       round(extract(epoch FROM (trial_ends_at - now())) / 86400.0) "
+                "FROM entitlements WHERE family_id = :id"
+            ),
+            {"id": family_id},
+        ).one()
+    engine.dispose()
+
+    assert ends_at is not None, (
+        "the backfill did not reach a household written before the migration — it would land "
+        "on the free tier because a migration ran, which is the thing it exists to prevent"
+    )
+    assert days == 14, f"the backfill gave {days} days rather than fourteen"
+
+    # And the downgrade takes the column with it, leaving the row itself alone.
+    _alembic("downgrade 0021_social_renders", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        assert _column_exists(conn, "entitlements", "trial_ends_at") is False
+        survived = conn.execute(
+            sa.text("SELECT count(*) FROM entitlements WHERE family_id = :id"), {"id": family_id}
+        ).scalar_one()
+    engine.dispose()
+    assert survived == 1, "the downgrade removed a row when it should only remove a column"
+
+    # Leave the scratch database at head, so this test cannot decide what the next one sees.
+    _alembic("upgrade head", scratch_url)
+
+
+def _column_exists(conn: sa.Connection, table: str, column: str) -> bool:
+    return bool(
+        conn.execute(
+            sa.text(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_name = :t AND column_name = :c"
+            ),
+            {"t": table, "c": column},
+        ).scalar_one()
+    )

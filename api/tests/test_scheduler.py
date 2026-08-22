@@ -554,15 +554,22 @@ def test_the_letter_and_the_measurement_never_land_on_the_same_day() -> None:
     **What survives is the part that was never about the count.** `monthly` and `letter` still
     must not share a day: they are the two occasional slots most likely to be skipped, and
     stacking them means the letter is the one that goes.
+
+    **The count moved from four to three with phase 107's rotation** — both fixtures are
+    Tuesdays, and a Tuesday now holds `question` + `mission_b` rather than all three daily
+    slots. The invariant this test exists for did not move.
     """
     for day in (FIRST, FIFTEENTH):
-        # Both fixtures are Tuesdays. Stated rather than assumed: on a Saturday the count below
-        # would be five and the test would look broken when it was only badly dated.
+        # Both fixtures are Tuesdays, and both are an occasional day (the 1st, the 15th).
+        # Stated rather than assumed: on a Saturday these same dates would hold five slots —
+        # three daily plus `weekly` plus the occasional one — and the test would look broken
+        # when it was only badly dated.
         assert day.weekday() != 5, f"{day} is a Saturday; this test's count assumes it is not"
+        assert day.weekday() == 1, f"{day} is not a Tuesday; this test's count assumes it is"
         slots = slots_for(day)
         assert not {"monthly", "letter"} <= set(slots)
-        # Three daily plus exactly one occasional.
-        assert len(slots) == 4
+        # A Tuesday's two daily slots, plus exactly one occasional.
+        assert len(slots) == 3
 
 
 def test_a_saturday_that_is_also_the_fifteenth_is_the_five_item_day() -> None:
@@ -959,10 +966,16 @@ async def _every_daily_kind(session: AsyncSession) -> None:
         await make_prompt(session, kind="activity", completion_mode="did_it", theme=f"x-{index}")
 
 
-async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
+async def test_an_ordinary_tuesday_creates_the_question_and_mission_b(
     session: AsyncSession,
 ) -> None:
-    """Not a Saturday, not the 1st, not the 15th. Three, and one of each."""
+    """Not a Saturday, not the 1st, not the 15th. Two, and one of each.
+
+    **Renamed and re-counted by phase 107**, which replaced "all three daily slots, every day"
+    with a weekday rotation: `mission` on Monday, Wednesday and Friday, `mission_b` on Tuesday
+    and Thursday, both at the weekend. The pool fixture is unchanged and still contains a
+    prompt of every kind, so a `mission_b` that returned a photo would still be caught.
+    """
     child = await make_child(session, parent=await make_user(session))
     await _every_daily_kind(session)
     await session.commit()
@@ -970,7 +983,8 @@ async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
     run = await run_scheduler(session, as_of_date=TUESDAY, seed=3)
     await session.commit()
 
-    assert run.created == 3
+    assert TUESDAY.weekday() == 1, "the fixture must actually be a Tuesday"
+    assert run.created == 2
     assert run.exhausted == []
 
     rows = (
@@ -984,7 +998,7 @@ async def test_an_ordinary_tuesday_creates_three_assignments_one_per_slot(
         .scalars()
         .all()
     )
-    assert sorted(rows) == ["mission", "mission_b", "question"]
+    assert sorted(rows) == ["mission_b", "question"]
 
 
 async def test_the_mission_slot_never_serves_a_non_photo_kind(session: AsyncSession) -> None:
@@ -1029,8 +1043,14 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
     """The thin-pool case, which is the one the real library is closest to.
 
     A slot with nothing eligible is left empty and logged — never filled with a fallback from
-    another kind. The other two slots are unaffected, because an exhausted slot must not take
-    the day down with it.
+    another kind. The other slots are unaffected, because an exhausted slot must not take the
+    day down with it.
+
+    **Runs on a Sunday since phase 107.** It used to run on TUESDAY, which no longer holds a
+    `mission` slot at all under the rotation — so the assertion that `mission` was *exhausted*
+    could not fire, and the test would have gone green while proving nothing. A Sunday is the
+    day that holds both doing-slots with nothing occasional riding along, which is exactly the
+    world this test was written for.
     """
     child = await make_child(session, parent=await make_user(session))
     await make_prompt(session, kind="question", theme="q")
@@ -1038,7 +1058,7 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
     # Deliberately no daily photo prompt at all.
     await session.commit()
 
-    run = await run_scheduler(session, as_of_date=TUESDAY, seed=5)
+    run = await run_scheduler(session, as_of_date=SUNDAY, seed=5)
     await session.commit()
 
     assert run.created == 2
@@ -1049,7 +1069,7 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
             await session.execute(
                 sa.select(Assignment.slot, Prompt.kind)
                 .join(Prompt, Prompt.id == Assignment.prompt_id)
-                .where(Assignment.child_id == child.id, Assignment.assigned_on == TUESDAY)
+                .where(Assignment.child_id == child.id, Assignment.assigned_on == SUNDAY)
             )
         ).all()
     )
@@ -1064,20 +1084,28 @@ async def test_an_empty_photo_pool_empties_mission_without_touching_the_others(
 def test_every_registry_keyed_by_slot_covers_every_slot() -> None:
     """`mission_b` had to be added to five separate places, and a sixth would be easy to miss.
 
-    `constants.SLOTS` is the list; `SLOT_SPECS` says what each slot draws; `SERVE_INTERVAL_DAYS`
-    says how often it is served; `NOTIFICATION_SLOT_PRIORITY` says which one a notification
-    carries. A slot missing from the first two is a `KeyError` in production. Missing from the
-    third is worse — `.get(slot, 1)` returns a plausible wrong answer and the pool report is
-    quietly incorrect. Missing from the fourth is a silent fallback to "first pending item".
+    `constants.SLOTS` is the list; `SLOT_SPECS` says what each slot draws;
+    `pool_health.serve_interval_days()` says how often it is served; `NOTIFICATION_SLOT_PRIORITY`
+    says which one a notification carries. A slot missing from the first two is a `KeyError` in
+    production. Missing from the third is worse — `.get(slot, 1.0)` returns a plausible wrong
+    answer and the pool report is quietly incorrect. Missing from the fourth is a silent
+    fallback to "first pending item".
 
     This is the test that fails when slot number seven is added to only some of them.
+
+    **The third one stopped being a hand-written registry in phase 107 and this assertion
+    changed meaning with it.** It was a dict — `mission: 1`, `mission_b: 1` — and the rotation
+    made both entries false while the test went on passing, because the test only ever checked
+    that the *keys* were complete. It is counted off `slots_for` now, so for that registry this
+    line proves the derivation reaches every slot rather than catching a human who forgot one.
+    The other two are still hand-written and this is still their drift check.
     """
     from rascal.constants import NOTIFICATION_SLOT_PRIORITY, SLOTS
-    from rascal.services.pool_health import SERVE_INTERVAL_DAYS
+    from rascal.services.pool_health import serve_interval_days
     from rascal.services.scheduler import SLOT_SPECS
 
     assert set(SLOT_SPECS) == set(SLOTS), "SLOT_SPECS and constants.SLOTS disagree"
-    assert set(SERVE_INTERVAL_DAYS) == set(SLOTS), "SERVE_INTERVAL_DAYS and SLOTS disagree"
+    assert set(serve_interval_days()) == set(SLOTS), "the serve intervals and SLOTS disagree"
     assert set(NOTIFICATION_SLOT_PRIORITY) == set(SLOTS), "the push ladder is missing a slot"
 
 

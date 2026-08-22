@@ -1,6 +1,8 @@
 """How close a child's prompt pool is to repeating itself.
 
-The library holds 113 active prompts and the scheduler serves three a day. Roughly 30 questions
+The library holds 113 active prompts and ~~the scheduler serves three a day~~ — **two on a
+weekday and three at the weekend since phase 107's rotation**; the interval per slot is counted
+off `slots_for` by `serve_interval_days()` below rather than stated here. Roughly 30 questions
 are eligible at 48 months, so at one a day the question pool empties in about a month — at which
 point the documented fallback relaxes the 180-day cooldown to 90 and the parent starts seeing
 prompts they answered last month, during exactly the sixty-day window P1 exists to prove.
@@ -15,6 +17,7 @@ Computed on every call, never cached. This is an admin-grade read, not a hot pat
 from __future__ import annotations
 
 import datetime as dt
+import functools
 import uuid
 from dataclasses import dataclass
 
@@ -28,6 +31,7 @@ from rascal.services.scheduler import (
     COOLDOWN_DAYS,
     SLOT_SPECS,
     _eligible,
+    slots_for,
 )
 
 
@@ -51,7 +55,7 @@ class SlotHealth:
     #: What the slot is *supposed* to be served at. Reported beside `served_in_window` so the
     #: gap between intended and actual is visible rather than inferred — that gap is the whole
     #: reason this endpoint was reporting fiction.
-    nominal_interval_days: int
+    nominal_interval_days: float
     #: Why the estimate is what it is. **A null estimate is not one thing**: the pool can be
     #: empty, or the slot can never have been served. Those need different responses and a bare
     #: null cannot tell them apart.
@@ -60,16 +64,45 @@ class SlotHealth:
     relaxation_step: str
 
 
-# What each slot is served at, in days. The question and both mission slots go daily; weekly and
-# monthly are named for their cadence; the letter is monthly too.
-SERVE_INTERVAL_DAYS: dict[Slot, int] = {
-    "question": 1,
-    "mission": 1,
-    "mission_b": 1,
-    "weekly": 7,
-    "monthly": 30,
-    "letter": 30,
-}
+#: The Gregorian calendar's weekday pattern repeats every 28 years, and 28 years is **exactly**
+#: 1461 weeks — so a sweep of that length weights every weekday and every day-of-month the way
+#: the calendar really does. A four-year window gets `weekly` wrong by 0.02 because 1461 days is
+#: not a whole number of weeks; 28 years and 400 years agree to the last decimal place.
+_INTERVAL_SWEEP_START = dt.date(2024, 1, 1)
+_INTERVAL_SWEEP_DAYS = 10227
+
+
+@functools.cache
+def serve_interval_days() -> dict[Slot, float]:
+    """What each slot is *supposed* to be served at, in days — **derived, never restated.**
+
+    This used to be a hand-written table saying `mission: 1` and `mission_b: 1`, because both
+    mission slots were served every day. Phase 107's weekday rotation made that false —
+    `mission` fires Monday, Wednesday, Friday and the weekend, `mission_b` Tuesday, Thursday
+    and the weekend — and a hand-written table would have gone on claiming 1 forever.
+
+    **That would have broken the instrument rather than just a number.** `nominal_interval_days`
+    exists so the gap between intended and observed cadence is legible; a permanent, spurious
+    gap on both mission slots would read as *"the scheduler is under-serving these"* on exactly
+    the panel built to catch a slot that silently serves nothing — which is the defect PR #57
+    found the hard way.
+
+    So it is counted off :func:`services.scheduler.slots_for`, the one place that decides what a
+    day holds. Add a slot, move a slot between weekdays, change the letter's date: this follows,
+    and no second statement of the cadence can drift from the first.
+
+    Cached rather than computed at import: the sweep is about 5ms, it is only ever needed by the
+    admin-grade pool-health read, and a service that never calls it should not pay for it at
+    startup.
+    """
+    counts: dict[str, int] = {}
+    for offset in range(_INTERVAL_SWEEP_DAYS):
+        for slot in slots_for(_INTERVAL_SWEEP_START + dt.timedelta(days=offset)):
+            counts[slot] = counts.get(slot, 0) + 1
+    # Two decimal places because this is reported beside an observed rate a human compares it
+    # to, not used in arithmetic — `_estimate` projects from what actually happened.
+    return {slot: round(_INTERVAL_SWEEP_DAYS / count, 2) for slot, count in counts.items()}
+
 
 #: How far back to look when measuring how often a slot is actually served.
 #:
@@ -226,9 +259,11 @@ def _estimate(slot: Slot, available: int, served: int) -> dict:
     lets the reader draw the conclusion.
 
     The nominal cadence travels alongside rather than being used, so the gap between intended
-    and observed is legible in the response instead of hidden in this arithmetic.
+    and observed is legible in the response instead of hidden in this arithmetic. It is derived
+    from :func:`services.scheduler.slots_for` — see :func:`serve_interval_days` — so the
+    rotation cannot make it lie.
     """
-    nominal = SERVE_INTERVAL_DAYS.get(slot, 1)
+    nominal = serve_interval_days().get(slot, 1.0)
     common = {
         "served_in_window": served,
         "observation_window_days": OBSERVATION_WINDOW_DAYS,

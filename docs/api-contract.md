@@ -601,6 +601,8 @@ nothing to forge.
 {
   "family_id": "…",
   "tier": "free",
+  "access": "trial",
+  "trial_ends_at": "2026-09-04T00:00:00Z",
   "guardians": [
     { "user_id": "…", "display_name": "Travis", "role": "parent",
       "granted_at": "2026-08-17T11:00:00Z", "is_you": true }
@@ -618,6 +620,12 @@ confident wrong timestamp on a screen.
 
 `pending_invites` lists only invites that are still acceptable — accepted, revoked and
 expired ones are history, and this is a screen about the household as it is now.
+
+**`access` and `trial_ends_at` were added by phase 107 and `tier` is unchanged in both its
+values and its meaning** — a client that has been reading `tier` since phase 37a keeps working.
+`tier` says whether Apple has told us somebody is paying; `access` says what the phone will
+actually be served today, and during a fourteen-day trial those are different answers. See
+`GET /families/{id}/entitlement` below for the definition; both routes read one function.
 
 **`POST /families/me/invites`** → `201`
 Body: `{ "email": str | null, "role": "parent" }`. `email` is optional and is only recorded;
@@ -680,25 +688,64 @@ The single call the home screen makes. Returns everything the Today screen rende
 {
   "date": "2026-08-14",
   "child": { "id": "...", "name": "Miles", "age_months": 50 },
+  "access": "subscribed",
+  "trial_ends_at": null,
   "today": [
     { "id": "...", "slot": "question", "body": "What did he say this week...",
       "kind": "question", "completion_mode": "text", "theme": "their-words",
       "status": "pending", "expires_on": "2026-08-28" },
     { "id": "...", "slot": "mission", "body": "Photograph what he built today...",
       "kind": "photo", "completion_mode": "media", "theme": "everyday-ordinary",
-      "status": "pending", "expires_on": "2026-08-28" },
-    { "id": "...", "slot": "mission_b", "body": "Record him telling you a story...",
-      "kind": "audio", "completion_mode": "media", "theme": "voice",
       "status": "pending", "expires_on": "2026-08-28" }
   ],
+  "locked": [],
   "waiting": [ ... ],
   "done_today": [ ... ]
 }
 ```
 
-**Three daily slots.** `question`, `mission` (photo only) and `mission_b` (video, audio or activity) are filled every day; `weekly` on Saturday, `monthly` on the 1st and `letter` on the 15th fire on top of them, so `today` holds up to five items. **The response shape is unchanged** — `slot` simply has one more possible value. A client that groups by whatever `today` contains needs no change; one holding a list of slot names does.
+And the same day for a household on the free tier — a Friday, so `mission` is what it is missing:
 
-`waiting` is pending assignments from previous days, oldest first. `done_today` is anything completed with `occurred_at` today.
+```json
+{
+  "date": "2026-08-14",
+  "child": { "id": "...", "name": "Miles", "age_months": 50 },
+  "access": "free",
+  "trial_ends_at": "2026-08-07T00:00:00Z",
+  "today": [
+    { "id": "...", "slot": "question", "body": "What did he say this week...",
+      "kind": "question", "completion_mode": "text", "theme": "their-words",
+      "status": "pending", "expires_on": "2026-08-28" }
+  ],
+  "locked": [ { "slot": "mission", "kind_hint": "photo" } ],
+  "waiting": [ ... ],
+  "done_today": [ ... ]
+}
+```
+
+**The daily slots rotate by weekday.** ~~*`question`, `mission` (photo only) and `mission_b` (video, audio or activity) are filled every day*~~ — **that stopped being true on Aug 21, 2026 with phase 107.** `question` fires every day; `mission` fires Monday, Wednesday and Friday; `mission_b` fires Tuesday and Thursday; both fire at the weekend. `weekly` on Saturday, `monthly` on the 1st and `letter` on the 15th still fire on top, so `today` still holds **up to five** items — a Saturday that is also the 1st or the 15th — and an ordinary weekday now holds two. **The pools are unchanged**: `mission` is still photo-only, `mission_b` is still video, audio or activity.
+
+**The weekday is the child's, computed in `family_timezone`.** A Saturday in Auckland is a Friday in UTC and the parent gets the Saturday.
+
+**Three additive top-level fields, added by phase 107. Nothing inside `today[]` changed.**
+
+- **`access`** — `"subscribed" | "trial" | "free"`. What this household may reach today. Computed from `entitlements.tier` and `entitlements.trial_ends_at` by the one authority every other entitlement surface reads; `subscribed` beats `trial`. **Always present.**
+- **`trial_ends_at`** — nullable timestamp. `null` means *no trial on this household*, not *a trial that ended*. **For copy only** — a client must never compute entitlement from it, because that is the device deciding, which D5 forbids.
+- **`locked`** — the slots today holds that this household may not have. **`[]` for an entitled household; never `null`, never absent.**
+
+**A locked item is `{ "slot", "kind_hint" }` and nothing else — no `id`, no `body`, no prompt, no `theme`.** It is the shape of the thing, not a teaser for it. Naming the prompt would mean *picking* one, and a pick writes an assignment and consumes the 180-day cooldown against a 133-prompt pool — so a free household's runway would be spent on prompts they cannot answer, and they would be served repeats on the day they subscribe. D7 also calls the mission library the one asset a competitor would want, and a paywall that serves the copy it is withholding is not a paywall.
+
+`kind_hint` is `photo` for `mission`; `mission` for `mission_b` (deliberately vague — its pool spans video, audio and activity and which one a day would have produced is unknowable without the pick this endpoint is avoiding); and its own name for `weekly`, `monthly` and `letter`. **`question` never appears in `locked`** — it is the free tier. A client should render an unrecognised hint as a generic locked row rather than dropping it.
+
+**Order is the calendar's and is stable:** `mission`, `mission_b`, `weekly`, `monthly`, `letter`, filtered to what that day holds. Two reads of the same day return the same order.
+
+`waiting` is pending assignments from previous days, oldest first. **A locked slot never appears in `waiting`.** The exclusion is in the query rather than in the absence of rows, because a household that lapsed genuinely *has* pending mission rows from when it was entitled; those rows keep existing and are not deleted.
+
+~~**and is never expired against the parent** — it was never offered, so it cannot be missed~~ — **corrected Aug 22, 2026: a hidden row does still expire, on the same fourteen-day clock as any other.** The nightly job flips any pending row past its `expires_on` with no entitlement filter, so a mission served on day 0 and hidden by a lapse on day 1 becomes `expired` on day 15 having been invisible throughout. **Suppressing that was considered and rejected**: a household that lapses for a year and comes back would then find a year-old mission in `waiting`, which is the infinite backlog *"items stack; expire at 14 days"* exists to prevent — a settled decision this phase has no licence to reverse. Entitlement decides what is *served*; it does not stop the clock. **A household that returns inside the window gets the row back with the days it has left**, which is the case that matters and is what not deleting it buys. The cost is named rather than hidden: such a row counts toward `resolved` in the admin console's per-household figures.
+
+`done_today` is anything completed with `occurred_at` today, and **it is never filtered by entitlement.** A parent who finished a mission this morning and lapsed at 2pm keeps seeing it: D3 as narrowed locks the day and never the archive.
+
+**Subscribing takes effect on the next read.** `GET /today` calls `ensure_day_filled`, which re-reads the household's entitlement, so a household that subscribes at 2pm gets its missions immediately rather than tomorrow.
 
 **`POST /assignments/{id}/dismiss`** → `status = dismissed`.
 
@@ -985,11 +1032,19 @@ Computed on every call, never cached — an admin-grade read, not a hot path. **
 nothing else**; the scheduler decides.
 
 **The estimate divides by the rate the slot is *observed* to be served, never by the cadence it is
-nominally on** — corrected in phase 50, because the two had diverged in production. `mission` is
-nominally daily and was being served zero times a day, so the old arithmetic counted down to a
-first repeat that could not arrive. `served_in_window` is the observed count over
+nominally on** — corrected in phase 50, because the two had diverged in production. ~~`mission` is
+nominally daily~~ — **it was until Aug 21, 2026; phase 107's weekday rotation makes it nominally
+1.4 days and `mission_b` 1.75** — and it was being served zero times a day, so the old arithmetic
+counted down to a first repeat that could not arrive. `served_in_window` is the observed count over
 `observation_window_days` (28), and `nominal_interval_days` travels beside it so the gap between
 intended and actual is legible in the response rather than inferred.
+
+**`nominal_interval_days` is fractional and is counted off the scheduler's own calendar**, not
+written down a second time. The daily slots rotate by weekday, so `mission` is served five days in
+seven and `mission_b` four; a hand-written table saying `1` for both would have put a permanent,
+spurious gap on exactly the two slots this field exists to watch — which is the failure phase 50
+fixed, arriving by a different route. Values today: `question` 1.0, `mission` 1.4, `mission_b`
+1.75, `weekly` 7.0, `monthly` and `letter` 30.44.
 
 **A null estimate has two meanings and `estimate_basis` says which.** `pool_empty` — nothing is
 available, and a projection of zero would read as a countdown to something that has already
@@ -1223,6 +1278,27 @@ in an archive and asserts none of them appears in any admin response.
 | `GET /admin/library` | The library with per-prompt served/completed counts, `content_hash`, and override state |
 | `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
 | `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
+| `PUT /admin/families/{family_id}/trial` | Move or clear one household's trial. **The only write in the console's API, and the only entitlement lever there is** |
+
+**`PUT /admin/families/{family_id}/trial`** — body `{ "trial_ends_at": "2026-09-04T00:00:00Z" | null }`,
+returns `{family_id, tier, access, trial_ends_at}`. A date in the future makes the household
+`trial`; a date in the past, or `null`, makes it `free`. Added by phase 107.
+
+**It cannot write `tier` and there is deliberately no control that can.** D5 reserves that column
+for App Store Server Notifications V2 and a test asserts it has exactly one writer, so a console
+button that set it would be a person disagreeing with Apple about who is paying. Moving
+`trial_ends_at` reaches both states the console needs without going near it — which is the entire
+reason this is the lever rather than a tier switch.
+
+It exists because the owner is the only user and would otherwise never see the free tier he is
+designing: set it to yesterday to drop to `free`, to next month to come back. It goes through the
+same `LocalWrites` guard as the library edits, so it **refuses while `ADMIN_READ_DATABASE_URL` is
+set** — the console reads production and writes only where it can also read what it wrote. The
+console hides the control entirely in that state rather than letting it fail after a click.
+
+`snapshot.signups` carries `family_id`, `access` and `trial_ends_at` alongside `tier` so the lever
+has a household to aim at and a reader can see which state it is in. None of the three is archive
+content, and the line above still holds.
 
 `costs.providers` is **seven cards, and only two of them carry a figure the vendor computed.**
 Anthropic (`/v1/organizations/cost_report`) and GitHub (`/users/{account}/settings/billing/usage`)
@@ -1652,20 +1728,45 @@ household ids. It is the newest route that takes a forgeable id and answers with
 so the property is pinned rather than assumed:
 `tests/test_authorization_sweep.py::test_an_invented_household_is_indistinguishable_from_somebody_elses`.
 
-**`GET /families/me` reports the same `tier` and the two never disagree**, because both read one
-`entitlements` row through one function. That is one authority with two shapes — the household
-screen and the subscription screen — and not two answers to "is this household subscribed", which
-is the bug D4 and D5 exist to prevent.
+**`GET /families/me` reports the same `tier` and `access`, and they never disagree**, because
+both read one `entitlements` row through one function. That is one authority with ~~two~~ **three**
+shapes — the household screen, the subscription screen, and (since phase 107) a Today board that
+has to explain why half of it is locked — and not three answers to "is this household subscribed",
+which is the bug D4 and D5 exist to prevent.
 
 ```json
 {
   "family_id": "...",
   "tier": "free",
+  "access": "free",
+  "trial_ends_at": "2026-08-07T00:00:00Z",
   "lapsed_at": "2026-05-01T00:00:00Z",
   "eligible_at": "2028-05-01",
   "media_storage_tier": "archive"
 }
 ```
+
+**`access` is `"subscribed" | "trial" | "free"`, computed per request and never stored:**
+
+```
+entitled = (tier == "subscribed") or (trial_ends_at is not None and now_utc() < trial_ends_at)
+access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "free")
+```
+
+**`subscribed` beats `trial`**, so a subscriber holding a stale future `trial_ends_at` reads
+`subscribed` and is never rendered as a household on a countdown. **There is no `trial` tier and
+there is deliberately not going to be one** — `tier` has exactly one writer by D5 and a trial that
+wrote it would be a second, running on a clock rather than on a receipt. The trial is
+`entitlements.trial_ends_at`, a column beside it. Every household gets fourteen days when its row
+is created.
+
+**`trial_ends_at` is `null` when there is no trial on the household**, which is a real state
+rather than a missing value — it is what the admin console's Clear button produces. It is carried
+for copy and a client must not compute entitlement from it.
+
+**A trial expiring is not a lapse.** `lapsed_at` stays `null` through one and `eligible_at` stays
+`null` with it, so a household that tried the app for a fortnight and stopped never has a deletion
+clock pointed at it. `eligible_at` below is still computed from `tier` and `lapsed_at` alone.
 
 **`eligible_at` is computed per request**, never stored — `max(lapsed_at + 24 months,
 last_sign_in_at + 12 months)`, and both clocks move. A client may display it and must not cache it.

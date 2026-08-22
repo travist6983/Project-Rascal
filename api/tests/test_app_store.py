@@ -943,9 +943,16 @@ async def test_the_entitlement_route_reports_the_computed_date(client, session):
 
     assert response.status_code == 200
     body = response.json()
+    # **`access` is `trial` and `eligible_at` is still computed, and that pairing is the
+    # point.** Phase 107 gives every household a fourteen-day trial at creation, so this
+    # fixture is inside one — and the deletion clock is unaffected, because `eligible_at`
+    # keys off `tier` and `lapsed_at` and a trial is neither. A trial does not lapse.
+    trial_ends_at = body.pop("trial_ends_at")
+    assert trial_ends_at is not None
     assert body == {
         "family_id": str(family.id),
         "tier": "free",
+        "access": "trial",
         "lapsed_at": "2026-05-01T00:00:00Z",
         "eligible_at": "2028-05-01",
         "media_storage_tier": "hot",
