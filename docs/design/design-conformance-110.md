@@ -513,6 +513,19 @@ artboard source, not by looking at renders.**
 Six specialist readers over the diff, each finding independently refuted by a second agent; the
 two HIGH findings were then re-verified by hand in the source.
 
+> **All thirteen are fixed** on `ios/phase-108-locked-today-membership` (`859622a`) and **each fix
+> was re-verified here rather than taken on trust** — merged, built cold, and read at the fix site.
+> F6, F11, F12 and F13 were additionally confirmed **by looking at the regenerated renders**, which
+> is how F13 was found in the first place.
+>
+> **One fix was correct and unpinned, and that is worth more than the finding was.** Phase 108 fixed
+> F1 properly — the welcome is armed only where a credential is exchanged, and `resume()` is not one
+> of those places. Then **I put the bug back**, and *"`resume()` calls `oweTrialWelcome()`"* **passed
+> all 1125 tests.** `MembershipTests` covers the record-level semantics thoroughly and correctly;
+> nothing covered **the wiring**, which is the whole of the defect. The worst bug of the phase was
+> one line away from returning against a green suite. `RascalTests/TrialWelcomeWiringTests.swift`
+> pins it now — three tests, break-tested 1:1.
+
 | # | Sev | Finding |
 |---|---|---|
 | **F1** | **HIGH** | **The trial welcome fires for every existing install, every invited second guardian, and every subscribed household.** `shouldShowTrialWelcome` is `!record.trialWelcomeShown` and nothing else; `OnboardingGate:878` runs it in `.task(id: child.id)`, which fires on every launch for anyone already signed in. The flag is new in this build, so it defaults false for everybody. A subscribed parent is told *"Two weeks, everything open. No card, nothing to cancel."* — **a false statement about money.** The code's comment defends not gating on `access`, which is a sound argument against gating on `access` and not an argument for gating on nothing; the missing condition is *"this device just completed a first sign-in"*, which is known at sign-in time. |
