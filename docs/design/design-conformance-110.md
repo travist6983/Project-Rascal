@@ -540,6 +540,7 @@ two HIGH findings were then re-verified by hand in the source.
 | **F10** | LOW | **The trial-welcome flag is spent on tap, not on show.** `OnboardingGate:867` sets `trialWelcomeShown` inside the action closure — the opposite of the rule applied, correctly, to the post-trial notice, where `MembershipPresentationRecord:16` says *"whether or not it was dismissed. Seeing it is what spends it."* Independent of F1 and survives whatever fixes it. |
 | **F11** | LOW | **The footnote renders in the products-unavailable state**, where `2c` omits it — it lives inside the price-row group the `Notice` replaces. Weakest of the twelve: the sentence is still true in that state and this may be the artboard's grouping rather than an intended rule. |
 | **F12** | LOW | **"What stays free, always" sits outside its bordered block**; `2a`/`2b`/`2d` draw the label inside the card. **The most arguable finding here, and it cuts both ways:** `design-system.md:228` specifies the sheet-field vocabulary as *"a `SectionLabel`, then the control 8 below it on `surface` at radius 14"* — label outside — so the code follows a house pattern. But that is precedence 5, which applies only *"for anything the design does not specify"*, and the design specifies this one. |
+| **F14** | MED | **The offer deadline frees the screen but not the model.** `SubscriptionModel:196-198` — `isLoading` is cleared **only** by the `defer` inside `load()`, so while `load()` is suspended on a hung store every subsequent `load()` early-returns at the re-entry guard. The deadline correctly moves `phase` off `.loading`, so the sheet says something true; but the parent who taps *Not now* and reopens from Settings or another locked card gets the same stale *"Membership isn't open yet"* with **no retry attempted and no spinner**. **It does not need a hang that lasts forever** — any hang longer than the 10s deadline opens a window where the product is unbuyable and every retry is silently ignored, app-wide, because `SubscriptionModel` is now the single instance on `RootView`. That is phase 108's own stated rationale for the timeout, half-satisfied. **Nothing covers it:** `theSpinnerEndsBeforeTheStoreDoes` ends with `await loading.value`, so the store finishes and the `defer` runs. **Reported without a prescribed fix**, because releasing the guard early lets two loads race to assign `phase` — a generation counter resolves it, and accepting the window is also defensible, but it must then be accepted *in writing* at the guard. |
 | **F13** | MED | **There is no preview and no render of the sheet with no introductory offer — and that is the only state production will ever have.** `SubscriptionOffer.preview` hardcodes `trial: 2 weeks`; all five `#Preview`s use it, and `membershipSheetRenders` renders only `.ready(.preview)` and `.unavailable(.products)`. So every visual review of this sheet has been done against plan rows reading *"2 weeks free, then $59.99 a year"* — **copy no parent can see**, because the trial is server-granted and this sheet is only reached after it ends. The real rows lose the prefix, become one line instead of two, and change the plan group's height — most at AX3/AX5, where the current renders wrap. **Found by looking at the renders, not by reading code.** |
 
 **Not reported as defects**, having checked: the uniform terracotta wash on a locked `letter` (the
@@ -547,6 +548,35 @@ wash is the lock ground, not a tint — the tile carries kind, correctly, in per
 `SectionLabel` over the locked group (deliberate and right — a header there is where a count would
 one day be attached); `Font.system(size:)` on four glyphs (the sanctioned `@ScaledMetric`
 exception); and the hardcoded glyph-tile radius `11` (matches `PromptCard` and `WaitingCard`).
+
+### 10.1a · Five guards that could not fail, in one evening
+
+**This is the finding worth carrying past this phase**, and it is about method rather than about
+anyone's code. Across three repositories and three sessions, in a single evening, five tests were
+found that existed, passed, and **could not fail for the reason they were written**:
+
+| # | The guard | Why it could not fail | Found by |
+|---|---|---|---|
+| 1 | 37b's `theListenerIsWired` | grepped two substrings that both survived the single edit that reintroduced the bug | 37b's review |
+| 2 | Marketing's banned-copy patterns | a generator turned five `\b` word boundaries into literal `0x08` bytes, so they matched nothing | breaking them on purpose |
+| 3 | `MembershipCopy.bannedPhrases` | dead constant; the live test enforced 8 of 11 phrases against its own divergent inline list | F7, this pass |
+| 4 | The F1 fix | correct fix, and **reintroducing the bug passed all 1125 tests** — the record semantics were covered, the wiring was not | break-testing the fix |
+| 5 | The offer timeout's `HangingStore` | used `Task.sleep`, which is **cancellable**; the defect was an *uncancellable* call, so the test proved the easy case and was silent on the real one | 108's own adversarial pass |
+
+**The diagnosis, which is `project-rascal-39`'s and is better than the list:** *a test written from
+the same understanding as the code it guards inherits that understanding's blind spot.* `HangingStore`
+used `Task.sleep` because its author was thinking about *slow*; the defect was *uncancellable*. The
+test could not fail for the reason that mattered, because its author had not yet had the idea that
+mattered.
+
+**All five survived review** — several by multiple independent readers, this pass's six-agent
+adversarial sweep included. **The only thing that caught any of them was deliberately breaking the
+thing and watching.** Eight break-tests were run in this pass; two of them found gaps that
+thirteen reviewers had not.
+
+**So the rule for the next phase is not "review harder".** It is: *for each guard, name the single
+edit that should make it fail, then make that edit and watch it fail.* A guard whose break-test has
+never been run is a claim, not a guard.
 
 ### 10.2 · Two App Review requirements were deletable, and now are not
 
