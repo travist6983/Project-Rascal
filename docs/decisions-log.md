@@ -3207,6 +3207,58 @@ disputed rather than as fact. **The chosen icon bakes the wordmark into pixels**
 the name being wrong went up with this phase rather than down. That is an argument for settling
 item 15, not for reopening the icon.
 
+## Aug 21–22, 2026 — Phase 108: the locked board, the membership sheet, the trial welcome
+
+iOS lane, PR #158. Judgment calls only; the settled reversal of D2/D3 is in `decisions.md` and is
+phase 107's to record.
+
+- **Extended `PaywallSheet` rather than building the `MembershipSheet` the prompt named.** Phase 37b
+  had already shipped the sheet — title, subtitle, plan selector with annual preselected, primary,
+  secondary, restore, legal links. A second one beside it would have been the largest defect
+  available in this phase. The prompt's named type does not exist; the surface it describes does.
+- **Retired `PaywallSheet.Context`.** The copy file says *"Same sheet every time"*, so the
+  per-context headers phase 61 wrote had nothing left to vary. A parameter that no longer changes
+  anything is worse than no parameter, so it is gone rather than left inert.
+- **Moved `SubscriptionModel` from `SettingsScreen` up to `RootView`.** Today gained a second door to
+  the sheet, and two instances would be two `GET /families/me` readers and two opinions about the
+  selected plan — the duplication `GuardiansSection` already warns about for this type.
+- **Locked-card copy carries the prompt library's pronoun tokens.** The owner's copy is written
+  throughout for a boy and `CLAUDE.md` forbids client strings that assume a child's gender. Tokenising
+  renders the owner's sentence **byte for byte** for a `he/him` child and a correct one for everyone
+  else; neutralising would have rewritten words this phase is forbidden to author. **The membership
+  sheet renders against no child at all** — it is per-household, and with a boy and a girl any other
+  choice is wrong for one of them. Recorded in `free-tier-copy.md`'s *Proposed additions* as a ruling
+  spanning **three** surfaces, since the marketing site's narrative voice is in the same state.
+- **Treatment C for the locked card, against the design's own recommendation.** Artboard `1d` picked
+  A and argued against C by name; the owner read that and chose C. The argument against it is quoted
+  in the code and the PR because it is the strongest thing said about what shipped. Composited in two
+  layers over canvas rather than pinned as a hex, so the fill cannot drift if `terracottaSoft` is
+  retuned.
+- **The locked-card wash is uniform, including a `letter`.** The tile carries the kind, in periwinkle;
+  the ground says *locked*. Two lock grounds would teach a parent two things and would make the
+  periwinkle card the only locked one that does not look locked. No artboard covers it.
+- **A deadline on `phase`, not a race against the store.** `Product.products(for:)` has no timeout and
+  the call under it cannot report cancellation, so a hung StoreKit call cannot be abandoned — only
+  stopped from holding the screen. Two racing implementations were tried and both were wrong;
+  `withTaskGroup` awaits every child, and a continuation race cannot be tested honestly. A generation
+  counter alongside the re-entry mutex stops an abandoned load from writing anything late.
+- **Three App Review requirements ship although no artboard draws them** — restore, the Terms and
+  Privacy links, and the plan row's product title. Guideline 3.1.2 is not stylistic and cannot be
+  designed away; the artboards draw the sheet's content and stop.
+- **`Notice` became a real component** in `DesignSystem/`, specified in `design-system.md` since that
+  file was written and carried as four private byte-for-byte copies. **The four are deliberately not
+  migrated** — four screens' worth of diff on a branch about something else.
+- **⚠️ Two prompts written the same evening each cited a document nobody had written.**
+  `docs/decisions/proposed-d2-d3-reversal-diff.md` (phase 107) and `docs/design/free-tier-copy.md`
+  (this phase) were both named as authoritative and neither existed on any branch or in the history.
+  **This is a process finding rather than a copy one**, and it is recorded here because it is the kind
+  that is invisible from inside a single phase: each agent hand-applied the intent of a file it could
+  not read, and only two sessions comparing notes revealed that it had happened twice. The copy file
+  was recovered because a *third* session happened to have its text pasted into its own prompt.
+- **`free-tier-copy.md` is committed as a reconstruction and says so.** Two independent witnesses that
+  agree — the phase 109 prompt's transcription and the approved design bundle — neither of which is
+  the file. If the owner's original resurfaces it wins over both.
+
 ## Aug 18, 2026 — three phases that shipped without a log entry, backfilled
 
 **`CLAUDE.md` says judgment calls go here, one line each. Phases 66, 69 and 75 made several and
