@@ -102,6 +102,41 @@ DEMOTING_NOTIFICATIONS: Final = (
     "REVOKE",
 )
 
+#: The one notification that says Apple is still retrying a failing card, paired with the
+#: subtype that distinguishes it from the failure. Read by `services/membership.py` to derive
+#: `billing_retry`; it appears in neither set above **because it changes no tier**, which is
+#: the whole point of the field.
+BILLING_RETRY_NOTIFICATION: Final = "DID_FAIL_TO_RENEW"
+BILLING_RETRY_SUBTYPE: Final = "GRACE_PERIOD"
+
+#: **The wire vocabulary for how often a subscribed household is billed**, added by phase 113
+#: so a client can tell an annual member from a monthly one. `plan` on `FamilyOut` and
+#: `EntitlementOut`.
+#:
+#: **Optional on the wire in a way `access` is not**, and the difference is the whole design.
+#: `access` is required and has exactly three values because it *gates* things; `plan` gates
+#: nothing, so `None` is a first-class answer meaning **we do not know** — a household with no
+#: transaction row, a product id nobody here recognises, or one that is not currently
+#: subscribed. A client renders the fallback on `None`; it never guesses a cadence.
+SubscriptionPlan = Literal["annual", "monthly"]
+SUBSCRIPTION_PLANS: Final = ("annual", "monthly")
+
+#: Apple's product identifiers, mapped onto the vocabulary above. Settled as **D5a** and
+#: **permanent on first save in App Store Connect**, which is why they were chosen at a desk
+#: rather than mid-phase — see `docs/decisions.md`.
+#:
+#: **This is a lookup, never a parse.** Deriving the cadence by searching a product id for the
+#: substring `annual` would silently answer for identifiers nobody has decided on — including
+#: the future non-renewing product D6's printed book will need in the same namespace. An id
+#: that is not a key here is `None`, which is a correct answer rather than a gap.
+#:
+#: The iOS half of this pair is `ios/Rascal/Rascal/Subscription/SubscriptionProducts.swift`;
+#: `tests/app_store_stub.py` builds payloads from these same strings.
+PRODUCT_PLANS: Final[dict[str, SubscriptionPlan]] = {
+    "com.travisterry.childarchive.subscription.annual": "annual",
+    "com.travisterry.childarchive.subscription.monthly": "monthly",
+}
+
 #: Deletion eligibility, per D3. Both clocks, and neither is ever stored — see
 #: `services/app_store.py` and `docs/decisions.md` D3.
 LAPSE_ELIGIBILITY_MONTHS: Final = 24

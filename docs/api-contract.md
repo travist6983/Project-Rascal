@@ -603,6 +603,10 @@ nothing to forge.
   "tier": "free",
   "access": "trial",
   "trial_ends_at": "2026-09-04T00:00:00Z",
+  "lapsed_at": null,
+  "plan": null,
+  "billing_retry": false,
+  "is_payer": null,
   "guardians": [
     { "user_id": "…", "display_name": "Travis", "role": "parent",
       "granted_at": "2026-08-17T11:00:00Z", "is_you": true }
@@ -626,6 +630,53 @@ values and its meaning** — a client that has been reading `tier` since phase 3
 `tier` says whether Apple has told us somebody is paying; `access` says what the phone will
 actually be served today, and during a fourteen-day trial those are different answers. See
 `GET /families/{id}/entitlement` below for the definition; both routes read one function.
+
+##### The four membership fields phase 113 added
+
+**All four are additive and optional. No existing field changed meaning**, and a client that
+ignores every one of them behaves exactly as it did before. They exist because the Settings
+membership surface has to tell nine household states apart and the server could express three.
+
+**`access` still has exactly three values and a fourth is not coming.** Adding `lapsed` or
+`grace` to that enum would be the opposite of safe: under standing rule **D9** an unrecognised
+`access` means *entitled*, so every client built before such a change would hand a lapsed
+household the full board. That is why each of these is a separate optional field instead.
+
+| field | type | what a null/false means |
+|---|---|---|
+| `lapsed_at` | `datetime \| null` | **Never subscribed.** Non-null is a household that used to be and is not now — the only way to tell those two apart on this route. **A trial expiring never writes it** (D3): a household that tried the app for a fortnight and stopped reads `null` forever and must not be rendered as having cancelled. |
+| `plan` | `"annual" \| "monthly" \| null` | **Unknown, and a client must render its fallback rather than guess.** Null means no receipt behind the subscription (the hand-written household in `runbook-deploy.md` §7a), a product id this server does not recognise, **or a household that is not currently subscribed**. |
+| `billing_retry` | `bool`, default `false` | Not in a billing retry. **Never optional** — `false` and absent are the same render. |
+| `is_payer` | `bool \| null` | **Unknown, and it must never be read as `false`.** See below. |
+
+**`plan` and `billing_retry` describe a *current* subscription.** A household that lapsed from
+annual reports `plan: null`, not `"annual"`, so `plan` never appears beside `access: "free"` and
+`billing_retry` is never `true` for a non-member. One rule rather than a table of combinations.
+
+**`billing_retry` gates nothing whatsoever.** A household whose card is failing keeps everything
+while Apple retries: `access` is still `"subscribed"`, `tier` is untouched, and the whole board
+stays open. That was already true before this field existed — `DID_FAIL_TO_RENEW` with subtype
+`GRACE_PERIOD` is deliberately a no-op on `tier` — and the field exists so a client can *offer to
+fix a card*, never so it can withhold anything. `GRACE_PERIOD_EXPIRED` is the separate
+notification that actually demotes.
+
+**`is_payer` is computed for the calling user and has three values, and the third is the point.**
+`true` and `false` mean what they say; **`null` means nobody knows**. A client hides Apple's
+subscription-management control on an explicit `false` — correct, because a non-payer sent to
+that sheet finds this subscription is not in it — and hiding it on a `null` would strip the
+control from a parent who is paying. **Null is the common case rather than the edge one**:
+`payer_user_id` is deliberately left unwritten when a household has two guardians, because
+`appAccountToken` carries a *family* id and Apple's notification never names a user, so the field
+is unknown in exactly the households where the question means anything. `docs/blocked.md` §20
+carries what it would take to fix that; it is a client change, not a server one.
+
+**The raw `payer_user_id` is never on the wire under any name.** It is another household
+member's UUID, and the question is answerable about the caller without disclosing one.
+
+**`eligible_at` is deliberately absent from this route** and is not being added. It is D3's
+deletion clock; it stays on `GET /families/{id}/entitlement` for the console. Keeping it off the
+one shape the Settings screen reads is what makes it structurally impossible for that surface to
+render a deletion date by accident.
 
 **`POST /families/me/invites`** → `201`
 Body: `{ "email": str | null, "role": "parent" }`. `email` is optional and is only recorded;
@@ -1761,9 +1812,27 @@ which is the bug D4 and D5 exist to prevent.
   "trial_ends_at": "2026-08-07T00:00:00Z",
   "lapsed_at": "2026-05-01T00:00:00Z",
   "eligible_at": "2028-05-01",
-  "media_storage_tier": "archive"
+  "plan": null,
+  "billing_retry": false,
+  "media_storage_tier": "hot"
 }
 ```
+
+~~*`"media_storage_tier": "archive"`*~~ — **corrected to `"hot"` on Aug 22, 2026 by phase 113.
+The example documented output the server cannot produce.** The field is a hardcoded Python
+default on `EntitlementOut` and is not a read of anything, exactly as the paragraph below this
+example has always said — so `"archive"` was unreachable, and an example that contradicts its own
+prose two lines later is worse than no example. **Nothing about the field changed**; phase 113
+only stopped the contract from describing a value no household has ever been sent. It becomes a
+real read when phase 38 adds `media.storage_tier` and D3's move to the Tigris Archive tier at 90
+days lapsed lands.
+
+**`plan` and `billing_retry` are the same two values `GET /families/me` reports**, from the same
+function over the same ledger row — one authority, two shapes, in the pattern `access` already
+follows. See the phase 113 section under `GET /families/me` for what each null means. **Neither
+gates anything on this route either.** `is_payer` and `lapsed_at` are not repeated here:
+`lapsed_at` was already on this shape, and `is_payer` is about the *caller*, which is a household
+question rather than a subscription one.
 
 **`access` is `"subscribed" | "trial" | "free"`, computed per request and never stored:**
 
@@ -1927,6 +1996,20 @@ retry took.
 a *family* id, so Apple never names a user. With two guardians there is no way to tell which one
 paid, and a wrong payer is worse than a null one — D3a's win-back writes to the payer, so guessing
 means emailing the wrong parent about the other one's cancelled card.
+
+**Phase 113 put this column on the wire as `is_payer` and did not make it any more knowable.**
+`GET /families/me` reports `is_payer: bool | null` computed for the calling user; **`null` means
+unknown and never `false`**, so a household whose payer was never recorded still shows every
+guardian Apple's subscription-management control. **Two ways to populate the two-guardian case were
+considered and both are unsound** — extending `_set_payer` to `DID_RENEW` writes whichever guardian
+*remains* after the real payer has left the household, and narrowing that to households that have
+only ever had one member cannot be expressed: `guardians` is keyed `(user_id, child_id)` with no
+`family_id`, membership is `users.family_id`, and a user who leaves leaves no row. There is no
+membership history to query. `docs/blocked.md` §21 carries both, and the only real fix — a client
+that tells us who transacted — with the shape it would need.
+
+**Note the one thing that is not a gap here:** a resubscribe arrives as `SUBSCRIBED` with subtype
+`RESUBSCRIBE`, not as `DID_RENEW`, so it already reaches `_set_payer`.
 
 #### Three rules that matter more than the table
 

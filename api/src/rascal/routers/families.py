@@ -39,10 +39,12 @@ from rascal.services.guardians import (
     find_open_invite,
     hash_token,
     invited_children,
+    is_payer_for,
     issue_invite,
     last_sign_in_for,
     revoke_invite,
 )
+from rascal.services.membership import membership_signals
 
 router = APIRouter(prefix="/families", tags=["families"])
 invites_router = APIRouter(prefix="/invites", tags=["families"])
@@ -113,11 +115,23 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
     # `GET /families/{id}/entitlement` and on `GET /children/{id}/today` are the same
     # function over the same row — see `services/guardians.access_for`.
     access = access_for(entitlement)
+    # Phase 113's four additive fields. Three of them are reads of rows this handler already
+    # has — `lapsed_at` and `is_payer` come off the `entitlements` row fetched at the top, so
+    # neither costs a query — and `membership_signals` is one indexed lookup that a household
+    # on the free tier short-circuits before making.
+    signals = await membership_signals(session, user.family_id, tier=entitlement.tier)
     return FamilyOut(
         family_id=user.family_id,
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        lapsed_at=entitlement.lapsed_at,
+        plan=signals.plan,
+        billing_retry=signals.billing_retry,
+        # **`None` where nobody knows, never `False`.** See `services.guardians.is_payer_for`:
+        # a client hides Apple's management sheet on `False`, so a null answered as `False`
+        # takes that control away from a parent who is paying.
+        is_payer=is_payer_for(entitlement, user.id),
         guardians=guardians,
         pending_invites=await _pending_invites(session, user.family_id),
     )
@@ -142,12 +156,17 @@ async def read_entitlement(
     """
     entitlement = await entitlement_for(session, family_id)
     access = access_for(entitlement)
+    # The same derivation `GET /families/me` reports, from the same function over the same
+    # ledger — one authority, two shapes, in the pattern `access` already follows.
+    signals = await membership_signals(session, family_id, tier=entitlement.tier)
     return EntitlementOut(
         family_id=family_id,
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
         lapsed_at=entitlement.lapsed_at,
+        plan=signals.plan,
+        billing_retry=signals.billing_retry,
         # **Deliberately still `entitlement.tier` and not `access.entitled`.** `eligible_at` is
         # D3's deletion clock and it starts when a *subscription* ends. A trial running out is
         # not a lapse, `lapsed_at` stays null through one, and passing the trial in here would
