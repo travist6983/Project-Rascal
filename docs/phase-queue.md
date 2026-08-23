@@ -63,7 +63,15 @@ sentence offered.** **115 is CRUD for the child's photo** (iOS lane, `ios/phase-
 onboarding could set an avatar and Settings could show one, and between the two there was no way to
 replace or remove it — `EditChildSheet` contained the word "avatar" zero times and `updateChild`
 omits `avatar_key` by design. The API lane needed nothing; all four operations have been served
-since phase 21. **The highest number used is 115. A genuinely new phase takes 116.**
+since phase 21. ~~**The highest number used is 115. A genuinely new phase takes 116.**~~ — **struck a
+twelfth time on Aug 23, 2026, by 116 taking the number this sentence offered.** **116 is the merge
+markers in `roadmap-status.md`**: six rows still read `allocated` or `open` after their pull requests
+had merged — 107, 111, 112, 113, 114 and 115 — and this is the ninth consecutive revision to find
+that ledger trailing `main` in the same direction. **The interesting part is that the remedy this
+header spent nine strikes asking for is working**: rows are written at allocation now, every time.
+It just fixed the wrong half. **Nothing has ever owned the merge** — this file deletes a line when
+it is done and that file never deletes a row, so a merge leaves no trace in either. **The highest
+number used is 116. A genuinely new phase takes 117.**
 
 **111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
