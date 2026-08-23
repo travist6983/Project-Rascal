@@ -78,6 +78,12 @@ nonisolated struct URLSessionAvatarTransfer: AvatarTransferring {
 /// comes back wrong. Uploading is a durability concern; displaying is not, and the two are not
 /// allowed to share a failure.
 ///
+/// **And its mirror: a failed removal never puts the local copy back.** The same parent, on the
+/// same train, removing the picture instead — it goes on the tap and stays gone. Both halves say
+/// the same thing: what is on screen answers to what the parent did, never to what the network
+/// managed. The removal is stated as its own rule rather than implemented by softening the first
+/// one, because the two failures are opposite and a single loosened invariant would permit both.
+///
 /// Order on the way in, and it matters:
 ///
 /// 1. Crop and encode (`AvatarCrop`, unchanged — it already avoids decoding a full-resolution
@@ -128,31 +134,55 @@ final class AvatarSync {
         )
     }
 
+    /// Remove this child's avatar. **Local first and unconditionally, exactly like `enqueue`.**
+    ///
+    /// The picture is gone from this phone by the time this returns, and the server is told on the
+    /// next sweep — which is what lets a removal work with no network, no spinner and no failure a
+    /// parent has to read. It is the mirror of the invariant above rather than a weakening of it:
+    /// an upload never removes the local copy at any step, and a removal never puts it back.
+    ///
+    /// **This replaces any outstanding upload for the same child.** One record per child, last
+    /// intent wins — a parent who picks a photo and then removes it owes a removal, not an upload
+    /// followed by one.
+    func remove(for childId: UUID) {
+        store.remove(for: childId)
+        pending.save(.removal(for: childId))
+    }
+
     // MARK: - The sweep
 
     /// Push whatever has not landed. A no-op when nothing is outstanding.
     ///
     /// Called from `EntrySync.sweep()`, which is called on foreground — the same pass that drains
     /// entries and media, rather than a timer or a spinner of its own.
+    ///
+    /// Returns the number of debts settled, which counts a removal that landed as well as an
+    /// avatar that uploaded. One number meaning one thing; the alternative invites the next reader
+    /// to conclude a removal did not happen.
     @discardableResult
     func sweep(now: Date = Date()) async -> Int {
         guard !running else { return 0 }
         running = true
         defer { running = false }
 
-        var uploaded = 0
+        var settled = 0
         for record in pending.all().values {
             guard !record.isExhausted else { continue }
             guard UploadBackoff.isEligible(nextAttemptAt: record.nextAttemptAt, now: now) else {
                 continue
             }
-            if await push(record, now: now) { uploaded += 1 }
+            if await push(record, now: now) { settled += 1 }
         }
-        return uploaded
+        return settled
     }
 
-    /// One avatar, all three steps. Returns whether it is now on the server.
+    /// One avatar, all three steps. Returns whether the server now agrees with this phone.
     private func push(_ record: PendingAvatarUpload, now: Date) async -> Bool {
+        // **Before the file is consulted, and that ordering is the whole point.** The guard below
+        // reads absent bytes as "nothing to upload, ever" — which is exactly the state a removal
+        // produces, so a removal reaching it would be silently dropped and never sent.
+        if record.isRemoval { return await pushRemoval(record, now: now) }
+
         guard let jpeg = store.load(for: record.childId) else {
             // The bytes are gone — the parent removed the avatar, or the app's container was
             // rebuilt. There is nothing to upload and never will be, so the record goes. This is
@@ -194,6 +224,32 @@ final class AvatarSync {
         }
     }
 
+    /// A removal, which is one PATCH and nothing else.
+    ///
+    /// **No presign and no PUT.** The API has no DELETE for an avatar and nothing takes the object
+    /// out of the bucket — clearing the column orphans it, the same trade an abandoned presign
+    /// already makes. There is no storage call to make here, which is worth saying so the next
+    /// reader does not go looking for the missing half.
+    ///
+    /// The three outcomes are the upload's, reused rather than re-decided: `notFound` means the
+    /// child is gone, so there is nothing left to clear; `notAuthorized` means this phone cannot
+    /// write to this child, which retrying cannot fix; everything else — offline, a 5xx, a lapsed
+    /// session — keeps the record and tries again on the shared `UploadBackoff`.
+    private func pushRemoval(_ record: PendingAvatarUpload, now: Date) async -> Bool {
+        do {
+            try await api.clearAvatarKey(childId: record.childId)
+            pending.clear(for: record.childId)
+            Self.log.notice("avatar removed for child \(record.childId, privacy: .public)")
+            return true
+        } catch let error as APIError where isPermanent(error) {
+            giveUp(record, why: error.code?.rawValue ?? "refused")
+            return false
+        } catch {
+            reschedule(record, now: now)
+            return false
+        }
+    }
+
     /// Refusals that retrying cannot fix.
     ///
     /// **The same three codes `EntrySync.push` parks an entry on**, deliberately, so that a phone
@@ -215,12 +271,24 @@ final class AvatarSync {
         }
     }
 
-    /// Stop retrying automatically. **The local copy stays.**
+    /// Stop retrying automatically.
     ///
-    /// The avatar keeps rendering from disk exactly as before; what is lost is only the durability
-    /// this phase adds, and losing it silently is correct — a parent cannot act on "the avatar
-    /// presign was refused", and saying so on the Settings screen would be an error message about
-    /// a picture that is visibly right there.
+    /// **On an upload, the local copy stays.** The avatar keeps rendering from disk exactly as
+    /// before; what is lost is only the durability, and losing it silently is correct — a parent
+    /// cannot act on "the avatar presign was refused", and saying so on the Settings screen would
+    /// be an error message about a picture that is visibly right there.
+    ///
+    /// **On a removal there is no local copy to keep, and what is lost is the server-side clear.**
+    /// The key stays live, and **the picture comes back** — not on this screen, whose `avatar` is
+    /// already nil and whose reload key has not moved, but on the next launch that misses the
+    /// cache: clearing the record also retires the pending-removal short-circuit in `avatarData`,
+    /// so the presigned GET runs and succeeds. That is deliberate rather than tolerated. The three
+    /// codes this parks on all mean the clear will never be accepted, and rule 1 says the server is
+    /// the source of truth — a phone that hid a photo the archive still holds would be showing an
+    /// answer no other device agrees with. Silent for the mirrored reason: the parent's phone
+    /// already shows what they asked for, and an error about a picture that is visibly gone is
+    /// noise. Said out loud rather than left implied, because the sentence above was true of
+    /// everything this method did until it was not.
     private func giveUp(_ record: PendingAvatarUpload, why: String) {
         pending.clear(for: record.childId)
         Self.log.error("avatar upload refused for child \(record.childId, privacy: .public): \(why, privacy: .public)")
@@ -247,9 +315,17 @@ final class AvatarSync {
     /// still handled, because the key can be stale by the width of one sync.
     ///
     /// Returns `nil` for "no avatar", which every caller renders as the initials disc. Nil is never
-    /// an error here: not for a 404, not for being offline. There is no retry and no log line,
-    /// because there is nothing a parent could do with either.
+    /// an error here: not for a 404, not for being offline, and not for a removal still waiting to
+    /// be sent. There is no retry and no log line, because there is nothing a parent could do with
+    /// any of them.
     func avatarData(for childId: UUID, remoteKey: String?) async -> Data? {
+        // **A removal this phone has not managed to send yet, and this guard is load-bearing.**
+        // The local file is already gone but `children.avatar_key` is still live, so the cache miss
+        // below would presign a GET, get a 200, and hand back the picture the parent just removed —
+        // and this method *caches what it fetches*, so it would write it back to disk as well.
+        // Without this, an offline removal survives exactly as long as the screen stays open.
+        if pending.pending(for: childId)?.isRemoval == true { return nil }
+
         if let cached = store.load(for: childId) { return cached }
         guard remoteKey != nil else { return nil }
 

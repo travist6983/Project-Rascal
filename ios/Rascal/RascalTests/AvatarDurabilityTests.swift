@@ -101,10 +101,14 @@ private func readTicketJSON() -> Data {
     Data(#"{"url":"\#(storageGetURL)","expires_in":3600}"#.utf8)
 }
 
-private func patchedChildJSON(_ id: UUID, key: String = storedKey) -> Data {
-    Data(#"""
+/// `key` is optional so a *clear*'s response can be the row the server actually wrote — a child
+/// whose `avatar_key` is now null. Interpolated the way `SettingsTests.userJSON` already writes a
+/// nullable string, rather than by keeping a second near-identical fixture beside this one.
+private func patchedChildJSON(_ id: UUID, key: String? = storedKey) -> Data {
+    let avatarKey = key.map { "\"\($0)\"" } ?? "null"
+    return Data(#"""
     {"id":"\#(id.uuidString.lowercased())","name":"Milo","birthdate":"2022-06-12",\#
-    "pronouns":null,"avatar_key":"\#(key)","family_timezone":"America/Denver",\#
+    "pronouns":null,"avatar_key":\#(avatarKey),"family_timezone":"America/Denver",\#
     "created_at":"2026-08-12T01:06:30.309889Z","updated_at":"2026-08-12T01:07:09.268867Z"}
     """#.utf8)
 }
@@ -679,6 +683,382 @@ struct AvatarRenderingTests {
 #endif
 
 // MARK: - The wire
+
+// MARK: - Replacing
+
+@Suite("Avatar durability — replacing")
+@MainActor
+struct AvatarReplaceTests {
+
+    @Test("picking a second photo replaces the first everywhere, rather than queueing behind it")
+    func replacingOverwritesBothCopies() async throws {
+        let child = UUID()
+        let store = InMemoryAvatarStore()
+        let pending = InMemoryPendingAvatarUploadStore()
+        let sync = AvatarSync(
+            api: wiredAPI(StubPerformer(), childId: child),
+            store: store, pending: pending, transfer: StubAvatarTransfer()
+        )
+
+        let first = Data("first-jpeg".utf8)
+        let second = Data("second-and-longer-jpeg".utf8)
+        sync.enqueue(first, for: child)
+        sync.enqueue(second, for: child)
+
+        // Before any sweep: one file, one record, and both describe the second photo.
+        #expect(store.load(for: child) == second)
+        #expect(pending.all().count == 1)
+        #expect(pending.pending(for: child)?.byteCount == second.count)
+    }
+
+    @Test("only the surviving photo is uploaded")
+    func replacingUploadsOnlyTheNewBytes() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let transfer = StubAvatarTransfer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: InMemoryAvatarStore(),
+            pending: InMemoryPendingAvatarUploadStore(),
+            transfer: transfer
+        )
+
+        let second = Data("second-and-longer-jpeg".utf8)
+        sync.enqueue(Data("first-jpeg".utf8), for: child)
+        sync.enqueue(second, for: child)
+        let settled = await sync.sweep()
+
+        #expect(settled == 1)
+        // One presign and one commit — not two of each. The first photo never goes up.
+        #expect(paths(performer).count == 2)
+        #expect(transfer.sent.count == 1)
+        #expect(transfer.sent[0].bytes == second)
+    }
+
+    /// A parent picking a new photo should not be made to wait out the old one's backoff.
+    @Test("replacing starts the retry schedule over")
+    func replacingStartsTheBackoffOver() async throws {
+        let child = UUID()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let pending = InMemoryPendingAvatarUploadStore([
+            child: PendingAvatarUpload(
+                childId: child, contentType: "image/jpeg", byteCount: 10,
+                attemptCount: 3, nextAttemptAt: now.addingTimeInterval(3600)
+            )
+        ])
+        let sync = AvatarSync(
+            api: wiredAPI(StubPerformer(), childId: child),
+            store: InMemoryAvatarStore(), pending: pending, transfer: StubAvatarTransfer()
+        )
+
+        sync.enqueue(Data("fresh-crop".utf8), for: child)
+
+        let record = try #require(pending.pending(for: child))
+        #expect(record.attemptCount == 0)
+        #expect(record.nextAttemptAt == nil)
+        #expect(record.isRemoval == false)
+    }
+}
+
+// MARK: - Removing
+
+@Suite("Avatar durability — removing")
+@MainActor
+struct AvatarRemovalTests {
+
+    /// The mirror of `localWriteHappensFirst`: the picture is gone before anything is attempted,
+    /// which is what lets the surface have no upload state and no failure to read.
+    @Test("the bytes are gone before anything touches the network")
+    func removalIsLocalFirstAndSilent() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let store = InMemoryAvatarStore()
+        let pending = InMemoryPendingAvatarUploadStore()
+        let transfer = StubAvatarTransfer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: store, pending: pending, transfer: transfer
+        )
+
+        sync.enqueue(Data("jpeg".utf8), for: child)
+        sync.remove(for: child)
+
+        #expect(store.load(for: child) == nil)
+        #expect(performer.requests.isEmpty)
+        #expect(transfer.sent.isEmpty)
+        #expect(pending.pending(for: child)?.isRemoval == true)
+    }
+
+    /// One record per child, last intent wins. A photo picked and then removed owes a removal —
+    /// never an upload followed by one, which would put the picture in the bucket on the way past.
+    @Test("removing replaces an upload that had not gone out yet")
+    func removalReplacesAnOutstandingUpload() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let transfer = StubAvatarTransfer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: InMemoryAvatarStore(),
+            pending: InMemoryPendingAvatarUploadStore(),
+            transfer: transfer
+        )
+
+        sync.enqueue(Data("jpeg".utf8), for: child)
+        sync.remove(for: child)
+        let settled = await sync.sweep()
+
+        #expect(settled == 1)
+        #expect(paths(performer).count == 1)
+        #expect(performer.requests.allSatisfy { $0.url?.path().hasSuffix("avatar-upload-url") == false })
+        #expect(transfer.sent.isEmpty)
+    }
+
+    /// There is no DELETE for an avatar and no storage half at all — a removal is one PATCH.
+    @Test("a removal never presigns and never touches storage")
+    func removalNeverPresigns() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let transfer = StubAvatarTransfer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: InMemoryAvatarStore(),
+            pending: InMemoryPendingAvatarUploadStore(),
+            transfer: transfer
+        )
+
+        sync.remove(for: child)
+        await sync.sweep()
+
+        let seen = paths(performer)
+        #expect(seen.count == 1)
+        #expect(seen[0].hasSuffix(child.uuidString.lowercased()))
+        #expect(transfer.sent.isEmpty)
+        #expect(transfer.fetched.isEmpty)
+    }
+
+    @Test("a landed removal stops being outstanding")
+    func removalClearsTheRecord() async throws {
+        let child = UUID()
+        let pending = InMemoryPendingAvatarUploadStore()
+        let sync = AvatarSync(
+            api: wiredAPI(StubPerformer(), childId: child),
+            store: InMemoryAvatarStore(), pending: pending, transfer: StubAvatarTransfer()
+        )
+
+        sync.remove(for: child)
+        #expect(pending.pending(for: child) != nil)
+        await sync.sweep()
+        #expect(pending.pending(for: child) == nil)
+    }
+
+    /// **The test this phase most needs, and the one a synthesized encoder passes nothing of.**
+    ///
+    /// Swift writes optionals with `encodeIfPresent`, which omits nil; the server reads an omitted
+    /// key as "no opinion" through `exclude_unset`. The obvious implementation therefore sends
+    /// `{}`, gets a 200, and leaves the column exactly where it was.
+    @Test("the removal sends an explicit null, and nothing else")
+    func theRemovalSendsAnExplicitNull() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: InMemoryAvatarStore(),
+            pending: InMemoryPendingAvatarUploadStore(),
+            transfer: StubAvatarTransfer()
+        )
+
+        sync.remove(for: child)
+        await sync.sweep()
+
+        let request = try #require(performer.requests.last)
+        #expect(request.httpMethod == "PATCH")
+        let body = try #require(request.httpBody)
+        // The bytes, first — the one assertion that cannot be satisfied by an omitted key.
+        #expect(String(data: body, encoding: .utf8) == #"{"avatar_key":null}"#)
+
+        // Then structurally. Decoded outside the macro: `#expect` rejects throwing calls.
+        let decoded = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(decoded.keys.contains("avatar_key"))
+        #expect(decoded["avatar_key"] is NSNull)
+        // As load-bearing as the null: a removal must not rewrite name, birthdate or timezone.
+        #expect(decoded.count == 1)
+    }
+
+    @Test("a removal the server refused is retried, and the bytes stay gone")
+    func aFailedRemovalIsRetriedAndTheBytesStayGone() async throws {
+        let child = UUID()
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let store = InMemoryAvatarStore()
+        let pending = InMemoryPendingAvatarUploadStore()
+        let sync = AvatarSync(
+            api: wiredAPI(StubPerformer(), childId: child, patchStatus: 500),
+            store: store, pending: pending, transfer: StubAvatarTransfer()
+        )
+
+        sync.enqueue(Data("jpeg".utf8), for: child)
+        sync.remove(for: child)
+        #expect(await sync.sweep(now: now) == 0)
+
+        let record = try #require(pending.pending(for: child))
+        #expect(record.isRemoval)
+        #expect(record.attemptCount == 1)
+        #expect(try #require(record.nextAttemptAt) > now)
+        // A failed removal does not put the picture back.
+        #expect(store.load(for: child) == nil)
+    }
+
+    @Test("a refused removal stops retrying, and still does not restore the picture")
+    func aRefusedRemovalStopsRetrying() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        performer.on("/v1/children/") { _ in
+            (refusedJSON("not_authorized", field: "child_id"), 403)
+        }
+        let store = InMemoryAvatarStore()
+        let pending = InMemoryPendingAvatarUploadStore()
+        let sync = AvatarSync(
+            api: APIClient(
+                baseURL: URL(string: "http://localhost:8000/")!,
+                performer: performer,
+                tokens: InMemoryTokenStore(TokenPair(accessToken: "a", refreshToken: "r"))
+            ),
+            store: store, pending: pending, transfer: StubAvatarTransfer()
+        )
+
+        sync.enqueue(Data("jpeg".utf8), for: child)
+        sync.remove(for: child)
+        #expect(await sync.sweep() == 0)
+
+        #expect(pending.pending(for: child) == nil, "a refusal parks the record rather than looping")
+        #expect(store.load(for: child) == nil)
+    }
+
+    /// **The resurrection bug, and it is the second one this phase is most likely to ship.**
+    ///
+    /// The local file is gone but `children.avatar_key` is still live until the sweep lands, so a
+    /// cache miss would presign a GET, get a 200 and a working URL, and hand back the picture the
+    /// parent just removed — then cache it to disk on the way out.
+    @Test("a removal that has not been sent yet is not re-downloaded")
+    func aPendingRemovalIsNotRedownloaded() async throws {
+        let child = UUID()
+        let performer = StubPerformer()
+        let store = InMemoryAvatarStore()
+        let transfer = StubAvatarTransfer()
+        let sync = AvatarSync(
+            api: wiredAPI(performer, childId: child),
+            store: store,
+            pending: InMemoryPendingAvatarUploadStore([child: .removal(for: child)]),
+            transfer: transfer
+        )
+
+        let result = await sync.avatarData(for: child, remoteKey: storedKey)
+
+        #expect(result == nil)
+        #expect(performer.requests.isEmpty)
+        #expect(transfer.fetched.isEmpty)
+        #expect(store.load(for: child) == nil, "nothing may be written back to disk either")
+    }
+}
+
+// MARK: - The record's shape across an upgrade
+
+@Suite("Avatar durability — a record written before removals existed")
+struct PendingAvatarUploadUpgradeTests {
+
+    private func freshDefaults() throws -> UserDefaults {
+        let suite = "avatar.tests.\(UUID().uuidString)"
+        return try #require(UserDefaults(suiteName: suite))
+    }
+
+    /// `PendingAvatarUpload` exactly as it was before phase 115 — no `intent`, and nothing else
+    /// different. Encoding through this is how the payload gets a genuinely *missing* key rather
+    /// than a null one: a fixture sending `"intent":null` would pass against a non-optional
+    /// property too, and a missing key is the failure being guarded.
+    ///
+    /// Written out rather than hand-rolled as JSON text because the stored shape is not the
+    /// obvious one: `JSONEncoder` cannot use a `UUID` as an object key, so `[UUID: T]` encodes as
+    /// a **flat array** — `[key, value, key, value]` — and a hand-written object fails to decode
+    /// for a reason that has nothing to do with what is under test.
+    private struct LegacyPendingAvatarUpload: Codable {
+        let childId: UUID
+        let contentType: String
+        let byteCount: Int
+        var attemptCount: Int = 0
+        var nextAttemptAt: Date?
+    }
+
+    private func legacyPayload(for child: UUID) throws -> Data {
+        try JSONEncoder().encode([
+            child: LegacyPendingAvatarUpload(
+                childId: child, contentType: "image/jpeg", byteCount: 41234
+            )
+        ])
+    }
+
+    @Test("a pre-removal record decodes, and means upload")
+    func anOldRecordDecodesAsAnUpload() throws {
+        let child = UUID()
+
+        let decoded = try JSONDecoder().decode(
+            [UUID: PendingAvatarUpload].self, from: try legacyPayload(for: child)
+        )
+
+        #expect(decoded.count == 1)
+        let record = try #require(decoded[child])
+        #expect(record.intent == nil)
+        #expect(record.isRemoval == false)
+        #expect(record.byteCount == 41234)
+    }
+
+    /// The consequence if the above ever regresses: `all()` swallows a decode failure into `[:]`,
+    /// so every outstanding avatar on every upgrading phone would be discarded silently.
+    @Test("the store does not discard old records on upgrade")
+    func theStoreKeepsOldRecordsOnUpgrade() throws {
+        let child = UUID()
+        let defaults = try freshDefaults()
+        defaults.set(
+            try legacyPayload(for: child),
+            forKey: UserDefaultsPendingAvatarUploadStore.defaultKey
+        )
+
+        let store = UserDefaultsPendingAvatarUploadStore(defaults: defaults)
+        #expect(store.all().count == 1)
+        #expect(store.pending(for: child)?.isRemoval == false)
+    }
+
+    @Test("a removal survives a relaunch")
+    func aRemovalSurvivesARelaunch() throws {
+        let defaults = try freshDefaults()
+        let child = UUID()
+        let record = PendingAvatarUpload.removal(for: child)
+
+        UserDefaultsPendingAvatarUploadStore(defaults: defaults).save(record)
+        // A different instance over the same defaults — i.e. the next launch.
+        let reloaded = try #require(
+            UserDefaultsPendingAvatarUploadStore(defaults: defaults).pending(for: child)
+        )
+
+        #expect(reloaded == record)
+        #expect(reloaded.isRemoval)
+        #expect(reloaded.intent == .remove)
+    }
+
+    @Test("two children can owe different things at once")
+    func twoChildrenCanOweDifferentThings() throws {
+        let store = UserDefaultsPendingAvatarUploadStore(defaults: try freshDefaults())
+        let uploader = UUID(), remover = UUID()
+
+        store.save(PendingAvatarUpload(childId: uploader, contentType: "image/jpeg", byteCount: 9))
+        store.save(.removal(for: remover))
+
+        #expect(store.all().count == 2)
+        #expect(store.pending(for: uploader)?.isRemoval == false)
+        #expect(store.pending(for: remover)?.isRemoval == true)
+
+        store.clear(for: uploader)
+        #expect(store.pending(for: remover)?.isRemoval == true, "clearing one must not touch the other's intent")
+    }
+}
 
 @Suite("Avatar durability — the wire")
 struct AvatarWireTests {

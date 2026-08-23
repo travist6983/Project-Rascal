@@ -888,3 +888,66 @@ struct SyncSplitTests {
         }
     }
 }
+
+// MARK: - Phase 115: the photo sheet's words
+
+/// The copy is held in `ChildPhotoCopy` rather than inline in the view for the reason
+/// `DeleteAccountCopy` is: a string that makes a claim belongs somewhere a test can read it.
+@Suite("Settings v2 — the photo sheet's words")
+struct ChildPhotoCopyTests {
+
+    private var everyString: [String] {
+        [ChildPhotoCopy.subtitle, ChildPhotoCopy.unreadable, ChildPhotoCopy.removeDetail("Milo")]
+    }
+
+    @Test("nothing on the photo sheet scolds or alarms")
+    func nothingScolds() {
+        for line in everyString {
+            let words = line.lowercased()
+            for scold in ["failed", "error", "problem", "warning", "overdue", "lost", "!"] {
+                #expect(!words.contains(scold), "\(scold) in: \(line)")
+            }
+        }
+    }
+
+    /// Removing a photo is not the delete-account flow and must not borrow its register. Nothing
+    /// here counts down, warns, or asks the parent to steady themselves.
+    @Test("the removal copy does not dramatise a reversible change")
+    func removalCopyIsCalm() {
+        let words = ChildPhotoCopy.removeDetail("Milo").lowercased()
+        for alarm in ["permanent", "cannot be undone", "can't be undone", "are you sure", "forever"] {
+            #expect(!words.contains(alarm), "\(alarm) in: \(words)")
+        }
+    }
+
+    /// Client-side strings never assume a child's gender — the same rule the prompt library is
+    /// tokenised for. The child is named instead.
+    @Test("the removal copy names the child and uses no pronoun")
+    func removalCopyUsesNoPronoun() {
+        let line = ChildPhotoCopy.removeDetail("Milo")
+        #expect(line.contains("Milo"))
+        for pronoun in [" his ", " her ", " their ", " he ", " she ", " they "] {
+            #expect(!line.lowercased().contains(pronoun), "\(pronoun) in: \(line)")
+        }
+    }
+
+    /// **Two claims the app cannot keep.** Clearing `children.avatar_key` orphans the object in
+    /// the bucket rather than deleting it, and the original is still in the phone's photo library
+    /// exactly where the parent chose it from. Saying otherwise would be false, not merely bold.
+    @Test("nothing claims the photo is deleted from the server or the library")
+    func noFalseDeletionClaims() {
+        for line in everyString {
+            let words = line.lowercased()
+            for claim in ["deleted", "from the server", "from your library", "permanently"] {
+                #expect(!words.contains(claim), "\(claim) in: \(line)")
+            }
+        }
+    }
+
+    /// The subtitle is the promise `AvatarStep` already makes, kept word-for-word so the two
+    /// surfaces cannot drift into saying different things about where the picture lives.
+    @Test("the subtitle still says the archive keeps it")
+    func subtitleMatchesOnboarding() {
+        #expect(ChildPhotoCopy.subtitle == "It's saved with the archive, so a new phone still has it.")
+    }
+}
