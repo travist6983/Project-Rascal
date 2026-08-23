@@ -1110,15 +1110,24 @@ anticipates the consumer: pronoun substitution in prompt bodies.
 **What is left is two unstarted iOS tasks, and they belong to different phases.** Neither is
 blocked; both are listed here only so the trail from the Lane A build to the client work survives.
 
-- **Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a comment.
-  The reason this section gave for not asking — "asking and then discarding would be worse than not
-  asking" — has expired, because there is now somewhere to put the answer. This is what
-  `docs/decisions.md` open item 10 has been waiting on, and item 10 is the tracker for it now.
-- **The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
-  mints one", which was true when it was written and is not now. `LocalAvatarStore` is the seam
-  this section named, and the crop and JPEG conversion already run. **A false comment in a file
-  nobody has opened in a week is exactly the drift this file exists to catch** — correcting it is
-  part of whichever phase takes the upload.
+- ~~**Onboarding does not ask for pronouns.** `ChildSetupFlow.swift` mentions them only in a
+  comment.~~ — **shipped.** `ChildSetupFlow.swift:49` routes `case .pronouns: PronounsStep(...)`.
+- ~~**The avatar is still device-only.** `AvatarStore.swift`'s header comment still reads "nothing
+  mints one", which was true when it was written and is not now.~~ — **both halves shipped.** The
+  upload landed in phase 21, and that header was rewritten with it: it now opens by saying the file
+  *"used to say that nothing minted one, which was true when it was written and stopped being true
+  when Lane A built the pair."*
+
+**Struck Aug 23, 2026 by phase 115, and the interesting part is not the lag.** The block at the top
+of this file struck these same two facts on **Aug 22** with the words *"this line was the last place
+in the repository still saying otherwise"* — and these two bullets, in this file, outlived that
+sentence by a day. **A correction that asserts it is the last one is a claim about a document it did
+not search**, which is the same failure one level up: `roadmap-status.md` struck these bullets on
+Aug 18, this page did not follow, the Aug 22 entry noticed the lag and then reproduced it. The
+remedy that entry proposes — one owner per fact, cite rather than restate — is right, and it is
+worth noting that writing it down did not cause it to happen. **Phase 115 found them by grepping
+`docs/` for `avatar` before touching the client, not by reading this section**, which is the only
+method that has actually worked on this file.
 
 > **A note on phase numbers, because two of them collide.** An earlier plan assigned pronouns to
 > "phase 20" and the avatar to "phase 21". **Phase 20 has since shipped as something else** — the

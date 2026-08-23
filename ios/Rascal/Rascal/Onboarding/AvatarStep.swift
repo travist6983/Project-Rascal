@@ -117,36 +117,11 @@ struct AvatarStep: View {
         .accessibilityLabel(title)
     }
 
-    @ViewBuilder
+    /// `AvatarDisc`, shared with `ChildPhotoSheet` rather than drawn twice. The circle used to be
+    /// written out here; the Settings surface needs the identical one, and two copies of a fill,
+    /// a hairline and a glyph size are two things to keep in step.
     private var preview: some View {
-        ZStack {
-            Circle()
-                .fill(Color.terracottaSoft)
-                .overlay(Circle().strokeBorder(Color.border, lineWidth: Layout.borderWidth))
-
-            #if canImport(UIKit)
-            if let avatar = session.avatar, let image = UIImage(data: avatar) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .clipShape(Circle())
-            } else {
-                placeholderGlyph
-            }
-            #else
-            placeholderGlyph
-            #endif
-        }
-        .frame(width: 132, height: 132)
-        // The circle is decoration around a state the buttons already announce. Labelling it
-        // separately would make VoiceOver say "photo" twice on a screen with one photo.
-        .accessibilityHidden(true)
-    }
-
-    private var placeholderGlyph: some View {
-        Image(systemName: "person.crop.circle")
-            .font(.system(size: 46, weight: .light))
-            .foregroundStyle(Color.terracotta)
+        AvatarDisc(data: session.avatar)
     }
 
     private func load(_ item: PhotosPickerItem?) async {

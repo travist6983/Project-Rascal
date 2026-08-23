@@ -410,6 +410,15 @@ struct LocalArchiveErasure: LocalArchiveErasing {
         // one file here that is deliberately *included* in iCloud backup.
         try? manager.removeItem(at: LocalAvatarStore().root)
 
+        // **And what this phone still owed the server about that avatar**, which used to be safe
+        // to leave and is not any more. An orphaned *upload* record is harmless — the sweep finds
+        // no bytes and drops it — but a *removal* record carries an instruction rather than a
+        // payload, and it survives a sign-out. Left here it would issue a `PATCH` clearing
+        // `avatar_key` on a child the next account signed in on this phone does not own. The
+        // server refuses it, so the blast radius is bounded; a write aimed at somebody else's row
+        // is still not a thing to ship deliberately.
+        UserDefaults.standard.removeObject(forKey: UserDefaultsPendingAvatarUploadStore.defaultKey)
+
         // **The sync cursors, which used to survive this.** Emptying the store and keeping the
         // position is the combination that silently never refills: sign back in as the same
         // account and `/sync` resumes from a timestamp describing an archive that was just

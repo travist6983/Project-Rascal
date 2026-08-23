@@ -108,7 +108,7 @@ struct SettingsScreen: View {
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
     private enum Route: Identifiable, Hashable {
-        case editChild, editProfile, credentials
+        case editChild, editProfile, credentials, childPhoto
         var id: Int { hashValue }
     }
 
@@ -242,6 +242,14 @@ struct SettingsScreen: View {
                         apply(updated)
                     }
                 }
+            case .childPhoto:
+                if let child {
+                    ChildPhotoSheet(childName: child.name, avatar: avatar) { jpeg in
+                        choosePhoto(jpeg)
+                    } onRemove: {
+                        removePhoto()
+                    }
+                }
             case .credentials:
                 CredentialsSheet(model: CredentialsModel(api: session.api))
             case .editProfile:
@@ -293,6 +301,13 @@ struct SettingsScreen: View {
     private var archiveSection: some View {
         section("The archive") {
             SettingsCard {
+                // **No trailing value, and that is not an omission.** "Added" or "None" would be
+                // a claim about a state `docs/design-system.md` says is not one — no avatar is not
+                // a failure and gets no treatment of its own — and the hero card two rows up is
+                // already showing the answer at 56pt. The same reasoning the Pronouns row below
+                // gives for leaving an unanswered optional blank.
+                SettingsRow(label: "Photo") { openPhoto() }
+                SettingsDivider()
                 // `openChild()` rather than assigning the route directly: the sheet needs a
                 // child to build its model from, and tapping a row while the fetch is still in
                 // flight would present an empty sheet you have to dismiss.
@@ -380,6 +395,14 @@ struct SettingsScreen: View {
     private func openChild() {
         guard child != nil else { return }
         route = .editChild
+    }
+
+    /// The same shape as `openChild()`, and it waits on `avatarSync` too: without one there is
+    /// nothing the sheet's actions could change, and presenting a sheet whose buttons do nothing
+    /// is worse than a row that waits a moment.
+    private func openPhoto() {
+        guard child != nil, avatarSync != nil else { return }
+        route = .childPhoto
     }
 
     /// The name, "Not set" when the server says there is none, and nothing when this launch
@@ -688,6 +711,32 @@ struct SettingsScreen: View {
             return
         }
         avatar = await avatarSync.avatarData(for: child.id, remoteKey: child.avatarKey)
+    }
+
+    /// A new photo. **The same two calls `OnboardingGate.finish(with:)` makes**, which is the
+    /// point — the local write, the pending record and the sweep are `AvatarSync`'s, and Settings
+    /// does not get a second upload path of its own.
+    ///
+    /// `avatar` is assigned here rather than left to `.task(id: avatarLoadKey)`. A replace does not
+    /// move `child.avatarKey` until a commit lands and something refetches, so the key would not
+    /// change, the task would not re-run, and the hero would keep drawing the old picture behind a
+    /// sheet showing the new one.
+    private func choosePhoto(_ jpeg: Data) {
+        guard let child, let avatarSync else { return }
+        avatarSync.enqueue(jpeg, for: child.id)
+        avatar = jpeg
+        Task { [avatarSync] in await avatarSync.sweep() }
+    }
+
+    /// Removing one. The local file and the pending record go together inside `AvatarSync.remove`;
+    /// the server is told on the sweep. `avatar` is assigned here for the same reason as above —
+    /// removing a photo that never committed does not move `avatarKey` either, because it is
+    /// already nil.
+    private func removePhoto() {
+        guard let child, let avatarSync else { return }
+        avatarSync.remove(for: child.id)
+        avatar = nil
+        Task { [avatarSync] in await avatarSync.sweep() }
     }
 
     /// Fold the saved child back into the row values without a refetch.

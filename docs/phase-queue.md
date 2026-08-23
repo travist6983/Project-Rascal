@@ -57,8 +57,13 @@ Aug 23, 2026, by 114.** **114 is the bundle name in the Google sign-in alert** (
 consent alert `ASWebAuthenticationSession` shows before the browser opens read *"Rascal" Wants to
 Use "accounts.google.com" to Sign In*, six days after phase 73 renamed the app to Vellum in all four
 plists. The rename moved `CFBundleDisplayName`; that alert reads **`CFBundleName`**, which was still
-`$(PRODUCT_NAME)` and therefore the Xcode target name. **The highest number used is 114. A genuinely
-new phase takes 115.**
+`$(PRODUCT_NAME)` and therefore the Xcode target name. ~~**The highest number used is 114. A genuinely
+new phase takes 115.**~~ — **struck an eleventh time on Aug 23, 2026, by 115 taking the number this
+sentence offered.** **115 is CRUD for the child's photo** (iOS lane, `ios/phase-115-avatar-edit`):
+onboarding could set an avatar and Settings could show one, and between the two there was no way to
+replace or remove it — `EditChildSheet` contained the word "avatar" zero times and `updateChild`
+omits `avatar_key` by design. The API lane needed nothing; all four operations have been served
+since phase 21. **The highest number used is 115. A genuinely new phase takes 116.**
 
 **111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3

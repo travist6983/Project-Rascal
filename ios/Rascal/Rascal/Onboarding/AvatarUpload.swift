@@ -1,6 +1,12 @@
 import Foundation
 
-/// An avatar that exists on this phone and has not reached the server yet.
+/// One thing this phone owes the server about a child's avatar, and has not yet delivered.
+///
+/// **One record per child, and the last intent wins.** It was only ever an upload when this was
+/// written; a removal is the same debt pointing the other way, so it rides the same record, the
+/// same queue, the same backoff and the same sweep rather than growing a second of each. A parent
+/// who picks a photo and then removes it before either lands owes a removal, not an upload
+/// followed by a removal — which is what `AvatarSync.remove` overwriting the record produces.
 ///
 /// ## Why this is its own piece of state
 ///
@@ -57,12 +63,40 @@ nonisolated struct PendingAvatarUpload: Codable, Equatable, Sendable {
     /// When this becomes eligible again. `nil` means "never attempted", which is due immediately.
     var nextAttemptAt: Date?
 
+    /// What this phone owes the server for this child.
+    enum Intent: String, Codable, Sendable {
+        case upload
+        case remove
+    }
+
+    /// **Optional rather than defaulted at the declaration, and the distinction is a shipping
+    /// one.** A synthesized `Decodable` does not fall back to a stored property's default when a
+    /// key is missing — it throws `keyNotFound` — and `UserDefaultsPendingAvatarUploadStore.all()`
+    /// returns `[:]` on *any* decode failure. So `var intent: Intent = .upload` would silently
+    /// throw away every outstanding avatar on every phone that upgrades into this build, and no
+    /// test would catch it: the encoder that wrote those records is the one under test.
+    ///
+    /// `nil` is every record written before this existed, and it means `.upload`.
+    var intent: Intent?
+
+    /// The two states that really exist, read through one accessor so no caller compares to nil.
+    var isRemoval: Bool { intent == .remove }
+
     /// Past `UploadBackoff.maxAttempts` this stops being retried automatically.
     ///
     /// **It is not discarded.** The local copy is untouched and the record stays, so a later
     /// deliberate retry has everything it needs. What stops is the automatic sweep spending a
     /// request on it every time the app foregrounds.
     var isExhausted: Bool { attemptCount >= UploadBackoff.maxAttempts }
+
+    /// A removal owed to the server.
+    ///
+    /// `contentType` and `byteCount` describe a presign this record will never ask for — the
+    /// removal branch of `AvatarSync.push` reads neither. They stay non-optional so that every
+    /// record already written to this phone still decodes.
+    static func removal(for childId: UUID) -> PendingAvatarUpload {
+        PendingAvatarUpload(childId: childId, contentType: "image/jpeg", byteCount: 0, intent: .remove)
+    }
 }
 
 /// Where pending uploads live between launches.
@@ -84,7 +118,13 @@ nonisolated final class UserDefaultsPendingAvatarUploadStore: PendingAvatarUploa
     private let defaults: UserDefaults
     private let key: String
 
-    init(defaults: UserDefaults = .standard, key: String = "avatar.pendingUploads") {
+    /// Exposed so sign-out can clear it without writing the string a second time — the same
+    /// reasoning `LocalArchiveErasure` already gives for constructing `LocalAvatarStore()` rather
+    /// than re-deriving its root. A second copy of a path is a second thing to get wrong.
+    static let defaultKey = "avatar.pendingUploads"
+
+    // The type is named rather than `Self`, which Swift refuses in a default argument.
+    init(defaults: UserDefaults = .standard, key: String = UserDefaultsPendingAvatarUploadStore.defaultKey) {
         self.defaults = defaults
         self.key = key
     }
