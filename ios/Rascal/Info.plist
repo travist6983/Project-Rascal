@@ -13,16 +13,20 @@
 	     folder group where a stray plist is also copied as a resource. -->
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below is
+	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below was
 	     `$(PRODUCT_NAME)`, which resolves to the *target* name — "Rascal" — and a target name is a
 	     build artefact, not a product. Setting this explicitly is what renamed the app — to Dogear on
 	     Aug 12, 2026 and to Vellum on Aug 17
 	     without touching the target, the Swift module, the bundle id or the App Group, none of
 	     which a parent ever sees and all of which cost signing work to move.
 
+	     It was never sufficient on its own, and the note on `CFBundleName` below is the other
+	     half of the rename.
+
 	     The widget and the share extension carry the same string in their own plists, and so does
 	     Info-Debug.plist. **All four have to agree** — this file, Info-Debug.plist,
-	     RascalWidget-Info.plist and RascalShare-Info.plist. Three of these comments said "all
+	     RascalWidget-Info.plist and RascalShare-Info.plist — and since Aug 23, 2026 they have to
+	     agree on both name keys, not just this one. Three of these comments said "all
 	     three" and undercounted the debug variant, which is the copy of this file most likely to
 	     drift precisely because it is maintained by hand. iOS groups the widget gallery by the
 	     app's display name, and a widget reading "Vellum" under a heading reading something else
@@ -35,8 +39,22 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- **Literal too, and the note above was half the story until Aug 23, 2026.**
+	     `CFBundleDisplayName` is the name under the icon. `CFBundleName` is the name iOS uses in
+	     *its own* sentences about the app, and the two are not interchangeable: this is the key
+	     `ASWebAuthenticationSession` reads for the *X Wants to Use "accounts.google.com" to Sign In*
+	     alert that opens every Google sign-in, which is one of the first things a new parent sees.
+	     Left at `$(PRODUCT_NAME)` it resolved to the target name, so that parent was asked to trust
+	     "Rascal" — a name the product has not carried since Aug 12, 2026 and that appears nowhere
+	     else on screen — on the one dialog whose entire job is to establish that the app asking is
+	     the app they installed.
+
+	     Determined by experiment rather than from the documentation, which is not specific: a
+	     throwaway simulator app with the three candidates set to three different strings
+	     (`CFBundleDisplayName`, `CFBundleName`, and the executable name) rendered the
+	     `CFBundleName` one. **Both keys are literal now and both move together on a rename.** -->
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Vellum</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>

@@ -24,8 +24,13 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- Literal, and kept in step with Info.plist by hand like everything else here. This is the
+	     key iOS reads for its own sentences about the app — including the
+	     `ASWebAuthenticationSession` consent alert that opens Google sign-in — so a Debug build
+	     left on `$(PRODUCT_NAME)` would be the build a developer tests the sign-in flow in and the
+	     one place the dead name could survive unnoticed. See Info.plist for the experiment. -->
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Vellum</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>

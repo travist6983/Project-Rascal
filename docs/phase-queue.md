@@ -52,6 +52,14 @@ header and the 113 row; the iOS session wrote the 112 row and touched neither th
 that one. **Worth recording because the remedy is cheap and the failure it prevents is the one this
 header keeps having to describe.**
 
+~~**The highest number used is 113. A genuinely new phase takes 114.**~~ — **struck a tenth time on
+Aug 23, 2026, by 114.** **114 is the bundle name in the Google sign-in alert** (iOS lane): the
+consent alert `ASWebAuthenticationSession` shows before the browser opens read *"Rascal" Wants to
+Use "accounts.google.com" to Sign In*, six days after phase 73 renamed the app to Vellum in all four
+plists. The rename moved `CFBundleDisplayName`; that alert reads **`CFBundleName`**, which was still
+`$(PRODUCT_NAME)` and therefore the Xcode target name. **The highest number used is 114. A genuinely
+new phase takes 115.**
+
 **111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
 committed and `blocked.md` §10a item 1 closed, §14 struck as resolved by phase 86, the four resolved

@@ -23,8 +23,11 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<!-- Literal for the same reason as the display name above, and for a second one: iOS reads
+	     `CFBundleName` when it writes its own sentences about a bundle, so `$(PRODUCT_NAME)` here
+	     puts “RascalWidget” into system UI that the display name does not cover. -->
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Vellum</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
