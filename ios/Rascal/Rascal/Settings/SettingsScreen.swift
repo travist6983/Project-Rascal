@@ -108,7 +108,7 @@ struct SettingsScreen: View {
     /// Which sheet is up. One piece of state rather than a boolean per sheet, so two cannot be
     /// true at once.
     private enum Route: Identifiable, Hashable {
-        case editChild, editProfile, credentials, childPhoto
+        case editChild, editProfile, credentials
         var id: Int { hashValue }
     }
 
@@ -238,16 +238,24 @@ struct SettingsScreen: View {
             switch route {
             case .editChild:
                 if let child {
-                    EditChildSheet(model: EditChildModel(child: child, api: session.api)) { updated in
+                    EditChildSheet(
+                        model: EditChildModel(child: child, api: session.api),
+                        // **Nil when there is no `AvatarSync` yet**, which is a state this screen
+                        // genuinely renders: it is built in `RootView`'s `.task` and can arrive
+                        // after a launch that lands straight on this tab. The sheet drops the photo
+                        // field and opens with its other four; the alternative — refusing to open
+                        // the sheet at all — would take name, birthday, pronouns and timezone away
+                        // over a picture.
+                        photo: avatarSync.map { sync in
+                            ChildPhotoActions(
+                                childName: child.name,
+                                avatar: avatar,
+                                onChoose: { jpeg in choosePhoto(jpeg, child: child, sync: sync) },
+                                onRemove: { removePhoto(child: child, sync: sync) }
+                            )
+                        }
+                    ) { updated in
                         apply(updated)
-                    }
-                }
-            case .childPhoto:
-                if let child {
-                    ChildPhotoSheet(childName: child.name, avatar: avatar) { jpeg in
-                        choosePhoto(jpeg)
-                    } onRemove: {
-                        removePhoto()
                     }
                 }
             case .credentials:
@@ -301,13 +309,9 @@ struct SettingsScreen: View {
     private var archiveSection: some View {
         section("The archive") {
             SettingsCard {
-                // **No trailing value, and that is not an omission.** "Added" or "None" would be
-                // a claim about a state `docs/design-system.md` says is not one — no avatar is not
-                // a failure and gets no treatment of its own — and the hero card two rows up is
-                // already showing the answer at 56pt. The same reasoning the Pronouns row below
-                // gives for leaving an unanswered optional blank.
-                SettingsRow(label: "Photo") { openPhoto() }
-                SettingsDivider()
+                // **No `Photo` row, and it is not an omission either.** Phase 115 put one here,
+                // opening a sheet of its own; phase 117 moved the photo into `EditChildSheet` with
+                // the other four fields, so this card is back to the rows that open that sheet.
                 // `openChild()` rather than assigning the route directly: the sheet needs a
                 // child to build its model from, and tapping a row while the fetch is still in
                 // flight would present an empty sheet you have to dismiss.
@@ -395,14 +399,6 @@ struct SettingsScreen: View {
     private func openChild() {
         guard child != nil else { return }
         route = .editChild
-    }
-
-    /// The same shape as `openChild()`, and it waits on `avatarSync` too: without one there is
-    /// nothing the sheet's actions could change, and presenting a sheet whose buttons do nothing
-    /// is worse than a row that waits a moment.
-    private func openPhoto() {
-        guard child != nil, avatarSync != nil else { return }
-        route = .childPhoto
     }
 
     /// The name, "Not set" when the server says there is none, and nothing when this launch
@@ -721,22 +717,25 @@ struct SettingsScreen: View {
     /// move `child.avatarKey` until a commit lands and something refetches, so the key would not
     /// change, the task would not re-run, and the hero would keep drawing the old picture behind a
     /// sheet showing the new one.
-    private func choosePhoto(_ jpeg: Data) {
-        guard let child, let avatarSync else { return }
-        avatarSync.enqueue(jpeg, for: child.id)
+    ///
+    /// **The child and the sync are arguments rather than re-read from state**, because the caller
+    /// — `ChildPhotoActions`, built where both are already unwrapped — has them. Re-guarding here
+    /// would let the two disagree: the sheet could be showing a photo for a child this screen has
+    /// since replaced.
+    private func choosePhoto(_ jpeg: Data, child: ChildResponse, sync: AvatarSync) {
+        sync.enqueue(jpeg, for: child.id)
         avatar = jpeg
-        Task { [avatarSync] in await avatarSync.sweep() }
+        Task { await sync.sweep() }
     }
 
     /// Removing one. The local file and the pending record go together inside `AvatarSync.remove`;
     /// the server is told on the sweep. `avatar` is assigned here for the same reason as above —
     /// removing a photo that never committed does not move `avatarKey` either, because it is
     /// already nil.
-    private func removePhoto() {
-        guard let child, let avatarSync else { return }
-        avatarSync.remove(for: child.id)
+    private func removePhoto(child: ChildResponse, sync: AvatarSync) {
+        sync.remove(for: child.id)
         avatar = nil
-        Task { [avatarSync] in await avatarSync.sweep() }
+        Task { await sync.sweep() }
     }
 
     /// Fold the saved child back into the row values without a refetch.

@@ -889,18 +889,18 @@ struct SyncSplitTests {
     }
 }
 
-// MARK: - Phase 115: the photo sheet's words
+// MARK: - Phase 115 (moved by 117): the photo field's words
 
 /// The copy is held in `ChildPhotoCopy` rather than inline in the view for the reason
 /// `DeleteAccountCopy` is: a string that makes a claim belongs somewhere a test can read it.
-@Suite("Settings v2 — the photo sheet's words")
+@Suite("Settings v2 — the photo field's words")
 struct ChildPhotoCopyTests {
 
     private var everyString: [String] {
-        [ChildPhotoCopy.subtitle, ChildPhotoCopy.unreadable, ChildPhotoCopy.removeDetail("Milo")]
+        [ChildPhotoCopy.savesOnItsOwn, ChildPhotoCopy.unreadable, ChildPhotoCopy.removeDetail("Milo")]
     }
 
-    @Test("nothing on the photo sheet scolds or alarms")
+    @Test("nothing on the photo field scolds or alarms")
     func nothingScolds() {
         for line in everyString {
             let words = line.lowercased()
@@ -944,10 +944,23 @@ struct ChildPhotoCopyTests {
         }
     }
 
-    /// The subtitle is the promise `AvatarStep` already makes, kept word-for-word so the two
-    /// surfaces cannot drift into saying different things about where the picture lives.
-    @Test("the subtitle still says the archive keeps it")
-    func subtitleMatchesOnboarding() {
-        #expect(ChildPhotoCopy.subtitle == "It's saved with the archive, so a new phone still has it.")
+    /// **The line phase 117 exists to make true.** Moving the photo into `EditChildSheet` puts two
+    /// save behaviours on one screen — the photo lands on the tap, the four fields below it wait
+    /// for Save — and that is the objection phase 115 gave for keeping the photo somewhere else.
+    /// The answer is to admit it, so the sentence has to actually say both halves.
+    @Test("the photo line says the photo saves itself and the fields do not")
+    func savesOnItsOwnStatesBothHalves() {
+        let line = ChildPhotoCopy.savesOnItsOwn
+        #expect(line.contains("save on their own"))
+        #expect(line.contains("wait for Save"))
+    }
+
+    /// **It must not name Cancel.** `EditChildSheet.hasSaved` replaces Cancel with Done the moment
+    /// a `PATCH` lands, so a line naming Cancel is a line that is sometimes about a button that is
+    /// not on screen.
+    @Test("the photo line names no button that can disappear")
+    func savesOnItsOwnNamesNoVanishingButton() {
+        #expect(!ChildPhotoCopy.savesOnItsOwn.contains("Cancel"))
+        #expect(!ChildPhotoCopy.savesOnItsOwn.contains("Done"))
     }
 }
