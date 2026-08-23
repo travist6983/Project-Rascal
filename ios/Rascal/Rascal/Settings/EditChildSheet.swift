@@ -1,14 +1,41 @@
 import SwiftData
 import SwiftUI
 
-/// Name, birthday, and the timezone the schedule runs in.
+/// The photo half of `EditChildSheet`, handed in by `SettingsScreen`.
+///
+/// **One value rather than three parameters, so the three cannot arrive half-set.** A sheet holding
+/// bytes with no way to change them, or handlers with nothing to show, are both states a caller
+/// could otherwise build by forgetting one argument.
+///
+/// It is passed in rather than built here because `AvatarSync` is `SettingsScreen`'s — the local
+/// write, the pending record and the sweep are its, and this sheet does not get a second upload
+/// path of its own. Optional for the reason `SettingsScreen.sync` is: the sheet is buildable in a
+/// test without one and renders every other field unchanged when it has none.
+struct ChildPhotoActions {
+    /// The child's saved name, for the removal dialog. Not the sheet's live name field — see
+    /// `ChildPhotoField.childName`.
+    let childName: String
+    let avatar: Data?
+    /// A 512px square JPEG, already cropped. The caller enqueues it and sweeps.
+    let onChoose: (Data) -> Void
+    let onRemove: () -> Void
+}
+
+/// The photo, name, birthday, pronouns, and the timezone the schedule runs in.
 struct EditChildSheet: View {
     @State var model: EditChildModel
+    /// The photo and the two things a parent can do to it. Absent in tests and previews.
+    let photo: ChildPhotoActions?
     /// Handed the updated child so Settings can show the new values without refetching.
     let onSaved: (ChildUpdateResponse) -> Void
 
-    init(model: EditChildModel, onSaved: @escaping (ChildUpdateResponse) -> Void) {
+    init(
+        model: EditChildModel,
+        photo: ChildPhotoActions? = nil,
+        onSaved: @escaping (ChildUpdateResponse) -> Void
+    ) {
         _model = State(initialValue: model)
+        self.photo = photo
         self.onSaved = onSaved
         // Written by hand for one property, the same way `RootView` does: the correction needs
         // the child and the client, and a `@State` default cannot see either.
@@ -30,6 +57,17 @@ struct EditChildSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    // **First, above the name.** It is the field a parent recognises the child by,
+                    // and the order matches `ChildHeroCard` — disc, then name — which is the row
+                    // this sheet opens from.
+                    if let photo {
+                        ChildPhotoField(
+                            childName: photo.childName,
+                            avatar: photo.avatar,
+                            onChoose: photo.onChoose,
+                            onRemove: photo.onRemove
+                        )
+                    }
                     nameField
                     birthdayField
                     pronounsField

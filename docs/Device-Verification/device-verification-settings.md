@@ -260,7 +260,11 @@ list is derived from source and needs a real ear.
 Turn VoiceOver on and swipe through the screen top to bottom:
 
 - [X] The hero reads as **one** element: *"Hendrix, 4 years 1 month old, born June 19, 2022,
-      button"*, with the hint *"Opens name, birthday and timezone"*. Not four separate swipes.
+      button"*, with the hint *"Opens photo, name, birthday, pronouns and timezone"*. Not four
+      separate swipes. **The hint string has moved twice since this box was ticked** — phase 20
+      added pronouns and phase 117 added the photo — so the quote is corrected here rather than
+      left false. The one-element behaviour is what was verified on device and is unchanged; the
+      exact wording has not been re-heard through VoiceOver since.
 - [X] The sync card's head reads as one element and **does not say the count twice** — the
       counter is deliberately left out of the spoken label because the sentence already carries
       the number.

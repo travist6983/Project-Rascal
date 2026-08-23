@@ -117,7 +117,7 @@ struct AvatarStep: View {
         .accessibilityLabel(title)
     }
 
-    /// `AvatarDisc`, shared with `ChildPhotoSheet` rather than drawn twice. The circle used to be
+    /// `AvatarDisc`, shared with `ChildPhotoField` rather than drawn twice. The circle used to be
     /// written out here; the Settings surface needs the identical one, and two copies of a fill,
     /// a hairline and a glyph size are two things to keep in step.
     private var preview: some View {

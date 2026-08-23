@@ -69,7 +69,9 @@ struct ChildHeroCard: View {
                 .buttonStyle(TapScaleButtonStyle())
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(accessibilityLabel(child))
-                .accessibilityHint("Opens name, birthday, pronouns and timezone")
+                // Phase 117 added the photo to that sheet, so the hint names it. A hint that lists
+                // four of five fields is the kind of quiet lie this card's own rules are about.
+                .accessibilityHint("Opens photo, name, birthday, pronouns and timezone")
                 .accessibilityAddTraits(.isButton)
             } else {
                 placeholder

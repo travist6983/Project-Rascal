@@ -70,8 +70,15 @@ had merged — 107, 111, 112, 113, 114 and 115 — and this is the ninth consecu
 that ledger trailing `main` in the same direction. **The interesting part is that the remedy this
 header spent nine strikes asking for is working**: rows are written at allocation now, every time.
 It just fixed the wrong half. **Nothing has ever owned the merge** — this file deletes a line when
-it is done and that file never deletes a row, so a merge leaves no trace in either. **The highest
-number used is 116. A genuinely new phase takes 117.**
+it is done and that file never deletes a row, so a merge leaves no trace in either. ~~**The highest
+number used is 116. A genuinely new phase takes 117.**~~ — **struck a thirteenth time on Aug 23,
+2026, by 117 taking the number this sentence offered.** **117 moves the child's photo into
+`EditChildSheet`** (iOS lane) — the sheet the name, birthday, pronouns and timezone are already
+edited on — and deletes the `Photo` row and `ChildPhotoSheet` that **phase 115 shipped the same
+day**. That is worth one line here rather than only in `roadmap-status.md`, because it is the first
+time this file has allocated a number to undo the shape of the number before it: 115 was not wrong
+about the risk it named, it was wrong about the remedy, and the remedy is one sentence of copy
+rather than a second sheet. **The highest number used is 117. A genuinely new phase takes 118.**
 
 **111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
