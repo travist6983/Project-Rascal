@@ -267,9 +267,22 @@ private final class LockedBox<T>: @unchecked Sendable {
 // MARK: - Phase 82: the name in every system dialog, and the browser session's one decision
 
 /// The alert a parent sees at sign-in reads *"Vellum" Wants to Use "accounts.google.com" to Sign In*,
-/// and the name in it is `CFBundleDisplayName` — there is no API to change what that alert calls the
-/// app. The same name appears in the microphone, photo library and notification prompts. So the name
-/// is not a sign-in concern at all; it is one string leaking into every system dialog.
+/// and there is no API to change what that alert calls the app — it reads the name out of the bundle.
+/// So the name is not a sign-in concern at all; it is the bundle leaking into every sentence iOS
+/// writes about this app.
+///
+/// **Phase 82 named the wrong key, and this suite went on passing while the alert said "Rascal".**
+/// The comment here asserted the alert reads `CFBundleDisplayName` — which phase 73 had already set
+/// to "Vellum" in all four plists, which is why nobody looked again. It reads **`CFBundleName`**, and
+/// that key was still `$(PRODUCT_NAME)`: the Xcode target name, a build artefact. A parent tapping
+/// *Continue with Google* was asked to trust an app called "Rascal", on the one dialog whose whole
+/// job is to establish that the app asking is the app they installed.
+///
+/// **Phase 114, Aug 23, 2026, and settled by experiment rather than by reading.** A throwaway
+/// simulator app set `CFBundleDisplayName`, `CFBundleName` and its executable name to three
+/// different strings and started an `ASWebAuthenticationSession`; the alert rendered the
+/// `CFBundleName` one. There are **two** name keys, they are not interchangeable, and a rename has
+/// to move both in all four plists.
 @MainActor
 @Suite("Phase 82 — the name in system dialogs")
 struct BundleDisplayNameTests {
@@ -286,6 +299,52 @@ struct BundleDisplayNameTests {
         // The codename and the Xcode target name are the two things that have actually leaked here.
         #expect(name != "Rascal", "the codename reached every system alert for as long as it was set")
         #expect(name != "Dogear", "superseded Aug 17, 2026")
+    }
+
+    /// **Phase 114. The assertion the test above was believed to be making.**
+    ///
+    /// `CFBundleName` is what `ASWebAuthenticationSession` puts in its consent alert, and it is a
+    /// different string from the one under the icon. Read from `Bundle.main` for the same reason the
+    /// test above is: unit tests run in the app's host process, so this is the built artefact's own
+    /// answer and not a re-reading of the source plist that produced it.
+    @Test("the bundle name — the string the sign-in alert actually reads — is the product name")
+    func bundleNameIsVellum() throws {
+        let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+
+        #expect(name == "Vellum")
+        #expect(
+            name != "Rascal",
+            "the target name is what the Google sign-in alert asked a parent to trust until Aug 23"
+        )
+        #expect(name != "Dogear", "superseded Aug 17, 2026")
+    }
+
+    /// **Phase 114. The two tests above can only see the app.**
+    ///
+    /// `Bundle.main` in a unit test is the host app, so the widget's and the share extension's
+    /// plists are invisible to it — and those are two more bundles iOS writes sentences about. This
+    /// reads all four from source and pins both keys in each, as literals: a `$(PRODUCT_NAME)`
+    /// left in any of them resolves to a target name — "Rascal", "RascalWidget", "RascalShare" —
+    /// and parses as that string here, so this fails on the exact defect rather than on its shape.
+    @Test("all four plists carry both name keys, literally")
+    func everyPlistCarriesBothNamesLiterally() throws {
+        // `ios/Rascal`, resolved from this file so the scan survives Xcode, xcodebuild and CI.
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+
+        for file in ["Info.plist", "Info-Debug.plist", "RascalWidget-Info.plist", "RascalShare-Info.plist"] {
+            let data = try Data(contentsOf: root.appendingPathComponent(file))
+            let parsed = try PropertyListSerialization.propertyList(from: data, format: nil)
+            let plist = parsed as? [String: Any]
+
+            for key in ["CFBundleName", "CFBundleDisplayName"] {
+                let value = plist?[key] as? String
+                #expect(
+                    value == "Vellum",
+                    "\(file) declares \(key) as \(value ?? "nothing"); iOS renders it to a parent"
+                )
+            }
+        }
     }
 }
 
