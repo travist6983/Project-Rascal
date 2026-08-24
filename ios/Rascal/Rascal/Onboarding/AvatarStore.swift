@@ -112,7 +112,11 @@ nonisolated final class InMemoryAvatarStore: AvatarStoring, @unchecked Sendable 
 enum AvatarCrop {
     /// Longest edge of the stored avatar. A 42pt circle at 3x is 126px; 512 covers every place
     /// an avatar could grow into without storing a full-resolution portrait per child.
-    static let maxPixels = 512
+    ///
+    /// **`nonisolated` because the two functions below it are.** A `let Int` on a main-actor enum is
+    /// main-actor-isolated like everything else on it, so `square(_:focus:)` reading it off the main
+    /// thread is a concurrency warning — and a warning is a build failure in this lane.
+    nonisolated static let maxPixels = 512
 
     /// Centre-crop to a square at avatar size.
     ///
@@ -169,6 +173,111 @@ enum AvatarCrop {
             throw ImagePipeline.Failure.encodingFailed
         }
 
+        return try ImagePipeline.encodeJPEGForPoster(cropped)
+    }
+
+    /// The picture, upright, decoded no larger than `maxPixels` on its long edge.
+    ///
+    /// **The one place orientation is baked, and both callers go through it.** `AvatarFramingScreen`
+    /// draws this image and `square(_:focus:)` crops it, so a rectangle drawn on one is a rectangle
+    /// on the other — the failure this exists to make unavailable is a crop taken from a portrait
+    /// photo that ImageIO handed back sideways, which lands as a picture of somebody's ear and looks
+    /// entirely plausible until you compare it to what was framed.
+    ///
+    /// ImageIO does not upscale, so a picture smaller than `maxPixels` comes back at its own size.
+    ///
+    /// **`nonisolated`, unlike `square(_:)` above, and the difference is measured rather than
+    /// stylistic.** This one is called while a `fullScreenCover` is animating in, and it costs
+    /// 30–40ms on a *synthetic* 48-megapixel JPEG in the simulator — two to four frames, and more
+    /// on a real photograph, whose entropy is far higher than a two-tone fixture's. A block of that
+    /// length during a presentation animation is a visible stutter. Nothing here touches shared
+    /// state, so it runs off the main actor and the screen appears immediately with the picture
+    /// arriving a frame later, which is what every photo editor does.
+    nonisolated static func upright(_ data: Data, maxPixels: Int) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw ImagePipeline.Failure.unreadable
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixels),
+        ] as CFDictionary) else {
+            throw ImagePipeline.Failure.notAnImage
+        }
+        return image
+    }
+
+    /// Crop where the parent framed it, rather than at the centre.
+    ///
+    /// `focus` is a square **in pixels** expressed in coordinates normalised to the upright image —
+    /// so `width` and `height` differ whenever the picture is not itself square, and the square is
+    /// re-derived in pixels below rather than trusted from the caller. Origin is top-left, which is
+    /// both `CGImage.cropping(to:)`'s space and SwiftUI's, so no flip is needed between the screen
+    /// that drew it and this.
+    ///
+    /// **The decode is sized to the crop, not to the picture.** `square(_:)` above thumbnails so the
+    /// *short edge* lands on `maxPixels`, which is right when the crop is the whole short edge and
+    /// wrong here: a parent who zooms in to a face is asking for a small fraction of the frame, and
+    /// taking 512 pixels from a 512-pixel decode of that fraction would hand back something like 90
+    /// pixels of child. So the long edge asked for is whatever puts `maxPixels` across the crop —
+    /// capped at the original, because asking ImageIO to upscale is meaningless.
+    ///
+    /// Deliberately **not** folded into `square(_:)` with an optional argument. That path is what
+    /// `AvatarStep` ships and it has its own downsample reasoning written into it; a shared body
+    /// with two branches would put both sets of arithmetic in one function where the wrong one is
+    /// one `if` away.
+    /// **`nonisolated` for `upright`'s reason and used differently.** It is called from a button tap
+    /// that dismisses the screen behind it, where the app already does this synchronously in two
+    /// other places — so it stays on whatever actor the caller is on rather than growing a busy
+    /// state for a modal that is closing. The annotation is here so a caller that *does* want it
+    /// off the main thread can have it.
+    nonisolated static func square(_ data: Data, focus: CGRect) throws -> Data {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw ImagePipeline.Failure.unreadable
+        }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+        guard width > 0, height > 0 else { throw ImagePipeline.Failure.notAnImage }
+
+        // **The dimensions above are the *stored* ones, and this only uses the long edge**, which
+        // is the one number an orientation tag cannot change: a portrait photo is stored landscape
+        // with a tag, so the pair is the same either way round and only which is which moves.
+        //
+        // The crop is a square in pixels, so as a fraction it is *smaller* of the two normalised
+        // sides — that is the one measured against the long edge. `maxPixels / fraction` is then
+        // the long edge that puts `maxPixels` across the crop, whichever way the picture is turned.
+        // **`min(focus.width, focus.height)` is the crop's fraction of the long edge exactly, and
+        // it is orientation-proof — but only because the rectangle is square in pixels.** For a
+        // side `s`, `focus.width` is `s / uprightWidth` and `focus.height` is `s / uprightHeight`,
+        // so the smaller of the two is `s / max(uprightWidth, uprightHeight)` — and the long edge
+        // is the same number whichever way an orientation tag turns the picture, which is what
+        // lets this run before the decode that would settle it. **That is the caller's contract**:
+        // `AvatarFramingGeometry.focus` guarantees it, and a caller who passes a rectangle that is
+        // *not* square in pixels gets a correctly-placed crop at a lower resolution rather than a
+        // wrong one, because the squaring below still holds.
+        let longEdge = max(width, height)
+        let fractionOfLongEdge = max(0.000_1, min(focus.width, focus.height))
+        let target = min(
+            longEdge,
+            max(1, Int((Double(maxPixels) / fractionOfLongEdge).rounded()))
+        )
+
+        let decoded = try upright(data, maxPixels: target)
+        let drawnWidth = Double(decoded.width)
+        let drawnHeight = Double(decoded.height)
+
+        // Re-squared in pixels and pinned inside the image. The screen clamps the drag so this
+        // never has anything to do; it is here because a crop rectangle that runs off the picture
+        // is the one failure that would produce a half-black avatar rather than an error.
+        var side = min(focus.width * drawnWidth, focus.height * drawnHeight).rounded()
+        side = max(1, min(side, min(drawnWidth, drawnHeight)))
+        let x = min(max(0, (focus.minX * drawnWidth).rounded()), drawnWidth - side)
+        let y = min(max(0, (focus.minY * drawnHeight).rounded()), drawnHeight - side)
+
+        guard let cropped = decoded.cropping(to: CGRect(x: x, y: y, width: side, height: side)) else {
+            throw ImagePipeline.Failure.encodingFailed
+        }
         return try ImagePipeline.encodeJPEGForPoster(cropped)
     }
 }

@@ -889,15 +889,62 @@ struct SyncSplitTests {
     }
 }
 
-// MARK: - Phase 115 (moved by 117): the photo field's words
+// MARK: - Phase 118 (was 115, moved by 117): the photo field's words
 
 /// The copy is held in `ChildPhotoCopy` rather than inline in the view for the reason
 /// `DeleteAccountCopy` is: a string that makes a claim belongs somewhere a test can read it.
+///
+/// **Phase 118 replaced `removeDetail` with the row's own vocabulary.** There is no removal dialog
+/// any more — the removal happens on the tap and Undo sits in the row — so the string that talked a
+/// parent through a confirmation went with it. Every rule it was held to is still here, applied to
+/// the strings that replaced it.
 @Suite("Settings v2 — the photo field's words")
 struct ChildPhotoCopyTests {
 
+    /// Every sentence this field can put on screen. **Additions go here**, which is the only thing
+    /// keeping the sweeps below honest as the copy grows.
     private var everyString: [String] {
-        [ChildPhotoCopy.savesOnItsOwn, ChildPhotoCopy.unreadable, ChildPhotoCopy.removeDetail("Milo")]
+        [
+            ChildPhotoCopy.rowTitle,
+            ChildPhotoCopy.addTitle,
+            ChildPhotoCopy.removedTitle,
+            ChildPhotoCopy.appearsIn("Milo"),
+            ChildPhotoCopy.standsIn("Milo"),
+            ChildPhotoCopy.removed("Milo"),
+            ChildPhotoCopy.changed,
+            ChildPhotoCopy.undo,
+            ChildPhotoCopy.undoRemoval("Milo"),
+            ChildPhotoCopy.undoChange("Milo"),
+            ChildPhotoCopy.openHint,
+            ChildPhotoCopy.menuTitle("Milo"),
+            ChildPhotoCopy.menuSubtitle,
+            ChildPhotoCopy.chooseFromLibrary,
+            ChildPhotoCopy.takeAPhoto,
+            ChildPhotoCopy.removePhoto,
+            ChildPhotoCopy.framingTitle,
+            ChildPhotoCopy.framingHint,
+            ChildPhotoCopy.framingDetail,
+            ChildPhotoCopy.framingPreviewLabel,
+            ChildPhotoCopy.framingCancel,
+            ChildPhotoCopy.useThisPhoto,
+            ChildPhotoCopy.footnote,
+            ChildPhotoCopy.savesOnItsOwn,
+            ChildPhotoCopy.unreadable,
+        ]
+    }
+
+    /// The strings that talk *about the child*. Split out from `everyString` because the pronoun
+    /// rule below cannot apply to `savesOnItsOwn` — "photos save on their own" is a pronoun for the
+    /// photos, and the rule is about never assuming a child's gender.
+    private var everyStringAboutTheChild: [String] {
+        [
+            ChildPhotoCopy.appearsIn("Milo"),
+            ChildPhotoCopy.standsIn("Milo"),
+            ChildPhotoCopy.removed("Milo"),
+            ChildPhotoCopy.undoRemoval("Milo"),
+            ChildPhotoCopy.undoChange("Milo"),
+            ChildPhotoCopy.menuTitle("Milo"),
+        ]
     }
 
     @Test("nothing on the photo field scolds or alarms")
@@ -911,23 +958,27 @@ struct ChildPhotoCopyTests {
     }
 
     /// Removing a photo is not the delete-account flow and must not borrow its register. Nothing
-    /// here counts down, warns, or asks the parent to steady themselves.
+    /// here counts down, warns, or asks the parent to steady themselves — and now that there is no
+    /// confirmation dialog at all, nothing gets the chance to.
     @Test("the removal copy does not dramatise a reversible change")
     func removalCopyIsCalm() {
-        let words = ChildPhotoCopy.removeDetail("Milo").lowercased()
-        for alarm in ["permanent", "cannot be undone", "can't be undone", "are you sure", "forever"] {
-            #expect(!words.contains(alarm), "\(alarm) in: \(words)")
+        for line in [ChildPhotoCopy.removedTitle, ChildPhotoCopy.removed("Milo"), ChildPhotoCopy.removePhoto] {
+            let words = line.lowercased()
+            for alarm in ["permanent", "cannot be undone", "can't be undone", "are you sure", "forever"] {
+                #expect(!words.contains(alarm), "\(alarm) in: \(words)")
+            }
         }
     }
 
     /// Client-side strings never assume a child's gender — the same rule the prompt library is
-    /// tokenised for. The child is named instead.
-    @Test("the removal copy names the child and uses no pronoun")
-    func removalCopyUsesNoPronoun() {
-        let line = ChildPhotoCopy.removeDetail("Milo")
-        #expect(line.contains("Milo"))
-        for pronoun in [" his ", " her ", " their ", " he ", " she ", " they "] {
-            #expect(!line.lowercased().contains(pronoun), "\(pronoun) in: \(line)")
+    /// tokenised for. The child is named instead, in every string that refers to one.
+    @Test("the copy names the child and uses no pronoun")
+    func copyAboutTheChildUsesNoPronoun() {
+        for line in everyStringAboutTheChild {
+            #expect(line.contains("Milo"), "no name in: \(line)")
+            for pronoun in [" his ", " her ", " their ", " he ", " she ", " they "] {
+                #expect(!line.lowercased().contains(pronoun), "\(pronoun) in: \(line)")
+            }
         }
     }
 
@@ -944,10 +995,59 @@ struct ChildPhotoCopyTests {
         }
     }
 
-    /// **The line phase 117 exists to make true.** Moving the photo into `EditChildSheet` puts two
-    /// save behaviours on one screen — the photo lands on the tap, the four fields below it wait
-    /// for Save — and that is the objection phase 115 gave for keeping the photo somewhere else.
-    /// The answer is to admit it, so the sentence has to actually say both halves.
+    /// **A third claim the app cannot keep, and it is the design import's own.** That file draws
+    /// the framing step saying *"the full photo is kept — only the framing changes"*, which would
+    /// be true of a crop stored as a rectangle against an original. `AvatarCrop` writes a 512px
+    /// square and this app keeps nothing else, so the way back to a different framing is the photo
+    /// library, and that is what the line says.
+    @Test("nothing promises the original photo is kept")
+    func noFalseOriginalKeptClaim() {
+        for line in everyString {
+            let words = line.lowercased()
+            for claim in ["full photo", "the original", "original is kept", "re-frame it later"] {
+                #expect(!words.contains(claim), "\(claim) in: \(line)")
+            }
+        }
+    }
+
+    /// **The import says the photo is shown "in Timeline and Moments", and it is not.** The avatar
+    /// bytes reach exactly two views — `ChildHeroCard` at the top of Settings and `AvatarStep`
+    /// during setup. Today's pill and switcher draw the initial and never the photo, by
+    /// `docs/design-system.md`'s own rule. A line naming screens the picture does not appear on is
+    /// the quiet kind of wrong that survives every review.
+    @Test("the line about where it appears names somewhere it appears")
+    func appearsInNamesSomewhereItAppears() {
+        let line = ChildPhotoCopy.appearsIn("Milo")
+        #expect(line.contains("Settings"))
+        #expect(!line.contains("Timeline"))
+        #expect(!line.contains("Moments"))
+    }
+
+    /// **The footnote's export claim, kept true by the tree rather than by memory.**
+    /// `ChildPhotoCopy.footnote` tells a parent the photo is not part of an export;
+    /// `Settings/ArchiveExport.swift` is what makes that so, by never reaching for an avatar. The
+    /// day it does, this fails and the sentence gets rewritten — which is the only mechanism that
+    /// stops a true line from quietly becoming a false one.
+    @Test("nothing in the export touches the avatar, which is what the footnote promises")
+    func theExportStillHasNoAvatarInIt() throws {
+        #expect(ChildPhotoCopy.footnote.contains("export"))
+        // `ios/Rascal/Rascal`, resolved from this file rather than from a working directory, so
+        // the scan survives being run from Xcode, from `xcodebuild`, and from CI.
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Rascal")
+        let source = try String(
+            contentsOf: sourceRoot
+                .appendingPathComponent("Settings")
+                .appendingPathComponent("ArchiveExport.swift"),
+            encoding: .utf8
+        )
+        #expect(!source.lowercased().contains("avatar"))
+    }
+
+    /// **The line phase 117 exists to make true, and phase 118 keeps.** The photo lands on the tap
+    /// and the four fields below it wait for Save, so the sentence has to say both halves.
     @Test("the photo line says the photo saves itself and the fields do not")
     func savesOnItsOwnStatesBothHalves() {
         let line = ChildPhotoCopy.savesOnItsOwn
@@ -962,5 +1062,12 @@ struct ChildPhotoCopyTests {
     func savesOnItsOwnNamesNoVanishingButton() {
         #expect(!ChildPhotoCopy.savesOnItsOwn.contains("Cancel"))
         #expect(!ChildPhotoCopy.savesOnItsOwn.contains("Done"))
+    }
+
+    /// The menu says the framing step is coming, because a picker that hands off to another screen
+    /// without warning reads as a step that went wrong.
+    @Test("the menu warns that framing comes next")
+    func theMenuMentionsFraming() {
+        #expect(ChildPhotoCopy.menuSubtitle.lowercased().contains("frame"))
     }
 }
