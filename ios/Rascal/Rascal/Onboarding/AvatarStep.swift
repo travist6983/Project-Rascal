@@ -120,8 +120,14 @@ struct AvatarStep: View {
     /// `AvatarDisc`, shared with `ChildPhotoField` rather than drawn twice. The circle used to be
     /// written out here; the Settings surface needs the identical one, and two copies of a fill,
     /// a hairline and a glyph size are two things to keep in step.
+    ///
+    /// **The empty circle is the child's initial now, not a grey person.** `session.draft` already
+    /// holds the name — this step comes after the name step — so the disc has something real to
+    /// draw, and a household that skips the photo entirely gets a finished-looking avatar rather
+    /// than a placeholder that never fills in. The trimmed draft name, not `name`: that one
+    /// substitutes "your kid" for the empty case, which would put a Y in the circle.
     private var preview: some View {
-        AvatarDisc(data: session.avatar)
+        AvatarDisc(name: session.draft.trimmedName, data: session.avatar)
     }
 
     private func load(_ item: PhotosPickerItem?) async {
