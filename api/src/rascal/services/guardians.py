@@ -27,12 +27,15 @@ from rascal.constants import (
     ISSUABLE_INVITE_ROLES,
     LAPSE_ELIGIBILITY_MONTHS,
     MAX_PARENTS_PER_FAMILY,
+    MEMBER_SOURCES,
     AccessState,
+    EntitlementSource,
     GuardianRole,
     Tier,
 )
 from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
 from rascal.models import Child, Entitlement, Family, Guardian, GuardianInvite, User
+from rascal.services.grants import active_grant_for
 
 # 32 bytes of urlsafe base64. Long enough that guessing is not a strategy, short enough to
 # survive being pasted into a text message without a line break.
@@ -70,24 +73,51 @@ async def entitlement_for(session: AsyncSession, family_id: uuid.UUID) -> Entitl
 class Access:
     """What one household may reach right now. **Computed per read, never stored.**
 
-    Three fields and no behaviour, deliberately: `entitled` is what the server branches on,
-    `access` is what goes on the wire, and `trial_ends_at` is carried through so a caller that
-    has this object never has to go back to the row for it.
+    No behaviour beyond one derived property, deliberately: `entitled` is what the server
+    branches on, `access` is what goes on the wire, and the rest is carried through so a caller
+    that has this object never has to go back to the row for it.
     """
 
-    #: The column, unchanged and still meaning exactly what it meant before phase 107.
+    #: The column, unchanged and still meaning exactly what it meant before phase 107 — and
+    #: unchanged by phase 121 too. **`tier` is what Apple said.** A grant never touches it.
     tier: Tier
     #: The column. Null means *no trial on this household*, not *a trial that ended*.
     trial_ends_at: dt.datetime | None
+    #: Whether an `entitlement_grants` row is currently holding this household open. The
+    #: predicate is `services.grants.active_grants` and lives nowhere else.
+    granted: bool
     #: **The one boolean every gate in this codebase branches on.**
     entitled: bool
-    #: The wire value. `subscribed` beats `trial`; `free` is what is left.
+    #: The wire value. `subscribed` beats `trial`; `free` is what is left. **A granted household
+    #: reads `subscribed`** — it reaches exactly what a subscriber reaches, and a fourth string
+    #: here would be a contract change on an app that has already shipped.
     access: AccessState
+    #: **Why**, when `entitled` is true — `receipt` | `grant` | `trial` | `none`. Reported as
+    #: `entitlement_source`. See `constants.EntitlementSource` for the precedence.
+    source: EntitlementSource
+
+    @property
+    def is_member(self) -> bool:
+        """Paid or granted — **deliberately not `entitled`, because a trial is not a membership.**
+
+        This is what the guardian-invite paywall asks. D4 sells the second parent on a
+        subscription and a trial does not add one; that is phase 107's settled rule and phase 121
+        did not move it. What 121 changed is that a complimentary household is on the paying side
+        of the line, which is the whole point of a grant — somebody decided this household should
+        be treated as though they were members.
+
+        A caller that wants *"may this household reach today's missions"* wants `entitled`. The
+        two answers differ for exactly one household shape — inside its trial — and collapsing
+        them is how a household on a fortnight's free look gets to mint an invite that outlives it.
+        """
+        return self.source in MEMBER_SOURCES
 
 
-def access_for(entitlement: Entitlement, *, now: dt.datetime | None = None) -> Access:
-    """**The one authority on whether a household is entitled.** Pure — a row and a clock in,
-    an answer out, no database.
+def access_for(
+    entitlement: Entitlement, *, granted: bool = False, now: dt.datetime | None = None
+) -> Access:
+    """**The one authority on whether a household is entitled.** Pure — a row, a boolean and a
+    clock in, an answer out, no database.
 
     `api-contract.md` describes `GET /families/me` and `GET /families/{id}/entitlement` as
     *"one authority with two shapes"*. Phase 107 added a third shape — `GET /today`'s `access`,
@@ -97,32 +127,63 @@ def access_for(entitlement: Entitlement, *, now: dt.datetime | None = None) -> A
     second place is the defect that eventually disagrees with the first one, on the question of
     whether somebody paid.
 
-    Two properties worth stating because both are load-bearing:
+    **`granted` is passed in rather than looked up, and that is what keeps this function pure.**
+    Whether a grant is active is a SQL predicate — `services.grants.active_grants` — because it
+    reads two nullable columns against a clock and every caller that needs it is already issuing
+    a query. Deciding it here would mean either a database call in a pure function or a second
+    copy of the predicate in Python. `test_entitlement_cadence.py` asserts that **every call site
+    of this function under `src/` supplies the argument**, so the default is a convenience for
+    tests rather than a hole a router can fall through.
+
+    Three properties worth stating because all three are load-bearing:
 
     * **`subscribed` beats `trial`.** A subscriber holding a stale future `trial_ends_at` reads
       `subscribed`, so a client never renders a paying household as one on a countdown.
-    * **A trial expiring is not a lapse.** Nothing here touches `lapsed_at` or `eligible_at`;
-      `lapsed_at` is about a *subscription* ending, per D3, and a trial quietly running out
-      must not start a deletion clock on somebody's photographs. The two clocks are separate on
-      purpose and :func:`eligible_at` below still keys off `tier` and `lapsed_at` alone.
+    * **A grant and a receipt do not fight, in either direction.** They are independent terms of
+      one `or`: a grant expiring cannot demote a household with a live receipt, and a receipt
+      lapsing cannot demote one with a live grant. Both directions are break-tested.
+    * **A trial expiring is not a lapse.** Nothing here touches `lapsed_at`; `lapsed_at` is about
+      a *subscription* ending, per D3, and a trial quietly running out must not start a deletion
+      clock on somebody's photographs. :func:`eligible_at` below keys off `tier`, `lapsed_at` and
+      — since phase 121 — whether a grant is holding, and deliberately not off the trial.
     """
     now = now or dt.datetime.now(tz=dt.UTC)
     subscribed = entitlement.tier == "subscribed"
     in_trial = entitlement.trial_ends_at is not None and now < entitlement.trial_ends_at
-    entitled = subscribed or in_trial
+    entitled = subscribed or granted or in_trial
+    # The label names the most durable claim, and the order is `constants.EntitlementSource`'s.
+    # A household can hold all three at once — the owner's does — and `receipt` wins because it
+    # is the one that can lapse and therefore the one a client has to be ready to talk about.
+    source: EntitlementSource = (
+        "receipt" if subscribed else "grant" if granted else "trial" if in_trial else "none"
+    )
     return Access(
         tier=entitlement.tier,
         trial_ends_at=entitlement.trial_ends_at,
+        granted=granted,
         entitled=entitled,
-        access="subscribed" if subscribed else ("trial" if entitled else "free"),
+        # A grant reaches what a subscription reaches, so it reads `subscribed` here. `source`
+        # above is how a client tells complimentary from paid without a fourth wire value.
+        access="subscribed" if (subscribed or granted) else ("trial" if entitled else "free"),
+        source=source,
     )
 
 
 async def access_for_family(
     session: AsyncSession, family_id: uuid.UUID, *, now: dt.datetime | None = None
 ) -> Access:
-    """:func:`entitlement_for` and :func:`access_for`, in the one call most readers want."""
-    return access_for(await entitlement_for(session, family_id), now=now)
+    """:func:`entitlement_for`, the active grant, and :func:`access_for`, in the one call most
+    readers want.
+
+    Two indexed lookups rather than one. The second is a primary-key-adjacent read on
+    `ix_entitlement_grants_family_id` against a table that holds a handful of rows in total, and
+    the alternative — a caller that fetches the entitlement itself and forgets the grant — is a
+    granted household hitting a paywall.
+    """
+    now = now or dt.datetime.now(tz=dt.UTC)
+    entitlement = await entitlement_for(session, family_id)
+    grant = await active_grant_for(session, family_id, now=now)
+    return access_for(entitlement, granted=grant is not None, now=now)
 
 
 def is_payer_for(entitlement: Entitlement, user_id: uuid.UUID) -> bool | None:
@@ -223,7 +284,11 @@ async def last_sign_in_for(session: AsyncSession, family_id: uuid.UUID) -> dt.da
 
 
 def eligible_at(
-    tier: str, lapsed_at: dt.datetime | None, last_sign_in_at: dt.datetime | None
+    tier: str,
+    lapsed_at: dt.datetime | None,
+    last_sign_in_at: dt.datetime | None,
+    *,
+    granted: bool = False,
 ) -> dt.date | None:
     """When a lapsed household's **media** becomes eligible for deletion, per D3.
 
@@ -232,15 +297,27 @@ def eligible_at(
     forward, and D3 makes any sign-in inside the warning window cancel deletion outright. A
     stored deadline would be a date that was true when it was written.
 
-    `None` while the household is `subscribed` — there is no deletion clock on a paying
-    household — and `None` when it has lapsed but nothing recorded when.
+    `None` while the household is `subscribed`, `None` while an `entitlement_grants` row is
+    holding it open, and `None` when it has lapsed but nothing recorded when.
+
+    **A granted household has no deletion clock, for the same reason a paying one does not.**
+    That is the case this argument exists for and it is not hypothetical: a household that
+    subscribed, lapsed, and was then given a complimentary grant carries a real `lapsed_at`, so
+    without this it would read a deletion date while being fully entitled — a countdown on the
+    photographs of somebody we had just told they were welcome.
+
+    **The trial is deliberately not an input here, and that is phase 107's call rather than an
+    omission.** A trial expiring is not a lapse: `lapsed_at` is about a *subscription* ending,
+    per D3, so a household that tried the app for a fortnight and stopped has `lapsed_at` null
+    and no clock either way. Passing the trial in would be the change that quietly points a
+    deletion timer at every household that did.
 
     **This computes eligibility and nothing deletes on it.** Phase 38 owns the notice
     sequence and the job, and D3's hard stop is that deletion may not fire unless a notice was
     confirmed delivered on some channel. This function is what a client displays and what that
     phase will schedule against.
     """
-    if tier == "subscribed" or lapsed_at is None:
+    if tier == "subscribed" or granted or lapsed_at is None:
         return None
     candidates = [_add_months(lapsed_at, LAPSE_ELIGIBILITY_MONTHS)]
     if last_sign_in_at is not None:
@@ -347,9 +424,11 @@ async def issue_invite(
 
     * **The household is already full.** Two adults is the household; a third is a different
       product, not a bigger bill, so this is a flat refusal rather than an upsell.
-    * **The family is on the free tier.** Per D4 the second guardian is the thing "one price
-      for the whole household" is sold on, so it is the natural paywall. The message names
-      what subscribing unlocks rather than what free lacks.
+    * **Nobody is a member.** Per D4 the second guardian is the thing "one price for the whole
+      household" is sold on, so it is the natural paywall. The message names what subscribing
+      unlocks rather than what free lacks. **A trial does not pass this gate and a grant does**
+      — a complimentary household is one somebody decided to treat as members, and a fortnight's
+      free look is not. See :attr:`Access.is_member`.
     """
     now = now or dt.datetime.now(tz=dt.UTC)
 
@@ -363,8 +442,12 @@ async def issue_invite(
             "This household already has two parents.",
         )
 
-    entitlement = await entitlement_for(session, inviter.family_id)
-    if not entitlement.is_subscribed:
+    # **`is_member`, not `is_subscribed` and not `entitled`.** Phase 121 put a complimentary
+    # household on the paying side of this gate and left the trial where phase 107 put it: a
+    # grant is somebody deciding this household should be treated as members, and a trial is
+    # not. See `Access.is_member`.
+    household = await access_for_family(session, inviter.family_id)
+    if not household.is_member:
         raise RascalError(
             ErrorCode.SUBSCRIPTION_REQUIRED,
             "Subscribing adds a second parent to your household — you will share the same "

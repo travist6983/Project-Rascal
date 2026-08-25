@@ -38,6 +38,9 @@ EXPECTED_TABLES = {
     "prompt_library_overrides",
     # Phase 97. The social studio's output.
     "social_assets",
+    # Phase 121. Complimentary entitlement, as a ledger beside `entitlements` rather than a
+    # column inside it. `entitlements.tier` still has exactly one writer.
+    "entitlement_grants",
 }
 
 EXPECTED_INDEXES = {
@@ -68,6 +71,9 @@ EXPECTED_INDEXES = {
     "ix_devices_user_id",
     # One notification per user per day. This index is the guarantee.
     "uq_notification_sends_user_id_notification_date",
+    # Phase 121. Every read of the grant ledger is "what does this household hold". Deliberately
+    # not a unique index: multiple grants per household is the shape, not a state to prevent.
+    "ix_entitlement_grants_family_id",
 }
 
 EXPECTED_CHECKS = {
@@ -86,6 +92,8 @@ EXPECTED_CHECKS = {
     "ck_entry_tags_source",
     "ck_devices_platform",
     "ck_devices_environment",
+    # Phase 121. A reason that is blank after trimming is a ledger row answering nothing.
+    "ck_entitlement_grants_reason",
 }
 
 TABLES_WITH_UPDATED_AT_TRIGGER = {
@@ -102,6 +110,8 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "prompt_library_overrides",
     "social_assets",
     "social_publications",
+    # Phase 121. A revocation is an UPDATE in place and the only one this table ever takes.
+    "entitlement_grants",
 }
 
 

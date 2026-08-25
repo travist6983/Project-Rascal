@@ -12,7 +12,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import ForeignKey, Index, Text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from rascal.constants import GUARDIAN_ROLES, TIERS, TRIAL_DAYS, GuardianRole, Tier
@@ -116,18 +116,12 @@ class Entitlement(Base):
     trial_ends_at: Mapped[optional_moment] = mapped_column(default=_default_trial_ends_at)
     updated_at: Mapped[updated]
 
-    @property
-    def is_subscribed(self) -> bool:
-        """`tier` alone, and deliberately **not** the entitlement question.
-
-        This answers *"is somebody paying"*, which is what the guardian-invite paywall asks
-        (D4 sells the second parent on a subscription, and a trial does not add one). *"May
-        this household reach today's missions"* is a different question with a different
-        answer during a trial, and it is :func:`services.guardians.access_for`. Do not
-        collapse the two — a caller that wants entitlement and reads this gets a free-tier
-        answer for a household inside its trial.
-        """
-        return self.tier == "subscribed"
+    # **`is_subscribed` was here and phase 121 removed it rather than leaving it unused.** It
+    # answered *"is somebody paying"* and its one caller was the guardian-invite paywall, which
+    # now asks `services.guardians.Access.is_member` — *paying **or** granted*. A property that
+    # still answered the old question, documented as the paywall's question, is the second
+    # authority this file spends its docstring warning about: the next caller to reach for it
+    # would give a complimentary household a 402.
 
 
 class GuardianInvite(Base):
@@ -176,3 +170,102 @@ class GuardianInvite(Base):
     def is_open(self, now: dt.datetime) -> bool:
         """Still acceptable: not revoked, not already accepted, not past its expiry."""
         return self.revoked_at is None and self.accepted_at is None and self.expires_at > now
+
+
+class EntitlementGrant(Base):
+    """A household entitled by somebody's decision rather than by a payment. **A ledger.**
+
+    **Rows are additive and nothing is edited in place except a revocation.** Extending
+    somebody is a new row, not an edit to the old one, which is what makes the grant history
+    readable as history: *who was given what, when, why, and by whom*. There is deliberately
+    **no unique constraint on `family_id`** — more than one grant per household is the intended
+    shape rather than a state to prevent.
+
+    **This table cannot make a household `subscribed` and does not try to.** `entitlements.tier`
+    keeps exactly one writer — `POST /v1/webhooks/app-store`, per D5 — and a test asserts it.
+    A grant is a *second, additive source of entitlement* that sits beside `tier` the way
+    `trial_ends_at` does, and the union is computed in `services.guardians.access_for`. Nothing
+    here is a reversal of D5: `tier` still means *what Apple said*, and a client reading it is
+    still reading Apple.
+
+    A grant is **active** when::
+
+        revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+
+    and the server's clock is what `now` means, for the same reason the server decides what day
+    it is. The predicate lives in exactly one place — `services.grants.active_grants` — and is
+    evaluated in SQL rather than in Python, so there is no second ordering comparison anywhere
+    under `src/` for a reader to find and wonder about.
+
+    **`expires_at` is nullable and null means perpetual**, not "a sentinel date far enough
+    away". A founding tester is not entitled until 2099; they are entitled until somebody
+    revokes it, and those are different rows to reason about.
+
+    **`granted_by` and `revoked_by` are nullable, and that is a deliberate departure from the
+    obvious shape.** They want to be NOT NULL — a grant that cannot say who issued it is not
+    much of an audit record — but account deletion **hard-deletes** `users` rows (the one
+    exception to the soft-delete rule, phase 66), so a NOT NULL column here needs an
+    `ON DELETE` action and none of the three works: `CASCADE` destroys the ledger row, which is
+    the opposite of an audit trail; `RESTRICT` makes an erasure request fail with an integrity
+    error the deletion path has no branch for, which is a 500 in the one flow that must not have
+    one; and `SET NULL` is what we want but cannot coexist with NOT NULL. So the column is
+    nullable, `ON DELETE SET NULL`, and a null reads as *"the account that issued this has since
+    been deleted"* — which is a true sentence rather than a missing value. The route always
+    writes it, from the bearer token's subject and never from the request body, so null is only
+    ever reachable by erasure. `prompt_library_overrides.created_by_user_id` made the same
+    trade for the same reason.
+
+    **No `deleted_at`, and this is not a second exception to the soft-delete rule.** That rule
+    governs user data that syncs to a phone; nothing here syncs and no client can read this
+    table. Withdrawing a grant is `revoked_at`, which *is* the soft delete — there is no
+    `DELETE` on this table and no route that could issue one, because the record of who you
+    gave something to and why is the part worth keeping.
+    """
+
+    __tablename__ = "entitlement_grants"
+    __table_args__ = (
+        # Free text, but not *empty* text. "Why does this household have this" is the whole
+        # reason a ledger beats a boolean, and a blank reason is a row that answers nothing.
+        CheckConstraint("length(btrim(reason)) > 0", name="reason"),
+        Index("ix_entitlement_grants_family_id", "family_id"),
+    )
+
+    id: Mapped[uuid_pk]
+    #: `CASCADE`, unlike `app_store_transactions.family_id`. A receipt outlives the household it
+    #: paid for — Apple will still send a `REFUND` about it — but a grant is *about* a household
+    #: and means nothing without one, so it goes when the household does.
+    family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"))
+    granted_at: Mapped[created]
+    #: **Null means perpetual.** See the class docstring.
+    expires_at: Mapped[optional_moment]
+    #: Free text, non-empty by CHECK. `founding tester`, `refund goodwill`, `press`.
+    reason: Mapped[str] = mapped_column(Text)
+    #: The bearer token's subject at the moment of issue, never a field from the body.
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    revoked_at: Mapped[optional_moment]
+    revoked_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[created]
+    updated_at: Mapped[updated]
+
+    def status(self, now: dt.datetime) -> str:
+        """`active` | `revoked` | `expired`, for the console.
+
+        **Display only, and it must never become the gate.** The gate is one SQL predicate in
+        `services.grants.active_grants`, evaluated against the database's own rows; this is that
+        answer rendered for a person, computed from a row already in hand. They agree because
+        this is the simpler half of the same rule, and the console reads what the API computed
+        rather than deciding for itself.
+
+        `revoked` outranks `expired` because it is the thing somebody *did* — a grant that was
+        revoked in March and would have run out in June is a revocation, and reading it as an
+        expiry loses the only part of that sentence with a person in it.
+        """
+        if self.revoked_at is not None:
+            return "revoked"
+        if self.expires_at is not None and self.expires_at <= now:
+            return "expired"
+        return "active"

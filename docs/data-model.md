@@ -154,7 +154,7 @@ What a household is entitled to. **One row per family, keyed on the family** —
 
 ~~**Nothing in this codebase writes `tier`.**~~ — **corrected Aug 20, 2026 by phase 37a. `POST /v1/webhooks/app-store` writes it, and it is the only thing that does.** D5 reserved that column for App Store Server Notifications V2 and this is that; a test asserts there is exactly one assignment to `.tier` anywhere in `src/`, so a second writer fails the suite rather than quietly appearing. The device still never decides whether a household is subscribed, for the same reason it never decides what day it is — a StoreKit transaction on the phone is a receipt, and the webhook is what turns one into an entitlement.
 
-**Two things that did not change, and the correction is worth stating precisely.** `docs/runbook-deploy.md` §7a is still the manual override — a hand-run SQL statement, now the *override* rather than the only way in, and the owner's own household is `subscribed` by one with no Apple transaction behind it. **And there is still no admin route**, deliberately: nothing in this API can set a tier over HTTP except a payload Apple signed.
+**Two things that did not change, and the correction is worth stating precisely.** `docs/runbook-deploy.md` §7a is still the manual override — a hand-run SQL statement, now the *override* rather than the only way in, and the owner's own household is `subscribed` by one with no Apple transaction behind it. ~~**And there is still no admin route**, deliberately: nothing in this API can set a tier over HTTP except a payload Apple signed.~~ — **the second clause is still exactly true and the first now needs its subject said out loud, as of phase 121, Aug 24, 2026.** There is still no admin route **that writes `tier`**, and nothing in this API can set a tier over HTTP except a payload Apple signed. What phase 121 added is `POST /v1/admin/grants`, which writes `entitlement_grants` — **a second, additive source of *entitlement* that does not touch `tier` at all.** The distinction is the whole design: `tier` remains what Apple said, `entitled` is the union of what Apple said and what an admin decided, and the exactly-one-writer test passes unmodified. See `entitlement_grants` below.
 
 **Nothing has ever been verified against Apple.** No product exists in App Store Connect (`docs/blocked.md` §10), so the writer above has been exercised only against synthetic signed payloads.
 
@@ -179,7 +179,54 @@ access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "
 
 **A trial expiring is not a lapse, and this is the part with photographs behind it.** `lapsed_at` is about a *subscription* ending, per D3, and it is what `eligible_at` — the media deletion clock — is computed from. A household that tried the app for a fortnight and stopped has not lapsed. `access_for` touches neither field, `eligible_at` still keys off `tier` and `lapsed_at` alone, and a test pins it.
 
-**One route writes this column and it cannot write `tier`.** `PUT /v1/admin/families/{family_id}/trial` is the admin console's single entitlement lever: set the date forward to make a household `trial`, set it to yesterday or clear it to make it `free`. It exists because the owner is the only user and would otherwise never see the free tier he is designing. `docs/runbook-admin-console.md` has the walkthrough.
+**One route writes this column and it cannot write `tier`.** `PUT /v1/admin/families/{family_id}/trial` is the admin console's single **trial** lever: set the date forward to make a household `trial`, set it to yesterday or clear it to make it `free`. It exists because the owner is the only user and would otherwise never see the free tier he is designing. `docs/runbook-admin-console.md` has the walkthrough.
+
+~~*the admin console's single entitlement lever*~~ — **narrowed to "trial lever" on Aug 24, 2026 by phase 121, which added a second one.** `POST /v1/admin/grants` writes `entitlement_grants`, a table beside this one, and a household holding an active grant reads `access: "subscribed"` whatever this column says — so the sentence *"a household already on `subscribed` will not move"* now has two causes and the response carries `entitlement_source` to say which. **Neither lever touches `tier`**; see `entitlement_grants` below.
+
+### `entitlement_grants`
+Complimentary entitlement: a household entitled because somebody decided so rather than because somebody paid. **A ledger, not a state field.** Created by migration `0023` as part of phase 121.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid PK | |
+| `family_id` | uuid FK | → families, NOT NULL, `ON DELETE CASCADE`. A grant with no household is meaningless — and unlike `app_store_transactions.family_id`, nothing outside this service will ever ask about it again |
+| `granted_at` | timestamptz | NOT NULL, default `now()` |
+| `expires_at` | timestamptz | **nullable — null means perpetual.** Not a sentinel date |
+| `reason` | text | NOT NULL, non-empty by named CHECK (`length(btrim(reason)) > 0`). Free text: `founding tester`, `refund goodwill` |
+| `granted_by` | uuid FK | → users, **nullable**, `ON DELETE SET NULL`. Written from the bearer token's subject, never from the request body |
+| `revoked_at` | timestamptz | nullable |
+| `revoked_by` | uuid FK | → users, nullable, `ON DELETE SET NULL` |
+| `created_at` / `updated_at` | timestamptz | `updated_at` by the `set_updated_at()` trigger |
+
+Indexed on `family_id`. **No unique constraint on it** — multiple grants per household is the intended shape, not a state to prevent. Extending somebody is a *new row*, not an edit to the old one, and that is what makes the grant history readable as history.
+
+**A grant is active when:**
+
+```
+revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
+```
+
+`now()` is the server's, for the same reason the server decides what day it is. The predicate lives in exactly one place — `services/grants.py::unexpired` — and is evaluated in SQL rather than in Python, so there is no second ordering comparison under `src/` for a reader to find and wonder about. A test walks the AST and asserts it.
+
+**Entitlement is the union, and it is computed in the same one function the trial is:**
+
+```
+entitled = (tier == "subscribed") or (an active grant exists) or (trial_ends_at is not None and now_utc() < trial_ends_at)
+access   = "subscribed" if (tier == "subscribed" or granted) else ("trial" if entitled else "free")
+source   = "receipt" | "grant" | "trial" | "none", in that precedence
+```
+
+**The two sources never fight, and that is a property in both directions rather than one.** A grant expiring or being revoked cannot demote a household with a live receipt, and a receipt lapsing cannot demote one with a live grant — they are independent terms of one `or`, and both directions are break-tested. `receipt` wins the *label* when more than one holds, because it is the one that can lapse and therefore the one a client has to be ready to talk about.
+
+**`eligible_at` is `null` while a grant is active**, exactly as it is while `tier` is `subscribed`. A granted household has no deletion clock, for the same reason a paying one does not — and the case this exists for is real rather than hypothetical: a household that subscribed, lapsed, and was then given a grant carries a live `lapsed_at`, so without it the wire would report a deletion date for a household we had just told was welcome. **The trial is still deliberately not an input to that clock**, per phase 107 and D3.
+
+**This table cannot make a household `subscribed`, and there is deliberately no control that can.** `entitlements.tier` keeps exactly one writer, `POST /v1/webhooks/app-store`, per D5; a test asserts there is exactly one assignment to `.tier` anywhere under `src/` and it passes unmodified. A grant sits beside `tier` the way `trial_ends_at` does.
+
+**Both user references are `ON DELETE SET NULL` and therefore nullable, which is the one place this table departs from the obvious shape.** They want to be NOT NULL — a grant that cannot say who issued it is not much of an audit record — but account deletion **hard-deletes** `users` rows, the single exception to the soft-delete rule added by phase 66, so a NOT NULL column here needs an `ON DELETE` action and none of the three works. `CASCADE` destroys the ledger row, which is the opposite of an audit trail. `RESTRICT` makes an erasure request fail with an integrity error the deletion path has no branch for, in the one flow that must not raise. `SET NULL` is what is wanted and cannot coexist with NOT NULL. So: nullable, `SET NULL`, and a null reads as *"the account that issued this has since been deleted"* — a true sentence rather than a missing value. `prompt_library_overrides.created_by_user_id` made the same trade in `0017` for the same reason. A test deletes the issuing admin and asserts the grant still stands and the household is still entitled.
+
+**No `deleted_at`, and this is not a second exception to the soft-delete rule.** That rule governs user data that syncs to a phone; nothing here syncs and no client can read this table. `revoked_at` *is* the soft delete — **there is no `DELETE` on this table and no route that could issue one**, which is asserted against the app's own `openapi()` rather than by reading the router. The record of who you gave something to, why, and when you took it back is the part a support conversation actually needs.
+
+**Three admin routes reach it**, all behind `users.is_admin` and all through the same `LocalWrites` guard the library edits use: `GET /v1/admin/grants`, `POST /v1/admin/grants`, `POST /v1/admin/grants/{id}/revoke`. Revoking is idempotent and writes nothing the second time. `docs/runbook-admin-console.md` has the walkthrough.
 
 ### `app_store_transactions`
 The receipt ledger — **why** a household is entitled to what `entitlements` says it is. Created by migration `0019` as part of phase 37a.

@@ -17,9 +17,10 @@ number of statements — no per-row fan-out, no lazy loads on the async session.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any
 
-from sqlalchemy import Date, Integer, and_, cast, func, select, text
+from sqlalchemy import Date, Integer, Text, and_, cast, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import DAILY_SLOTS
@@ -30,6 +31,7 @@ from rascal.models import (
     Device,
     EmailBroadcast,
     Entitlement,
+    EntitlementGrant,
     Entry,
     Family,
     Media,
@@ -38,6 +40,7 @@ from rascal.models import (
     PromptLibraryOverride,
     User,
 )
+from rascal.services.grants import has_active_grant, unexpired
 from rascal.services.guardians import access_for
 
 
@@ -500,7 +503,9 @@ async def top_themes(session: AsyncSession, limit: int = 8) -> list[dict[str, An
     return [{"theme": str(theme), "count": int(count)} for theme, count in rows.all()]
 
 
-def _access_state(tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime) -> str:
+def _access_state(
+    tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime, *, granted: bool
+) -> str:
     """`access_for` over two loose columns rather than a mapped row.
 
     **Not a second formula, and it must never become one.** `recent_signups` aggregates, so it
@@ -512,9 +517,12 @@ def _access_state(tier: str, trial_ends_at: dt.datetime | None, now: dt.datetime
     not aggregate; both reach the same function, which is the point.
 
     `test_entitlement_cadence.py` walks the AST of every module under `src/` looking for anyone
-    who compares `trial_ends_at` against a clock instead of doing this.
+    who compares `trial_ends_at` against a clock instead of doing this, and asserts that every
+    call site of `access_for` — this one included — supplies `granted`.
     """
-    return access_for(Entitlement(tier=tier, trial_ends_at=trial_ends_at), now=now).access
+    return access_for(
+        Entitlement(tier=tier, trial_ends_at=trial_ends_at), granted=granted, now=now
+    ).access
 
 
 async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[str, Any]]:
@@ -524,6 +532,10 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
     only reader. Nothing about the child, and no entry content: a customer list is a
     different thing from an archive, and this screen only gets to be the first one.
     """
+    # Read once, before the query, and used by both the grant predicate in SQL and the access
+    # computation below it. Two `now()`s here would be two clocks, and a household whose grant
+    # expires between them would read `granted` in one half and not the other.
+    now = dt.datetime.now(tz=dt.UTC)
     rows = await session.execute(
         select(
             User.id,
@@ -534,6 +546,9 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             User.family_id,
             Entitlement.tier,
             Entitlement.trial_ends_at,
+            # Phase 121. A correlated `EXISTS` rather than a join, so a household holding three
+            # grants is still one row here and the `count(distinct entries)` above is unharmed.
+            has_active_grant(User.family_id, now).label("granted"),
             func.count(func.distinct(Entry.id)).label("entries"),
         )
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
@@ -542,7 +557,6 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
         .order_by(User.created_at.desc())
         .limit(limit)
     )
-    now = dt.datetime.now(tz=dt.UTC)
     return [
         {
             "id": str(row.id),
@@ -570,9 +584,145 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             # Computed by the one authority rather than restated here — a console that
             # disagreed with `GET /today` about whether somebody is entitled would be worse
             # than a console with no column at all.
-            "access": _access_state(row.tier or "free", row.trial_ends_at, now),
+            "access": _access_state(
+                row.tier or "free", row.trial_ends_at, now, granted=bool(row.granted)
+            ),
+            # **A grant is why a `free` household can read `subscribed` on this screen.** The
+            # column beside it still says `free`, which is the point: `tier` is Apple's word and
+            # `access` is what the phone will actually be served.
+            "granted": bool(row.granted),
             "trial_ends_at": row.trial_ends_at.isoformat() if row.trial_ends_at else None,
             "entries": int(row.entries),
         }
         for row in rows.all()
     ]
+
+
+# --- Households, for the console's grant panel -------------------------------------------------
+#
+# **Account metadata and nothing else, and that line is the whole design of this section.** A
+# grant is issued *to a household*, so the console has to be able to find one — which means a
+# search box over the only strings a person actually has: an email, a display name, a family id
+# off another screen. It does not mean opening the household. Nothing below reads `children`,
+# `entries`, `media`, `assignments` or `tags`, and `tests/test_admin.py` plants distinctive
+# strings in all of those and greps every admin response for them.
+
+
+def _label(members: list[tuple[str | None, str | None]]) -> str:
+    """How a household reads in a picker: its members, oldest first, name before email.
+
+    **Both, when both exist**, because either alone is ambiguous in practice — two dev-login
+    fixtures share a display name, and an email with no name attached is unrecognisable at a
+    glance six months after the conversation that produced it.
+    """
+    seen: list[str] = []
+    for display_name, email in members:
+        for value in (display_name, email):
+            if value and value not in seen:
+                seen.append(value)
+    return " · ".join(seen) if seen else "unnamed household"
+
+
+async def household_labels(
+    session: AsyncSession, family_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """One label per household, for a set of ids. **One query, never one per row.**
+
+    The ledger renders a household beside every row, and a lookup per row is the shape that
+    reads fine at four rows and is a page of queries at forty.
+    """
+    if not family_ids:
+        return {}
+    rows = await session.execute(
+        select(User.family_id, User.display_name, User.email)
+        .where(User.family_id.in_(family_ids))
+        .order_by(User.created_at, User.id)
+    )
+    grouped: dict[uuid.UUID, list[tuple[str | None, str | None]]] = {}
+    for family_id, display_name, email in rows.all():
+        grouped.setdefault(family_id, []).append((display_name, email))
+    return {family_id: _label(members) for family_id, members in grouped.items()}
+
+
+async def find_households(
+    session: AsyncSession, *, q: str | None = None, limit: int = 20
+) -> list[dict[str, Any]]:
+    """Households matching *q* on **account metadata only** — email, display name, family id.
+
+    **An empty query is the most recent households rather than an error**, because that is what
+    the picker wants on first paint, and asking somebody to type before they can see anything is
+    a control nobody uses.
+
+    The family id is matched as text so a UUID pasted from another screen finds its household,
+    and a *prefix* works because that is what the rest of the console renders — `fillHouseholds`
+    shows eight characters, and a search that could not find what the screen displays would be a
+    search you have to work around.
+
+    `access` and `entitlement_source` come from the one authority, not from a comparison written
+    here: a console that disagreed with `GET /today` about whether somebody is entitled would be
+    worse than a console with no column at all.
+    """
+    now = dt.datetime.now(tz=dt.UTC)
+
+    families = select(User.family_id, func.max(User.created_at).label("recent")).group_by(
+        User.family_id
+    )
+    if q:
+        pattern = f"%{q.strip()}%"
+        families = families.where(
+            or_(
+                User.email.ilike(pattern),
+                User.display_name.ilike(pattern),
+                cast(User.family_id, Text).ilike(pattern),
+            )
+        )
+    # Newest household first, and `family_id` breaks the tie so two households whose newest
+    # member arrived in the same transaction do not swap places between two identical searches.
+    families = families.order_by(func.max(User.created_at).desc(), User.family_id.desc())
+    family_ids = [row.family_id for row in (await session.execute(families.limit(limit))).all()]
+    if not family_ids:
+        return []
+
+    labels = await household_labels(session, family_ids)
+
+    entitlements = {
+        row.family_id: row
+        for row in (
+            await session.execute(select(Entitlement).where(Entitlement.family_id.in_(family_ids)))
+        ).scalars()
+    }
+    # Two aggregates in one pass: how many rows the household holds at all, and whether any of
+    # them is live. `unexpired` is the one definition of the second — this counts it, it does
+    # not restate it.
+    rows = (
+        await session.execute(
+            select(
+                EntitlementGrant.family_id,
+                func.count().label("total"),
+                func.count().filter(unexpired(now)).label("live"),
+            )
+            .where(EntitlementGrant.family_id.in_(family_ids))
+            .group_by(EntitlementGrant.family_id)
+        )
+    ).all()
+    counted = {row.family_id: (int(row.total), int(row.live)) for row in rows}
+
+    out: list[dict[str, Any]] = []
+    for family_id in family_ids:
+        total, live = counted.get(family_id, (0, 0))
+        # **A household with no entitlement row is unreachable and is still not invented here.**
+        # `create_household` writes one with every family; a throwaway `free` row keeps the one
+        # authority the only thing computing an answer, exactly as `_access_state` does above.
+        entitlement = entitlements.get(family_id) or Entitlement(family_id=family_id, tier="free")
+        access = access_for(entitlement, granted=live > 0, now=now)
+        out.append(
+            {
+                "family_id": family_id,
+                "label": labels.get(family_id, "unnamed household"),
+                "tier": entitlement.tier,
+                "access": access.access,
+                "entitlement_source": access.source,
+                "grants": total,
+            }
+        )
+    return out

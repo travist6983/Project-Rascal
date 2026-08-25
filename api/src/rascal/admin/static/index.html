@@ -207,6 +207,69 @@
           </form>
           <p id="trial-state" class="card-note"></p>
         </article>
+
+        <article class="card" id="grants">
+          <p class="label">Grants — entitle a household without a payment</p>
+          <p class="card-note">
+            A founding tester, a refund made good, a family who should not be paying. A grant
+            entitles a household exactly as a subscription does, and <strong>it does not touch
+            the tier</strong> — the household keeps reading <code>free</code>, because that
+            column is what Apple said and nothing here can be a second voice in it. What moves
+            is <code>entitled</code>, which is what every gate reads.
+          </p>
+          <p class="card-note">
+            <strong>Leave the end date empty for a grant with no end.</strong> That is a real
+            state rather than a missing one. Extending somebody is a <em>new</em> grant, not an
+            edit — the ledger below is the history and it is the point.
+          </p>
+          <!-- Read-only mode. The form is hidden by CSS and this replaces it, rather than the
+               whole card going away as the Membership card's does: half of this card is a
+               *read* and hiding it would take the ledger with the controls. The variable is
+               named because "read-only" without it is a state you cannot act on. -->
+          <p class="card-note readonly-note">
+            The console is reading another database and is read-only, so grants cannot be
+            issued or revoked from here. Unset <code>ADMIN_READ_DATABASE_URL</code> to write
+            against the database this process reads.
+          </p>
+          <form id="grant-form" class="form">
+            <div class="field-row">
+              <label class="field">
+                <span>Find a household</span>
+                <input
+                  id="g-search"
+                  type="search"
+                  placeholder="email, name, or family id"
+                  autocomplete="off"
+                />
+              </label>
+              <label class="field">
+                <span>Household</span>
+                <select id="g-family" required></select>
+              </label>
+            </div>
+            <div class="field-row">
+              <label class="field">
+                <span>Reason</span>
+                <input
+                  id="g-reason"
+                  type="text"
+                  maxlength="500"
+                  required
+                  placeholder="founding tester"
+                />
+              </label>
+              <label class="field">
+                <span>Ends (optional)</span>
+                <input id="g-date" type="date" />
+              </label>
+            </div>
+            <div class="drawer-actions">
+              <button class="btn btn-primary" type="submit">Issue grant</button>
+            </div>
+          </form>
+          <p id="grant-state" class="card-note"></p>
+          <div id="grant-ledger" class="table-wrap"></div>
+        </article>
       </section>
 
       <!-- Library ------------------------------------------------------------------- -->

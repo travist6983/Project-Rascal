@@ -33,6 +33,7 @@ from helpers import auth_headers
 from rascal.config import get_settings
 from rascal.models import Entry, Media
 from rascal.services import billing, s3
+from rascal.services.grants import issue_grant
 
 #: Strings planted in the archive that must never appear in an admin response.
 SECRET_TITLE = "the-word-he-invented-for-the-moon"
@@ -41,7 +42,18 @@ SECRET_TRANSCRIPT = "gloamy gloamy gloamy said the four year old"
 SECRET_KEY = "children/abc/def-the-private-object-key.m4a"
 SECRET_CHILD = "Wolfgang-the-improbable"
 
-ADMIN_GETS = ["/v1/admin/snapshot", "/v1/admin/library", "/v1/admin/ops", "/v1/admin/costs"]
+ADMIN_GETS = [
+    "/v1/admin/snapshot",
+    "/v1/admin/library",
+    "/v1/admin/ops",
+    "/v1/admin/costs",
+    # Phase 121. **Both are in the leakage sweep below and that is the point of adding them
+    # here rather than only to the authorization list**: the grant panel is the first admin
+    # surface that renders a *household* rather than a count, so "counts, never content" is
+    # under more pressure on these two routes than on any that came before them.
+    "/v1/admin/households",
+    "/v1/admin/grants",
+]
 
 
 @pytest.fixture(autouse=True)
@@ -167,9 +179,23 @@ async def test_the_sweep_covers_every_admin_route(client: AsyncClient) -> None:
 
 
 async def test_no_admin_route_returns_archive_content(
-    client: AsyncClient, admin, archive, bucket
+    client: AsyncClient, session: AsyncSession, admin, archive, bucket
 ) -> None:
-    """The rule `services/admin_metrics.py` is written to, enforced rather than asserted."""
+    """The rule `services/admin_metrics.py` is written to, enforced rather than asserted.
+
+    **The archive's household is granted first, and that is not decoration.** Phase 121 put two
+    new routes into `ADMIN_GETS` and one of them renders a *household* rather than a count — the
+    first admin surface to do so. Sweeping an empty ledger would pass against any renderer at
+    all, including one that printed a child's name beside every row.
+    """
+    await issue_grant(
+        session,
+        family_id=archive["parent"].family_id,
+        granted_by=admin.id,
+        reason="a grant on the household holding every planted string",
+    )
+    await session.commit()
+
     leaks = []
     for path in ADMIN_GETS:
         response = await client.get(path, headers=auth_headers(admin))

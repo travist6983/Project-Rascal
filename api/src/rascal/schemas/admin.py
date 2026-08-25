@@ -15,7 +15,14 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from rascal.constants import AccessState, Cadence, CompletionMode, PromptKind, Tier
+from rascal.constants import (
+    AccessState,
+    Cadence,
+    CompletionMode,
+    EntitlementSource,
+    PromptKind,
+    Tier,
+)
 from rascal.schemas.common import ApiModel
 from rascal.schemas.prompt import PromptOut
 
@@ -133,6 +140,110 @@ class AdminTrialOut(ApiModel):
     tier: Tier
     access: AccessState
     trial_ends_at: dt.datetime | None = None
+    #: **Why the household reads what it reads**, added by phase 121 because there are now two
+    #: ways for this lever to appear to do nothing. A household that stays `subscribed` after a
+    #: trial is set is either a subscriber or a granted household, and the console's message has
+    #: to say which — sending somebody to `runbook-deploy.md` §7a to fix a tier that was never
+    #: the reason is a worse outcome than no message.
+    entitlement_source: EntitlementSource = "none"
+
+
+class AdminGrantIn(ApiModel):
+    """Issue one complimentary grant.
+
+    **There is deliberately no `granted_by` field and there is not going to be one.** The issuer
+    is the bearer token's subject, taken in the route. An audit column a caller can set is an
+    audit column that says whatever the caller wanted it to, and a test asserts a body carrying
+    one is ignored rather than honoured.
+
+    **There is no `tier` field either**, for the reason `AdminTrialIn` gives: `entitlements.tier`
+    has exactly one writer by D5 and nothing in this console can be the second.
+    """
+
+    family_id: uuid.UUID
+    #: Free text and the only required prose. `founding tester`, `refund goodwill`, `press`.
+    #: A ledger whose rows do not say why is a ledger nobody can read six months later, so this
+    #: is `min_length=1` here and a named CHECK in the schema besides.
+    reason: str = Field(min_length=1, max_length=500)
+    #: When the grant runs out. **`null` is perpetual** — not a missing value and not a sentinel
+    #: date. A founding tester is entitled until somebody revokes it.
+    #:
+    #: **Must carry a timezone offset**, and an expiry already in the past is `422` rather than a
+    #: row that entitles nobody. See the validator below.
+    expires_at: dt.datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def _must_be_aware(cls, value: dt.datetime | None) -> dt.datetime | None:
+        """Refuse an offset-less timestamp, the same guard `AdminTrialIn` already carries.
+
+        **Without it an offset-less body is a 500 rather than a 422.** Pydantic parses
+        `"2026-09-01T00:00:00"` into a naive `datetime`, it goes into a `timestamptz` column
+        having been interpreted as whatever the *database session* thinks local is, and the
+        refusal check in `services/grants.issue_grant` compares it against an aware `now` first:
+        `TypeError: can't compare offset-naive and offset-aware datetimes`, rendered by the
+        catch-all as `internal_error` with no field to point at.
+
+        **Rejecting rather than assuming UTC is the deliberate half**, and it matters more here
+        than it does for a trial. `models/base.py` is explicit that a naive timestamp in an
+        archive spanning eighteen years and two zones is a bug that surfaces years later;
+        stamping one with UTC here would be this service inventing a timezone for a date a
+        person typed, and the value it invents decides which *day* somebody's entitlement ends.
+        The column is `timestamptz`, so a value read back is always aware — this route is the
+        only way a naive one reaches the comparison at all.
+        """
+        if value is not None and value.tzinfo is None:
+            raise ValueError("expires_at must carry a timezone offset, e.g. 2026-09-01T00:00:00Z.")
+        return value
+
+
+class AdminGrantOut(ApiModel):
+    """One row of the grant ledger, as the console reads it."""
+
+    id: uuid.UUID
+    family_id: uuid.UUID
+    #: Enough to recognise the household without opening it — the display name and email of its
+    #: members, and nothing else. **No child's name, no entry, no count of anybody's archive.**
+    #: `tests/test_admin.py` plants distinctive strings in an archive and greps every admin
+    #: response for them, this one included.
+    household: str
+    reason: str
+    granted_at: dt.datetime
+    #: `null` is perpetual.
+    expires_at: dt.datetime | None = None
+    revoked_at: dt.datetime | None = None
+    #: `active` | `expired` | `revoked`, computed from the row and the server's clock.
+    #: `revoked` outranks `expired`: it is the thing somebody *did*.
+    status: str
+    #: Who issued it, as a display name or email — **`null` when that account has since been
+    #: deleted**, which is a true sentence rather than a missing value. Account deletion
+    #: hard-deletes `users` and this column is `ON DELETE SET NULL`; `models/family.py` carries
+    #: why none of the other three `ON DELETE` actions works.
+    granted_by: str | None = None
+    revoked_by: str | None = None
+
+
+class AdminGrantList(ApiModel):
+    grants: list[AdminGrantOut]
+
+
+class AdminHousehold(ApiModel):
+    """One household in the console's picker. **Account metadata only.**"""
+
+    family_id: uuid.UUID
+    #: Display names and emails of the household's members, joined. The one thing a person
+    #: searching for a household actually has.
+    label: str
+    tier: Tier
+    access: AccessState
+    entitlement_source: EntitlementSource
+    #: How many grants this household holds in total, active or not — so the picker can say
+    #: "this one already has three" before somebody writes a fourth.
+    grants: int = 0
+
+
+class AdminHouseholdList(ApiModel):
+    households: list[AdminHousehold]
 
 
 class AdminSnapshot(ApiModel):

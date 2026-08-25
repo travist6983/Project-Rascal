@@ -32,6 +32,8 @@ const state = {
   days: 60,
   snapshot: null,
   library: null,
+  // The grant ledger as last painted, so a later read does not have to refetch it.
+  grants: [],
   filters: {},
   editing: null,
   studio: null,
@@ -625,7 +627,11 @@ function renderToday(data) {
              )}</span></td>
              <td><span class="chip ${
                row.tier === "subscribed" ? "chip-ok" : "chip-plain"
-             }">${escape(row.tier)}</span></td>
+             }">${escape(row.tier)}</span>${
+               // **Why a `free` household can read `subscribed` one column to the left.**
+               // Without this the two columns look like a bug rather than like a grant.
+               row.granted ? ' <span class="chip chip-peri">granted</span>' : ""
+             }</td>
              <td>${escape(deadline(row.trial_ends_at))}</td>
              <td class="num">${num(row.entries)}</td>
              <td>${escape(when(row.created_at))}</td>
@@ -725,11 +731,222 @@ async function writeTrial(trialEndsAt) {
     // **Say why nothing moved, at the moment it did not move.** A subscribed household reads
     // `subscribed` whatever this writes, because `subscribed` beats `trial`. Reporting only
     // "Access is now subscribed" is accurate and reads like a control that failed silently.
+    //
+    // **Three explanations now, not two, and phase 121 is why the third matters.** A household
+    // that stays "subscribed" after this writes is either paying or granted, and sending
+    // somebody to runbook-deploy.md §7a to fix a tier that was never the reason is a worse
+    // outcome than saying nothing. `entitlement_source` is what tells the two apart.
+    if (result.entitlement_source === "receipt") {
+      status.textContent =
+        `Saved, but access stays “subscribed” — the tier outranks the trial. Set tier back to ` +
+        `“free” (runbook-deploy.md §7a) to see the free tier.`;
+    } else if (result.entitlement_source === "grant") {
+      status.textContent =
+        `Saved, but access stays “subscribed” — a grant is holding this household open. ` +
+        `Revoke it in Grants below to see the free tier. The tier is “${result.tier}” and ` +
+        `nothing here changed it.`;
+    } else {
+      status.textContent = `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
+    }
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+// --- Grants ------------------------------------------------------------------------------------
+//
+// Entitle a household by decision rather than by payment. **Nothing here writes `tier`**, and
+// there is no control that could: App Store Server Notifications are its only writer, and a
+// grant is a second, additive source of entitlement computed beside it.
+//
+// The search is over account metadata — email, display name, family id — and nothing else. No
+// admin route can reach a child's name, an entry or a transcript, and `tests/test_admin.py`
+// plants distinctive strings in an archive and greps every one of them for it.
+
+/** Debounce, so typing an email is one request rather than one per keystroke. */
+let grantSearchTimer = null;
+
+/**
+ * Fill the household picker.
+ *
+ * **`keepSelection` is the whole subtlety, and it was found by driving the page.**
+ *
+ * The trial picker guards against a repaint quietly moving the selection: `replaceChildren`
+ * leaves a `<select>` on its first option, so a household that dropped out of the list between
+ * renders hands the next click a *different* family than the one that was on screen a moment
+ * ago. That guard is right, and it is right here too — a grant is a write to a table nobody
+ * re-reads.
+ *
+ * But it is wrong on a **search**, where changing the result set is the whole point of what the
+ * user just did. The first version applied the guard to both and the symptom was immediate:
+ * typing "tester" narrowed the list to exactly one household, blanked the box, and printed
+ * "pick again" above a control with one thing in it. A guard that fires on every keystroke is a
+ * guard somebody works around.
+ *
+ * So: a search selects the first result and says nothing; a repaint preserves the selection or
+ * says it is gone. It is left off on a search and passed everywhere `load()` reaches this.
+ */
+async function loadHouseholds(query, { keepSelection = false } = {}) {
+  const q = (query || "").trim();
+  const result = await api(`/admin/households?q=${encodeURIComponent(q)}`);
+  const select = $("g-family");
+  const previous = select.value;
+  select.replaceChildren();
+  for (const row of result.households) {
+    const option = document.createElement("option");
+    option.value = row.family_id;
+    // The short family id for the same reason the trial picker carries one: two households whose
+    // accounts share a display name produce two visually identical options, and picking the
+    // wrong one grants the wrong household.
+    option.textContent =
+      `${row.label} · ${row.family_id.slice(0, 8)} — ${row.access}` +
+      (row.grants ? ` · ${row.grants} grant${row.grants === 1 ? "" : "s"}` : "");
+    select.append(option);
+  }
+
+  if (!result.households.length) {
+    $("grant-state").textContent = q
+      ? "No household matches that. Search an email, a display name, or a family id."
+      : "No households yet — nothing to grant.";
+    return;
+  }
+
+  if (keepSelection && previous) {
+    if (result.households.some((row) => row.family_id === previous)) {
+      select.value = previous;
+    } else {
+      select.selectedIndex = -1;
+      $("grant-state").textContent =
+        "The household you had selected is no longer in this list. Pick again.";
+    }
+    return;
+  }
+  // A search, or a first paint. The `<select>` is already on its first option; saying so keeps
+  // `value` and what is rendered in agreement whatever the browser does with an empty list.
+  select.selectedIndex = 0;
+}
+
+/**
+ * The `Ends` column, which has to say three different things.
+ *
+ * **A revoked row gets the date without the countdown**, and that is the whole reason this is a
+ * function. `deadline()` appends "in 38d" because it exists to stop a *live* future date reading
+ * as "just now" — but on a grant somebody revoked in March it reads as a clock still running,
+ * which is the same confident-wrong-answer failure one column to the left. Found by revoking one
+ * and looking at the row.
+ */
+function grantEnds(row) {
+  if (!row.expires_at) return "no end date";
+  if (row.revoked_at) {
+    // One millisecond back, for the reason `deadline` gives: the stored value is an exclusive
+    // end, so the last day it covered is the day before the instant.
+    return new Date(new Date(row.expires_at).getTime() - 1).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return deadline(row.expires_at);
+}
+
+function grantChip(status) {
+  if (status === "active") return "chip-ok";
+  if (status === "revoked") return "chip-plain";
+  return "chip-warn";
+}
+
+async function loadGrantLedger() {
+  const result = await api("/admin/grants");
+  state.grants = result.grants;
+  $("grant-ledger").innerHTML = result.grants.length
+    ? `<table><thead><tr>
+         <th>Household</th><th>Reason</th><th>State</th><th>Ends</th>
+         <th>Issued</th><th>By</th><th></th>
+       </tr></thead><tbody>${result.grants
+         .map(
+           (row) => `<tr>
+             <td>${escape(row.household)}<br /><span class="tile-note">${escape(
+               row.family_id.slice(0, 8),
+             )}</span></td>
+             <td>${escape(row.reason)}</td>
+             <td><span class="chip ${grantChip(row.status)}">${escape(row.status)}</span></td>
+             <td>${escape(grantEnds(row))}</td>
+             <td>${escape(when(row.granted_at))}</td>
+             <td>${escape(row.granted_by || "account deleted")}</td>
+             <td>${
+               row.revoked_at
+                 ? ""
+                 : `<button class="btn btn-quiet g-revoke" data-grant="${escape(
+                     row.id,
+                   )}">Revoke</button>`
+             }</td>
+           </tr>`,
+         )
+         .join("")}</tbody></table>`
+    : '<p class="chart-empty">No grants yet.</p>';
+}
+
+async function loadGrants() {
+  // The ledger first: it is the half that still renders in read-only mode, so a failure to
+  // populate the picker does not leave the card empty.
+  await loadGrantLedger();
+  await loadHouseholds($("g-search").value, { keepSelection: true });
+}
+
+async function issueGrant() {
+  const familyId = $("g-family").value;
+  const reason = $("g-reason").value.trim();
+  const status = $("grant-state");
+  if (!familyId) {
+    status.textContent = "Pick a household first.";
+    return;
+  }
+  if (!reason) {
+    status.textContent = "A grant needs a reason — it is what the ledger is for.";
+    return;
+  }
+  const date = $("g-date").value;
+  try {
+    const result = await api("/admin/grants", {
+      method: "POST",
+      // **No `granted_by` here and there is no field for it.** The server takes the issuer from
+      // the bearer token; a body carrying one is ignored, and a test asserts that.
+      body: JSON.stringify({
+        family_id: familyId,
+        reason,
+        // `endOfDayIso` gives local midnight *after* the chosen day, so picking today leaves
+        // the household entitled for the rest of today — the same rule the trial date follows,
+        // and the same rule `deadline()` renders back.
+        expires_at: date ? endOfDayIso(date) : null,
+      }),
+    });
+    toast("Grant issued.");
+    $("g-reason").value = "";
+    $("g-date").value = "";
+    // Repaint from the server rather than from what was sent, so the Access column, the picker
+    // and the ledger all agree with the rows that actually exist. `load()` runs after, because
+    // it resets this line — the trial lever learned that the hard way.
+    await load();
     status.textContent =
-      result.tier === "subscribed"
-        ? `Saved, but access stays “subscribed” — the tier outranks the trial. Set tier back to ` +
-          `“free” (runbook-deploy.md §7a) to see the free tier.`
-        : `Access is now “${result.access}”. Tier is unchanged at “${result.tier}”.`;
+      `${result.household} is entitled ` +
+      (result.expires_at ? `until ${deadline(result.expires_at)}` : "with no end date") +
+      ". The tier is unchanged — nothing here writes it.";
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+async function revokeGrant(grantId) {
+  const status = $("grant-state");
+  try {
+    await api(`/admin/grants/${grantId}/revoke`, { method: "POST" });
+    toast("Grant revoked.");
+    await load();
+    // **Say that it is immediate**, because the obvious worry after revoking something is
+    // whether it has actually stopped. Every entitlement surface computes the answer per
+    // request; there is no cached boolean and no job to wait for.
+    status.textContent =
+      "Revoked. It stops entitling on the next read — there is nothing to wait for. " +
+      "The row stays in the ledger, which is the point of a ledger.";
   } catch (error) {
     status.textContent = error.message;
   }
@@ -2453,6 +2670,11 @@ async function load(tab = currentTab) {
     if (tab === "today") {
       state.snapshot = await api(`/admin/snapshot?days=${state.days}`);
       renderToday(state.snapshot);
+      // After `renderToday`, not before: it runs `fillHouseholds`, which writes to
+      // `#trial-state`, and the grant panel's own status line has the same relationship to
+      // its repaint. Awaited rather than fired and forgotten so `load()` still means "the
+      // screen is painted" to everything that awaits it.
+      await loadGrants();
     } else if (tab === "library") {
       await loadLibrary();
     } else if (tab === "studio") {
@@ -2680,6 +2902,23 @@ $("trial-form").addEventListener("submit", (event) => {
   writeTrial(endOfDayIso(value));
 });
 $("t-clear").addEventListener("click", () => writeTrial(null));
+
+$("grant-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  issueGrant();
+});
+
+$("g-search").addEventListener("input", () => {
+  clearTimeout(grantSearchTimer);
+  grantSearchTimer = setTimeout(() => loadHouseholds($("g-search").value), 250);
+});
+
+// Delegated, because the ledger's rows are replaced wholesale on every repaint and a listener
+// bound to a button would be bound to a button that no longer exists.
+$("grant-ledger").addEventListener("click", (event) => {
+  const button = event.target.closest(".g-revoke");
+  if (button) revokeGrant(button.dataset.grant);
+});
 $("new-prompt").addEventListener("click", () => openDrawer(null));
 $("prompt-form").addEventListener("submit", submitPrompt);
 $("generate-form").addEventListener("submit", writeCandidates);
