@@ -22,13 +22,17 @@ development runs.
 `clip_keys` as an empty array on every row, because the keys are gone and inventing them is
 worse than an empty column that says so. The two renames reverse exactly.
 
+**Renumbered from `0023` to `0024`** when phase 121's `0023_entitlement_grants` landed on
+`main` first: two revisions cannot share a `down_revision` without branching the chain, and
+`alembic upgrade head` refuses outright when there are two heads.
+
 **A rename rather than add-copy-drop**, deliberately. `ALTER TABLE ... RENAME COLUMN` keeps
 the data, keeps the type, and is instant; the three-step dance would be the right call only if
 something had to read both names at once, and nothing does — this API has one client, the
 console, and it ships in the same image.
 
-Revision ID: 0023_canvas_video
-Revises: 0022_entitlement_trial
+Revision ID: 0024_canvas_video
+Revises: 0023_entitlement_grants
 Create Date: 2026-08-25
 """
 
@@ -37,8 +41,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0023_canvas_video"
-down_revision = "0022_entitlement_trial"
+revision = "0024_canvas_video"
+down_revision = "0023_entitlement_grants"
 branch_labels = None
 depends_on = None
 

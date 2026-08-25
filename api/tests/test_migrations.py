@@ -38,6 +38,9 @@ EXPECTED_TABLES = {
     "prompt_library_overrides",
     # Phase 97. The social studio's output.
     "social_assets",
+    # Phase 121. Complimentary entitlement, as a ledger beside `entitlements` rather than a
+    # column inside it. `entitlements.tier` still has exactly one writer.
+    "entitlement_grants",
 }
 
 EXPECTED_INDEXES = {
@@ -68,6 +71,9 @@ EXPECTED_INDEXES = {
     "ix_devices_user_id",
     # One notification per user per day. This index is the guarantee.
     "uq_notification_sends_user_id_notification_date",
+    # Phase 121. Every read of the grant ledger is "what does this household hold". Deliberately
+    # not a unique index: multiple grants per household is the shape, not a state to prevent.
+    "ix_entitlement_grants_family_id",
 }
 
 EXPECTED_CHECKS = {
@@ -86,6 +92,8 @@ EXPECTED_CHECKS = {
     "ck_entry_tags_source",
     "ck_devices_platform",
     "ck_devices_environment",
+    # Phase 121. A reason that is blank after trimming is a ledger row answering nothing.
+    "ck_entitlement_grants_reason",
 }
 
 TABLES_WITH_UPDATED_AT_TRIGGER = {
@@ -102,6 +110,8 @@ TABLES_WITH_UPDATED_AT_TRIGGER = {
     "prompt_library_overrides",
     "social_assets",
     "social_publications",
+    # Phase 121. A revocation is an UPDATE in place and the only one this table ever takes.
+    "entitlement_grants",
 }
 
 
@@ -530,18 +540,18 @@ def test_the_trial_backfill_reaches_a_household_written_before_it(scratch_url: s
 
 
 def test_the_canvas_video_rename_round_trips_with_rows_in_both_tables(scratch_url: str) -> None:
-    """0023 renames two columns and drops a third — as 0009's test puts it, the rows are the test.
+    """0024 renames two columns and drops a third — as 0009's test puts it, the rows are the test.
 
     **The drop is the half that matters.** `clip_keys` held object keys, and a downgrade cannot
     invent them back: the migration says so and restores an empty array instead. An assertion
     that only walked the schema would pass against a downgrade that silently dropped the rows
     carrying them, which is the failure mode every reversal in this chain promises not to have.
 
-    Written at the revision *before* 0023, using the old column names, because a row created
+    Written at the revision *before* 0024, using the old column names, because a row created
     through the ORM would use the new ones and could not tell whether the rename ran at all.
     """
     _alembic("upgrade head", scratch_url)
-    _alembic("downgrade 0022_entitlement_trial", scratch_url)
+    _alembic("downgrade 0023_entitlement_grants", scratch_url)
     engine = sa.create_engine(scratch_url)
 
     with engine.begin() as conn:
@@ -592,7 +602,7 @@ def test_the_canvas_video_rename_round_trips_with_rows_in_both_tables(scratch_ur
         assert "uq_social_renders_one_live_per_asset" in indexes
     engine.dispose()
 
-    _alembic("downgrade 0022_entitlement_trial", scratch_url)
+    _alembic("downgrade 0023_entitlement_grants", scratch_url)
     engine = sa.create_engine(scratch_url)
     with engine.connect() as conn:
         assert _column_exists(conn, "social_assets", "shot_list") is True

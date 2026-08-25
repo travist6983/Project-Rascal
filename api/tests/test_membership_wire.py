@@ -544,7 +544,18 @@ async def test_the_new_fields_are_additive_and_change_nothing_that_was_there(cli
         "plan",
         "billing_retry",
         "is_payer",
+        # Phase 121's three, and the same three `GET /families/{id}/entitlement` reports.
+        # **`tier` above still means what Apple said** — that is the assertion two lines up and
+        # it is unchanged; `entitled` is the union a gate reads, and `entitlement_source` is what
+        # tells a paid household from a complimentary one without a fourth `access` value.
+        "entitled",
+        "entitlement_source",
+        "grant_expires_at",
     }
+    # This household is subscribed with no grant, so the additions say exactly that.
+    assert body["entitled"] is True
+    assert body["entitlement_source"] == "receipt"
+    assert body["grant_expires_at"] is None
 
 
 async def test_billing_retry_is_the_last_word_apple_said_and_under_reports_by_design(

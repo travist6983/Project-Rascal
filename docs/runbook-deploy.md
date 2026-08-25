@@ -615,7 +615,14 @@ Or, from a phone: GitHub → Actions → **Deploy** → Run workflow.
 `api/fly.toml` sets `release_command = "alembic upgrade head"`, so Fly migrates once, before
 the new machines take traffic, and a failed migration fails the deploy. The workflow then
 asks Fly whether the release actually *succeeded* — Fly can report a green deploy over a
-failed release command — and polls `/health` for 90 seconds.
+failed release command — and polls **`/health/db`** for 90 seconds.
+
+**`/health` and `/health/db` are two routes since phase 119.** `/health` is liveness and
+touches nothing; it is what Fly's own check polls every 30 seconds, and it was moved off the
+database because a 30-second poll never lets a Neon compute suspend — 100 CU-hours a month at
+a 0.25 CU floor is 400 wall-clock hours against a 730-hour month, so the polling alone spent
+the free plan around day 17. `/health/db` runs the query and is what a deploy, a smoke run and
+a human ask.
 
 Then seed the prompt library. It is empty on a fresh database, and an empty library assigns
 nothing:
@@ -740,9 +747,10 @@ drifts the same way. If it exists, update it in the same step.
 
 ## 6. Confirm it from a phone
 
-GitHub → Actions → **Smoke** → Run workflow. Read-only, no credentials. It checks `/health`,
-that `dev-login` and `/debug/*` are 404, that an anonymous caller gets 401, and that the
-OpenAPI document publishes the routes it should.
+GitHub → Actions → **Smoke** → Run workflow. Read-only, no credentials. It checks `/health`
+(the process is up) and `/health/db` (it can reach Neon), that `dev-login` and `/debug/*` are
+404, that an anonymous caller gets 401, and that the OpenAPI document publishes the routes it
+should.
 
 That is the most you can check without a terminal, and it is worth doing before §7.
 
@@ -760,7 +768,8 @@ export JWT_SECRET="<the same value you set in §4>"
 uv run python scripts/verify_deployment.py --base-url https://rascal-api.fly.dev
 ```
 
-Six checks: health, schema at head, dev routes absent, a bearer token round-tripping, **a
+Six checks: health — both routes, `/health` for the process and `/health/db` for the
+database — schema at head, dev routes absent, a bearer token round-tripping, **a
 brand-new child getting a full Today screen on a database where the scheduler has never
 run**, and a real byte-for-byte round trip through Tigris.
 
@@ -801,9 +810,21 @@ household becomes subscribed and the only way one becomes free again.~~ — **st
 Store Server Notification, and it is the only code that does.
 
 **This statement is now the override rather than the only way in**, and it is still the lever
-when you find a family on the wrong tier. There is still no admin route that writes `tier`,
+when you find a family on the wrong tier. ~~There is still no admin route that writes `tier`,
 deliberately — phase 107 added one that writes `entitlements.trial_ends_at`, which is a different
-column and cannot reach this one.
+column and cannot reach this one.~~ — **still exactly true, and worth restating with its subject
+after phase 121, Aug 24, 2026.** There is still no admin route that writes **`tier`**, and there
+are now *two* console levers that reach entitlement without touching it: phase 107's
+`trial_ends_at`, and phase 121's `entitlement_grants` — a separate table, written by
+`POST /v1/admin/grants`. **Nothing in this API can set a tier over HTTP except a payload Apple
+signed**, the exactly-one-writer test still passes unmodified, and this statement is still the
+only way to move the column by hand.
+
+**If what you actually want is to make one household entitled, use a grant rather than this.**
+It is auditable — who, why, when, and revocable — and it does not create a second household whose
+`subscribed` has no receipt behind it. This statement stays for the case it was written for: your
+*own* household, where the tier itself is what a reconciliation job would come for and the guard
+in the webhook is what protects it.
 
 **The reverse, which phase 107 made necessary.** The free tier now serves the daily question only,
 and the console's trial lever cannot show it to you while this row says `subscribed` —
@@ -816,6 +837,12 @@ WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
 
 Then use the console's Membership card to move between `trial` and `free`. **Run the statement at
 the top of this section again afterwards** — on `free` you cannot mint a guardian invite.
+
+**And check the Grants card while you are there, as of phase 121.** An active grant on your own
+household reads `access: "subscribed"` exactly as the tier does, so it will hide the free tier from
+you just as effectively — and the trial lever's own response now says which of the two is holding
+it (`entitlement_source`) rather than sending you back to this section for a tier that was never
+the reason. A trial does *not* let you mint an invite; a grant does.
 
 **Your own household is subscribed by one of these and always will be.** There is no App Store
 transaction behind the row §7a wrote on Aug 17, 2026, and there never will be — you did not
@@ -873,6 +900,9 @@ Be suspicious of this file in proportion to this section.
   by hand.
 - The API image builds and runs, binds `0.0.0.0:8080`, serves `/health` as `{"status":"ok",
   "db":"ok"}`, and returns 404 for `dev-login` under `ENVIRONMENT=prod` (Aug 8, 2026).
+  **That body is what `/health` returned on Aug 8, 2026 and the record stands as written**;
+  phase 119 moved it to `/health/db` on Aug 24, 2026, so the same check today is
+  `curl .../health` → `{"status":"ok"}` and `curl .../health/db` → `{"status":"ok","db":"ok"}`.
 - Neon accepts this schema — the *Migrate Neon* workflow ran `upgrade head`, the seed job,
   and `verify_schema.py` against the real database.
 - `scripts/verify_deployment.py` checks 1–5, against a real Postgres and a real
@@ -885,7 +915,7 @@ Be suspicious of this file in proportion to this section.
   documentation.
 - The Deploy and Smoke workflows both completed real runs. Release v1 migrated (a no-op —
   Neon was already at `0004_full_text_search`), two machines came up in `ord`, and `/health`
-  served `{"status":"ok","db":"ok"}`.
+  served `{"status":"ok","db":"ok"}` (that body lives at `/health/db` since phase 119).
 - **`scripts/verify_deployment.py` passed 6/6**, including check 6. The Tigris round trip
   had never completed a successful upload anywhere; it has now, 75 bytes through
   `rascal-media-prod.fly.storage.tigris.dev`, presigned by the deployed app.

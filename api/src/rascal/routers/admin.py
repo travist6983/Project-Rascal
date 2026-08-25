@@ -11,11 +11,19 @@ version is that nothing in this router can return a sentence a parent wrote, a c
 a caption, a transcript, or an object key. If a future route here needs one of those, that is
 a product decision to take deliberately, not a field to quietly add.
 
-**One route here writes, and it is deliberately the only one.** `PUT
-/admin/families/{family_id}/trial` moves a household's `trial_ends_at`, per phase 107. It goes
-through `SessionDep` and `LocalWrites` exactly as the library edits in `routers/prompts.py`
-do, so it refuses while the console is pointed at a read-only production database. **It cannot
-write `tier`** — see the route.
+~~**One route here writes, and it is deliberately the only one.**~~ — **struck by phase 121, which
+added two more.** The writes here are `PUT /admin/families/{family_id}/trial` (phase 107, moves a
+household's `trial_ends_at`) and `POST /admin/grants` / `POST /admin/grants/{id}/revoke` (phase
+121, the complimentary-entitlement ledger). All three go through `SessionDep` and `LocalWrites`
+exactly as the library edits in `routers/prompts.py` do, so all three refuse while the console is
+pointed at a read-only production database.
+
+**None of them can write `tier`, and that has not changed at all.** D5 reserves that column for
+App Store Server Notifications V2, `tests/test_app_store.py::test_tier_has_exactly_one_writer`
+asserts there is exactly one assignment to it under `src/`, and phase 121 did not touch it. A
+grant is a *second, additive source of entitlement* computed beside `tier` in
+`services/guardians.access_for` — **`tier` still means what Apple said**, and the union is what
+every gate reads.
 
 The console's own HTML is served by `routers/admin_ui.py`, which shares nothing with this
 module but the URL prefix.
@@ -23,21 +31,31 @@ module but the URL prefix.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.config import Settings
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
+from rascal.models import EntitlementGrant, User
 from rascal.schemas.admin import (
     AdminCosts,
+    AdminGrantIn,
+    AdminGrantList,
+    AdminGrantOut,
+    AdminHousehold,
+    AdminHouseholdList,
     AdminOps,
     AdminSnapshot,
     AdminTrialIn,
     AdminTrialOut,
 )
-from rascal.services import admin_metrics, billing, readonly_db
+from rascal.services import admin_metrics, billing, grants, readonly_db
+from rascal.services.grants import active_grant_for
 from rascal.services.guardians import access_for, set_trial_ends_at
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -80,11 +98,12 @@ async def snapshot(
         "tier he is designing: set it to yesterday to drop to `free`, to next month to come "
         "back. **The one household affected is the one named in the path** — this reaches no "
         "other family and reads no archive content.\n\n"
-        "**It cannot move a household whose `tier` is already `subscribed`, and that is "
-        "the one case worth knowing about.** `subscribed` beats `trial`, so such a "
-        'household reads `access: "subscribed"` whatever this route writes. The date is '
-        "still stored — it matters the day the subscription lapses — but the access state "
-        "does not move, and the response says so rather than implying success.\n\n"
+        "**It cannot move a household that is already entitled some other way, and that is "
+        "the one case worth knowing about.** `subscribed` beats `trial` and so does an active "
+        'grant, so such a household reads `access: "subscribed"` whatever this route writes. '
+        "The date is still stored — it matters the day the subscription lapses or the grant "
+        "runs out — but the access state does not move, and `entitlement_source` on the "
+        "response says which of the two is holding it rather than implying success.\n\n"
         "**The owner's own household is one of these**: `runbook-deploy.md` §7a wrote "
         "`tier = 'subscribed'` by hand and there is no App Store transaction behind it. "
         "To see the free tier from there, set `tier` back to `free` with the statement in "
@@ -101,13 +120,188 @@ async def set_family_trial(
     entitlement = await set_trial_ends_at(session, family_id, payload.trial_ends_at)
     # Rendered through the one authority rather than re-derived, so the console cannot show a
     # different answer from the one the phone will get on its next `GET /today`.
-    access = access_for(entitlement)
+    #
+    # **The grant is read here for the same reason `tier` is reported.** A complimentary
+    # household reads `subscribed` whatever this writes, exactly as a subscribed one does — and
+    # a response that said only "access is subscribed" would send the operator to
+    # `runbook-deploy.md` §7a to fix a tier that was never the reason. `entitlement_source` is
+    # what tells those two apart, and the console's message reads it.
+    grant = await active_grant_for(session, family_id)
+    access = access_for(entitlement, granted=grant is not None)
     return AdminTrialOut(
         family_id=family_id,
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        entitlement_source=access.source,
     )
+
+
+@router.get(
+    "/households",
+    response_model=AdminHouseholdList,
+    summary="Find a household by email, display name, or family id",
+    description=(
+        "**Account metadata only.** Email, display name, family id, the entitlement state and "
+        "how many grants the household holds. Nothing here reads a child, an entry, a caption, "
+        "a transcript or an object key, and `tests/test_admin.py` plants distinctive strings in "
+        "all of those and greps this response for them.\n\n"
+        "An empty `q` returns the most recent households, because that is what a picker wants "
+        "on first paint. The family id matches as text, so a UUID pasted from another screen "
+        "finds its household and so does the eight-character prefix the console renders."
+    ),
+)
+async def households(
+    session: AdminReadSession,
+    user: AdminUser,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> AdminHouseholdList:
+    rows = await admin_metrics.find_households(session, q=q, limit=limit)
+    return AdminHouseholdList(households=[AdminHousehold(**row) for row in rows])
+
+
+@router.get(
+    "/grants",
+    response_model=AdminGrantList,
+    summary="The complimentary-entitlement ledger, newest first",
+    description=(
+        "Every row, including revoked and expired ones — **a ledger that hides what was "
+        "withdrawn is not a ledger.** `status` is `active` | `expired` | `revoked`, computed "
+        "from the row and the server's clock, and `revoked` outranks `expired` because it is "
+        "the thing somebody did.\n\n"
+        "`?family_id=` narrows it to one household. `granted_by` is a display name or email, "
+        "and is `null` when that account has since been deleted — account deletion "
+        "hard-deletes `users` and this column is `ON DELETE SET NULL`."
+    ),
+)
+async def list_grants(
+    session: AdminReadSession,
+    user: AdminUser,
+    family_id: uuid.UUID | None = None,
+) -> AdminGrantList:
+    rows = await grants.grants_for(session, family_id=family_id)
+    return AdminGrantList(grants=await _render_grants(session, rows))
+
+
+@router.post(
+    "/grants",
+    response_model=AdminGrantOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Entitle a household by decision rather than by payment",
+    description=(
+        "Writes one row to `entitlement_grants`. `expires_at` is **nullable and null means "
+        "perpetual** — not a sentinel date; `reason` is required and free text.\n\n"
+        "**`granted_by` is the bearer token's subject and there is no field for it.** A body "
+        "carrying one is ignored rather than honoured, and a test asserts that: an audit column "
+        "a caller can set says whatever the caller wanted it to.\n\n"
+        "**It cannot write `tier` and neither can anything else in this console.** D5 reserves "
+        "that column for App Store Server Notifications V2 and a test asserts it has exactly "
+        'one writer. A grant does not touch it — the household still reads `tier: "free"` and '
+        "now also reads `entitled: true`, and both are true sentences. `422` on an empty reason "
+        "or an expiry already in the past, which would be a row that entitles nobody."
+    ),
+)
+async def create_grant(
+    payload: AdminGrantIn,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
+) -> AdminGrantOut:
+    grant = await grants.issue_grant(
+        session,
+        family_id=payload.family_id,
+        # **From the token, never from the body.** `AdminGrantIn` has no field for this and the
+        # argument is passed here rather than being defaulted inside the service, so the one
+        # place it can come from is the one place that has authenticated somebody.
+        granted_by=user.id,
+        reason=payload.reason,
+        expires_at=payload.expires_at,
+    )
+    return (await _render_grants(session, [grant]))[0]
+
+
+@router.post(
+    "/grants/{grant_id}/revoke",
+    response_model=AdminGrantOut,
+    summary="Withdraw a grant. Idempotent, and there is no DELETE",
+    description=(
+        "Sets `revoked_at` and `revoked_by`. **Revoking an already-revoked grant succeeds and "
+        "writes nothing** — a console click that times out and gets clicked again must not be "
+        "an error.\n\n"
+        "**There is deliberately no `DELETE`.** Soft deletes on everything is a standing rule "
+        "and this is the table where it matters most: the record of who you gave something to, "
+        "why, and when you took it back is the part a support conversation needs.\n\n"
+        "It takes effect on the next read, which is immediate everywhere it matters — every "
+        "entitlement surface computes the answer per request, so there is no cached boolean to "
+        "invalidate and no job to wait for."
+    ),
+)
+async def revoke_grant(
+    grant_id: uuid.UUID,
+    session: SessionDep,
+    user: AdminUser,
+    _: LocalWrites,
+) -> AdminGrantOut:
+    grant = await grants.revoke_grant(session, grant_id, revoked_by=user.id)
+    return (await _render_grants(session, [grant]))[0]
+
+
+async def _render_grants(
+    session: AsyncSession, rows: list[EntitlementGrant]
+) -> list[AdminGrantOut]:
+    """Ledger rows plus the two names a person needs to read them, in **two** queries.
+
+    One for the households, one for the issuers, however many rows there are. A lookup per row is
+    the shape that reads fine at four grants and is a page of queries at forty.
+
+    **`AsyncSession`, not `SessionDep`.** This is a plain helper, not a route: annotating it with
+    the `Annotated[..., Depends(...)]` alias would say FastAPI injects it, which it does not — and
+    the two callers hand it two *different* sessions (`AdminReadSession` for the list,
+    `SessionDep` for the writes), which is exactly what the alias would misdescribe.
+
+    **Account metadata and nothing else**, which is what keeps this router's standing rule
+    ("counts, never content") true of the newest surface in it: the household is its members'
+    names and emails, and the issuer is one name. No child, no entry, no object key.
+
+    **`null` means the account is gone, and only that.** A live admin who has neither a display
+    name nor an email — reachable, both columns are nullable — falls back to the short form of
+    their user id rather than to `null`. Rendering them as `null` would put *"account deleted"* on
+    the console beside a person who is sitting right there, which is the confident-wrong-answer
+    failure this file keeps having to design against.
+    """
+    if not rows:
+        return []
+    now = dt.datetime.now(tz=dt.UTC)
+    labels = await admin_metrics.household_labels(session, [row.family_id for row in rows])
+    actors = {row.granted_by for row in rows if row.granted_by} | {
+        row.revoked_by for row in rows if row.revoked_by
+    }
+    people: dict[uuid.UUID, str] = {}
+    if actors:
+        people = {
+            actor: display_name or email or str(actor)[:8]
+            for actor, display_name, email in (
+                await session.execute(
+                    select(User.id, User.display_name, User.email).where(User.id.in_(actors))
+                )
+            ).all()
+        }
+    return [
+        AdminGrantOut(
+            id=row.id,
+            family_id=row.family_id,
+            household=labels.get(row.family_id, "unnamed household"),
+            reason=row.reason,
+            granted_at=row.granted_at,
+            expires_at=row.expires_at,
+            revoked_at=row.revoked_at,
+            status=row.status(now),
+            granted_by=people.get(row.granted_by) if row.granted_by else None,
+            revoked_by=people.get(row.revoked_by) if row.revoked_by else None,
+        )
+        for row in rows
+    ]
 
 
 @router.get(

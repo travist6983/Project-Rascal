@@ -31,6 +31,7 @@ from rascal.constants import (
 )
 from rascal.models import Assignment, Child, Entitlement, Guardian, Prompt, PromptSuppression, User
 from rascal.services.dates import local_date, local_hour
+from rascal.services.grants import has_active_grant
 from rascal.services.guardians import access_for
 
 # The two partial unique indexes' predicates, spelled exactly as `models/assignment.py`
@@ -234,8 +235,18 @@ async def _active_parents(
     a data anomaly rather than a state — and the safe response to an anomaly is to serve the
     parent, not to silently stop scheduling for them. It is recorded as entitled and logged.
     """
+    # Resolved once, here, rather than left `None` for `access_for` to fill in per row. The SQL
+    # predicate needs a real timestamp to bind, and one clock for the whole scan is the right
+    # answer anyway: a grant expiring mid-loop must not hold for the first parent and not the
+    # second.
+    now = now or dt.datetime.now(tz=dt.UTC)
     rows = await session.execute(
-        select(Guardian.user_id, Entitlement)
+        # The grant is a correlated `EXISTS` beside the entitlement rather than a third scan.
+        # Same argument as the join above: one query, so a grant revoked mid-scan cannot be in
+        # one answer and not the other. The predicate is `services/grants.has_active_grant`,
+        # which correlates `unexpired` to this row's household — this selects it, it does not
+        # restate it.
+        select(Guardian.user_id, Entitlement, has_active_grant(User.family_id, now))
         .join(User, User.id == Guardian.user_id)
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
         .where(
@@ -246,7 +257,7 @@ async def _active_parents(
         .order_by(Guardian.granted_at, Guardian.user_id)
     )
     parents: dict[uuid.UUID, bool] = {}
-    for user_id, entitlement in rows:
+    for user_id, entitlement, granted in rows:
         if entitlement is None:
             log.warning(
                 "guardian has no entitlement row",
@@ -254,7 +265,7 @@ async def _active_parents(
             )
             parents[user_id] = True
             continue
-        parents[user_id] = access_for(entitlement, now=now).entitled
+        parents[user_id] = access_for(entitlement, granted=granted, now=now).entitled
     return parents
 
 

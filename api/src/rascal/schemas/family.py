@@ -7,7 +7,13 @@ import uuid
 
 from pydantic import Field
 
-from rascal.constants import AccessState, GuardianRole, SubscriptionPlan, Tier
+from rascal.constants import (
+    AccessState,
+    EntitlementSource,
+    GuardianRole,
+    SubscriptionPlan,
+    Tier,
+)
 from rascal.schemas.common import ApiModel
 
 
@@ -54,6 +60,31 @@ class FamilyOut(ApiModel):
     #: what makes it structurally impossible for the Settings path to render a deletion date by
     #: accident — `docs/design/free-tier-copy.md` §4 pre-bans the sentence in words and this
     #: omission bans it in numbers.
+    #: **The union, and what every gate in this service now branches on.** True when a payload
+    #: Apple signed says this household is subscribed, **or** an `entitlement_grants` row is
+    #: holding it open, **or** it is inside its trial. Added by phase 121.
+    #:
+    #: **`tier` did not change and must not be read as though it had.** `tier` is what Apple
+    #: said; this is what the server will actually serve. A complimentary household reads
+    #: `tier: "free"` and `entitled: true`, and both are true sentences.
+    entitled: bool = False
+    #: **Why**, when `entitled` is true: `receipt` | `grant` | `trial` | `none`.
+    #:
+    #: `receipt` wins the label when more than one holds, because it is the one that can lapse
+    #: and therefore the one a client has to be ready to talk about; `grant` next because
+    #: somebody decided it; `trial` last because it arrives without anybody choosing it.
+    #:
+    #: **This is how a Settings screen tells complimentary from paid** without a fourth `access`
+    #: value, which would be a contract change on an app that has already shipped.
+    entitlement_source: EntitlementSource = "none"
+    #: When the grant currently holding this household runs out. **Null means either no grant or
+    #: a perpetual one** — `entitlement_source` is what tells those apart, and a client that
+    #: needs to render a date should read this only when that field says `grant`.
+    #:
+    #: Here so the membership surface can render the date without a second call. When a
+    #: household holds several grants this is the one that keeps them entitled longest, which is
+    #: the only date that answers *"when does this stop"*.
+    grant_expires_at: dt.datetime | None = None
     lapsed_at: dt.datetime | None = None
     #: How often a subscribed household is billed: `annual` | `monthly` | `null`. Derived per
     #: read from the receipt ledger by `services.membership.membership_signals`.
@@ -123,6 +154,31 @@ class EntitlementOut(ApiModel):
     #: When the trial runs out; null means no trial on this household. See
     #: `FamilyOut.trial_ends_at`.
     trial_ends_at: dt.datetime | None = None
+    #: **The union, and what every gate in this service now branches on.** True when a payload
+    #: Apple signed says this household is subscribed, **or** an `entitlement_grants` row is
+    #: holding it open, **or** it is inside its trial. Added by phase 121.
+    #:
+    #: **`tier` did not change and must not be read as though it had.** `tier` is what Apple
+    #: said; this is what the server will actually serve. A complimentary household reads
+    #: `tier: "free"` and `entitled: true`, and both are true sentences.
+    entitled: bool = False
+    #: **Why**, when `entitled` is true: `receipt` | `grant` | `trial` | `none`.
+    #:
+    #: `receipt` wins the label when more than one holds, because it is the one that can lapse
+    #: and therefore the one a client has to be ready to talk about; `grant` next because
+    #: somebody decided it; `trial` last because it arrives without anybody choosing it.
+    #:
+    #: **This is how a Settings screen tells complimentary from paid** without a fourth `access`
+    #: value, which would be a contract change on an app that has already shipped.
+    entitlement_source: EntitlementSource = "none"
+    #: When the grant currently holding this household runs out. **Null means either no grant or
+    #: a perpetual one** — `entitlement_source` is what tells those apart, and a client that
+    #: needs to render a date should read this only when that field says `grant`.
+    #:
+    #: Here so the membership surface can render the date without a second call. When a
+    #: household holds several grants this is the one that keeps them entitled longest, which is
+    #: the only date that answers *"when does this stop"*.
+    grant_expires_at: dt.datetime | None = None
     #: When the subscription lapsed. Null on a household that has never subscribed as well as
     #: on one that currently is — `tier` is what tells those apart.
     #:

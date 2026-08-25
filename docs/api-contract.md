@@ -48,10 +48,28 @@ plus the **unbuilt** `POST /v1/subscribe` specified for phase 60.
 
 ## Health
 
-**`GET /health`** → `{ "status": "ok", "db": "ok" }`
+**Two routes, and they answer different questions.** Split by phase 119 on Aug 24, 2026.
 
-Unauthenticated. ~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Fly's health check hits this; it touches
-the database so a green check means the app can actually serve.
+**`GET /health`** → `{ "status": "ok" }`
+
+Liveness. Unauthenticated, and it touches nothing — no database, no object store, no
+configuration read that could open a connection. 200 whenever the process is running; that is
+the whole contract. ~~It touches the database so a green check means the app can actually
+serve.~~ — **struck by phase 119, and the strike is the point of the phase.** This is the route
+Fly polls every 30 seconds against an always-on machine, and a probe that queries a serverless
+Postgres never lets it suspend: Neon idles after ~5 minutes, the free plan is 100 CU-hours a
+month, and the 0.25 CU floor turns that into 400 wall-clock hours against a 730-hour month — so
+the polling alone spent the allowance around day 17 of every month. **A green `/health` therefore
+does not mean the app can serve.** See `docs/decisions.md`.
+
+**`GET /health/db`** → `{ "status": "ok", "db": "ok" }`
+
+Readiness — exactly what `/health` used to do. Unauthenticated: it reports reachability, never
+data. On failure it is **`503` `database_unreachable`** in the standard error shape, never a 200
+with a degraded body. Polled by `deploy.yml` for 90 seconds after a release, checked by
+`smoke.yml` on demand, check 1 of `scripts/verify_deployment.py`, and the `curl` in the runbooks.
+
+~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Both health routes sit outside `/v1` as well.
 
 ---
 
@@ -639,6 +657,9 @@ nothing to forge.
   "tier": "free",
   "access": "trial",
   "trial_ends_at": "2026-09-04T00:00:00Z",
+  "entitled": true,
+  "entitlement_source": "trial",
+  "grant_expires_at": null,
   "lapsed_at": null,
   "plan": null,
   "billing_retry": false,
@@ -1382,7 +1403,11 @@ in an archive and asserts none of them appears in any admin response.
 | `GET /admin/library` | The library with per-prompt served/completed counts, `content_hash`, and override state |
 | `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
 | `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
-| `PUT /admin/families/{family_id}/trial` | Move or clear one household's trial. **The only write in the console's API, and the only entitlement lever there is** |
+| `GET /admin/households?q=` | Find a household by email, display name or family id. **Account metadata only** |
+| `PUT /admin/families/{family_id}/trial` | Move or clear one household's trial. ~~**The only write in the console's API, and the only entitlement lever there is**~~ — **struck Aug 24, 2026 by phase 121, which added two more writes and a second lever.** It is still the only thing that writes `trial_ends_at`, and still cannot write `tier` |
+| `GET /admin/grants?family_id=` | The complimentary-entitlement ledger, newest first, including revoked and expired rows |
+| `POST /admin/grants` | Entitle a household by decision rather than by payment. `201` |
+| `POST /admin/grants/{grant_id}/revoke` | Withdraw a grant. Idempotent. **There is no `DELETE`** |
 
 **`PUT /admin/families/{family_id}/trial`** — body `{ "trial_ends_at": "2026-09-04T00:00:00Z" | null }`,
 returns `{family_id, tier, access, trial_ends_at}`. A date in the future makes the household
@@ -1723,10 +1748,15 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `rate_limited` | 429 |
 | `sign_in_link_invalid` | 401 |
 | `publish_failed` | 502 |
+| `database_unreachable` | 503 |
 | `internal_error` | 500 |
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
 a `psycopg` message in a client alert is a leak, not a debugging aid.
+
+`database_unreachable` is **`GET /health/db` only, and 503 rather than 500** — the process is up
+and cannot reach Postgres, which is a readiness answer rather than a request that went wrong. No
+other route returns it: a normal handler that loses the database still renders `internal_error`.
 
 `publish_failed` is **502 rather than 500** because this service worked and the platform it
 called did not — an expired token, an image Instagram could not fetch, a limit on their side.
@@ -1879,6 +1909,54 @@ same failure the strike in `blocked.md` §13 records. The evidence is in `blocke
 
 ---
 
+### Grants — entitling a household without a payment (phase 121)
+
+**`GET /admin/households?q=`** — households matching `q` on **account metadata only**: email,
+display name, family id. Returns `{family_id, label, tier, access, entitlement_source, grants}`
+per household, where `grants` is how many rows that household holds in total. An empty `q` returns
+the most recent households, because that is what a picker wants on first paint. The family id
+matches as text, so a UUID pasted from another screen finds its household and so does the
+eight-character prefix the console renders. **Nothing here reads a child, an entry, a caption, a
+transcript or an object key**, and `tests/test_admin.py` plants distinctive strings in all of those
+and greps this response for them.
+
+**`GET /admin/grants?family_id=`** — the ledger, newest first, **including revoked and expired
+rows**: a ledger that hides what was withdrawn is not a ledger. Each row carries
+`{id, family_id, household, reason, granted_at, expires_at, revoked_at, status, granted_by,
+revoked_by}`. `status` is `active | expired | revoked`, computed from the row and the server's
+clock, and `revoked` outranks `expired` because it is the thing somebody *did*. `granted_by` is a
+display name or email and is **`null` when that account has since been deleted** — account
+deletion hard-deletes `users` and the column is `ON DELETE SET NULL`.
+
+**`POST /admin/grants`** — body `{ "family_id": "…", "reason": "founding tester", "expires_at":
+"2026-10-01T00:00:00Z" | null }`, returns `201` with one ledger row.
+
+- **`expires_at` is nullable and `null` means perpetual**, not a sentinel date. It must carry a
+  timezone offset; an offset-less value is `422`, not a UTC assumption, because the value decides
+  which *day* somebody's entitlement ends.
+- **`reason` is required and free text.** `422` on an empty one, whitespace included — a blank
+  reason is a ledger row that answers the only question the ledger exists to answer.
+- **`422` on an expiry already in the past.** It would be legal, which is why it is refused: the
+  row would be inactive from the moment it was written, sitting in a ledger looking like a grant.
+- **`granted_by` is the bearer token's subject and there is no field for it.** A body carrying one
+  is ignored rather than honoured, and a test asserts that — an audit column a caller can set says
+  whatever the caller wanted it to.
+- **It cannot write `tier`.** The household still reads `tier: "free"` and now also reads
+  `entitled: true`. Both are true sentences.
+
+**`POST /admin/grants/{grant_id}/revoke`** — sets `revoked_at` and `revoked_by`, returns `200`.
+**Idempotent**: revoking an already-revoked grant succeeds and writes nothing, so a console click
+that times out and gets clicked again is not an error. **There is deliberately no `DELETE`** —
+soft deletes on everything is a standing rule and this is the table where it matters most.
+Revocation takes effect on the next read, which is immediate everywhere it matters: every
+entitlement surface computes the answer per request, so there is no cached boolean to invalidate.
+
+**Extending somebody is a new grant, not an edit.** There is no unique constraint on `family_id`
+and no `PATCH`; multiple rows per household is the intended shape and the history is the point.
+
+All three are `users.is_admin` and all three go through the same `LocalWrites` guard as the
+library edits, so all three **refuse while `ADMIN_READ_DATABASE_URL` is set**.
+
 ## Monetization
 
 ~~**No endpoint in this section exists.**~~ — **struck Aug 20, 2026. The two routes below are
@@ -1906,8 +1984,9 @@ household ids. It is the newest route that takes a forgeable id and answers with
 so the property is pinned rather than assumed:
 `tests/test_authorization_sweep.py::test_an_invented_household_is_indistinguishable_from_somebody_elses`.
 
-**`GET /families/me` reports the same `tier` and `access`, and they never disagree**, because
-both read one `entitlements` row through one function. That is one authority with ~~two~~ **three**
+**`GET /families/me` reports the same `tier`, `access`, `entitled`, `entitlement_source` and
+`grant_expires_at`, and they never disagree**, because both read one `entitlements` row and one
+grant lookup through one function. That is one authority with ~~two~~ **three**
 shapes — the household screen, the subscription screen, and (since phase 107) a Today board that
 has to explain why half of it is locked — and not three answers to "is this household subscribed",
 which is the bug D4 and D5 exist to prevent.
@@ -1918,6 +1997,9 @@ which is the bug D4 and D5 exist to prevent.
   "tier": "free",
   "access": "free",
   "trial_ends_at": "2026-08-07T00:00:00Z",
+  "entitled": false,
+  "entitlement_source": "none",
+  "grant_expires_at": null,
   "lapsed_at": "2026-05-01T00:00:00Z",
   "eligible_at": "2028-05-01",
   "plan": null,
@@ -1945,8 +2027,8 @@ question rather than a subscription one.
 **`access` is `"subscribed" | "trial" | "free"`, computed per request and never stored:**
 
 ```
-entitled = (tier == "subscribed") or (trial_ends_at is not None and now_utc() < trial_ends_at)
-access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "free")
+entitled = (tier == "subscribed") or (an active grant exists) or (trial_ends_at is not None and now_utc() < trial_ends_at)
+access   = "subscribed" if (tier == "subscribed" or granted) else ("trial" if entitled else "free")
 ```
 
 **`subscribed` beats `trial`**, so a subscriber holding a stale future `trial_ends_at` reads
@@ -1954,7 +2036,42 @@ access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "
 there is deliberately not going to be one** — `tier` has exactly one writer by D5 and a trial that
 wrote it would be a second, running on a clock rather than on a receipt. The trial is
 `entitlements.trial_ends_at`, a column beside it. Every household gets fourteen days when its row
-is created.
+is created. **That sentence is about `tier` and stays true after phase 121**: a grant is not a
+tier either, and nothing in this API can set a tier over HTTP except a payload Apple signed.
+
+#### Phase 121, Aug 24, 2026 — a second source of entitlement, and three fields for it
+
+**`tier` still means *what Apple said*, and `entitled` is the union.** That sentence is the whole
+of this change and everything below follows from it. A household can now be entitled by a grant an
+admin issued as well as by a receipt Apple signed, and **the two never fight**: a grant expiring or
+being revoked cannot demote a household with a live receipt, and a receipt lapsing cannot demote
+one with a live grant. Both directions are break-tested. `entitlements.tier` keeps exactly one
+writer — the App Store webhook — and a test asserts it, unmodified.
+
+- **`entitled`** — boolean, always present. The union: a receipt, **or** an active grant, **or** a
+  live trial. **This is what every gate in the service reads from now on.** A client that has been
+  branching on `tier` still gets the value it always got; a client that wants to know whether the
+  archive is open should read this.
+- **`entitlement_source`** — `"receipt" | "grant" | "trial" | "none"`. Why, when `entitled` is
+  true. `receipt` wins the label when more than one holds, because it is the one that can lapse
+  and therefore the one a client has to be ready to talk about; `grant` next because somebody
+  decided it deliberately; `trial` last because it arrives without anybody choosing it.
+- **`grant_expires_at`** — nullable timestamp. When the grant currently holding this household
+  runs out. **`null` means either no grant or a perpetual one**, so read it only when
+  `entitlement_source` is `"grant"`. It is here so a membership surface can render a date without
+  a second call. Where a household holds several grants this is the one that keeps them entitled
+  longest, which is the only date that answers *"when does this stop"*.
+
+**A granted household reads `access: "subscribed"`, and that is deliberate rather than sloppy.**
+It reaches exactly what a subscriber reaches, `access` has always meant *what this household may
+actually reach today*, and a fourth value in that vocabulary would be a contract change on an app
+that has already shipped. `entitlement_source` is how a client tells complimentary from paid.
+`tier` is untouched and still reads `free`; both sentences are true at once and that pairing is
+the point.
+
+**`eligible_at` is `null` while a grant is active**, exactly as it is while `tier` is
+`subscribed` — a granted household has no deletion clock for the same reason a paying one does
+not. **The trial is still not an input to that clock**, per D3.
 
 **`trial_ends_at` is `null` when there is no trial on the household**, which is a real state
 rather than a missing value — it is what the admin console's Clear button produces. It is carried

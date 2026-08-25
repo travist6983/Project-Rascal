@@ -30,6 +30,7 @@ from rascal.schemas.family import (
     InviteOut,
     InvitePreview,
 )
+from rascal.services.grants import active_grant_for
 from rascal.services.guardians import (
     accept_invite,
     access_for,
@@ -114,7 +115,13 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
     # One authority, read rather than re-derived. `access` here and `access` on
     # `GET /families/{id}/entitlement` and on `GET /children/{id}/today` are the same
     # function over the same row — see `services/guardians.access_for`.
-    access = access_for(entitlement)
+    #
+    # The grant *row* rather than `access_for_family`'s boolean, because `grant_expires_at` is
+    # on this response and the row is what carries it. Same two lookups either way — this handler
+    # already holds the `entitlements` row for `lapsed_at` and `is_payer` — but going through
+    # `access_for_family` would answer only "is one active" and need a third read for the date.
+    grant = await active_grant_for(session, user.family_id)
+    access = access_for(entitlement, granted=grant is not None)
     # Phase 113's four additive fields. Three of them are reads of rows this handler already
     # has — `lapsed_at` and `is_payer` come off the `entitlements` row fetched at the top, so
     # neither costs a query — and `membership_signals` is one indexed lookup that a household
@@ -125,6 +132,12 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        # Phase 121's three additive fields, the same three `GET /families/{id}/entitlement`
+        # reports and from the same computation. `entitled` is the union every gate now reads;
+        # `tier` above is untouched and still means what Apple said.
+        entitled=access.entitled,
+        entitlement_source=access.source,
+        grant_expires_at=grant.expires_at if grant is not None else None,
         lapsed_at=entitlement.lapsed_at,
         plan=signals.plan,
         billing_retry=signals.billing_retry,
@@ -155,7 +168,8 @@ async def read_entitlement(
     `services/guardians.eligible_at`.
     """
     entitlement = await entitlement_for(session, family_id)
-    access = access_for(entitlement)
+    grant = await active_grant_for(session, family_id)
+    access = access_for(entitlement, granted=grant is not None)
     # The same derivation `GET /families/me` reports, from the same function over the same
     # ledger — one authority, two shapes, in the pattern `access` already follows.
     signals = await membership_signals(session, family_id, tier=entitlement.tier)
@@ -164,6 +178,9 @@ async def read_entitlement(
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        entitled=access.entitled,
+        entitlement_source=access.source,
+        grant_expires_at=grant.expires_at if grant is not None else None,
         lapsed_at=entitlement.lapsed_at,
         plan=signals.plan,
         billing_retry=signals.billing_retry,
@@ -172,10 +189,17 @@ async def read_entitlement(
         # not a lapse, `lapsed_at` stays null through one, and passing the trial in here would
         # be the phase that quietly points a deletion timer at every household that tried the
         # app for a fortnight and stopped.
+        #
+        # **`granted` is passed and the trial still is not, and the asymmetry is the point.** A
+        # grant is somebody deciding this household is entitled, so it stops the clock exactly
+        # as a subscription does — the case that matters is a household that lapsed for real and
+        # was then given a grant, which carries a live `lapsed_at` and must not read a deletion
+        # date while it is fully entitled.
         eligible_at=eligible_at(
             entitlement.tier,
             entitlement.lapsed_at,
             await last_sign_in_for(session, family_id),
+            granted=grant is not None,
         ),
     )
 

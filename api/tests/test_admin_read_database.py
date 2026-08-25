@@ -39,6 +39,10 @@ REMOTE = "postgresql://reader:secret@ep-cool-frog-12345.us-east-2.aws.neon.tech/
 #: should cost milliseconds, not a DNS lookup and six connection attempts.
 UNREACHABLE = "postgresql://reader:secret@127.0.0.1:1/rascal"
 
+#: A well-formed id that names nothing. `LocalWrites` refuses before any handler looks it up,
+#: which is the property under test — a fixture row would prove the same thing and cost more.
+UNKNOWN_ID = "00000000-0000-4000-8000-000000000000"
+
 #: Every write the console can make. A route added later and not listed here is a route that
 #: will happily save to `localhost` while showing production — the failure this file is about.
 CONSOLE_WRITES = [
@@ -81,6 +85,16 @@ CONSOLE_WRITES = [
     # Writes a `social_renders` row and puts an object in the bucket, so it is a console
     # write like any other and must refuse while the console is pointed at production.
     ("POST", "/v1/social/assets/{asset}/video", None),
+    # **Phase 121 widened this sweep past `/v1/prompts` and `/v1/social` to `/v1/admin`, and
+    # found the hole it was widened to find.** `PUT /v1/admin/families/{id}/trial` has carried
+    # `LocalWrites` since phase 107 and was in no sweep at all — the derivation below only
+    # looked at two prefixes, so the console's *entitlement* writes were outside it entirely.
+    # Three of them now, all listed, all derived.
+    ("PUT", "/v1/admin/families/{family}/trial", {"trial_ends_at": None}),
+    # A household that does not exist: `LocalWrites` is a dependency, so the refusal happens
+    # before the handler looks anything up. The same argument the cancel row above makes.
+    ("POST", "/v1/admin/grants", {"family_id": UNKNOWN_ID, "reason": "founding tester"}),
+    ("POST", "/v1/admin/grants/{grant}/revoke", None),
 ]
 
 
@@ -210,6 +224,8 @@ async def test_every_console_write_refuses_while_reading_elsewhere(
         path.replace("{prompt}", str(prompt.id))
         .replace("{asset}", str(asset.id))
         .replace("{publication}", str(uuid.uuid4()))
+        .replace("{family}", str(admin.family_id))
+        .replace("{grant}", str(uuid.uuid4()))
     )
     real = _reading(app)
     try:
@@ -248,6 +264,14 @@ def test_the_write_sweep_covers_every_console_write() -> None:
     Read against the dependency tree first, which found nothing and passed: this FastAPI keeps
     an included router as a nested object with no walkable `routes`, so the walk compared an
     empty set to an empty set. A sweep that can silently assert nothing is worse than no sweep.
+
+    **`/v1/admin` was added to the prefixes by phase 121 and the sweep immediately found
+    something.** Until then this derivation looked at `/v1/prompts` and `/v1/social` only — the
+    two the console had writes under when it was written — so `PUT /v1/admin/families/{id}/trial`
+    had carried `LocalWrites` since phase 107 while being in no sweep at all. It was not broken;
+    it was unguarded by *this*, which is the state this test exists to make impossible. The
+    lesson is the one the module docstring already implies: a sweep scoped by URL prefix goes
+    stale the day somebody writes under a new one.
     """
     from rascal.main import create_app
 
@@ -255,7 +279,7 @@ def test_the_write_sweep_covers_every_console_write() -> None:
     surface = {
         (method.upper(), path)
         for path, operations in spec.items()
-        if path.startswith(("/v1/prompts", "/v1/social"))
+        if path.startswith(("/v1/prompts", "/v1/social", "/v1/admin"))
         for method in operations
         if method.upper() in {"POST", "PATCH", "PUT", "DELETE"}
     }
@@ -266,7 +290,9 @@ def test_the_write_sweep_covers_every_console_write() -> None:
             method,
             path.replace("{prompt}", "{prompt_id}")
             .replace("{asset}", "{asset_id}")
-            .replace("{publication}", "{publication_id}"),
+            .replace("{publication}", "{publication_id}")
+            .replace("{family}", "{family_id}")
+            .replace("{grant}", "{grant_id}"),
         )
         for method, path, _ in CONSOLE_WRITES
     }

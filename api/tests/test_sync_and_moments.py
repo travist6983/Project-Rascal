@@ -447,6 +447,11 @@ async def test_error_codes_are_the_documented_ones() -> None:
         # platform it called did not, which is a different sentence from "something went
         # wrong here" and the console shows Instagram's own words next to the button.
         "publish_failed",
+        # Phase 119. Documented in the contract's table as 503, and `GET /health/db` is the
+        # only route that returns it: the process is up and cannot reach Postgres, which is a
+        # readiness answer rather than a request that went wrong. Every other handler that
+        # loses the database still renders `internal_error`.
+        "database_unreachable",
         "internal_error",
     }
 

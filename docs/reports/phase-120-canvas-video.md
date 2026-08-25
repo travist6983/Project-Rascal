@@ -59,7 +59,7 @@ is not the deployed image.)
 | **Production** (`fly ssh console -a rascal-api`) | **0** | 0 |
 | Local dev (`rascal` on :5434) | 3, all `failed` | **2** — one with 2 keys, one with 5 |
 
-`social_assets` with a non-null `shot_list` in production: **0**. So `0023` migrates nothing live.
+`social_assets` with a non-null `shot_list` in production: **0**. So `0024` migrates nothing live.
 
 **Recorded rather than discovered, per the gate:** the two local rows point at **seven** objects
 under `social/` in `rascal-media-dev`. The migration drops the pointer, not the bytes; those seven
@@ -159,9 +159,9 @@ reads `N/A`. The re-encode recomputes timestamps from the frames.
 
 ### The migration
 
-`0023_canvas_video`: `social_assets.shot_list` → `treatment`, `social_renders.shots_total` →
+`0024_canvas_video`: `social_assets.shot_list` → `treatment`, `social_renders.shots_total` →
 `scene_count`, `social_renders.clip_keys` dropped. Up, down and up again, tested with rows present
-in both tables at the revision *before* 0023 using the old column names.
+in both tables at the revision *before* 0024 using the old column names.
 
 **The `social_assets` rename is one step more than the phase asked for** — it specified
 `social_renders` only. The column held `visual`/`on_screen_text`/`voiceover` and now holds a scene
@@ -330,7 +330,7 @@ renderers that drift silently, which is the failure the whole split exists to pr
 3. **The transcode's output, and the length check.** Five real files probed for codec, pixel
    format, dimensions, frame rate, audio stream count and duration. The server now refuses a film
    short of its graph, which makes the silently-short file impossible rather than guarded against.
-4. **The migration.** Up, down and up with rows present at the pre-0023 revision using the old
+4. **The migration.** Up, down and up with rows present at the pre-0024 revision using the old
    column names, asserting the data moved and that the downgrade restores an empty `clip_keys`
    rather than inventing keys.
 5. **The synchronous route and its failure path.** Both paths write a row, both are read back

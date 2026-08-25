@@ -953,6 +953,14 @@ async def test_the_entitlement_route_reports_the_computed_date(client, session):
         "family_id": str(family.id),
         "tier": "free",
         "access": "trial",
+        # Phase 121's three. **`entitled` is true and `eligible_at` is still a date**, which is
+        # the pairing worth pinning: the household is inside its trial, so it may reach the
+        # whole board — and it also lapsed a real subscription in May, so D3's deletion clock is
+        # running. A trial holds the door open; it does not stop that clock, and only a receipt
+        # or a grant does.
+        "entitled": True,
+        "entitlement_source": "trial",
+        "grant_expires_at": None,
         "lapsed_at": "2026-05-01T00:00:00Z",
         "eligible_at": "2028-05-01",
         # Phase 113's two additions to this shape. **Both are the not-subscribed answer**, and

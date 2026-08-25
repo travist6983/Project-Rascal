@@ -1431,6 +1431,26 @@ body[data-readonly="true"] #v-go,
 body[data-readonly="true"] #membership {
   display: none;
 }
+/* The Grants card takes the *other* half of that argument, and the difference is which half of
+   the card is a read. Membership is all controls, so the card goes. This one is a form above a
+   ledger: hiding the whole thing would take the history with the buttons, and the history is
+   the part you want most when you cannot write — "who has one of these already" is the question
+   read-only mode is usually being used to answer. So the form goes and a sentence naming the
+   variable takes its place. */
+body[data-readonly="true"] #grant-form,
+body[data-readonly="true"] #grant-state,
+/* The ledger stays and its Revoke buttons go. They live inside the table rather than the form,
+   so the rule above does not reach them — and a button that survives read-only mode is exactly
+   the "explains itself after a click" failure this whole block exists to prevent. */
+body[data-readonly="true"] .g-revoke {
+  display: none;
+}
+.readonly-note {
+  display: none;
+}
+body[data-readonly="true"] .readonly-note {
+  display: block;
+}
 body[data-readonly="true"] tbody tr.is-clickable,
 body[data-readonly="true"] .concept,
 body[data-readonly="true"] .asset {
