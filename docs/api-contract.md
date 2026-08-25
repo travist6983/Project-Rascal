@@ -48,10 +48,28 @@ plus the **unbuilt** `POST /v1/subscribe` specified for phase 60.
 
 ## Health
 
-**`GET /health`** → `{ "status": "ok", "db": "ok" }`
+**Two routes, and they answer different questions.** Split by phase 119 on Aug 24, 2026.
 
-Unauthenticated. ~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Fly's health check hits this; it touches
-the database so a green check means the app can actually serve.
+**`GET /health`** → `{ "status": "ok" }`
+
+Liveness. Unauthenticated, and it touches nothing — no database, no object store, no
+configuration read that could open a connection. 200 whenever the process is running; that is
+the whole contract. ~~It touches the database so a green check means the app can actually
+serve.~~ — **struck by phase 119, and the strike is the point of the phase.** This is the route
+Fly polls every 30 seconds against an always-on machine, and a probe that queries a serverless
+Postgres never lets it suspend: Neon idles after ~5 minutes, the free plan is 100 CU-hours a
+month, and the 0.25 CU floor turns that into 400 wall-clock hours against a 730-hour month — so
+the polling alone spent the allowance around day 17 of every month. **A green `/health` therefore
+does not mean the app can serve.** See `docs/decisions.md`.
+
+**`GET /health/db`** → `{ "status": "ok", "db": "ok" }`
+
+Readiness — exactly what `/health` used to do. Unauthenticated: it reports reachability, never
+data. On failure it is **`503` `database_unreachable`** in the standard error shape, never a 200
+with a degraded body. Polled by `deploy.yml` for 90 seconds after a release, checked by
+`smoke.yml` on demand, check 1 of `scripts/verify_deployment.py`, and the `curl` in the runbooks.
+
+~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Both health routes sit outside `/v1` as well.
 
 ---
 
@@ -1662,10 +1680,15 @@ Stable machine-readable `code`, human `message`. The client switches on `code`, 
 | `rate_limited` | 429 |
 | `sign_in_link_invalid` | 401 |
 | `publish_failed` | 502 |
+| `database_unreachable` | 503 |
 | `internal_error` | 500 |
 
 Validation failures set `field`. Nothing ever returns a stack trace or a raw SQL error —
 a `psycopg` message in a client alert is a leak, not a debugging aid.
+
+`database_unreachable` is **`GET /health/db` only, and 503 rather than 500** — the process is up
+and cannot reach Postgres, which is a readiness answer rather than a request that went wrong. No
+other route returns it: a normal handler that loses the database still renders `internal_error`.
 
 `publish_failed` is **502 rather than 500** because this service worked and the platform it
 called did not — an expired token, an image Instagram could not fetch, a limit on their side.

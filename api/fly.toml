@@ -67,7 +67,19 @@ primary_region = "ord"          # Chicago — closest Fly region to Detroit.
   processes = ["app"]
 
   [[http_service.checks]]
-    # /health touches the database, so a green check means the app can actually serve.
+    # **Stays on /health, and /health is liveness only.** Phase 119 moved the database query
+    # to /health/db precisely so this check would stop making one: at a 30-second interval
+    # against a machine that is always up, a probe that touches Postgres never lets Neon's
+    # ~5-minute idle timer fire. The free plan is 100 CU-hours a month and the compute floor
+    # is 0.25 CU, so that allowance is 400 wall-clock hours against a 730-hour month — the
+    # month is spent around day 17 whether or not anyone used the app, and the cap suspends
+    # the compute until the next billing month rather than throttling it.
+    #
+    # **The trade, deliberately accepted:** a green check here no longer means the app can
+    # serve, so a machine that cannot reach the database stays in the load balancer and
+    # answers 500s. Readiness is proven where a human or a deploy is watching — deploy.yml
+    # polls /health/db for 90 seconds after every release, smoke.yml checks it on demand.
+    # Do not point this at /health/db. See docs/decisions.md.
     path = "/health"
     method = "GET"
     interval = "30s"

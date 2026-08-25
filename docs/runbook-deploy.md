@@ -615,7 +615,14 @@ Or, from a phone: GitHub → Actions → **Deploy** → Run workflow.
 `api/fly.toml` sets `release_command = "alembic upgrade head"`, so Fly migrates once, before
 the new machines take traffic, and a failed migration fails the deploy. The workflow then
 asks Fly whether the release actually *succeeded* — Fly can report a green deploy over a
-failed release command — and polls `/health` for 90 seconds.
+failed release command — and polls **`/health/db`** for 90 seconds.
+
+**`/health` and `/health/db` are two routes since phase 119.** `/health` is liveness and
+touches nothing; it is what Fly's own check polls every 30 seconds, and it was moved off the
+database because a 30-second poll never lets a Neon compute suspend — 100 CU-hours a month at
+a 0.25 CU floor is 400 wall-clock hours against a 730-hour month, so the polling alone spent
+the free plan around day 17. `/health/db` runs the query and is what a deploy, a smoke run and
+a human ask.
 
 Then seed the prompt library. It is empty on a fresh database, and an empty library assigns
 nothing:
@@ -740,9 +747,10 @@ drifts the same way. If it exists, update it in the same step.
 
 ## 6. Confirm it from a phone
 
-GitHub → Actions → **Smoke** → Run workflow. Read-only, no credentials. It checks `/health`,
-that `dev-login` and `/debug/*` are 404, that an anonymous caller gets 401, and that the
-OpenAPI document publishes the routes it should.
+GitHub → Actions → **Smoke** → Run workflow. Read-only, no credentials. It checks `/health`
+(the process is up) and `/health/db` (it can reach Neon), that `dev-login` and `/debug/*` are
+404, that an anonymous caller gets 401, and that the OpenAPI document publishes the routes it
+should.
 
 That is the most you can check without a terminal, and it is worth doing before §7.
 
@@ -760,7 +768,8 @@ export JWT_SECRET="<the same value you set in §4>"
 uv run python scripts/verify_deployment.py --base-url https://rascal-api.fly.dev
 ```
 
-Six checks: health, schema at head, dev routes absent, a bearer token round-tripping, **a
+Six checks: health — both routes, `/health` for the process and `/health/db` for the
+database — schema at head, dev routes absent, a bearer token round-tripping, **a
 brand-new child getting a full Today screen on a database where the scheduler has never
 run**, and a real byte-for-byte round trip through Tigris.
 
@@ -873,6 +882,9 @@ Be suspicious of this file in proportion to this section.
   by hand.
 - The API image builds and runs, binds `0.0.0.0:8080`, serves `/health` as `{"status":"ok",
   "db":"ok"}`, and returns 404 for `dev-login` under `ENVIRONMENT=prod` (Aug 8, 2026).
+  **That body is what `/health` returned on Aug 8, 2026 and the record stands as written**;
+  phase 119 moved it to `/health/db` on Aug 24, 2026, so the same check today is
+  `curl .../health` → `{"status":"ok"}` and `curl .../health/db` → `{"status":"ok","db":"ok"}`.
 - Neon accepts this schema — the *Migrate Neon* workflow ran `upgrade head`, the seed job,
   and `verify_schema.py` against the real database.
 - `scripts/verify_deployment.py` checks 1–5, against a real Postgres and a real
@@ -885,7 +897,7 @@ Be suspicious of this file in proportion to this section.
   documentation.
 - The Deploy and Smoke workflows both completed real runs. Release v1 migrated (a no-op —
   Neon was already at `0004_full_text_search`), two machines came up in `ord`, and `/health`
-  served `{"status":"ok","db":"ok"}`.
+  served `{"status":"ok","db":"ok"}` (that body lives at `/health/db` since phase 119).
 - **`scripts/verify_deployment.py` passed 6/6**, including check 6. The Tigris round trip
   had never completed a successful upload anywhere; it has now, 75 bytes through
   `rascal-media-prod.fly.storage.tigris.dev`, presigned by the deployed app.

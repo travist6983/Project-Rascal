@@ -58,6 +58,10 @@ class ErrorCode(StrEnum):
     # went wrong". Never carries a raw provider payload; `services/social/instagram.py`
     # reduces it to one sentence first.
     PUBLISH_FAILED = "publish_failed"
+    # `GET /health/db` only. The process is up and cannot reach Postgres — a readiness answer,
+    # not a request that went wrong, which is why it is not `internal_error`: nothing the
+    # caller sent is at fault and the right response to it is to try again shortly.
+    DATABASE_UNREACHABLE = "database_unreachable"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -81,6 +85,9 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.SIGN_IN_LINK_INVALID: 401,
     # 502 rather than 500: this service worked and the thing it called did not.
     ErrorCode.PUBLISH_FAILED: 502,
+    # 503: the service is not ready, and the caller — a deploy poll, a smoke run, a human
+    # with curl — should read it as "not yet" rather than as "broken request".
+    ErrorCode.DATABASE_UNREACHABLE: 503,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 

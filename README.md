@@ -237,7 +237,7 @@ api/
   seeds/prompts.yaml       generated; what the loader reads
   scripts/                 the markdown-to-YAML converter (never runs at request time)
   src/rascal/
-    main.py                the app factory; everything mounts under /v1 except /health
+    main.py                the app factory; all routes mount under /v1 except /health*
     config.py              pydantic-settings, reads the repo-root .env
     db.py                  async engine, session-per-request
     deps.py                current_user and child_access. All authorization lives here.
