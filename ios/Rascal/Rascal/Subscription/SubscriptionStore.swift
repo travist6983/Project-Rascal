@@ -209,7 +209,13 @@ actor SubscriptionStore: SubscriptionPurchasing {
             case .ineligibleForOffer, .invalidOfferIdentifier, .invalidOfferPrice,
                  .invalidOfferSignature, .missingOfferParameters:
                 return .storeKit("That offer isn't available on this account.")
-            case .invalidQuantity:
+            // `.invalidQuantity` is a request this app malformed.
+            // `.paymentMethodBindingConfigurationRequired` is iOS 26.5 and only reachable by an
+            // app billing through an alternative payment provider, which this one is not — it is
+            // listed rather than left to `@unknown default` because a case the SDK already
+            // declares is not unknown, and the compiler warns until it is handled by name.
+            // Neither is a thing a parent can act on, so they share the sentence.
+            case .invalidQuantity, .paymentMethodBindingConfigurationRequired:
                 return .storeKit("The App Store couldn't complete that. Nothing has been charged.")
             @unknown default:
                 return .storeKit("The App Store couldn't complete that. Nothing has been charged.")
