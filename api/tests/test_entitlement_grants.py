@@ -24,8 +24,10 @@ import ast
 import datetime as dt
 import pathlib
 import uuid
+from typing import get_args
 
 import pytest
+import sqlalchemy as sa
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +35,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app_store_stub as stub
 from factories import make_family, make_user
 from helpers import auth_headers
-from rascal.models import Entitlement, EntitlementGrant, Family, User
-from rascal.services.grants import active_grant_for, issue_grant, revoke_grant
+from rascal.constants import FREE_SLOTS, GRANT_STATUSES, GrantStatus
+from rascal.models import (
+    Assignment,
+    Entitlement,
+    EntitlementGrant,
+    Family,
+    User,
+)
+from rascal.schemas.family import EntitlementOut, FamilyOut
+from rascal.services import admin_metrics
+from rascal.services.grants import (
+    active_grant_for,
+    active_grants,
+    has_active_grant,
+    issue_grant,
+    revoke_grant,
+)
 from rascal.services.guardians import access_for_family, eligible_at
 
 GRANTS = "/v1/admin/grants"
@@ -491,6 +508,72 @@ async def test_the_ledger_keeps_revoked_and_expired_rows(
     assert status[str(both.id)] == "revoked"
 
 
+def test_status_can_produce_exactly_the_three_documented_states() -> None:
+    """The wire vocabulary, pinned by sweeping the inputs rather than by restating the list.
+
+    The same move `test_entitlement_cadence.py` makes for `access`, and not tautological: it calls
+    the real method over every reachable combination of the two columns it reads. An
+    implementation that returned `"withdrawn"`, or `None` for some pair, fails here.
+
+    **And it pins that `status` is the exact complement of the gate.** `active` here must hold for
+    precisely the rows `services.grants.unexpired` would match — the `<=` in one and the `>` in
+    the other are the same boundary written twice, and two boundaries that drift are a row the
+    console calls live while the server does not.
+    """
+    now = dt.datetime.now(tz=dt.UTC)
+    expiries = [None, now - dt.timedelta(days=1), now + dt.timedelta(days=1), now]
+    revocations = [None, now - dt.timedelta(days=1)]
+
+    produced = {
+        EntitlementGrant(expires_at=expires, revoked_at=revoked).status(now)
+        for expires in expiries
+        for revoked in revocations
+    }
+    assert produced == set(GRANT_STATUSES)
+    assert set(get_args(GrantStatus)) == set(GRANT_STATUSES), (
+        "the Literal and the tuple have drifted apart"
+    )
+
+    # Revoked outranks expired for every expiry, including one that has not arrived.
+    for expires in expiries:
+        assert EntitlementGrant(expires_at=expires, revoked_at=now).status(now) == "revoked", (
+            "a revocation must outrank an expiry for every expiry value"
+        )
+
+    # `now == expires_at` is the boundary: expired, because `unexpired`'s comparison is strict.
+    # Stated so the edge is a decision rather than an accident of `<=` versus `<`.
+    assert EntitlementGrant(expires_at=now, revoked_at=None).status(now) == "expired"
+
+
+async def test_status_and_the_sql_gate_agree_on_every_row(session: AsyncSession) -> None:
+    """The complement, asserted against the database rather than against the method.
+
+    Four grants covering every shape, read back through the one SQL predicate, and every row's
+    rendered `status` checked against whether the gate matched it. This is what would fail if
+    somebody widened one boundary and not the other.
+    """
+    admin = await _admin(session)
+    family, _ = await _household(session)
+    perpetual = await _grant(session, family, admin, reason="perpetual")
+    future = await _grant(session, family, admin, expires_at=_hours(24), reason="future")
+    past = await _grant(session, family, admin, expires_at=_hours(24), reason="past")
+    revoked = await _grant(session, family, admin, reason="revoked")
+    past.expires_at = _hours(-1)
+    await revoke_grant(session, revoked.id, revoked_by=admin.id)
+    await session.commit()
+
+    now = dt.datetime.now(tz=dt.UTC)
+    matched = await session.execute(
+        select(EntitlementGrant.id).where(active_grants(family.id, now))
+    )
+    live = set(matched.scalars())
+    for grant in (perpetual, future, past, revoked):
+        await session.refresh(grant)
+        assert (grant.status(now) == "active") is (grant.id in live), (
+            f"`status` and the SQL gate disagree about {grant.reason!r}"
+        )
+
+
 # --- Issuing: what is refused ------------------------------------------------------------------
 
 
@@ -683,6 +766,50 @@ async def test_the_picker_reports_the_entitlement_the_phone_would_get(
     assert row["grants"] == 1
 
 
+async def test_the_search_does_not_treat_a_typed_underscore_as_a_wildcard(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**`LIKE`'s wildcards are not the searcher's.** `first_last` must not match `firstXlast`.
+
+    An underscore is ordinary in an email local part, and in this picker the next click *grants*
+    whatever is selected — so an extra match is a wrong household one keystroke away. `%` is the
+    loud version of the same bug and is checked in the same breath.
+    """
+    admin = await _admin(session)
+    wanted, wanted_user = await _household(session)
+    decoy, decoy_user = await _household(session)
+    wanted_user.email = "first_last@example.com"
+    decoy_user.email = "firstXlast@example.com"
+    await session.commit()
+
+    found = (await client.get(f"{HOUSEHOLDS}?q=first_last", headers=auth_headers(admin))).json()[
+        "households"
+    ]
+    ids = {row["family_id"] for row in found}
+    assert str(wanted.id) in ids
+    assert str(decoy.id) not in ids, "`_` was treated as LIKE's single-character wildcard"
+
+    # And a bare `%` matches nothing rather than everything.
+    everything = (await client.get(f"{HOUSEHOLDS}?q=%25", headers=auth_headers(admin))).json()
+    assert everything["households"] == [], "`%` was treated as LIKE's wildcard"
+
+
+async def test_a_whitespace_only_query_is_the_same_as_an_empty_one(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Whitespace-only is empty.
+
+    `"  "` filtering on `%  %` would silently return only the households with two consecutive
+    spaces in a name, which is a filter nobody asked for and nobody would guess at.
+    """
+    admin = await _admin(session)
+    await _household(session)
+    await session.commit()
+
+    body = (await client.get(f"{HOUSEHOLDS}?q=%20%20", headers=auth_headers(admin))).json()
+    assert len(body["households"]) >= 2
+
+
 async def test_an_empty_query_lists_recent_households_rather_than_erroring(
     client: AsyncClient, session: AsyncSession
 ) -> None:
@@ -764,6 +891,179 @@ async def test_eligible_at_is_null_for_a_granted_household() -> None:
     signed_in = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
     assert eligible_at("free", lapsed, signed_in) is not None
     assert eligible_at("free", lapsed, signed_in, granted=True) is None
+
+
+# --- One household's grant is one household's ---------------------------------------------------
+#
+# **Every test above this line uses one household, and that is exactly how the worst defect in
+# this phase survived a green suite.** `has_active_grant` builds a correlated `EXISTS` for the two
+# paths that read many households at once; with the household clause dropped it asks *"does any
+# active grant exist anywhere"* — which is true for **every** household the moment one household
+# holds a grant, and unfalsifiable by any single-household test.
+#
+# So: two households, one granted, and the other asserted to be untouched on every path that
+# reads them in bulk.
+
+
+async def test_one_households_grant_does_not_entitle_another(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Free household, free neighbour, one grant between them. **The wire does not leak it.**
+
+    **Measured, not assumed: this one does *not* catch the uncorrelated-`EXISTS` defect**, and
+    saying so is the point of the note. The two family routes read `active_grant_for`, which
+    carries the household in its `WHERE` and is correlated by construction; only the two *bulk*
+    readers go through `has_active_grant`, and the three tests below are the ones that fire.
+    Left in place anyway, because "one household's grant is one household's" is worth pinning on
+    the surface a parent actually reads, by whatever route a future defect arrives.
+    """
+    admin = await _admin(session)
+    granted_family, granted_user = await _household(session)
+    _, stranger = await _household(session)
+    await _grant(session, granted_family, admin)
+
+    assert (await _entitlement_body(client, granted_user))["entitled"] is True
+
+    theirs = await _entitlement_body(client, stranger)
+    assert theirs["entitled"] is False, "another household's grant entitled this one"
+    assert theirs["entitlement_source"] == "none"
+    assert theirs["access"] == "free"
+    assert theirs["grant_expires_at"] is None
+
+
+async def test_the_console_does_not_report_every_household_as_granted(
+    session: AsyncSession,
+) -> None:
+    """The same defect through `recent_signups`, which reads a page of households in one query.
+
+    The console's `granted` chip and its `Access` column both come off this, so the broken
+    predicate would paint every account on the first screen as complimentary.
+    """
+    admin = await _admin(session)
+    granted_family, _ = await _household(session)
+    _, stranger = await _household(session)
+    await _grant(session, granted_family, admin)
+
+    rows = {row["family_id"]: row for row in await admin_metrics.recent_signups(session)}
+    assert rows[str(granted_family.id)]["granted"] is True
+    assert rows[str(granted_family.id)]["access"] == "subscribed"
+
+    theirs = rows[str(stranger.family_id)]
+    assert theirs["granted"] is False, "the console reported an ungranted household as granted"
+    assert theirs["access"] == "free"
+
+
+async def test_one_households_grant_does_not_fill_anothers_board(
+    session: AsyncSession,
+) -> None:
+    """And through the scheduler, which is the path a read cannot undo.
+
+    `_active_parents` answers "is this parent's household entitled" for every guardian of a child
+    in one query. A grant leaking across households there **burns the 180-day cooldown against a
+    133-prompt pool** for a family that is not entitled — invisibly, and not repairable by the
+    next read.
+    """
+    from rascal.services.scheduler import ensure_day_filled
+
+    admin = await _admin(session)
+    granted_family, _ = await _household(session)
+    _, stranger = await _household(session)
+    child = await _child_with_a_pool(session, stranger)
+    await _grant(session, granted_family, admin)
+
+    day = dt.date(2026, 8, 22)  # the same past Saturday the granted case uses
+    await ensure_day_filled(session, child, day)
+    await session.commit()
+
+    slots = set(
+        (
+            await session.execute(
+                select(Assignment.slot).where(
+                    Assignment.child_id == child.id, Assignment.assigned_on == day
+                )
+            )
+        ).scalars()
+    )
+    assert slots == set(FREE_SLOTS), (
+        "an ungranted household was served a full board — another household's grant reached it: "
+        f"{sorted(slots)}"
+    )
+
+
+async def test_the_correlated_exists_is_actually_correlated(session: AsyncSession) -> None:
+    """The predicate on its own, without a route or a scheduler in the way.
+
+    Asserted as a *pair* rather than as one truthy answer: `True` for the household that holds the
+    grant and `False` for the one that does not, in the same query. A single-row assertion here
+    would pass against an `EXISTS` with no household in it at all.
+    """
+    admin = await _admin(session)
+    granted_family, _ = await _household(session)
+    other_family, _ = await _household(session)
+    await _grant(session, granted_family, admin)
+
+    now = dt.datetime.now(tz=dt.UTC)
+    rows = dict(
+        (
+            await session.execute(
+                select(Family.id, has_active_grant(Family.id, now)).where(
+                    Family.id.in_([granted_family.id, other_family.id])
+                )
+            )
+        ).all()
+    )
+    assert rows[granted_family.id] is True
+    assert rows[other_family.id] is False, "the EXISTS is not correlated to the household"
+
+
+def test_the_contract_examples_carry_exactly_the_fields_the_schemas_do() -> None:
+    """**`api-contract.md`'s two JSON examples, checked against the models rather than by eye.**
+
+    An example that has drifted from its schema is the documentation failure this repo keeps
+    recording: `media_storage_tier` documented a value the server could not produce for months,
+    and phase 113 had to strike it. Adding three fields to two shapes is exactly the change that
+    leaves an example one field short, so this parses the examples out of the contract and
+    compares their key sets — and their *order*, because "one authority, two shapes" is a claim
+    about the two reading the same way.
+    """
+    import json
+    import re
+
+    contract = (
+        pathlib.Path(__file__).resolve().parents[2] / "docs" / "api-contract.md"
+    ).read_text()
+    blocks = []
+    for fence in re.findall(r"```json\n(.*?)```", contract, re.S):
+        # The contract's examples are prose as much as JSON: `…`, `...` and trailing commentary
+        # all appear. Anything that will not parse after that substitution is some other
+        # example and is skipped rather than fought with.
+        candidate = re.sub(r'"[^"\n]*(?:…|\.\.\.)[^"\n]*"', '"x"', fence)
+        candidate = re.sub(r"\[\s*\.\.\.\s*\]", "[]", candidate)
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            blocks.append(parsed)
+    assert blocks, (
+        "no JSON example in api-contract.md could be parsed — the walk is asserting nothing"
+    )
+
+    def find(*required: str) -> dict:
+        for block in blocks:
+            if all(key in block for key in required):
+                return block
+        raise AssertionError(f"no example in api-contract.md carries {required}")
+
+    me = find("guardians", "pending_invites")
+    assert list(me) == list(FamilyOut.model_fields), (
+        "the `GET /families/me` example has drifted from `FamilyOut`"
+    )
+
+    entitlement = find("eligible_at", "media_storage_tier")
+    assert list(entitlement) == list(EntitlementOut.model_fields), (
+        "the `GET /families/{id}/entitlement` example has drifted from `EntitlementOut`"
+    )
 
 
 # --- The guards that keep this from growing a second answer ------------------------------------
@@ -868,7 +1168,58 @@ def test_nothing_outside_the_grant_service_decides_when_a_grant_is_live() -> Non
     )
 
 
+async def test_revoking_moves_updated_at_and_the_trigger_is_what_moves_it(
+    session: AsyncSession,
+) -> None:
+    """**A revocation is the only UPDATE this table ever takes, so it is the only chance to check.**
+
+    `test_migrations.py` asserts the trigger exists by name; this asserts it fires. The two are
+    different failures — a trigger created against the wrong table name exists and does nothing —
+    and `CLAUDE.md` is explicit that `updated_at` is the trigger's to write and never the
+    application's, so a service that set it by hand would pass the name check and break the rule.
+
+    Written through raw SQL rather than the service on purpose: it proves the *database* moves
+    the column, not that some Python remembered to.
+    """
+    admin = await _admin(session)
+    family, _ = await _household(session)
+    grant = await _grant(session, family, admin)
+    before = grant.updated_at
+
+    await session.execute(
+        sa.text("UPDATE entitlement_grants SET revoked_at = now() WHERE id = :id"),
+        {"id": grant.id},
+    )
+    await session.commit()
+
+    after = await session.scalar(
+        select(EntitlementGrant.updated_at).where(EntitlementGrant.id == grant.id)
+    )
+    assert after > before, "the set_updated_at() trigger did not fire on entitlement_grants"
+
+
 # --- The issuer's account, deleted -------------------------------------------------------------
+
+
+async def test_a_nameless_issuer_is_not_reported_as_a_deleted_account(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """**`null` has to mean one thing.** An admin with no display name and no email is not gone.
+
+    Both columns on `users` are nullable, so this is a live state rather than a defensive branch —
+    and the console renders a `null` issuer as *"account deleted"*. Falling back to `null` here
+    would put that sentence beside a person who is sitting right there.
+    """
+    admin = await _admin(session)
+    admin.display_name = None
+    admin.email = None
+    family, _ = await _household(session)
+    await _grant(session, family, admin)
+
+    rows = (await client.get(GRANTS, headers=auth_headers(admin))).json()["grants"]
+    issued = next(row for row in rows if row["family_id"] == str(family.id))
+    assert issued["granted_by"] is not None, "a live admin was reported as a deleted account"
+    assert issued["granted_by"] == str(admin.id)[:8]
 
 
 async def test_deleting_the_issuing_admin_leaves_the_grant_standing(

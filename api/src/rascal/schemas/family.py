@@ -154,18 +154,6 @@ class EntitlementOut(ApiModel):
     #: When the trial runs out; null means no trial on this household. See
     #: `FamilyOut.trial_ends_at`.
     trial_ends_at: dt.datetime | None = None
-    #: When the subscription lapsed. Null on a household that has never subscribed as well as
-    #: on one that currently is — `tier` is what tells those apart.
-    #:
-    #: **A trial expiring is not a lapse and must never write this.** `lapsed_at` is about a
-    #: subscription ending, per D3, and it is what `eligible_at` below keys off — so a trial
-    #: quietly running out starting a deletion clock on somebody's photographs is precisely
-    #: the bug the separation exists to prevent.
-    lapsed_at: dt.datetime | None = None
-    #: **A date, computed per request, never stored.** `max(lapsed_at + 24 months,
-    #: last_sign_in_at + 12 months)` per D3, where `last_sign_in_at` is a MAX across the
-    #: household's guardians. Both clocks move, so a client may display this and **must not
-    #: cache it**. Null while `tier` is `subscribed`.
     #: **The union, and what every gate in this service now branches on.** True when a payload
     #: Apple signed says this household is subscribed, **or** an `entitlement_grants` row is
     #: holding it open, **or** it is inside its trial. Added by phase 121.
@@ -191,6 +179,18 @@ class EntitlementOut(ApiModel):
     #: household holds several grants this is the one that keeps them entitled longest, which is
     #: the only date that answers *"when does this stop"*.
     grant_expires_at: dt.datetime | None = None
+    #: When the subscription lapsed. Null on a household that has never subscribed as well as
+    #: on one that currently is — `tier` is what tells those apart.
+    #:
+    #: **A trial expiring is not a lapse and must never write this.** `lapsed_at` is about a
+    #: subscription ending, per D3, and it is what `eligible_at` below keys off — so a trial
+    #: quietly running out starting a deletion clock on somebody's photographs is precisely
+    #: the bug the separation exists to prevent.
+    lapsed_at: dt.datetime | None = None
+    #: **A date, computed per request, never stored.** `max(lapsed_at + 24 months,
+    #: last_sign_in_at + 12 months)` per D3, where `last_sign_in_at` is a MAX across the
+    #: household's guardians. Both clocks move, so a client may display this and **must not
+    #: cache it**. Null while `tier` is `subscribed`.
     eligible_at: dt.date | None = None
     #: How often a subscribed household is billed. **The same value and the same derivation as
     #: `FamilyOut.plan`** — one function, `services.membership.membership_signals`, two shapes.

@@ -15,7 +15,14 @@ import uuid
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from rascal.constants import GUARDIAN_ROLES, TIERS, TRIAL_DAYS, GuardianRole, Tier
+from rascal.constants import (
+    GUARDIAN_ROLES,
+    TIERS,
+    TRIAL_DAYS,
+    GrantStatus,
+    GuardianRole,
+    Tier,
+)
 from rascal.models.base import (
     Base,
     created,
@@ -235,6 +242,11 @@ class EntitlementGrant(Base):
     #: paid for — Apple will still send a `REFUND` about it — but a grant is *about* a household
     #: and means nothing without one, so it goes when the household does.
     family_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("families.id", ondelete="CASCADE"))
+    #: When the household became entitled. **Deliberately a second column beside `created_at`
+    #: rather than a reuse of it**: `created_at` is when the *row* was written and belongs to the
+    #: database, `granted_at` is the domain fact and is what the ledger is ordered and read by.
+    #: They hold the same value today because nothing backdates a grant; the day something does,
+    #: exactly one of them should move and it is not the row's.
     granted_at: Mapped[created]
     #: **Null means perpetual.** See the class docstring.
     expires_at: Mapped[optional_moment]
@@ -251,14 +263,14 @@ class EntitlementGrant(Base):
     created_at: Mapped[created]
     updated_at: Mapped[updated]
 
-    def status(self, now: dt.datetime) -> str:
-        """`active` | `revoked` | `expired`, for the console.
+    def status(self, now: dt.datetime) -> GrantStatus:
+        """`active` | `expired` | `revoked`, for the console.
 
-        **Display only, and it must never become the gate.** The gate is one SQL predicate in
-        `services.grants.active_grants`, evaluated against the database's own rows; this is that
+        **Display only, and it must never become the gate.** The gate is one SQL predicate,
+        `services.grants.unexpired`, evaluated against the database's own rows; this is that
         answer rendered for a person, computed from a row already in hand. They agree because
-        this is the simpler half of the same rule, and the console reads what the API computed
-        rather than deciding for itself.
+        this is the same rule — `active` here is exactly `unexpired` there, and the `<=` below is
+        the strict complement of its `>` — plus the one distinction SQL has no need to make.
 
         `revoked` outranks `expired` because it is the thing somebody *did* — a grant that was
         revoked in March and would have run out in June is a revocation, and reading it as an

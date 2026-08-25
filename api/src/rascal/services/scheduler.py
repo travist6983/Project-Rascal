@@ -243,8 +243,9 @@ async def _active_parents(
     rows = await session.execute(
         # The grant is a correlated `EXISTS` beside the entitlement rather than a third scan.
         # Same argument as the join above: one query, so a grant revoked mid-scan cannot be in
-        # one answer and not the other. The predicate is `services/grants.active_grants` — this
-        # selects it, it does not restate it.
+        # one answer and not the other. The predicate is `services/grants.has_active_grant`,
+        # which correlates `unexpired` to this row's household — this selects it, it does not
+        # restate it.
         select(Guardian.user_id, Entitlement, has_active_grant(User.family_id, now))
         .join(User, User.id == Guardian.user_id)
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)

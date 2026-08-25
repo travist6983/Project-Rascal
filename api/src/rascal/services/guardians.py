@@ -84,7 +84,8 @@ class Access:
     #: The column. Null means *no trial on this household*, not *a trial that ended*.
     trial_ends_at: dt.datetime | None
     #: Whether an `entitlement_grants` row is currently holding this household open. The
-    #: predicate is `services.grants.active_grants` and lives nowhere else.
+    #: predicate is `services.grants.unexpired`, scoped by `services.grants.active_grants`,
+    #: and it lives nowhere else — a test walks the AST of `src/` and asserts it.
     granted: bool
     #: **The one boolean every gate in this codebase branches on.**
     entitled: bool
@@ -128,12 +129,13 @@ def access_for(
     whether somebody paid.
 
     **`granted` is passed in rather than looked up, and that is what keeps this function pure.**
-    Whether a grant is active is a SQL predicate — `services.grants.active_grants` — because it
+    Whether a grant is active is a SQL predicate — `services.grants.unexpired` — because it
     reads two nullable columns against a clock and every caller that needs it is already issuing
     a query. Deciding it here would mean either a database call in a pure function or a second
-    copy of the predicate in Python. `test_entitlement_cadence.py` asserts that **every call site
-    of this function under `src/` supplies the argument**, so the default is a convenience for
-    tests rather than a hole a router can fall through.
+    copy of the predicate in Python.
+    `test_entitlement_grants.py::test_every_access_for_call_site_passes_a_grant` asserts that
+    **every call site of this function under `src/` supplies the argument**, so the default is a
+    convenience for tests rather than a hole a router can fall through.
 
     Three properties worth stating because all three are load-bearing:
 

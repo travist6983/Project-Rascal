@@ -4,10 +4,13 @@
 
     revoked_at IS NULL AND (expires_at IS NULL OR expires_at > :now)
 
-and :func:`active_grants` is the only place that sentence is written. Everything that needs the
-answer — the two family routes, `GET /today`, the notification job, the scheduler and the console
-— reaches it through this function or through :func:`services.guardians.access_for`, which takes
-the boolean it produces. **There is deliberately no second copy in Python**: `services/guardians.py`
+and :func:`unexpired` is the only place that sentence is written — :func:`active_grants` scopes it
+to one household and :func:`has_active_grant` wraps that in an `EXISTS`, and neither restates it.
+Everything that needs the answer — the two family routes, `GET /today`, the notification job, the
+scheduler and the console — reaches it through one of those three or through
+:func:`services.guardians.access_for`, which takes the boolean they produce.
+
+**There is deliberately no second copy in Python**: `services/guardians.py`
 never compares a grant's `expires_at` against a clock, because a second place that decides when a
 grant ends is a second place that can disagree about whether somebody is entitled, and that is the
 failure `test_entitlement_cadence.py` already guards for the trial.
@@ -73,7 +76,10 @@ def has_active_grant(family_id: ColumnElement[uuid.UUID], now: dt.datetime):
     lookup per row. They select this beside the entitlement columns and hand the boolean to
     `access_for(granted=…)`, so the formula still lives in exactly one place.
     """
-    return select(1).where(unexpired(now)).exists()  # MUTATED
+    # **`active_grants`, not `unexpired`** — the household clause is what correlates this
+    # subquery to the outer row. Dropping it asks *"does any active grant exist anywhere"*, which
+    # is true for every household the moment one household holds a grant.
+    return select(1).where(active_grants(family_id, now)).exists()
 
 
 async def active_grant_for(

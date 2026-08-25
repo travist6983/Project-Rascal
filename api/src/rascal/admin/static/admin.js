@@ -32,8 +32,6 @@ const state = {
   days: 60,
   snapshot: null,
   library: null,
-  // The grant ledger as last painted, so a later read does not have to refetch it.
-  grants: [],
   filters: {},
   editing: null,
   studio: null,
@@ -767,6 +765,21 @@ async function writeTrial(trialEndsAt) {
 let grantSearchTimer = null;
 
 /**
+ * Which household search is the current one.
+ *
+ * **Two `loadHouseholds` calls can be in flight at once** — the debounced search and the repaint
+ * `load()` runs after every write — and nothing orders their responses. Without this, a slow
+ * earlier response lands last and repaints the picker with results for a query that is no longer
+ * in the box, leaving a `<select>` whose selected option does not match what was searched for.
+ * On this control the next click *grants* whatever is selected, so a stale repaint is a wrong
+ * household, not a cosmetic flicker.
+ *
+ * A monotonic token rather than an AbortController: the request is cheap and already sent, and
+ * what matters is only that a superseded response does not touch the DOM.
+ */
+let householdSearchToken = 0;
+
+/**
  * Fill the household picker.
  *
  * **`keepSelection` is the whole subtlety, and it was found by driving the page.**
@@ -788,7 +801,12 @@ let grantSearchTimer = null;
  */
 async function loadHouseholds(query, { keepSelection = false } = {}) {
   const q = (query || "").trim();
+  const token = ++householdSearchToken;
   const result = await api(`/admin/households?q=${encodeURIComponent(q)}`);
+  // Superseded while this was in flight. Return before touching the DOM — including
+  // `grant-state`, because "no household matches that" from an abandoned query is as wrong as a
+  // stale option list.
+  if (token !== householdSearchToken) return;
   const select = $("g-family");
   const previous = select.value;
   select.replaceChildren();
@@ -856,7 +874,6 @@ function grantChip(status) {
 
 async function loadGrantLedger() {
   const result = await api("/admin/grants");
-  state.grants = result.grants;
   $("grant-ledger").innerHTML = result.grants.length
     ? `<table><thead><tr>
          <th>Household</th><th>Reason</th><th>State</th><th>Ends</th>

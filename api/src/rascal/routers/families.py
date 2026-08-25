@@ -116,9 +116,10 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
     # `GET /families/{id}/entitlement` and on `GET /children/{id}/today` are the same
     # function over the same row — see `services/guardians.access_for`.
     #
-    # The grant is fetched here rather than through `access_for_family` because this handler
-    # already holds the `entitlements` row for `lapsed_at` and `is_payer`, and the row itself
-    # is wanted for `grant_expires_at` — one indexed lookup, not two.
+    # The grant *row* rather than `access_for_family`'s boolean, because `grant_expires_at` is
+    # on this response and the row is what carries it. Same two lookups either way — this handler
+    # already holds the `entitlements` row for `lapsed_at` and `is_payer` — but going through
+    # `access_for_family` would answer only "is one active" and need a third read for the date.
     grant = await active_grant_for(session, user.family_id)
     access = access_for(entitlement, granted=grant is not None)
     # Phase 113's four additive fields. Three of them are reads of rows this handler already

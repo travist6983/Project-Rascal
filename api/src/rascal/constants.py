@@ -93,6 +93,20 @@ ENTITLEMENT_SOURCES: Final = ("receipt", "grant", "trial", "none")
 #: line. See `services.guardians.Access.is_member`.
 MEMBER_SOURCES: Final = ("receipt", "grant")
 
+#: How one row of the grant ledger reads. **Display only, and never the gate.**
+#:
+#: The gate is `services.grants.unexpired`, evaluated in SQL against the database's own rows;
+#: this is that answer rendered for a person from a row already in hand, plus the one distinction
+#: SQL does not need to make. `revoked` outranks `expired` because it is the thing somebody
+#: *did* — a grant revoked in March that would have run out in June is a revocation, and calling
+#: it an expiry loses the only part of that sentence with a person in it.
+#:
+#: A `Literal` rather than a bare `str` for the reason `AccessState` is one: these three strings
+#: are a wire vocabulary with a decoder on the other side (`admin.js`), so a fourth is a change
+#: somebody should have to make deliberately.
+GrantStatus = Literal["active", "expired", "revoked"]
+GRANT_STATUSES: Final = ("active", "expired", "revoked")
+
 #: How long a new household is entitled for, from the moment its `entitlements` row is
 #: created. Per D1, which settles the trial at fourteen days.
 TRIAL_DAYS: Final = 14

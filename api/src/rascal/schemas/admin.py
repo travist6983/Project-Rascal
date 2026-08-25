@@ -20,6 +20,7 @@ from rascal.constants import (
     Cadence,
     CompletionMode,
     EntitlementSource,
+    GrantStatus,
     PromptKind,
     Tier,
 )
@@ -178,11 +179,11 @@ class AdminGrantIn(ApiModel):
         """Refuse an offset-less timestamp, the same guard `AdminTrialIn` already carries.
 
         **Without it an offset-less body is a 500 rather than a 422.** Pydantic parses
-        `"2026-09-01T00:00:00"` into a naive `datetime`, it goes into a `timestamptz` column
-        having been interpreted as whatever the *database session* thinks local is, and the
-        refusal check in `services/grants.issue_grant` compares it against an aware `now` first:
+        `"2026-09-01T00:00:00"` into a naive `datetime`, and the first thing
+        `services/grants.issue_grant` does with it is compare it against an aware `now` —
         `TypeError: can't compare offset-naive and offset-aware datetimes`, rendered by the
-        catch-all as `internal_error` with no field to point at.
+        catch-all as `internal_error` with no field to point at. It never reaches the INSERT,
+        which is the only reason the column's own `timestamptz` coercion never gets a say.
 
         **Rejecting rather than assuming UTC is the deliberate half**, and it matters more here
         than it does for a trial. `models/base.py` is explicit that a naive timestamp in an
@@ -213,8 +214,9 @@ class AdminGrantOut(ApiModel):
     expires_at: dt.datetime | None = None
     revoked_at: dt.datetime | None = None
     #: `active` | `expired` | `revoked`, computed from the row and the server's clock.
-    #: `revoked` outranks `expired`: it is the thing somebody *did*.
-    status: str
+    #: `revoked` outranks `expired`: it is the thing somebody *did*. **Display only** — the gate
+    #: is `services.grants.unexpired`, in SQL.
+    status: GrantStatus
     #: Who issued it, as a display name or email — **`null` when that account has since been
     #: deleted**, which is a true sentence rather than a missing value. Account deletion
     #: hard-deletes `users` and this column is `ON DELETE SET NULL`; `models/family.py` carries

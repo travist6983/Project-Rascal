@@ -36,7 +36,8 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.config import Settings
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
@@ -246,16 +247,28 @@ async def revoke_grant(
     return (await _render_grants(session, [grant]))[0]
 
 
-async def _render_grants(session: SessionDep, rows: list[EntitlementGrant]) -> list[AdminGrantOut]:
-    """Ledger rows plus the two names a person needs to read them, in three queries total.
+async def _render_grants(
+    session: AsyncSession, rows: list[EntitlementGrant]
+) -> list[AdminGrantOut]:
+    """Ledger rows plus the two names a person needs to read them, in **two** queries.
+
+    One for the households, one for the issuers, however many rows there are. A lookup per row is
+    the shape that reads fine at four grants and is a page of queries at forty.
+
+    **`AsyncSession`, not `SessionDep`.** This is a plain helper, not a route: annotating it with
+    the `Annotated[..., Depends(...)]` alias would say FastAPI injects it, which it does not — and
+    the two callers hand it two *different* sessions (`AdminReadSession` for the list,
+    `SessionDep` for the writes), which is exactly what the alias would misdescribe.
 
     **Account metadata and nothing else**, which is what keeps this router's standing rule
     ("counts, never content") true of the newest surface in it: the household is its members'
     names and emails, and the issuer is one name. No child, no entry, no object key.
 
-    A `null` issuer is rendered as `null` rather than as *"unknown"*: the account that wrote the
-    row has been deleted, and inventing a word for that in a payload takes the decision away from
-    the client that has to say it.
+    **`null` means the account is gone, and only that.** A live admin who has neither a display
+    name nor an email — reachable, both columns are nullable — falls back to the short form of
+    their user id rather than to `null`. Rendering them as `null` would put *"account deleted"* on
+    the console beside a person who is sitting right there, which is the confident-wrong-answer
+    failure this file keeps having to design against.
     """
     if not rows:
         return []
@@ -264,15 +277,16 @@ async def _render_grants(session: SessionDep, rows: list[EntitlementGrant]) -> l
     actors = {row.granted_by for row in rows if row.granted_by} | {
         row.revoked_by for row in rows if row.revoked_by
     }
-    people = dict(
-        (
-            await session.execute(
-                select(User.id, func.coalesce(User.display_name, User.email)).where(
-                    User.id.in_(actors)
+    people: dict[uuid.UUID, str] = {}
+    if actors:
+        people = {
+            actor: display_name or email or str(actor)[:8]
+            for actor, display_name, email in (
+                await session.execute(
+                    select(User.id, User.display_name, User.email).where(User.id.in_(actors))
                 )
-            )
-        ).all()
-    )
+            ).all()
+        }
     return [
         AdminGrantOut(
             id=row.id,

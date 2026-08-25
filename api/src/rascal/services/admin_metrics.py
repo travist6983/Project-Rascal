@@ -608,6 +608,18 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
 # strings in all of those and greps every admin response for them.
 
 
+def _like_escape(term: str) -> str:
+    """Neutralise `LIKE`'s own wildcards inside a term a person typed.
+
+    **`_` is the one that actually bites**, because it is common in an email local part:
+    searching `first_last` would otherwise also match `firstXlast`, and in a picker where the
+    next click *grants* the selected household, an extra match is a wrong household one keystroke
+    away. `%` is the loud version of the same bug — a bare `%` matches everything — and the
+    backslash goes first or it would escape the escapes.
+    """
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _label(members: list[tuple[str | None, str | None]]) -> str:
     """How a household reads in a picker: its members, oldest first, name before email.
 
@@ -651,7 +663,8 @@ async def find_households(
 
     **An empty query is the most recent households rather than an error**, because that is what
     the picker wants on first paint, and asking somebody to type before they can see anything is
-    a control nobody uses.
+    a control nobody uses. Whitespace-only is empty for the same reason: a `q` of `"  "` filtering
+    on `%  %` would silently return only the households with two spaces in a name.
 
     The family id is matched as text so a UUID pasted from another screen finds its household,
     and a *prefix* works because that is what the rest of the console renders — `fillHouseholds`
@@ -664,16 +677,15 @@ async def find_households(
     """
     now = dt.datetime.now(tz=dt.UTC)
 
-    families = select(User.family_id, func.max(User.created_at).label("recent")).group_by(
-        User.family_id
-    )
-    if q:
-        pattern = f"%{q.strip()}%"
+    families = select(User.family_id, func.max(User.created_at)).group_by(User.family_id)
+    term = (q or "").strip()
+    if term:
+        pattern = f"%{_like_escape(term)}%"
         families = families.where(
             or_(
-                User.email.ilike(pattern),
-                User.display_name.ilike(pattern),
-                cast(User.family_id, Text).ilike(pattern),
+                User.email.ilike(pattern, escape="\\"),
+                User.display_name.ilike(pattern, escape="\\"),
+                cast(User.family_id, Text).ilike(pattern, escape="\\"),
             )
         )
     # Newest household first, and `family_id` breaks the tie so two households whose newest
