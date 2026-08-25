@@ -155,12 +155,15 @@ jobs:
               ;;
           esac
 
-      # A green workflow has to mean the app is actually serving. /health touches the
-      # database, so ok/ok proves the migration landed and the pool is alive.
+      # A green workflow has to mean the app is actually serving, so this polls
+      # **/health/db** rather than /health. Phase 119 split them: /health is liveness and
+      # touches nothing, because Fly polls it every 30 seconds and a probe that queries a
+      # serverless Postgres never lets it idle. /health/db is the one that proves the
+      # migration landed and the pool is alive, and a deploy is exactly the moment to ask.
       - name: Wait for the app to serve
         run: |
           set -uo pipefail
-          url="https://${FLY_APP}.fly.dev/health"
+          url="https://${FLY_APP}.fly.dev/health/db"
           deadline=$(( SECONDS + HEALTH_TIMEOUT_SECONDS ))
           attempt=0
 
@@ -190,6 +193,7 @@ jobs:
             echo ""
             echo "- app: \`$FLY_APP\`"
             echo "- commit: \`${GITHUB_SHA:0:8}\`"
-            echo "- health: https://${FLY_APP}.fly.dev/health"
+            echo "- health: https://${FLY_APP}.fly.dev/health (liveness)"
+            echo "- database: https://${FLY_APP}.fly.dev/health/db (readiness)"
             echo "- docs: https://${FLY_APP}.fly.dev/docs"
           } >> "$GITHUB_STEP_SUMMARY"
