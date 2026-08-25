@@ -82,8 +82,8 @@ CONSOLE_WRITES = [
     # before the handler ever looks the row up. Using a real one would test the same thing and
     # need a fixture to build it.
     ("POST", "/v1/social/publications/{publication}/cancel", None),
-    # Writes a `social_renders` row before it queues anything, so it is a console write
-    # like any other and must refuse while the console is pointed at production.
+    # Writes a `social_renders` row and puts an object in the bucket, so it is a console
+    # write like any other and must refuse while the console is pointed at production.
     ("POST", "/v1/social/assets/{asset}/video", None),
     # **Phase 121 widened this sweep past `/v1/prompts` and `/v1/social` to `/v1/admin`, and
     # found the hole it was widened to find.** `PUT /v1/admin/families/{id}/trial` has carried
@@ -245,7 +245,7 @@ async def test_every_console_write_refuses_while_reading_elsewhere(
 NON_PERSISTING = {
     ("POST", "/v1/social/chat"),
     ("POST", "/v1/social/concepts"),
-    ("POST", "/v1/social/shot-list"),
+    ("POST", "/v1/social/treatment"),
     ("POST", "/v1/prompts/preview"),
     # Reads the library to build a style reference and asks a model for candidates. The
     # candidates come back in the response body; `POST /v1/prompts/candidates` above is the

@@ -438,7 +438,14 @@ async def test_the_console_is_served_and_holds_no_credential(client: AsyncClient
 
 
 async def test_the_console_assets_are_served(client: AsyncClient) -> None:
-    for path in ("/admin/static/admin.css", "/admin/static/admin.js", "/admin/static/cards.js"):
+    for path in (
+        "/admin/static/admin.css",
+        "/admin/static/admin.js",
+        "/admin/static/cards.js",
+        # Phase 120. A module the console imports is a module a stale copy of can be executed,
+        # which is the whole reason this sweep exists — it does not get to skip the new one.
+        "/admin/static/timeline.js",
+    ):
         response = await client.get(path)
         assert response.status_code == 200, path
 
@@ -453,7 +460,14 @@ async def test_the_console_never_runs_a_previous_deploys_javascript(client: Asyn
     """
     page = await client.get("/admin")
     assert page.headers["cache-control"] == "no-store"
-    for path in ("/admin/static/admin.css", "/admin/static/admin.js", "/admin/static/cards.js"):
+    for path in (
+        "/admin/static/admin.css",
+        "/admin/static/admin.js",
+        "/admin/static/cards.js",
+        # Phase 120. A module the console imports is a module a stale copy of can be executed,
+        # which is the whole reason this sweep exists — it does not get to skip the new one.
+        "/admin/static/timeline.js",
+    ):
         response = await client.get(path)
         assert response.headers["cache-control"] == "no-cache", path
         # The validator has to survive, or "no-cache" costs a full body on every request.

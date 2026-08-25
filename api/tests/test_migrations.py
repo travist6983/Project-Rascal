@@ -539,6 +539,95 @@ def test_the_trial_backfill_reaches_a_household_written_before_it(scratch_url: s
     _alembic("upgrade head", scratch_url)
 
 
+def test_the_canvas_video_rename_round_trips_with_rows_in_both_tables(scratch_url: str) -> None:
+    """0024 renames two columns and drops a third — as 0009's test puts it, the rows are the test.
+
+    **The drop is the half that matters.** `clip_keys` held object keys, and a downgrade cannot
+    invent them back: the migration says so and restores an empty array instead. An assertion
+    that only walked the schema would pass against a downgrade that silently dropped the rows
+    carrying them, which is the failure mode every reversal in this chain promises not to have.
+
+    Written at the revision *before* 0024, using the old column names, because a row created
+    through the ORM would use the new ones and could not tell whether the rename ran at all.
+    """
+    _alembic("upgrade head", scratch_url)
+    _alembic("downgrade 0023_entitlement_grants", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    with engine.begin() as conn:
+        assert _column_exists(conn, "social_assets", "shot_list") is True
+        assert _column_exists(conn, "social_renders", "clip_keys") is True
+        asset_id = conn.execute(
+            sa.text(
+                "INSERT INTO social_assets (id, headline, format, shot_list) VALUES "
+                "(gen_random_uuid(), 'before the rename', 'video', "
+                '\'{"shots": [{"seconds": 4}]}\'::jsonb) RETURNING id'
+            )
+        ).scalar_one()
+        conn.execute(
+            sa.text(
+                "INSERT INTO social_renders "
+                "(id, asset_id, status, provider, model, shots_total, clip_keys, cost_cents) "
+                "VALUES (gen_random_uuid(), :asset, 'failed', 'gemini_video', 'veo-3.1-lite', "
+                "7, ARRAY['social/2026/08/one.mp4', 'social/2026/08/two.mp4'], 105)"
+            ),
+            {"asset": asset_id},
+        )
+    engine.dispose()
+
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        assert _column_exists(conn, "social_assets", "shot_list") is False
+        assert _column_exists(conn, "social_assets", "treatment") is True
+        assert _column_exists(conn, "social_renders", "shots_total") is False
+        assert _column_exists(conn, "social_renders", "scene_count") is True
+        assert _column_exists(conn, "social_renders", "clip_keys") is False, "the clips are gone"
+
+        # A rename keeps the data. An add-copy-drop that forgot the copy would not.
+        treatment, count, cost = conn.execute(
+            sa.text(
+                "SELECT a.treatment, r.scene_count, r.cost_cents "
+                "FROM social_assets a JOIN social_renders r ON r.asset_id = a.id"
+            )
+        ).one()
+        assert treatment == {"shots": [{"seconds": 4}]}, "the JSONB moved with the column"
+        assert count == 7
+        assert cost == 105, "an old attempt still says what it cost, which is the point of a ledger"
+
+        # The trigger and the partial unique index survive an ALTER of a column they do not name.
+        triggers = _names(conn, "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal")
+        assert "trg_social_renders_set_updated_at" in triggers
+        indexes = _names(conn, "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
+        assert "uq_social_renders_one_live_per_asset" in indexes
+    engine.dispose()
+
+    _alembic("downgrade 0023_entitlement_grants", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        assert _column_exists(conn, "social_assets", "shot_list") is True
+        assert _column_exists(conn, "social_renders", "shots_total") is True
+        shot_list, total, clips = conn.execute(
+            sa.text(
+                "SELECT a.shot_list, r.shots_total, r.clip_keys "
+                "FROM social_assets a JOIN social_renders r ON r.asset_id = a.id"
+            )
+        ).one()
+        assert shot_list == {"shots": [{"seconds": 4}]}, "lossless in both directions"
+        assert total == 7
+        # Restored empty rather than invented, and the row survives. The migration says so.
+        assert clips == [], "the keys are unrecoverable; an empty array is the honest answer"
+    engine.dispose()
+
+    # Leave the scratch database at head, rows removed, so this test cannot decide what the
+    # next one sees.
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM social_assets"))
+    engine.dispose()
+
+
 def _column_exists(conn: sa.Connection, table: str, column: str) -> bool:
     return bool(
         conn.execute(

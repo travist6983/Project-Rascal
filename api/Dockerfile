@@ -35,10 +35,15 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
-# **ffmpeg, for one feature.** The studio's video render generates a clip per shot and no
-# video API joins them, so the concatenation happens here — see `services/social/stitch.py`
-# and the scope note in `CLAUDE.md`. `ffprobe` comes in the same package and is not optional:
-# the concat is accepted only when the joined duration proves it.
+# **ffmpeg, for one feature.** The studio's video is recorded in the operator's browser as
+# VP9-in-WebM and no platform publishes that, so it is re-encoded to H.264 here — see
+# `services/social/transcode.py` and the scope note in `CLAUDE.md`. `ffprobe` comes in the same
+# package and the test suite probes what came out with it.
+#
+# ~~*The studio's video render generates a clip per shot and no video API joins them, so the
+# concatenation happens here — see `services/social/stitch.py`.*~~ — **struck Aug 25, 2026 by
+# phase 120: there are no clips and `stitch.py` is deleted.** The install stays for the
+# re-encode, which is the half that was always load-bearing.
 #
 # **This is not a small install: measured at +148 MB** on this exact base image — 43 MB for
 # `python:3.12-slim-bookworm`, 191 MB once ffmpeg is in. Debian's `ffmpeg` is the full suite

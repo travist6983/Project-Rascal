@@ -16,6 +16,8 @@
  * things that are in the design system.
  */
 
+import { sceneAt, totalMs } from "/admin/static/timeline.js";
+
 const IS_TEST = typeof window === "undefined";
 
 export const PALETTES = {
@@ -363,6 +365,282 @@ export function recordCard(spec, platform, seconds = 4) {
     // Belt and braces. `onstop` not firing is a browser bug rather than a state this code can
     // reach, and the cost of being wrong about that is a spinner that never stops.
     const deadline = setTimeout(finish, total + 4000);
+  });
+}
+
+/* --- The treatment recorder -----------------------------------------------------------------
+ *
+ * A scene graph, drawn card by card and captured as one WebM. **This is the whole video
+ * renderer for this product** — phase 120 removed the vendor that used to generate footage, and
+ * this section plus `drawCard` above are what replaced it.
+ *
+ * **The browser is the renderer, and that is a constraint rather than an accident.** `drawCard`
+ * is the only implementation of the Vellum card in existence. A second one server-side would be
+ * a second thing to keep in step with the design system, and it would put Chromium in a Python
+ * image to run it. So the timeline lives next to the renderer and the pixels are made where the
+ * pixels are already made.
+ *
+ * Every scene is drawn **once**, into its own full-size offscreen canvas, before recording
+ * starts. A card is static within its scene — `drawCard(..., 1)` is the finished poster — so
+ * re-running the type fitter sixty times a second would be the same work repeated for nothing,
+ * and at 1080x1920 it is enough work to drop frames. Each recorded frame is then one or two
+ * `drawImage` calls, which is the cheapest thing a canvas does.
+ */
+
+/** 12–16px at 1080 wide, scaled with the card. The whole amplitude of the only translate here. */
+const RISE_PX = 14;
+
+/** How much room the recording is given per second. Flat colour and type land far under this. */
+const BITS_PER_SECOND = 5e6;
+
+/** How long past a treatment's own runtime the recorder may go before it is abandoned.
+ *
+ * Generous: the encode happens after `stop()`, and a long treatment on a slow machine can take
+ * a second or two to flush its last chunks. Short enough that a wedged recorder does not leave
+ * the console stuck for the life of the tab. */
+const WATCHDOG_GRACE_MS = 15_000;
+
+/** The best WebM the browser will actually record, or null if it will not record one at all. */
+function pickMimeType() {
+  if (IS_TEST || typeof MediaRecorder === "undefined") return null;
+  for (const type of ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return null;
+}
+
+/** Every scene as a finished still, at the real output size. */
+function paintScenes(scenes, width, height) {
+  return scenes.map((scene) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    drawCard(canvas.getContext("2d"), scene, width, height, 1);
+    return canvas;
+  });
+}
+
+/**
+ * One frame of the timeline, composited from the pre-painted stills.
+ *
+ * Exported because the recorder is not necessarily its only caller — anything that wants to show
+ * the treatment at a moment in time must paint through this rather than reimplementing it, or a
+ * preview can be wrong about the thing it is previewing. **There is no such caller today**; the
+ * composer shows the scene list and the still card and has no scrubber.
+ */
+export function paintFrame(ctx, scenes, stills, tMs, width, height) {
+  const at = sceneAt(scenes, tMs);
+  if (at.index < 0) return at;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  // The incoming card's own background, so a fade or a rise comes up out of the page rather
+  // than out of black. `drawCard` fills this too; painting it here is what covers the strip a
+  // rise opens at the **top** — the offset is positive, so the card starts low and settles up,
+  // leaving rows [0, dy) uncovered — and what a crossfade needs when there is nothing beneath.
+  ctx.fillStyle = (PALETTES[scenes[at.index].palette] || PALETTES.cream).bg;
+  ctx.fillRect(0, 0, width, height);
+
+  if (at.previous >= 0) ctx.drawImage(stills[at.previous], 0, 0);
+
+  ctx.globalAlpha = at.enterAlpha;
+  ctx.drawImage(stills[at.index], 0, at.rise * RISE_PX * (width / 1080));
+  ctx.globalAlpha = 1;
+  return at;
+}
+
+/**
+ * Record a scene graph and hand back the WebM.
+ *
+ * **It refuses to start in a hidden tab, and aborts loudly if the tab is hidden mid-record.**
+ * This is the single most likely user-facing defect in the whole feature and the reason it is
+ * handled here rather than mentioned in a comment. `requestAnimationFrame` does not fire in a
+ * backgrounded tab; a recorder driven by it in one produces a file that is *silently short* —
+ * the right container, the right codec, playable, and missing however many seconds the tab
+ * spent behind something else. There is nothing downstream that can tell that file from a
+ * correct one, so the only place it can be caught is before it exists.
+ *
+ * `requestAnimationFrame` and not `setInterval`, for the visible-tab case: `setInterval` drifts
+ * against the compositor, and a frame handed to `captureStream` at a time the compositor did
+ * not paint is a frame the recorder duplicates or drops.
+ */
+export function recordTreatment(scenes, platform, { onProgress } = {}) {
+  const mimeType = pickMimeType();
+  if (!mimeType) {
+    return Promise.reject(
+      new Error("This browser cannot record WebM from a canvas. Chrome and Edge can; Safari cannot."),
+    );
+  }
+  if (typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+    return Promise.reject(new Error("This browser cannot capture a canvas as a video stream."));
+  }
+  if (!scenes || scenes.length < 2) {
+    return Promise.reject(new Error("A treatment needs at least two scenes to record."));
+  }
+  if (document.visibilityState !== "visible") {
+    return Promise.reject(
+      new Error("Bring this tab to the front before recording — a background tab records a short file."),
+    );
+  }
+
+  const [width, height] = SIZES[platform] || SIZES.generic;
+  const total = totalMs(scenes);
+
+  // **Every step that can throw is in here, and the stream is stopped if a later one does.**
+  // `paintScenes` throws on a canvas the browser will not allocate, `captureStream` throws on a
+  // detached canvas, and the `MediaRecorder` constructor throws on a mime type the browser
+  // accepted from `isTypeSupported` but will not actually record. Left bare, the first two threw
+  // *synchronously* out of a function documented to return a promise, and the third left a live
+  // capture stream behind with nothing holding a reference to stop it.
+  let canvas, ctx, stills, stream, recorder;
+  try {
+    canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    ctx = canvas.getContext("2d");
+    stills = paintScenes(scenes, width, height);
+    stream = canvas.captureStream(30);
+    recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: BITS_PER_SECOND });
+  } catch (error) {
+    if (stream) for (const track of stream.getTracks()) track.stop();
+    return Promise.reject(new Error(`The recorder could not start: ${error.message}`));
+  }
+
+  const chunks = [];
+  recorder.ondataavailable = (event) => event.data.size && chunks.push(event.data);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let frame = 0;
+    let watchdog = 0;
+    let aborted = null;
+    // Set the moment the last frame has been drawn and the recorder is about to be stopped.
+    // Everything after that point is a complete recording waiting on `onstop`.
+    let finishing = false;
+
+    const teardown = () => {
+      document.removeEventListener("visibilitychange", onHidden);
+      cancelAnimationFrame(frame);
+      clearTimeout(watchdog);
+      for (const track of stream.getTracks()) track.stop();
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      if (recorder.state !== "inactive") recorder.stop();
+      reject(error);
+    };
+
+    recorder.onstop = () => {
+      if (settled) return;
+      settled = true;
+      teardown();
+      if (aborted) reject(aborted);
+      else resolve(new Blob(chunks, { type: mimeType }));
+    };
+    recorder.onerror = (event) =>
+      fail(new Error(`The recorder failed: ${event.error?.name || "unknown"}.`));
+
+    function onHidden() {
+      if (document.visibilityState === "visible" || settled || aborted) return;
+      // **Two ways this is already over, and neither is an abort.** `stop()` sets `state` to
+      // "inactive" synchronously and only *queues* the stop event, so a recording that ended a
+      // moment ago is inactive with its `onstop` in flight; and `finishing` covers the one frame
+      // between the last draw and that `stop()`, where the state is still "recording" but every
+      // frame has already been drawn. Without both, hiding the tab in that frame throws away a
+      // complete file.
+      //
+      // **Before `finishing` is set, aborting is correct rather than over-eager.** At wall-clock
+      // `total` the loop has usually not ticked yet, so frames really are still owed — and no
+      // threshold could tell "five milliseconds short" from "five seconds short" without being
+      // exactly the fudge that lets a silently-short file through.
+      if (recorder.state === "inactive") return;
+      if (finishing) {
+        // **Stop it here, because the `stop()` this was waiting for cannot run.** Every frame is
+        // drawn and the trailing `requestAnimationFrame` holds the `stop()` — and rAF is parked
+        // in a hidden tab, which is the whole premise of this guard. Returning early would leave
+        // the recorder running until the watchdog abandoned a *complete* recording fifteen
+        // seconds later, blaming the recorder for the tab.
+        recorder.stop();
+        return;
+      }
+      // Abort rather than pause and resume. The frames the tab missed cannot be recovered —
+      // `captureStream` samples the canvas in real time — so a resumed recording is a file with
+      // a hole in it, which is the thing this whole guard exists to make impossible.
+      aborted = new Error(
+        "The tab went to the background mid-recording, so the file would have been short. " +
+          "Nothing was uploaded — bring this tab to the front and record again.",
+      );
+      recorder.stop();
+    }
+    document.addEventListener("visibilitychange", onHidden);
+
+    // **Belt and braces, and it rejects rather than resolving.** `onstop` not firing is a browser
+    // bug rather than a state this code can reach, and the cost of being wrong about that is a
+    // button stuck on "Recording…" for the life of the tab — which is why `recordCard`, above,
+    // has had a deadline timer since it was written. This one differs from that one on purpose: a
+    // deadline that *resolved* would hand back however many chunks had arrived, which is the
+    // silently-short file this whole function exists to make impossible.
+    watchdog = setTimeout(
+      () =>
+        fail(
+          new Error(
+            "The recorder stopped responding and the recording was abandoned. Nothing was " +
+              "uploaded. Reload the console and try again.",
+          ),
+        ),
+      total + WATCHDOG_GRACE_MS,
+    );
+
+    // The first frame is painted before `start()` so the stream never opens on a blank canvas —
+    // a recorder that captures one empty frame produces a clip that begins with a flash.
+    try {
+      paintFrame(ctx, scenes, stills, 0, width, height);
+      recorder.start();
+    } catch (error) {
+      fail(new Error(`The recorder could not start: ${error.message}`));
+      return;
+    }
+    const began = performance.now();
+
+    const tick = () => {
+      if (settled || aborted) return;
+      let at;
+      try {
+        const elapsed = performance.now() - began;
+        at = paintFrame(ctx, scenes, stills, Math.min(elapsed, total), width, height);
+        if (elapsed < total) {
+          frame = requestAnimationFrame(tick);
+        } else {
+          finishing = true;
+          // **One more frame after the last one is drawn.** `captureStream` samples the canvas
+          // when the compositor paints it, so stopping in the same turn as the final draw ends
+          // the recording before that frame has been sampled and the last scene loses its
+          // ending.
+          frame = requestAnimationFrame(() => {
+            if (settled) return;
+            if (recorder.state !== "inactive") recorder.stop();
+          });
+        }
+      } catch (error) {
+        // A throw inside a `requestAnimationFrame` callback escapes silently and schedules no
+        // successor, so without this the loop simply stops: the recorder runs on, `onstop` never
+        // comes, and the promise never settles. Reject instead.
+        fail(error instanceof Error ? error : new Error(String(error)));
+        return;
+      }
+      // **The caller's callback runs last and cannot take the recording down with it.** It is
+      // cosmetic — a line of text in the composer — and the recording is the deliverable, so a
+      // bug in it must not be the reason a good file is lost. Deliberately silent: there is
+      // nowhere in this module to report it that is not itself the caller's problem.
+      try {
+        onProgress?.({ index: at.index, of: scenes.length, elapsed: performance.now() - began, total });
+      } catch {
+        /* a broken progress reporter is not a broken recording */
+      }
+    };
+    frame = requestAnimationFrame(tick);
   });
 }
 

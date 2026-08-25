@@ -611,22 +611,25 @@ body[data-view="signin"] .shell {
   border-top: 1px solid var(--border);
 }
 
-.shots {
+/* The treatment's scene list. Renamed from `.shot*` by phase 120 with the thing it describes:
+   these rows are brand cards now, not camera directions, and `.shot-voice` in particular was
+   holding a subhead in a feature whose stated accepted loss is that there is no voice. */
+.scenes {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
-  counter-reset: shot;
+  counter-reset: scene;
 }
 
-.shot {
-  counter-increment: shot;
+.scene {
+  counter-increment: scene;
   padding: 10px 0 10px 30px;
   border-top: 1px solid var(--border);
   position: relative;
 }
 
-.shot::before {
-  content: counter(shot);
+.scene::before {
+  content: counter(scene);
   position: absolute;
   left: 0;
   top: 12px;
@@ -634,24 +637,26 @@ body[data-view="signin"] .shell {
   color: var(--ink-faint);
 }
 
-.shot-head {
+.scene-head {
   display: flex;
   gap: 8px;
   align-items: baseline;
   margin: 0 0 4px;
 }
 
-.shot-super {
+.scene-headline {
   font-weight: 650;
   font-size: 13px;
 }
 
-.shot-visual {
+.scene-eyebrow {
   margin: 0 0 4px;
   font-size: 13px;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
 }
 
-.shot-voice {
+.scene-subhead {
   margin: 0;
   font-size: 13px;
   padding-left: 10px;

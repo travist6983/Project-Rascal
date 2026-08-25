@@ -418,10 +418,10 @@
 
             <div class="field-row studio-video">
               <label class="field">
-                <span>…or a video shot list</span>
-                <input id="v-brief" placeholder="30 seconds on what a camera roll can't do" />
+                <span>…or a video treatment</span>
+                <input id="v-brief" placeholder="20 seconds on what a camera roll can't do" />
               </label>
-              <button id="v-go" class="btn" type="button">Shot list</button>
+              <button id="v-go" class="btn" type="button">Treatment</button>
             </div>
           </article>
         </div>
@@ -607,25 +607,31 @@
             </label>
             <p id="m-error" class="form-error" role="alert" hidden></p>
             <section id="m-treatment" class="treatment" hidden>
-              <p class="label">Shot list <span id="m-runtime" class="runtime"></span></p>
+              <p class="label">Treatment <span id="m-runtime" class="runtime"></span></p>
               <p class="card-note">
-                Written by Claude and stored with the post. <strong>These shots are a treatment
-                for whoever holds the camera — nothing in Vellum turns them into footage.</strong>
-                <em>Download WebM</em> below does not render this: it records the card above
-                settling in, four seconds of the headline, and knows nothing about these shots.
-                The video renderer is the same — it takes the one-line image brief, not this.
+                Written by Claude as a <strong>scene graph</strong> and stored with the post: each
+                scene is one of the brand cards above, with copy, a hold, and how it enters.
+                <strong>Record</strong> draws every frame with that same renderer, captures the
+                canvas, and sends the recording to be re-encoded as H.264. Nothing is generated
+                and nothing is bought. <em>Download WebM</em> in the row below is a different
+                thing — it records the single card above settling in, and knows nothing about
+                these scenes.
               </p>
-              <ol id="m-shots" class="shots"></ol>
+              <ol id="m-scenes" class="scenes"></ol>
               <div class="treatment-render">
-                <button type="button" id="m-render" class="btn">Render this as video</button>
-                <p id="m-render-note" class="card-note"></p>
+                <button type="button" id="m-record" class="btn">Record this treatment</button>
+                <p id="m-record-note" class="card-note"></p>
               </div>
-              <div id="m-render-state" class="render-state" hidden></div>
+              <div id="m-record-state" class="render-state" hidden></div>
 
               <div class="treatment-track">
                 <p class="label">Captions · WebVTT</p>
                 <button type="button" id="m-copy-vtt" class="btn btn-quiet">Copy</button>
               </div>
+              <p class="card-note">
+                Derived from the scenes, one cue per scene, boundaries exactly the scene
+                boundaries. Not written separately, so it cannot disagree with what is on screen.
+              </p>
               <pre id="m-vtt" class="vtt"></pre>
             </section>
 

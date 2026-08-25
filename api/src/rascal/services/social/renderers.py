@@ -7,7 +7,8 @@ answers rather than one:
 
 **The card renderer, which needs no vendor at all and works today.** Claude picks a template
 and writes the words; `admin/static/cards.js` draws them onto a canvas in the Vellum design
-system and hands back a PNG, or a WebM if it draws the frames in a loop. For a warm
+system and hands back a PNG — or, animated over a scene graph and captured with
+`MediaRecorder`, a whole video. For a warm
 typographic brand whose posts are sentences, this is not a fallback — a diffusion model asked
 for "a cream card with a line of terracotta type" produces something worse and differently
 wrong every time, and cannot be told to match `#C05A2B` exactly. It is also the only renderer
@@ -39,6 +40,7 @@ from anyio import to_thread
 
 from rascal.config import Settings
 from rascal.services.s3 import get_s3_client
+from rascal.services.social import transcode
 
 log = logging.getLogger("rascal.social.render")
 
@@ -88,9 +90,10 @@ def statuses(settings: Settings) -> list[RendererStatus]:
             configured=True,
             setup="Nothing to configure — it draws in the browser.",
             note="Claude writes the words and picks the template; the canvas draws it in the "
-            "Vellum palette at any size and exports PNG or WebM. No vendor, no key, no "
-            "per-image cost, and it cannot drift off-brand because it cannot draw anything "
-            "that is not in the design system.",
+            "Vellum palette at any size and exports a PNG, a JPEG for Instagram, or — since "
+            "phase 120 — a whole video, by animating a scene graph and recording the canvas. "
+            "No vendor, no key, no per-image cost, and it cannot drift off-brand because it "
+            "cannot draw anything that is not in the design system.",
         ),
         RendererStatus(
             key="openai_image",
@@ -123,14 +126,17 @@ def statuses(settings: Settings) -> list[RendererStatus]:
             "provider, so this one runs on demand and never on a schedule.",
         ),
         RendererStatus(
-            key="storyboard",
-            label="Shot list and captions",
+            key="canvas_video",
+            label="Brand cards · video",
             kind="video",
-            configured=bool(settings.anthropic_api_key),
-            setup="Uses ANTHROPIC_API_KEY, the same key the chat uses.",
-            note="Claude writes the shots, the on-screen text and a WebVTT caption track. "
-            "That is the half of a video a founder with a phone can actually act on tonight; "
-            "the pixels are the part that needs a vendor.",
+            configured=bool(settings.anthropic_api_key) and transcode.available(),
+            setup="Uses ANTHROPIC_API_KEY, the same key the chat uses, and ffmpeg on the "
+            "machine — which the runtime image installs.",
+            note="Claude writes a typed scene graph and the browser draws every frame with "
+            "the same renderer that draws a still, records the canvas, and posts the "
+            "recording here to be re-encoded as H.264. No vendor generates video for this "
+            "product, and the caption track is derived from the scene copy rather than "
+            "written beside it, so the two cannot disagree.",
         ),
     ]
 
@@ -156,8 +162,9 @@ async def render_image(
     """Hand an image prompt to whichever provider is configured.
 
     Raises `LookupError` when the named provider has no credential — the router turns that
-    into a 503 carrying the provider's own `setup` sentence, so the console can show the same
-    "here is what to set" card it shows before anybody clicks.
+    into a **422** carrying the provider's own `setup` sentence, so the console can show the
+    same "here is what to set" card it shows before anybody clicks. (This said 503 for three
+    phases; `render_asset` has always raised `VALIDATION_FAILED`.)
     """
     if provider == "openai_image":
         if not settings.openai_api_key:
@@ -243,30 +250,3 @@ async def _replicate(settings: Settings, model: str | None, payload: dict) -> by
         fetched = await client.get(url)
         fetched.raise_for_status()
         return fetched.content
-
-
-def caption_track(shots: list[dict]) -> str:
-    """A WebVTT track from a shot list.
-
-    WebVTT rather than SRT because it is what a browser `<track>` element reads and what every
-    social platform's upload accepts; SRT needs a conversion somewhere and this needs none.
-
-    **Captions are not optional on a social video.** Most of them are watched with the sound
-    off, and a video whose whole argument is spoken is a video most people scroll past — which
-    makes this the accessibility feature that is also the reach feature.
-    """
-    lines = ["WEBVTT", ""]
-    clock = 0.0
-    for index, shot in enumerate(shots, start=1):
-        spoken = (shot.get("voiceover") or shot.get("on_screen_text") or "").strip()
-        seconds = max(1, int(shot.get("seconds") or 3))
-        if spoken:
-            lines += [str(index), f"{_stamp(clock)} --> {_stamp(clock + seconds)}", spoken, ""]
-        clock += seconds
-    return "\n".join(lines)
-
-
-def _stamp(seconds: float) -> str:
-    whole = int(seconds)
-    millis = int((seconds - whole) * 1000)
-    return f"{whole // 3600:02d}:{whole % 3600 // 60:02d}:{whole % 60:02d}.{millis:03d}"

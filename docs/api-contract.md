@@ -1489,16 +1489,22 @@ owner sets by hand for a post made somewhere this service cannot reach.
 
 > **Claude does not generate images or video.** There is no such endpoint on any Anthropic
 > model. The studio uses the key for what it genuinely does — art direction, copy, captions,
-> alt text, image briefs and shot lists — and pixels come from one of two places: a brand-card
-> template drawn on a canvas in the browser, which needs no vendor and no key, or a
-> third-party renderer that is unconfigured until somebody adds one.
+> alt text, image briefs and **scene graphs** — ~~*and shot lists*~~ — and pixels come from one of
+> two places: a brand-card template drawn on a canvas in the browser, which needs no vendor and
+> no key, or a third-party renderer that is unconfigured until somebody adds one.
+>
+> **Since phase 120 that second sentence covers video too, and no vendor generates a frame of
+> it.** Claude writes a typed scene graph, the console's browser animates it with the same
+> `cards.js` that draws a still card, records the canvas with `MediaRecorder`, and posts the
+> recording back to be re-encoded as H.264. What was Google Veo — one paid generation per shot,
+> joined with ffmpeg — is gone, along with `GEMINI_API_KEY`.
 
 | Route | Returns |
 |---|---|
-| `GET /social/studio` | Which renderers are configured, the D7 ledger, and the templates, palettes and platform sizes a concept may name |
+| `GET /social/studio` | Which renderers are configured, the D7 ledger, the templates, palettes and platform sizes a concept may name, and (phase 120) the scene graph's own closed sets and bounds under `video` |
 | `POST /social/chat` | **Streams `text/plain`.** The whole conversation goes up each time — nothing stores a thread |
 | `POST /social/concepts` | `n` post concepts, schema-enforced: angle, template, palette, headline, subhead, caption, alt text, hashtags, image brief |
-| `POST /social/shot-list` | A shot list plus a WebVTT caption track for a short vertical video |
+| `POST /social/treatment` | A typed **scene graph** for a short vertical video, plus the WebVTT track **derived** from it. ~~*`POST /social/shot-list` — a shot list plus a caption track*~~, replaced by phase 120 |
 | `GET\|POST /social/assets`, `PATCH /social/assets/{id}` | Saved posts |
 | `POST /social/assets/{id}/render` | Hands the image brief to a photographic provider. Unconfigured → the environment variable to set |
 | `GET /social/account` | Which Instagram account the credentials control, and whether now is a reasonable time to post. Read from Instagram, never from our own rows |
@@ -1506,6 +1512,9 @@ owner sets by hand for a post made somewhere this service cannot reach.
 | `POST /social/assets/{id}/publish` | Publishes now, or queues for `scheduled_for`. **A too-soon `409` leaves the attempt queued** — see below |
 | `GET /social/publications` | The publish queue and what became of each attempt |
 | `POST /social/publications/{id}/cancel` | Takes a scheduled post out of the queue. Never legal after it has gone out |
+| `POST /social/assets/{id}/video` | Stores the video the browser just recorded. **Raw WebM body**, 64MB cap, EBML magic number checked, re-encoded to H.264 MP4. **200 with the finished render row** — ~~*202 with a render id to poll*~~ |
+| `GET /social/assets/{id}/video` | The newest render attempt for this post, or `null` |
+| `GET /social/renders/{id}/file` | A short-lived presigned URL for the file a render produced. `404` when it produced none, carrying the reason |
 
 ### Publishing to Instagram
 
@@ -1515,8 +1524,9 @@ browser, so it has to reach the bucket first — and then Meta is handed a **pre
 no object is ever world-readable. Verified against the live account: Meta's fetcher does not
 mind the `X-Amz-*` query string.
 
-**`POST /social/assets/{id}/image` is the one route in this API that takes bytes through the
-service** rather than handing back a presigned PUT. A browser cannot PUT to the bucket without a
+**`POST /social/assets/{id}/image` is one of two routes in this API that take bytes through the
+service** — ~~*the one route*~~, until phase 120 added `POST /social/assets/{id}/video` on the
+identical argument — rather than handing back a presigned PUT. A browser cannot PUT to the bucket without a
 CORS policy on the bucket, and that bucket holds the archive — widening what a browser origin
 may do against it to publish a marketing card is the wrong trade. The card is capped at 4MB and
 checked to start with JPEG's magic number, because Meta reports a PNG as a container in `ERROR`
@@ -1555,8 +1565,6 @@ it once the gap has passed. So a caller that pressed publish, saw a 409 and stop
 post up to an hour later. The console re-reads `GET /social/publications` after any publish
 error for exactly this reason — the queue on screen is the answer to *"did that do anything"*,
 and the error text alone is not.
-| `POST /social/assets/{id}/video` | **202.** Renders the shot list: one generation per shot, joined into one file. Returns a render row to poll |
-| `GET /social/assets/{id}/video` | The newest render attempt, or `null`. `shots_done` counts clips that landed |
 
 **`POST /social/chat` checks its credential before the response starts.** A `StreamingResponse`
 spends its status code the moment headers are sent, so an exception inside the generator
@@ -1577,9 +1585,62 @@ free string and `models/social.py` described a validation that nothing performed
 console's own dropdown could save an empty palette that no card could be drawn from. `GET /social/studio` returns both
 lists, so a client never has to hard-code them.
 
-**`POST /social/assets/{id}/video` answers 202 and does the work afterwards.** Seven shots are seven generations plus a concatenation and it takes minutes, so the response is a render row and the console polls `GET` for `shots_done` of `shots_total`. **Every reason to refuse is checked before the first clip** — no shot list, no `GEMINI_API_KEY`, no ffmpeg on the machine, or a render already running for that post — because the expensive failure is the one found after paying for six clips. A second render for a post that is already rendering is a 422 rather than a queue: it would buy the same clips twice.
+### Video, and the fact that nothing buys one
 
-Clips are stored and costed **as they land**, so a job that fails on shot six still reports what it spent, and the clips it bought stay in the bucket. `cost_cents` is derived from `GEMINI_VIDEO_CENTS_PER_SECOND`, a price somebody typed, exactly like the storage estimate on the costs panel.
+**`POST /social/treatment` returns a scene graph, not film direction.** An ordered list of 2 to 10
+scenes; each names a `template` and a `palette` from the same closed sets a still card uses, a
+`transition` from `cut | fade | rise`, its copy, and a `duration_ms` between 1200 and 8000. The
+whole thing must total between 6000ms and 60000ms. Every one of those is a `422` on both sides —
+too short, too long, too few scenes, too many, and an unknown or empty value anywhere.
+
+~~**`POST /social/assets/{id}/video` answers 202 and does the work afterwards.** Seven shots are
+seven generations plus a concatenation and it takes minutes, so the response is a render row and
+the console polls `GET` for `shots_done` of `shots_total`.~~ — **struck by phase 120.** It is now
+the same shape `POST /social/assets/{id}/image` already had: **the browser is the renderer**, and
+this route takes the bytes it recorded. `Content-Type: video/webm`, raw body, 64MB cap, and the
+EBML magic number is checked for the same reason the JPEG one is — a wrong format otherwise
+surfaces as a downstream error naming neither the format nor the file. The server re-encodes with
+`libx264 -profile:v high -pix_fmt yuv420p -r 30 -an -movflags +faststart` and answers **200 with
+the completed `social_renders` row**. There is nothing to poll: it is a few seconds of CPU.
+
+**The re-encode is never a stream copy, and that is load-bearing.** `MediaRecorder` writes an
+*unknown* duration into the WebM header, so anything that trusts the input's duration gets
+nothing; the re-encode recomputes timestamps from the frames. `-pix_fmt yuv420p` is the flag
+between a file Instagram accepts and one it rejects.
+
+**The caption track is derived on every write, and cannot be set by a caller.** One cue per
+scene, cue boundaries exactly equal to the cumulative scene durations.
+
+Be precise about what changed, because the loose version of this is wrong. The track was derived
+before phase 120 too — the model never authored one, `SHOT_LIST_SCHEMA` had no caption field, and
+`renderers.caption_track(shots)` computed it server-side. **It was then stored in an editable
+column that nothing recomputed**: a `PATCH` could overwrite it, and editing the shots left a track
+describing the previous video. Both were reachable through this API and nothing compared them.
+
+So `caption_track` and `duration_seconds` are now **not settable at all** — a `PATCH` carrying
+either is accepted and neither value lands — and the derivation runs on every path that can set
+the scene graph.
+
+~~Clips are stored and costed **as they land**, so a job that fails on shot six still reports what
+it spent. `cost_cents` is derived from `GEMINI_VIDEO_CENTS_PER_SECOND`.~~ — **struck.** There are
+no clips. `cost_cents` is **`0`**, written down rather than dropped, on the success path and the
+failure path alike: a ledger that stops recording when the number becomes zero cannot show you it
+went to zero.
+
+**A failed transcode is a `422` carrying ffmpeg's last line, and it still writes a `failed` row.**
+An error that leaves no trace of the attempt makes *it did nothing* and *it failed* the same
+event. The same is true of a bucket that would not take the bytes.
+
+**A recording materially shorter than its scene graph is refused, and that is the server half of
+a guard the browser also applies.** After the re-encode the server probes the output's duration
+and compares it to the sum of the scene durations; more than 0.25s short is a `422` and a `failed`
+row saying so. The console refuses to record in a backgrounded tab because
+`requestAnimationFrame` does not fire in one and the file comes out *silently short* — right
+container, right codec, playable, missing whatever the tab spent hidden. That is the browser
+promising; this is the server checking, and it holds against a tab the browser mis-detected, a
+recorder that dropped frames, and anything at all posting to this route. A correct recording is
+one frame long — the extra `requestAnimationFrame` after the final draw — which is what the
+tolerance is sized for. An *unreadable* duration is not a refusal.
 
 **Alt text is required to move an asset to `exported` or `published`**, and the check is at
 that moment rather than at creation: a rule enforced while somebody is still typing is a rule

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from rascal.config import Settings
 from rascal.errors import ErrorCode, RascalError, not_found
 from rascal.models import Prompt, SocialAsset, User
+from rascal.services.social import scenes
 
 #: Statuses that mean the words left the building, or are about to. A discarded draft never
 #: went anywhere and does not count against the library.
@@ -146,14 +147,12 @@ async def create_asset(
         alt_text=payload.get("alt_text"),
         hashtags=payload.get("hashtags") or [],
         image_prompt=payload.get("image_prompt"),
-        shot_list=payload.get("shot_list"),
-        caption_track=payload.get("caption_track"),
-        duration_seconds=payload.get("duration_seconds"),
         featured_prompt_id=featured[0] if featured else None,
         featured_body=featured[1] if featured else None,
         model=payload.get("model"),
         created_by_user_id=author.id,
     )
+    _apply_treatment(asset, payload.get("treatment", _ABSENT))
     session.add(asset)
     await session.flush()
     await session.refresh(asset)
@@ -176,10 +175,51 @@ EDITABLE = (
     "alt_text",
     "hashtags",
     "image_prompt",
-    "shot_list",
-    "caption_track",
-    "duration_seconds",
+    # `treatment` is here; `caption_track` and `duration_seconds` deliberately are not. Both
+    # are derived from the scene graph by `_apply_treatment` below, and a PATCH that could set
+    # them is a PATCH that can make the captions disagree with the cards. That divergence was
+    # possible until phase 120 and nothing detected it.
+    "treatment",
 )
+
+
+#: Distinguishes *absent* from *explicitly null*. `changes.pop("treatment", None)` cannot:
+#: `SocialAssetUpdate` is partial, so a PATCH that omits the field and one that sends
+#: `"treatment": null` both arrive as `None` under `exclude_unset`, and the second silently did
+#: nothing while answering 200.
+_ABSENT = object()
+
+
+def _apply_treatment(asset: SocialAsset, treatment: object) -> None:
+    """Set the scene graph and re-derive everything that hangs off it.
+
+    **One function, called from both write paths**, because the invariant is not "the captions
+    are derived on creation" — it is that a `caption_track` on a row is always the one these
+    scenes produce. An edit that changed the scenes and left the old track would be the same
+    defect arriving by a different door.
+
+    Clearing is a real operation: `"treatment": null` empties the graph **and** everything
+    derived from it, because a caption track left standing beside no scenes is the divergence
+    this function exists to prevent, arriving by the one door a partial update leaves open.
+
+    `duration_seconds` is a display figure and the exact runtime is the sum of `duration_ms` in
+    the graph itself, which is what the caption stamps and the browser's clock both read. It
+    rounds **up**, not to nearest: `round()` in Python is round-half-to-even, so a 6500ms
+    treatment would come back as 6 and a 7500ms one as 8, which is a surprise nobody wants in a
+    number on a screen. Ceiling is also the honest reading — a 6.5 second video occupies seven
+    seconds of anybody's feed.
+    """
+    if treatment is _ABSENT:
+        return
+    if treatment is None:
+        asset.treatment = None
+        asset.caption_track = None
+        asset.duration_seconds = None
+        return
+    asset.treatment = treatment
+    scene_list = list(treatment.get("scenes") or [])
+    asset.caption_track = scenes.caption_track(scene_list)
+    asset.duration_seconds = -(-scenes.total_ms(scene_list) // 1000)
 
 
 async def get_asset(session: AsyncSession, asset_id: uuid.UUID) -> SocialAsset:
@@ -209,8 +249,10 @@ async def update_asset(
             field="alt_text",
         )
 
+    treatment = changes.pop("treatment", _ABSENT)
     for key, value in changes.items():
         setattr(asset, key, value)
+    _apply_treatment(asset, treatment)
     if changes.get("status") == "published" and asset.published_at is None:
         asset.published_at = dt.datetime.now(tz=dt.UTC)
     await session.flush()
@@ -243,7 +285,7 @@ def as_dict(asset: SocialAsset) -> dict[str, Any]:
         "alt_text": asset.alt_text,
         "hashtags": list(asset.hashtags or []),
         "image_prompt": asset.image_prompt,
-        "shot_list": asset.shot_list,
+        "treatment": asset.treatment,
         "caption_track": asset.caption_track,
         "duration_seconds": asset.duration_seconds,
         "render_provider": asset.render_provider,

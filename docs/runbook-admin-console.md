@@ -120,7 +120,7 @@ Setting a secret restarts the machines — one deploy, not seven, so set them in
 
 | Variable | Where | Unlocks |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | platform.claude.com → API keys | Studio: chat, concepts, shot lists |
+| `ANTHROPIC_API_KEY` | platform.claude.com → API keys | Studio: chat, concepts, scene graphs |
 | `ANTHROPIC_ADMIN_KEY` | platform.claude.com → Settings → **Admin keys** | Costs: dollars, tokens, cache hit rate |
 | `GITHUB_BILLING_TOKEN` | github.com → Settings → Developer settings → Fine-grained tokens → **Account permissions → Plan → Read-only** | Costs: Actions spend, the second real dollar figure |
 | `GITHUB_ACCOUNT` | the username that owns the bill — defaults to `travist6983` | Costs: whose bill |
@@ -129,7 +129,6 @@ Setting a secret restarts the machines — one deploy, not seven, so set them in
 | `NEON_PROJECT_ID` | console.neon.tech → project → Settings | Costs: which project |
 | `NEON_ORG_ID` | console.neon.tech → in the URL | Costs: the daily compute chart, and nothing else |
 | `RESEND_AUDIENCE_ID` | resend.com → Audiences | Costs: subscribers. Also unblocks `POST /v1/subscribe` |
-| `GEMINI_API_KEY` | aistudio.google.com → API keys, **on a project with billing enabled** | Studio: rendering a shot list into video |
 
 ### The two Anthropic keys cannot be the same value
 
@@ -148,51 +147,63 @@ cost report. They are two keys, not one key used twice.
 The `org:admin` OAuth token is the documented alternative to an Admin key, but it is short-lived
 and refreshed interactively, so it is not a value to put in a Fly secret.
 
-### The Gemini key needs billing, and the error will not say so
+### The Studio's video render, and the three things that actually go wrong
 
-`GEMINI_API_KEY` renders a shot list into video — one generation per shot, joined with ffmpeg.
-It is optional; without it the Studio's render button refuses and everything else works.
+~~*The Gemini key needs billing, and the error will not say so.*~~ ~~*After billing, the next
+refusal is not about money — and it decided the default model.*~~ — **both struck Aug 25, 2026 by
+phase 120.** There is no Gemini key any more. Claude writes a typed scene graph, the console's
+own browser draws it with the same card renderer that draws a still, records the canvas, and posts
+the recording to be re-encoded. Nothing is bought and there is no vendor to be refused by. The
+free-tier-429 trap, the shut-down `veo-3.0` ids and the price/model mismatch are all gone with it;
+the safety refusal that decided the old default lives on in `decisions.md`, where it is now the
+strongest argument in the file for not routing brand copy through a model you cannot inspect.
 
-> **The video models have a free-tier quota of exactly zero.** A key that answers text
-> requests perfectly returns **429** for video, and Google's message reads *"You exceeded
-> your current quota"* — which sounds like rate limiting and is actually billing. The tell is
-> in the detail: `generate_content_free_tier_requests, limit: 0`. If you see `free_tier` in
-> that string, the project is not on a paid tier however many credits the console shows.
+**If `GEMINI_API_KEY` is still set as a Fly secret, nothing reads it.** Removing it is a separate
+manual act: `flyctl secrets unset GEMINI_API_KEY GEMINI_VIDEO_MODEL GEMINI_VIDEO_CENTS_PER_SECOND
+-a rascal-api`.
 
-**Credits on a different project do not count.** API keys belong to a project, and billing has
-to be enabled on *that* project. Check which tier the key is actually on at
-[ai.dev/rate-limit](https://ai.dev/rate-limit) — it names the tier directly, which is faster
-than reading a 429 twice. Propagation after enabling is minutes, not instant.
+Four things go wrong now, and none of them is a bill.
 
-**Every video model on this API is preview**, and the `veo-3.0`/`veo-2.0` ids most search
-results still name were shut down on June 30, 2026 — confirmed absent from a live model list.
-`GEMINI_VIDEO_MODEL` is a setting so a moved id is a secret change rather than a deploy.
+**1. A backgrounded tab, which is the one most likely to bite you.** The recorder is driven by
+`requestAnimationFrame`, and rAF does not fire in a tab that is behind something else — so a
+recording made from a backgrounded tab would be **silently short**: right container, right codec,
+playable, missing however many seconds the tab spent hidden. Nothing downstream can tell that file
+from a correct one. So the console **refuses to start** unless `document.visibilityState` is
+`visible`, and **aborts loudly** if the tab is hidden mid-record rather than uploading a truncated
+file. *"Bring this tab to the front before recording"* is that guard, working. Keep the tab in
+front for the length of the treatment — 22 seconds for a seven-scene one.
 
-### After billing, the next refusal is not about money — and it decided the default model
+**2. No ffmpeg, or an ffmpeg without libx264 — and the console can only see the first.** The
+recording is VP9 in WebM and every platform wants H.264 in MP4, so the re-encode is not optional.
+The runtime image is `python:3.12-slim-bookworm` plus Debian's `ffmpeg`, which is ffmpeg 5.1.9 and
+carries `libx264` plus `vp8`/`vp9` decoders — verified in the image, not on a laptop.
 
-**Billing was enabled Aug 21, 2026 and the section above stopped being the last hurdle.** The
-first render past the 429 came back **200** and then refused a shot: `gemini-omni-flash-preview`
-rejected **a static shot of a photograph, captioned *"Why did you take this one?"*, as "harmful
-content"**. It is ordinary product copy, there is nothing to appeal, and every Veo 3.1 tier
-accepts the identical prompt byte for byte.
+`GET /social/studio` reports `video.ffmpeg`, and **that is `shutil.which("ffmpeg")` and nothing
+more**: a build present but missing `libx264` reports `true`, the console offers the button, and
+the failure arrives as a `422` naming ffmpeg after the operator has sat through a recording. When
+the flag is `false` the console **disables** the Record button and prints the reason beside it —
+it does not hide it; the button stays visible so the reason is readable. To check the codec
+itself, which nothing automated does:
 
-**So the default is `veo-3.1-lite-generate-preview`.** Two things follow that matter when you are
-sitting in front of the console:
+```
+docker run --rm <runtime image> ffmpeg -hide_banner -encoders | grep libx264
+docker run --rm <runtime image> ffmpeg -hide_banner -decoders | grep -E ' vp8| vp9'
+```
 
-- **Renders take minutes and the number is real.** Veo is asynchronous — the service starts an
-  operation, polls it, then downloads the clip — and one four-second Lite clip measured **about
-  ninety seconds**. A seven-shot treatment is seven of those plus a concatenation. The panel polls
-  `shots_done` of `shots_total`; it is working, not hung. The ceiling is eight minutes **per
-  clip**, after which the render is failed deliberately and the clips already paid for are kept.
-- **The price changed with the model, and you have to change it too.** Lite is **$0.05 a second**
-  against Omni Flash's $0.10 ($0.40 for Veo Standard), so `GEMINI_VIDEO_CENTS_PER_SECOND` is `5`.
-  **If you repoint `GEMINI_VIDEO_MODEL` and leave the price, the console confidently prices the
-  wrong model.** Nothing detects this — it is two independent settings by design, because the
-  price is a figure somebody typed, and it has **never been reconciled against a Google invoice**.
+**3. A recording shorter than its treatment.** The server probes the finished file and refuses
+one more than 0.25s short of the scene graph, with a `422` and a `failed` row naming both
+durations. It almost always means the tab went to the background part way through — the console
+tries to prevent that and this catches what it misses. Record it again with the tab in front.
 
-**Omni Flash still works if you set it** — the service speaks both API shapes and picks by the
-model id prefix. It is worth trying again if the filter loosens, because it remains the only model
-documenting legible on-screen text, which every captioned shot needs.
+**4. The 64MB cap.** Refused on `Content-Length` before the body is read, so an oversized upload
+costs nothing. A minute of flat colour and type at 1080×1920 encodes to a few megabytes — a
+measured 21.6-second seven-scene treatment came back at **305KB** — so hitting 64MB means the
+capture is wrong rather than the video being long, and the message says so.
+
+**What a good render looks like from the console.** Press *Record this treatment*; the box counts
+scenes as they draw, then says *"Re-encoding to H.264…"*, then *"Done — N scenes, one file. Cost:
+nothing."* with an *Open the film →* button beside it. Wall clock is the treatment's own runtime
+plus about a second: a 21.6-second recording transcoded in **1.0 second** on a dev machine.
 
 ### The GitHub billing token is not the token CI uses
 
