@@ -1,320 +1,262 @@
-"""Turning a shot list into a video: the job, its guards, and what it refuses to start.
+"""Recording a scene graph into a video: what the server does with the bytes, and what it refuses.
 
-Seven shots are seven generations and a concatenation, and the whole thing takes minutes. That
-shapes everything here.
+**The shape of this module is the phase 120 change in miniature.** What stood here was a
+detached background task: seven paid generations one after another, clips written to the bucket
+as they landed, a `running` row for the console to poll, a staleness reaper for the job a deploy
+killed mid-flight, and a session-poisoning recovery path for a commit that failed between two
+ten-minute vendor calls. Every line of that machinery existed because the work took minutes and
+cost money.
 
-**Every guard runs before a single clip is generated.** A treatment is real money — roughly ten
-cents a second — and the expensive failure is not a job that refuses, it is a job that renders
-six clips and then discovers there is no ffmpeg to join them with. So the configuration check,
-the ffmpeg check, the shot-list check and the already-running check all happen while the
-request is still open, and the caller is told which one failed.
+None of it is here now, because neither of those is true. The browser draws the cards and
+records them; the server receives a WebM, re-encodes it, and stores it. That is a few seconds of
+CPU on one machine, so it happens **inside the request** and the response is the finished row.
+A poll loop for a ten-second job is machinery for its own sake.
 
-**A row is written before the work starts.** The console polls it; a machine that restarts
-mid-job leaves a row saying `running` with four of seven clips rather than leaving nothing at
-all, which is the difference between a job that visibly died and a button that did nothing.
+**A render is still a row, and that has not changed.** It is one row per *attempt*: it outlives
+an edit to the post, it records what was produced and what went wrong, and `SocialAsset.render_key`
+holds only the artifact a post currently shows. What changed is the reasoning underneath —
+clips-as-they-land and sequential generation are gone with the vendor. One row per attempt and
+a cost recorded on failure as well as success stay.
 
-**Clips are stored as they land, and the cost is recorded with them.** The money is spent at
-generation, so a job that fails on the seventh shot has still bought six clips and the ledger
-says so. They stay in the bucket: assembling six clips by hand is a worse afternoon than
-assembling seven, and it is a great deal better than paying twice.
+**`cost_cents` is written and it is zero.** Zero is the finding this phase exists to produce.
+A ledger that stops recording when the number becomes zero is a ledger that cannot show you it
+went to zero, and the column is what a future generated-footage path would need back.
 
-**Sequential, not concurrent.** Google's published limit is a rolling ten-minute *spend* cap —
-$10 on tier 1 — rather than a request rate, so seven clips fired at once is the shape most
-likely to hit it, and hitting it halfway costs money for nothing. One at a time also means the
-progress the console shows is real.
+**Only terminal statuses are written now.** `queued`, `running` and `cancelled` stay in the
+CHECK constraint and `uq_social_renders_one_live_per_asset` stays on the table, unwritten, for
+the same reason `cost_cents` stays: they are the shape an asynchronous path needs, and removing
+them would be a decision to reverse rather than a tidy-up. Nothing here can leave a row live,
+which is what retires the reaper and the "already running" refusal along with it.
 """
 
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import logging
 import uuid
 from typing import Any
 
-import httpx
 from anyio import to_thread
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.config import Settings
-from rascal.db import get_sessionmaker
 from rascal.errors import ErrorCode, RascalError
 from rascal.models import SocialAsset, SocialRender
-from rascal.services.social import gemini, stitch
+from rascal.services.social import scenes as scene_graph
+from rascal.services.social import transcode
 from rascal.services.social.renderers import store
 
 log = logging.getLogger("rascal.social.renders")
 
-PROVIDER = "gemini_video"
+#: Not a vendor. The pixels come from `admin/static/cards.js` in the operator's own browser,
+#: and this column has always meant "what made these bytes" rather than "who was paid".
+PROVIDER = "canvas"
 
-#: A single generation is documented as taking anywhere from seconds to several minutes, and
-#: seven of them run one after another. The client timeout is per request, not for the job.
-_PER_CLIP_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
+#: The renderer's version, in the column that used to hold a model id. **Bump it when the
+#: templates change enough that an old render no longer matches a new one** — a render from
+#: last month should still be able to say what drew it, and "cards.js as of some deploy" is not
+#: an answer anybody can act on.
+RENDERER_VERSION = "cards-v1"
 
-#: Added on top of the whole job's theoretical worst case before a live row is called dead.
-#: Generous deliberately: cancelling a job that is merely slow starts a second one beside it,
-#: and two jobs rendering the same treatment is the expensive mistake.
-_STALE_GRACE = dt.timedelta(minutes=10)
+#: What a canvas render costs. Zero, written down. See the module docstring.
+COST_CENTS = 0
+
+#: How far the finished film may fall short of the scene graph before it is refused, in seconds.
+#:
+#: **This is the server half of the backgrounded-tab guard, and it is the half that cannot be
+#: bypassed.** `cards.js` refuses to record in a hidden tab because `requestAnimationFrame` does
+#: not fire in one and the result is a file that is *silently short* — right container, right
+#: codec, playable, missing however many seconds the tab spent behind something else. That guard
+#: is the browser promising; this is the server checking, and it holds against a tab the browser
+#: mis-detected, a `MediaRecorder` that dropped frames under load, and anything at all posting to
+#: this route.
+#:
+#: A quarter of a second: a correct recording measures one frame long, by design — the extra
+#: `requestAnimationFrame` after the final draw — and 33ms at 30fps is well inside this, while a
+#: tab that lost even half a second is well outside it.
+DURATION_TOLERANCE_SECONDS = 0.25
 
 
-def shots_of(asset: SocialAsset) -> list[dict[str, Any]]:
-    return list((asset.shot_list or {}).get("shots") or [])
+def scenes_of(asset: SocialAsset) -> list[dict[str, Any]]:
+    return list((asset.treatment or {}).get("scenes") or [])
 
 
-def estimate_cents(settings: Settings, shots: list[dict[str, Any]]) -> int:
-    """What a treatment will cost to render, before rendering it.
+def preflight(asset: SocialAsset) -> list[dict[str, Any]]:
+    """Every reason to refuse, checked before the browser is asked for bytes. Returns the scenes.
 
-    Returned on the asset's render status so the console can price a treatment beside the
-    button rather than after the invoice. A figure derived from a price somebody typed into the
-    environment, like every other estimate in this service, and the console says so.
+    Two of them, where there used to be four. No key, because there is no vendor; and no
+    "already running", because nothing can be running — the work is inside the request.
+
+    **Takes no `Settings` and no session.** It used to take a `Settings` it never read, left over
+    from the version that checked `gemini_api_key` — an argument nobody passes for a reason is
+    the kind of thing that gets a value threaded to it later to justify itself. Both remaining
+    checks are properties of the asset and the machine, which is why `GET /social/studio` can
+    answer the same two questions for the console before anything is pressed.
     """
-    seconds = sum(int(shot.get("seconds") or 0) for shot in shots)
-    return seconds * settings.gemini_video_cents_per_second
-
-
-async def preflight(
-    session: AsyncSession, settings: Settings, asset: SocialAsset
-) -> list[dict[str, Any]]:
-    """Every reason not to start, checked before anything is spent. Returns the shots."""
-    shots = shots_of(asset)
-    if not shots:
+    scenes = scenes_of(asset)
+    if not scenes:
         raise RascalError(
             ErrorCode.VALIDATION_FAILED,
-            "This post has no shot list to render. Write one in the Studio first.",
-            field="shot_list",
+            "This post has no treatment to record. Write one in the Studio first.",
+            field="treatment",
         )
-    if not settings.gemini_api_key:
+    if not transcode.available():
         raise RascalError(
             ErrorCode.VALIDATION_FAILED,
-            "Set GEMINI_API_KEY to render video. Note the Gemini video models have a "
-            "free-tier quota of zero, so billing must be enabled on the project as well — a "
-            "key that answers text requests will still refuse video until it is.",
-            field="gemini_api_key",
-        )
-    if not stitch.available():
-        # Checked here rather than after seven generations, which is the version of this
-        # failure that costs three dollars to discover.
-        raise RascalError(
-            ErrorCode.VALIDATION_FAILED,
-            "ffmpeg is not installed on this machine, so the clips could be generated and "
-            "then not joined. Refusing before spending anything.",
+            "ffmpeg is not installed on this machine, so a recording could be made and then "
+            "not converted to the H.264 MP4 a platform will accept. Refusing before asking "
+            "the browser to record.",
             field="ffmpeg",
         )
-    running = await session.scalar(
-        select(SocialRender)
-        .where(SocialRender.asset_id == asset.id)
-        .where(SocialRender.status.in_(("queued", "running")))
-        .limit(1)
-    )
-    if running is not None:
-        # **A live row may be a dead job.** `run()` is a detached background task, so a deploy
-        # or a crash takes it with the process — and `asyncio.CancelledError` is a
-        # `BaseException`, so even the broad handler in `run` may not get to write a terminal
-        # status. Without this, one interrupted render makes a post permanently unrenderable
-        # from the console, recoverable only by hand-editing the database.
-        if _is_stale(running):
-            running.status = "cancelled"
-            running.error = (
-                "Abandoned — the process running it went away, most likely a deploy or a "
-                "restart. Any clips it had already paid for are still on this row."
-            )
-            running.finished_at = dt.datetime.now(tz=dt.UTC)
-            await session.commit()
-        else:
-            raise RascalError(
-                ErrorCode.VALIDATION_FAILED,
-                "A render for this post is already running. Wait for it or let it fail — "
-                "starting a second would pay for the same seven clips twice.",
-                field="status",
-            )
-    return shots
+    return scenes
 
 
-def _is_stale(render: SocialRender) -> bool:
-    """Has this render been live longer than it could possibly legitimately take?
-
-    The bound is generous on purpose — a clip is documented at up to six minutes and they run
-    one after another — because cancelling a job that is merely slow would start a second one
-    beside it and pay twice. Being an hour late is not the failure this is for; being gone is.
-    """
-    started = render.started_at or render.created_at
-    if started is None:
-        return False
-    budget = dt.timedelta(seconds=_PER_CLIP_TIMEOUT.read or 600) * max(render.shots_total, 1)
-    return dt.datetime.now(tz=dt.UTC) - started > budget + _STALE_GRACE
-
-
-async def create(
-    session: AsyncSession, settings: Settings, asset: SocialAsset, shots: list[dict[str, Any]]
+async def record(
+    session: AsyncSession,
+    settings: Settings,
+    asset: SocialAsset,
+    recording: bytes,
 ) -> SocialRender:
-    """The row the console polls. Written and committed before the work begins."""
+    """Transcode the browser's recording, store it, and write the row that says what happened.
+
+    Returns the row either way. A transcode that fails is an attempt that happened and is
+    recorded as one — the alternative is a button that reports an error and leaves no trace of
+    having been pressed, which is how "it did nothing" and "it failed" become the same event.
+
+    `RascalError` is raised on failure *as well as* writing the row, because the caller is a
+    person waiting on a request: a 200 carrying a `failed` row would make every client check a
+    field to find out whether the thing it asked for happened.
+    """
+    scenes = scenes_of(asset)
+    started = dt.datetime.now(tz=dt.UTC)
     render = SocialRender(
         asset_id=asset.id,
-        status="queued",
+        status="succeeded",
         provider=PROVIDER,
-        model=settings.gemini_video_model,
-        shots_total=len(shots),
+        model=RENDERER_VERSION,
+        scene_count=len(scenes),
+        cost_cents=COST_CENTS,
+        started_at=started,
     )
+
+    try:
+        # **All three of these block, so all three go to a thread.** ffmpeg and ffprobe are
+        # subprocesses and boto3 is not async; a `subprocess.run` or a socket write on the event
+        # loop stalls every other request on the machine for as long as it takes. Same
+        # discipline the card upload keeps.
+        mp4 = await to_thread.run_sync(transcode.to_mp4, recording)
+        _check_length(await to_thread.run_sync(transcode.probe, mp4), scenes)
+        key = await to_thread.run_sync(
+            lambda: store(settings, mp4, suffix=".mp4", content_type="video/mp4")
+        )
+    except Exception as error:
+        # **Broad on purpose, and it is the docstring above that makes it necessary.** This
+        # said `except transcode.TranscodeError`, and only one of the three calls in the `try`
+        # raises that. The bucket write raises boto3's `ClientError` or a connection error and
+        # went straight past this handler: the row was never added, the request rolled back, and
+        # the operator got a 500 for a storage outage — from a function whose docstring promises
+        # the attempt is recorded either way.
+        render.status = "failed"
+        render.error = _sentence(error)
+        render.finished_at = dt.datetime.now(tz=dt.UTC)
+        session.add(render)
+        # **`commit`, not `flush`, and this line is the whole reason the failure path works.**
+        # `get_session` rolls the request transaction back on any exception out of the handler,
+        # so a flushed-but-uncommitted row is destroyed by the very error it exists to record —
+        # and the route would then return a correct 422 having left no trace of the attempt.
+        # Committing here puts the row beyond that rollback. Nothing else is pending: the route
+        # commits before it reads the body, so this transaction holds one INSERT.
+        #
+        # Found by the test below rather than by reading, which is the point of asserting on
+        # the row through a fresh session instead of on the response.
+        await session.commit()
+        # **No `refresh` here, and the success path's is not the same case.** `get_sessionmaker`
+        # sets `expire_on_commit=False`, so `render.error` below is still the value set four
+        # lines up, and nothing reads this row again — the function raises. A `SELECT` that can
+        # add nothing is the one statement on this path that could fail, and failing would
+        # replace a carefully worded 422 with a generic 500 *after* the row was committed.
+        #
+        # **Unexpected failures carry their traceback; expected ones do not.** A
+        # `TranscodeError` is a sentence somebody wrote for this moment and a stack adds
+        # nothing. An `AttributeError` out of `store` is a defect being reported to an operator
+        # as a validation failure, and without `exc_info` the stack would exist nowhere at all.
+        unexpected = not isinstance(error, transcode.TranscodeError)
+        log.log(
+            logging.ERROR if unexpected else logging.WARNING,
+            "social render failed",
+            extra={"asset": str(asset.id), "why": render.error},
+            exc_info=error if unexpected else None,
+        )
+        # A 422 rather than a 500: every one of these is a sentence the operator can act on —
+        # the wrong format, an ffmpeg that is not installed, a recording that came back empty,
+        # or a bucket that would not take the bytes.
+        raise RascalError(ErrorCode.VALIDATION_FAILED, render.error, field="recording") from error
+
+    render.render_key = key
+    render.finished_at = dt.datetime.now(tz=dt.UTC)
+    # The post points at the finished film. Set on the row directly and never through
+    # `studio.update_asset`, whose editable tuple deliberately excludes storage keys: a key is
+    # written by the code that stored the bytes and must never be settable by a caller.
+    asset.render_provider = PROVIDER
+    asset.render_key = key
     session.add(render)
     await session.flush()
-    await session.commit()
+    await session.refresh(render)
+    log.info(
+        "social render stored",
+        extra={"asset": str(asset.id), "scenes": len(scenes), "bytes": len(mp4)},
+    )
     return render
 
 
-async def run(render_id: uuid.UUID) -> None:
-    """The job. Owns its own session because the request that started it is long gone.
+def _check_length(probed: dict[str, object], scenes: list[dict[str, Any]]) -> None:
+    """Refuse a film that is not as long as the graph says it should be.
 
-    Never raises: this runs detached, so an exception here would land in a log nobody is
-    reading. Everything that goes wrong is written to the row as a sentence instead.
+    **Raises `TranscodeError` so it lands on the row like any other refusal** — the attempt
+    happened, it produced bytes, and they were wrong; that is worth recording, and the operator
+    gets the same 422-with-a-sentence they get for a body that was not a WebM.
+
+    The duration is read from the *output*, which is the only place it is knowable:
+    `MediaRecorder` writes an unknown duration into the WebM header, so the input reports `N/A`
+    and the re-encode is what recomputes it from the frames.
+
+    **An unreadable duration is not a refusal.** `probe` returns `{}` when ffprobe cannot answer
+    and `None` when the container carries no duration; refusing on that would turn a diagnostic
+    gap into a failed render, and the file may be perfectly good. A short file that this cannot
+    measure is the residual risk, and it is smaller than the one this closes.
     """
-    async with get_sessionmaker()() as session:
-        render = await session.get(SocialRender, render_id)
-        if render is None:
-            return
-        asset = await session.get(SocialAsset, render.asset_id)
-        if asset is None:
-            await _finish(session, render_id, "failed", error="The post was deleted mid-render.")
-            return
-
-        from rascal.config import get_settings
-
-        settings = get_settings()
-        shots = shots_of(asset)
-        render.status = "running"
-        render.started_at = dt.datetime.now(tz=dt.UTC)
-        await session.commit()
-
-        clips: list[bytes] = []
-        try:
-            async with httpx.AsyncClient(timeout=_PER_CLIP_TIMEOUT) as client:
-                for index, shot in enumerate(shots):
-                    blob = await gemini.render_shot(client, settings, shot)
-                    clips.append(blob)
-                    key = await to_thread.run_sync(
-                        lambda data=blob: store(
-                            settings, data, suffix=".mp4", content_type="video/mp4"
-                        )
-                    )
-                    # Written per clip rather than at the end: a job killed on shot five must
-                    # still leave behind what shots one to four already paid for.
-                    render.clip_keys = [*render.clip_keys, key]
-                    render.cost_cents += (
-                        int(shot.get("seconds") or 0) * settings.gemini_video_cents_per_second
-                    )
-                    await session.commit()
-                    log.info(
-                        "social clip rendered",
-                        extra={"render": str(render_id), "shot": index + 1, "of": len(shots)},
-                    )
-
-            joined = await to_thread.run_sync(stitch.concat, clips)
-            key = await to_thread.run_sync(
-                lambda: store(settings, joined, suffix=".mp4", content_type="video/mp4")
-            )
-            render.render_key = key
-            # The post points at the finished film. The clips stay addressable on the render
-            # row, which is the record of how it was made.
-            asset.render_provider = PROVIDER
-            asset.render_key = key
-            await _finish(session, render_id, "succeeded")
-        except asyncio.CancelledError:
-            # **A `BaseException`, so the broad handler below never sees it.** This is what a
-            # deploy looks like from inside the job: uvicorn cancels the task on SIGTERM. Write
-            # a terminal status before re-raising, or the row stays `running` and `preflight`
-            # refuses this post forever.
-            await _finish(
-                session,
-                render_id,
-                "cancelled",
-                error="The process was shut down mid-render, most likely a deploy.",
-            )
-            raise
-        except LookupError as error:
-            # Narrow on purpose: `LookupError` is also `KeyError` and `IndexError`, either of
-            # which can come out of the parsing below and would otherwise be reported to the
-            # operator as a missing API key, sending them to fix something that is not wrong.
-            message = (
-                "GEMINI_API_KEY is no longer configured."
-                if str(error) == "gemini_video"
-                else _sentence(error)
-            )
-            await _finish(session, render_id, "failed", error=message)
-        except (RuntimeError, httpx.HTTPError) as error:
-            # `gemini` and `stitch` both raise `RuntimeError` carrying a sentence written for
-            # a person; anything else is summarised rather than pasted.
-            await _finish(session, render_id, "failed", error=_sentence(error))
-        except Exception as error:
-            # Detached: nothing above this catches, so a bare except is the net rather
-            # than a shrug. It still ends as a sentence on the row.
-            log.exception("social render failed", extra={"render": str(render_id)})
-            await _finish(session, render_id, "failed", error=_sentence(error))
-
-
-async def _finish(
-    session: AsyncSession, render_id: uuid.UUID, status: str, *, error: str | None = None
-) -> None:
-    """Write the terminal status, and never raise while doing it.
-
-    **This runs from inside `except` handlers, where the session may already be poisoned.** If
-    the failure being handled *was* a failed `commit` — a dropped Neon connection between two
-    ten-minute generations, a lock timeout, an integer overflow — SQLAlchemy has deactivated
-    the transaction and every further write raises `PendingRollbackError` until somebody rolls
-    back. Committing straight into that raises out of a detached background task, and the row
-    is left `running` forever, which `preflight` then refuses on until somebody edits the
-    database by hand. Verified by injecting all three failures against a real Postgres.
-
-    So: roll back first, re-fetch the row the rollback just expired, and swallow whatever is
-    left. A render whose terminal status could not be written is a log line, not an exception
-    nobody is positioned to catch.
-    """
-    finished = dt.datetime.now(tz=dt.UTC)
-    try:
-        # The ordinary path, and it must stay ordinary: on success there are unflushed changes
-        # here that matter — the render's key and the post pointed at it — and a pre-emptive
-        # rollback would throw them away.
-        render = await session.get(SocialRender, render_id)
-        if render is None:
-            return
-        render.status = status
-        render.error = error
-        render.finished_at = finished
-        await session.commit()
+    expected = scene_graph.total_ms(scenes) / 1000
+    if not expected:
         return
-    except Exception:
-        log.warning(
-            "the render's outcome did not commit; retrying after a rollback",
-            extra={"render": str(render_id)},
+    seen = probed.get("duration_seconds")
+    if seen is None:
+        log.warning("could not read a duration back from the render", extra={"expected": expected})
+        return
+    if expected - float(seen) > DURATION_TOLERANCE_SECONDS:
+        raise transcode.TranscodeError(
+            f"The recording is {float(seen):.1f}s and the treatment is {expected:.1f}s, so "
+            "frames were lost — most likely the tab went to the background part way through. "
+            "Nothing was stored. Keep the tab in front and record it again."
         )
-
-    # The session was poisoned — the failure being handled was itself a failed commit, so the
-    # transaction is deactivated and every write raises until somebody rolls back. Recover and
-    # write the terminal status alone; whatever else was pending is already lost.
-    try:
-        await session.rollback()
-        render = await session.get(SocialRender, render_id)
-        if render is None:
-            return
-        render.status = status
-        render.error = error
-        render.finished_at = finished
-        await session.commit()
-    except Exception:
-        log.exception("could not record the render's outcome", extra={"render": str(render_id)})
 
 
 def _sentence(error: BaseException) -> str:
-    """One sentence, never a stack trace and never a URL that might carry a key.
+    """One sentence for the row, never a stack trace and never a URL that might carry a key.
 
-    An httpx error stringifies to the URL it was fetching, and this service's Gemini requests
-    put the key in a header rather than the query — but the rule is the same one `billing/base`
-    keeps, and it is cheaper to hold than to re-derive.
+    `TranscodeError` already carries a sentence written for a person, so it passes through.
+    Anything else is summarised by type: a boto3 `ClientError` stringifies to the whole request
+    context including the bucket and the endpoint, and `errors.py` forbids putting that on a
+    row for the same reason it forbids a raw SQL error.
+
+    **"while producing the file", not "while storing it."** The `try` this serves covers the
+    encode as well as the bucket write — an `OSError` writing the temp file lands here too — so
+    naming the storage step would put a confidently wrong location on a row somebody reads at
+    2am.
     """
-    if isinstance(error, stitch.StitchError | RuntimeError):
+    if isinstance(error, transcode.TranscodeError):
         return str(error)[:400]
-    if isinstance(error, TimeoutError | httpx.TimeoutException):
-        return "The provider did not answer in time."
-    return f"{type(error).__name__} while rendering."
+    return f"{type(error).__name__} while producing the file."
 
 
 def as_dict(render: SocialRender) -> dict[str, object]:
@@ -324,10 +266,10 @@ def as_dict(render: SocialRender) -> dict[str, object]:
         "status": render.status,
         "provider": render.provider,
         "model": render.model,
-        "shots_total": render.shots_total,
-        "shots_done": len(render.clip_keys),
+        "scene_count": render.scene_count,
         "render_key": render.render_key,
         "error": render.error,
+        # Zero, and reported rather than omitted. See the module docstring.
         "cost_cents": render.cost_cents,
         "started_at": render.started_at.isoformat() if render.started_at else None,
         "finished_at": render.finished_at.isoformat() if render.finished_at else None,
@@ -344,13 +286,21 @@ async def latest_for(session: AsyncSession, asset_id: uuid.UUID) -> SocialRender
     )
 
 
+async def get(session: AsyncSession, render_id: uuid.UUID) -> SocialRender:
+    render = await session.get(SocialRender, render_id)
+    if render is None:
+        raise RascalError(ErrorCode.NOT_FOUND, "No such render.")
+    return render
+
+
 __all__ = [
+    "COST_CENTS",
     "PROVIDER",
+    "RENDERER_VERSION",
     "as_dict",
-    "create",
-    "estimate_cents",
+    "get",
     "latest_for",
     "preflight",
-    "run",
-    "shots_of",
+    "record",
+    "scenes_of",
 ]

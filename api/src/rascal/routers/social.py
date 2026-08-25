@@ -22,6 +22,13 @@ Anthropic model. `POST /social/concepts` returns copy plus a template choice, an
 come either from the brand-card renderer in the browser — no vendor, no key — or from a
 third-party provider in `services/social/renderers.py`, which is unconfigured by default and
 says so.
+
+**Since phase 120 that sentence covers video too, and nothing here buys a frame.**
+`POST /social/treatment` returns a typed scene graph; the browser animates it with the same
+`cards.js` that draws a still, records the canvas, and posts the recording back here to be
+re-encoded. The caption track is derived from the scene copy server-side rather than authored
+beside it, so the cues cannot disagree with what is on screen — which they could, silently,
+until this phase.
 """
 
 from __future__ import annotations
@@ -29,8 +36,9 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Query, Request, status
+from fastapi import APIRouter, Query, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
 from rascal.errors import ErrorCode, RascalError
@@ -39,10 +47,12 @@ from rascal.schemas.social import (
     ConceptsIn,
     PublishIn,
     RenderIn,
-    ShotListIn,
     SocialAssetIn,
     SocialAssetUpdate,
+    TreatmentIn,
+    VideoTreatment,
 )
+from rascal.services import s3
 from rascal.services.social import (
     brand,
     director,
@@ -50,7 +60,9 @@ from rascal.services.social import (
     publishing,
     renderers,
     renders,
+    scenes,
     studio,
+    transcode,
 )
 
 router = APIRouter(prefix="/social", tags=["social"])
@@ -88,6 +100,24 @@ async def studio_state(
         "palettes": list(brand.PALETTES),
         "platforms": list(brand.PLATFORMS),
         "platform_sizes": {name: list(size) for name, size in brand.PLATFORM_SIZES.items()},
+        # **Exactly the two facts the console cannot work out for itself, and no more.**
+        #
+        # This block was written with eight keys — the transitions, the scene and treatment
+        # bounds, the copy maxima and the byte cap — on the reasoning that the composer would
+        # build its controls from them. It has no scene editor, so six of those were served by
+        # the API and read by nothing: the phase 101 defect, committed by the phase that cites
+        # it. They are gone. `brand.py` remains the authority; the day a scene editor exists,
+        # it can ask for what it needs then.
+        "video": {
+            # Which platform sizes may be recorded at all. The console gates the Record button
+            # on this rather than keeping its own copy of `VIDEO_PLATFORMS`.
+            "platforms": list(brand.VIDEO_PLATFORMS),
+            # False means the machine cannot finish a recording, so the console disables the
+            # Record button and puts the reason beside it rather than offering one that refuses.
+            # **It is a `which ffmpeg`, not a codec probe** — a build without `libx264` reports
+            # true here and fails at the encode, with a sentence naming ffmpeg.
+            "ffmpeg": transcode.available(),
+        },
     }
 
 
@@ -145,28 +175,50 @@ async def concepts(
 
 
 @router.post(
-    "/shot-list",
-    summary="A shot list and a caption track for a short video",
+    "/treatment",
+    summary="A typed scene graph for a short video",
     description=(
-        "The half of a video that can be made tonight with a phone. Claude writes the shots, "
-        "the on-screen text and the voiceover; the WebVTT track is derived from them. **Most "
-        "social video is watched with the sound off**, so the caption track is the reach "
-        "feature as much as the accessibility one."
+        "**Claude writes cards, not film direction.** A treatment is an ordered list of "
+        "scenes, each naming a template, a palette, its copy, how long it holds and how it "
+        "enters — every value from a closed set the browser can actually draw. The pixels come "
+        "from the same renderer that draws a still card; no vendor generates video.\n\n"
+        "**The WebVTT track is derived from the scenes.** One cue per scene, cue boundaries "
+        "exactly equal to the scene boundaries. It was derived before phase 120 too — but it "
+        "was then stored in a column a `PATCH` could overwrite, and editing the shots did not "
+        "re-derive it, so an edited post carried captions describing the previous video. It is "
+        "now recomputed on every write and cannot be set by a caller at all. **Most social "
+        "video is watched with the sound off**, and this one has no sound at all, so the cues "
+        "carry the whole burden."
     ),
 )
-async def shot_list(payload: ShotListIn, user: AdminUser, settings: SettingsDep) -> dict[str, Any]:
+async def treatment(payload: TreatmentIn, user: AdminUser, settings: SettingsDep) -> dict[str, Any]:
     result = await director.structured(
         settings,
-        director.shot_list_instruction(payload.brief, payload.seconds),
-        director.SHOT_LIST_SCHEMA,
+        director.treatment_instruction(payload.brief, payload.seconds),
+        director.TREATMENT_SCHEMA,
     )
-    shots = result.get("shots", [])
+    # **Validated here, before the console ever sees it.** The JSON schema cannot carry every
+    # bound — Anthropic's structured outputs reject a `minItems` above 1, and no JSON schema
+    # can express "the durations sum to something watchable" at all — so a graph that would be
+    # refused on save can come back from the model. Handing it to the console anyway would put
+    # the refusal three clicks later, on a screen that had already drawn it.
+    try:
+        graph = VideoTreatment.model_validate({"scenes": result.get("scenes", [])})
+    except ValidationError as error:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            "The model wrote a treatment outside the bounds a video has to sit in "
+            f"({error.error_count()} problems). Ask again — nothing was saved.",
+            field="scenes",
+        ) from error
+
+    scene_list = [scene.model_dump() for scene in graph.scenes]
     return {
         "title": result.get("title"),
         "premise": result.get("premise"),
-        "shots": shots,
-        "caption_track": renderers.caption_track(shots),
-        "duration_seconds": sum(int(shot.get("seconds") or 0) for shot in shots),
+        "scenes": scene_list,
+        "caption_track": scenes.caption_track(scene_list),
+        "duration_ms": scenes.total_ms(scene_list),
         "model": settings.anthropic_model,
     }
 
@@ -230,8 +282,9 @@ async def patch_asset(
     summary="Hand this post's image brief to a pixel provider",
     description=(
         "Only for photographic images and video. Brand cards are drawn in the browser and "
-        "never come through here. A provider with no credential answers 503 carrying the "
-        "environment variable to set."
+        "never come through here. A provider with no credential answers **422** carrying the "
+        "environment variable to set — this said 503 for three phases and the handler has "
+        "always raised `VALIDATION_FAILED`."
     ),
 )
 async def render_asset(
@@ -325,9 +378,11 @@ async def account(user: AdminUser, settings: SettingsDep) -> dict[str, Any]:
         "Send the JPEG as the raw request body. **JPEG only** — Instagram publishes no other "
         "format and reports a PNG as a container in `ERROR` rather than as a readable "
         "message, so the magic number is checked here. Capped at 4MB.\n\n"
-        "This is the one route that takes bytes through the API rather than handing back a "
-        "presigned PUT. A browser cannot PUT to the bucket without a CORS policy on the "
-        "bucket itself, and the bucket holds the archive — see `services/social/publishing.py`."
+        "This is **one of two** routes that take bytes through the API rather than handing "
+        "back a presigned PUT — `POST /social/assets/{id}/video` is the other, added by phase "
+        "120 on the identical argument. A browser cannot PUT to the bucket without a CORS "
+        "policy on the bucket itself, and the bucket holds the archive — see "
+        "`services/social/publishing.py`."
     ),
 )
 async def card_upload(
@@ -440,51 +495,116 @@ async def cancel_publication(
 
 @router.post(
     "/assets/{asset_id}/video",
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Render the shot list into one video",
+    summary="Store the video the browser just recorded",
     description=(
-        "Seven shots are seven generations and a concatenation, so this returns **202 with a "
-        "render id to poll** rather than blocking for the minutes it takes. Every reason to "
-        "refuse — no shot list, no key, no ffmpeg, a render already running — is checked "
-        "before the first clip is generated, because the expensive failure is the one "
-        "discovered after paying for six of them."
+        "Send the WebM as the raw request body. **The browser is the renderer**: it animates "
+        "the post's scene graph with `cards.js`, captures the canvas with `MediaRecorder`, and "
+        "posts the recording here. The server re-encodes it to H.264 MP4 — which is what a "
+        "platform will accept and a WebM is not — and stores it.\n\n"
+        "**Synchronous, and that is the change.** This used to answer 202 with a render id to "
+        "poll, because it was seven paid generations and a concatenation. It is now a few "
+        "seconds of ffmpeg, so the response is the finished `social_renders` row and there is "
+        "nothing to poll.\n\n"
+        "`Content-Type: video/webm`, capped at 64MB, and the EBML magic number is checked — "
+        "the same reasoning as the JPEG check on `/image`: a wrong format otherwise surfaces "
+        "as a downstream error naming neither the format nor the file.\n\n"
+        "This is the **second** route in this API that takes bytes through the service rather "
+        "than handing back a presigned PUT, and it is the same trade the first one made: a "
+        "browser cannot PUT to the bucket without a CORS policy on the bucket, and that "
+        "bucket holds the archive."
     ),
 )
-async def render_video(
+async def store_recording(
     asset_id: uuid.UUID,
-    background: BackgroundTasks,
+    request: Request,
     session: SessionDep,
     user: AdminUser,
     settings: SettingsDep,
     _: LocalWrites,
 ) -> dict[str, Any]:
     asset = await studio.get_asset(session, asset_id)
-    shots = await renders.preflight(session, settings, asset)
-    render = await renders.create(session, settings, asset, shots)
-    # Detached from this request: it outlives the response by minutes. The row is already
-    # committed, so a machine that dies before the task starts leaves a `queued` row rather
-    # than a button that did nothing.
-    background.add_task(renders.run, render.id)
+    # Both refusals before a byte is read: no scene graph to have recorded, and no ffmpeg to
+    # convert what was recorded. The second is the one that would otherwise be discovered
+    # after the operator sat through a recording.
+    renders.preflight(asset)
+
+    # **Refuse on the header before reading, not on `len(data)` after.** `request.body()`
+    # buffers the whole upload in memory first, so checking the size afterwards means the
+    # oversized request has already cost what it was going to cost.
+    declared = request.headers.get("content-length")
+    cap = transcode.MAX_RECORDING_BYTES
+    if declared is not None and declared.isdigit() and int(declared) > cap:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            f"That recording is {int(declared) // (1024 * 1024)}MB and the limit is "
+            f"{cap // (1024 * 1024)}MB. A minute of cards is a few "
+            "megabytes; something is wrong with the capture.",
+        )
+
+    # **Let the connection go before the two slow parts.** The read above autobegins the
+    # request transaction and checks a connection out, and `get_session` holds it until the
+    # handler returns — so without this it stays pinned across the browser upload *and* the
+    # encode *and* the PUT to Tigris. Same discipline the card upload keeps, for the same
+    # reason: connections are the scarce thing.
+    await session.commit()
+
+    data = await request.body()
+    # **The backstop, and the header check above is not a substitute for it.** `Content-Length`
+    # is absent entirely on a chunked request — which is what `fetch()` sends when the body is a
+    # `ReadableStream` rather than a `Blob` — so the header branch is skipped and the body is
+    # buffered whole. `publishing.store_card` has always had this second check; the video route
+    # was written with only the first.
+    if len(data) > cap:
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            f"That recording is {len(data) // (1024 * 1024)}MB and the limit is "
+            f"{cap // (1024 * 1024)}MB. A minute of cards is a few megabytes; something is "
+            "wrong with the capture.",
+        )
+
+    asset = await studio.get_asset(session, asset_id)
+    render = await renders.record(session, settings, asset, data)
     return renders.as_dict(render)
 
 
 @router.get(
     "/assets/{asset_id}/video",
-    summary="How the render is going",
+    summary="The newest recording of this post, if there is one",
     description=(
-        "The newest attempt for this post, or `null` if it has never been rendered. "
-        "`shots_done` counts clips that actually landed in the bucket, so it is progress "
-        "rather than a percentage somebody computed."
+        "The newest attempt for this post, or `null` if it has never been recorded. There is "
+        "no estimate beside it any more: a canvas render costs nothing, which is why "
+        "`cost_cents` on the row is zero rather than absent."
     ),
 )
 async def render_status(
-    asset_id: uuid.UUID, session: AdminReadSession, user: AdminUser, settings: SettingsDep
+    asset_id: uuid.UUID, session: AdminReadSession, user: AdminUser
 ) -> dict[str, Any]:
-    asset = await studio.get_asset(session, asset_id)
+    await studio.get_asset(session, asset_id)
     render = await renders.latest_for(session, asset_id)
+    return {"render": renders.as_dict(render) if render else None}
+
+
+@router.get(
+    "/renders/{render_id}/file",
+    summary="A short-lived URL for the file a render produced",
+    description=(
+        "Presigned, minted on demand and never stored — a URL in a column outlives its "
+        "signature and then looks like data loss, which is why every other read path here "
+        "does the same. A render that produced no file is a 404 rather than a URL that will "
+        "not resolve: those are different answers and only one of them is actionable."
+    ),
+)
+async def render_file(
+    render_id: uuid.UUID, session: AdminReadSession, user: AdminUser, settings: SettingsDep
+) -> dict[str, Any]:
+    render = await renders.get(session, render_id)
+    if not render.render_key:
+        raise RascalError(
+            ErrorCode.NOT_FOUND,
+            "That render produced no file."
+            + (f" It failed: {render.error}" if render.error else ""),
+        )
     return {
-        "render": renders.as_dict(render) if render else None,
-        # What it would cost to render this treatment, so the console can say so beside the
-        # button rather than after the fact.
-        "estimate_cents": renders.estimate_cents(settings, renders.shots_of(asset)),
+        "url": s3.presign_get(render.render_key, settings),
+        "expires_in": settings.presign_ttl_seconds,
     }

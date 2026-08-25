@@ -1,20 +1,33 @@
-"""Rendering a shot list into a video.
+"""Recording a scene graph into a video.
 
-The guards get the most attention here on purpose: every one of them exists to stop the job
-spending real money on a treatment it cannot finish, and a guard with no test is a guard that
-quietly stops guarding.
+**What this file used to guard and no longer has to.** Every test here was once about money:
+a treatment cost roughly ten cents a second, so the guards that mattered were the ones that
+refused before the first paid generation, the ledger that recorded what a half-finished job had
+already bought, and the reaper for a job a deploy killed while it was spending. None of that is
+reachable now — nothing is bought — and the tests went with the machinery.
+
+**What replaced them is the closed sets and the derived captions.** The value of a typed scene
+graph is entirely in what it refuses, so most of this file is refusals: an empty string where a
+template goes, a duration outside its bounds, a total runtime no feed would play, a body that is
+not a WebM. Phase 101 found a `palette: ""` that nothing rejected one level down from here, and
+`shot_list` was a free `dict[str, Any]` until this phase, which made every enum inside it
+decorative.
+
+**The one assertion that is the whole point of the phase** is
+`test_the_cue_boundaries_are_exactly_the_scene_boundaries` over in `test_social.py`. The track
+was derived before this phase too — the difference is that it is now recomputed on every write
+and is not a settable field, so a `PATCH` cannot leave a row whose captions describe the
+previous video. `test_a_caller_cannot_write_a_caption_track_that_disagrees_with_the_cards` and
+`test_editing_the_scenes_re_derives_the_track` are the two halves of that.
 """
 
 from __future__ import annotations
 
-import datetime as dt
-import json
 import subprocess
 import uuid
 from pathlib import Path
 from unittest import mock
 
-import httpx
 import pytest
 from httpx import AsyncClient
 from moto import mock_aws
@@ -23,7 +36,7 @@ from sqlalchemy import select
 from factories import make_user
 from helpers import auth_headers
 from rascal.config import get_settings
-from rascal.services.social import gemini, renders, stitch
+from rascal.services.social import renders, scenes, transcode
 
 
 @pytest.fixture
@@ -34,308 +47,64 @@ async def admin(session):
     return user
 
 
-@pytest.fixture(autouse=True)
-def _no_video_key(monkeypatch: pytest.MonkeyPatch):
-    """The suite must never be able to reach Google, even with a real key in the environment.
+#: A real four-scene graph with uneven durations, because even durations hide arithmetic bugs.
+#: 1500 + 3200 + 2000 + 4300 = 11000, comfortably inside the treatment bounds.
+SCENES = [
+    {
+        "template": "quote",
+        "palette": "cream",
+        "eyebrow": None,
+        "headline": "Your camera roll is good at one thing.",
+        "subhead": None,
+        "duration_ms": 1500,
+        "transition": "cut",
+    },
+    {
+        "template": "stat",
+        "palette": "terracotta",
+        "eyebrow": "the problem",
+        "headline": "4,812",
+        "subhead": "photos, and not one of them says why.",
+        "duration_ms": 3200,
+        "transition": "fade",
+    },
+    {
+        "template": "quote",
+        "palette": "periwinkle",
+        "eyebrow": None,
+        "headline": "A photo with the question that made you take it is a story.",
+        "subhead": None,
+        "duration_ms": 2000,
+        "transition": "rise",
+    },
+    {
+        "template": "announcement",
+        "palette": "ink",
+        "eyebrow": None,
+        "headline": "Vellum",
+        "subhead": "One question a day about your kid.",
+        "duration_ms": 4300,
+        "transition": "fade",
+    },
+]
 
-    Belt and braces beside the mocked transports: a render costs money, and a test that
-    accidentally generates seven clips is an expensive way to learn that.
-    """
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    yield
-
-
-SHOTS = {
-    "shots": [
-        {
-            "visual": "A thumb scrolling a photo grid.",
-            "seconds": 4,
-            "voiceover": "Your camera roll is good at one thing.",
-            "on_screen_text": "4,812 photos",
-        },
-        {"visual": "The scroll slows.", "seconds": 4, "voiceover": "Keeping."},
-    ]
-}
+TREATMENT = {"scenes": SCENES}
 
 
 async def _asset(client: AsyncClient, admin, **extra) -> str:
-    body = {"headline": "shot list post", "alt_text": "A card.", "format": "video", **extra}
+    body = {"headline": "a treatment", "alt_text": "A card.", "format": "video", **extra}
     created = await client.post("/v1/social/assets", json=body, headers=auth_headers(admin))
     assert created.status_code == 201, created.text
     return created.json()["id"]
 
 
-def _settings(**overrides):
-    # `gemini_video_model` is pinned rather than inherited. The default became a Veo id on
-    # Aug 21, 2026 and the two providers speak different API shapes, so a test that stubs one
-    # shape has to say which one it is stubbing — otherwise changing the default silently
-    # repoints every one of these at code they were not written for.
-    base = {
-        "gemini_api_key": "AIza-fake",
-        "gemini_video_cents_per_second": 10,
-        "gemini_video_model": "gemini-omni-flash-preview",
-    }
-    return get_settings().model_copy(update={**base, **overrides})
-
-
-def _veo_settings(**overrides):
-    return _settings(gemini_video_model="veo-3.1-lite-generate-preview", **overrides)
-
-
-# --- The prompt -------------------------------------------------------------------------------
-
-
-def test_a_shot_becomes_direction_with_its_caption_and_line_quoted() -> None:
-    prompt = gemini.shot_prompt(SHOTS["shots"][0])
-    assert '"4,812 photos"' in prompt, "the on-screen text must be quoted, not paraphrased"
-    assert '"Your camera roll is good at one thing."' in prompt
-    assert "about 4 seconds" in prompt
-
-
-def test_every_prompt_refuses_identifiable_faces() -> None:
-    """The product is about children. The safest footage for it contains no faces at all.
-
-    Asserted rather than trusted to the treatment: Claude writes shot lists that happen to
-    avoid faces, and "happens to" is not a safety property.
-    """
-    for shot in [*SHOTS["shots"], {"visual": "anything at all"}]:
-        assert "identifiable faces" in gemini.shot_prompt(shot)
-
-
-def test_a_shot_with_no_voiceover_asks_for_silence_rather_than_improvising() -> None:
-    assert "No dialogue." in gemini.shot_prompt({"visual": "A still card."})
-
-
-# --- The vendor edge --------------------------------------------------------------------------
-
-
-async def test_a_200_with_no_video_in_it_is_an_error_not_an_empty_clip() -> None:
-    """Every Gemini video model is preview, so the response shape moving is a question of when.
-
-    This module has never seen a real 200 — the video models have a free-tier quota of zero —
-    which is exactly the circumstance where an unrecognised shape must be loud.
-    """
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"steps": []}))
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(RuntimeError, match="no video in it"):
-            await gemini.render_shot(client, _settings(), SHOTS["shots"][0])
-
-
-# --- Veo, which is the default provider as of Aug 21, 2026 ------------------------------------
-#
-# Omni Flash rejected shot three of a real treatment as "harmful content" — a static shot of a
-# photograph captioned "Why did you take this one?" — and every Veo tier accepts the identical
-# prompt. These pin the shape difference: Veo is asynchronous, and the key goes on the download.
-
-
-def test_veo_generates_only_the_durations_it_actually_offers() -> None:
-    """4, 6 or 8 and nothing between. A five-second shot gets six, not four.
-
-    Rounding down would leave a gap no later step can fill; the concatenation can trim a long
-    clip and cannot invent a missing second.
-    """
-    assert [gemini._veo_duration(n) for n in (4, 5, 6, 7, 8, 30)] == [4, 6, 6, 8, 8, 8]
-    assert gemini._veo_duration(None) == 4
-
-
-def test_the_provider_is_chosen_by_the_model_id() -> None:
-    assert gemini.is_veo("veo-3.1-lite-generate-preview")
-    assert not gemini.is_veo("gemini-omni-flash-preview")
-
-
-async def test_veo_polls_the_operation_and_downloads_the_clip() -> None:
-    """The whole asynchronous shape, including the key on the download.
-
-    Verified against the live API before it was written: a Lite clip took about ninety seconds
-    and the URI answers 403 without `key`.
-    """
-    seen: list[str] = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        seen.append(f"{request.method} {request.url.path}")
-        if request.url.path.endswith(":predictLongRunning"):
-            params = json.loads(request.content)["parameters"]
-            assert params["durationSeconds"] == 4, (
-                "durationSeconds must be a number — Google documents a string and rejects one"
-            )
-            # Omitting this produced a 1280x720 clip for a vertical treatment. Veo defaults to
-            # landscape and every asset this studio makes is a Story or a Reel.
-            assert params["aspectRatio"] == "9:16", "Veo returns landscape without it"
-            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
-        if request.url.path.endswith("/operations/abc"):
-            # Not done on the first poll, so the loop is exercised rather than skipped.
-            if len([s for s in seen if "operations/abc" in s]) == 1:
-                return httpx.Response(200, json={"done": False})
-            return httpx.Response(
-                200,
-                json={
-                    "done": True,
-                    "response": {
-                        "generateVideoResponse": {
-                            "generatedSamples": [
-                                {"video": {"uri": "https://x.test/clip?alt=media"}}
-                            ]
-                        }
-                    },
-                },
-            )
-        assert request.url.params.get("key"), "the clip URI needs the key or it is a 403"
-        # **The URI's own query must survive.** Veo hands back `...?alt=media`, and passing
-        # `params=` to httpx *replaces* the query rather than merging it — which drops
-        # `alt=media` and makes the download a 400. Every mocked test passed with that bug;
-        # only a live call caught it, so it is pinned here.
-        assert request.url.params.get("alt") == "media", "alt=media was dropped from the URI"
-        return httpx.Response(200, content=b"MP4BYTES")
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
-            blob = await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
-    assert blob == b"MP4BYTES"
-    assert any("operations/abc" in call for call in seen), "the operation was polled"
-
-
-async def test_a_finished_veo_operation_carrying_an_error_is_not_a_clip() -> None:
-    """`done: true` with an `error` is a failure, and it must not be read as a video."""
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith(":predictLongRunning"):
-            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
-        return httpx.Response(200, json={"done": True, "error": {"message": "safety violations"}})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
-            with pytest.raises(RuntimeError, match="safety violations"):
-                await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
-
-
-async def test_a_veo_response_with_no_video_in_it_is_an_error() -> None:
-    """The same refusal Omni Flash gets: an unrecognised shape is loud, never an empty file."""
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith(":predictLongRunning"):
-            return httpx.Response(200, json={"name": "models/veo/operations/abc"})
-        return httpx.Response(200, json={"done": True, "response": {}})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        with mock.patch.object(gemini, "VEO_POLL_SECONDS", 0):
-            with pytest.raises(RuntimeError, match="no video in it"):
-                await gemini.render_shot(client, _veo_settings(), SHOTS["shots"][0])
-
-
-async def test_the_key_never_reaches_a_veo_error_message() -> None:
-    def handle(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": {"message": "boom"}})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        with pytest.raises(RuntimeError) as caught:
-            await gemini.render_shot(
-                client, _veo_settings(gemini_api_key="SENTINEL-KEY"), SHOTS["shots"][0]
-            )
-    assert "SENTINEL-KEY" not in str(caught.value)
-
-
-async def test_a_429_is_reported_as_billing_rather_than_rate_limiting() -> None:
-    """The first thing a working key does here is fail, and Google's wording misdirects."""
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(429, json={"error": {"message": "quota"}})
-    )
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(RuntimeError) as caught:
-            await gemini.render_shot(client, _settings(), SHOTS["shots"][0])
-    assert "billing" in str(caught.value)
-    assert "free-tier quota of zero" in str(caught.value)
-
-
-async def test_an_unconfigured_key_raises_lookup_error() -> None:
-    transport = httpx.MockTransport(lambda request: httpx.Response(200, json={}))
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(LookupError):
-            await gemini.render_shot(client, _settings(gemini_api_key=None), SHOTS["shots"][0])
-
-
-async def test_the_key_never_reaches_the_error_message() -> None:
-    transport = httpx.MockTransport(lambda request: httpx.Response(500, json={"error": {}}))
-    async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(RuntimeError) as caught:
-            await gemini.render_shot(
-                client, _settings(gemini_api_key="SENTINEL-KEY"), SHOTS["shots"][0]
-            )
-    assert "SENTINEL-KEY" not in str(caught.value)
-
-
-# --- The guards, which all run before any money is spent --------------------------------------
-
-
-async def test_a_post_with_no_shot_list_is_refused(client: AsyncClient, admin) -> None:
-    asset_id = await _asset(client, admin)
-    response = await client.post(f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin))
-    assert response.status_code == 422
-    assert "no shot list" in response.json()["error"]["message"]
-
-
-async def test_an_unconfigured_key_names_the_billing_trap(client: AsyncClient, app, admin) -> None:
-    asset_id = await _asset(client, admin, shot_list=SHOTS)
-    from rascal.config import get_settings as real_settings
-
-    app.dependency_overrides[real_settings] = lambda: _settings(gemini_api_key=None)
-    try:
-        response = await client.post(
-            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
-        )
-    finally:
-        app.dependency_overrides.pop(real_settings, None)
-    assert response.status_code == 422
-    assert "free-tier quota of zero" in response.json()["error"]["message"]
-
-
-async def test_a_second_render_is_refused_while_one_is_running(
-    client: AsyncClient, session, app, admin
-) -> None:
-    """Starting a second would pay for the same seven clips twice.
-
-    A key is supplied here on purpose: the guards run in order, so without one this would be
-    refused for the wrong reason and the test would pass while proving nothing.
-    """
-    from rascal.config import get_settings as real_settings
-    from rascal.models import SocialRender
-
-    # A zero-arg callable: FastAPI reads `_settings(**overrides)`'s signature and would ask
-    # for a request field called `overrides`.
-    app.dependency_overrides[real_settings] = lambda: _settings()
-    asset_id = await _asset(client, admin, shot_list=SHOTS)
-    session.add(
-        SocialRender(
-            asset_id=uuid.UUID(asset_id),
-            status="running",
-            provider=renders.PROVIDER,
-            model="m",
-            shots_total=2,
-        )
-    )
-    await session.commit()
-    try:
-        response = await client.post(
-            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
-        )
-    finally:
-        app.dependency_overrides.pop(real_settings, None)
-    assert response.status_code == 422
-    assert "already running" in response.json()["error"]["message"]
-
-
-async def test_status_is_null_before_anything_has_been_rendered(client: AsyncClient, admin) -> None:
-    asset_id = await _asset(client, admin, shot_list=SHOTS)
-    response = await client.get(f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin))
-    assert response.status_code == 200
-    assert response.json()["render"] is None
-
-
-# --- The whole job, with only the vendor call replaced ---------------------------------------
+def _scene(**overrides) -> dict:
+    return {**SCENES[0], **overrides}
 
 
 @pytest.fixture
 def bucket():
-    """A real bucket, so the job's stores and reads are real."""
+    """A real bucket, so the store and the read are real."""
     from rascal.services import s3
 
     settings = get_settings()
@@ -349,389 +118,1056 @@ def bucket():
     s3.get_s3_client.cache_clear()
 
 
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-async def test_the_whole_job_runs_end_to_end_with_only_the_vendor_replaced(
-    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
-) -> None:
-    """Everything except the HTTP call to Google: real ffmpeg, real bucket, real row.
+def _webm(seconds: float | None = None, width: int = 240, height: int = 426) -> bytes:
+    """A real VP9 WebM, built by the same ffmpeg the transcoder uses.
 
-    The vendor is the one thing that cannot be exercised — the video models have a free-tier
-    quota of zero — so it is replaced with clips this test generates itself. Everything after
-    it is the shipping code path.
+    Small deliberately — the assertions are about codec, pixel format, duration and stream
+    count, none of which need 1080x1920, and a full-size encode would put seconds on every run.
+
+    **Defaults to the length of `TREATMENT`, because the route now checks that.** `record()`
+    refuses a film materially shorter than the scene graph — that is the server half of the
+    backgrounded-tab guard — so a fixture of a convenient 1.0s against an 11.0s treatment is a
+    fixture every byte-path test would be refused for. Pass `seconds` only where the length is
+    the thing under test.
     """
-    from rascal.models import SocialAsset, SocialRender
-    from rascal.services.social import gemini, renders
+    if seconds is None:
+        seconds = scenes.total_ms(SCENES) / 1000
+    import tempfile
 
-    asset = SocialAsset(
-        headline="camera roll",
-        alt_text="A card.",
-        format="video",
-        shot_list=SHOTS,
-        created_by_user_id=admin.id,
-    )
-    session.add(asset)
-    await session.commit()
-
-    made = [_clip(tmp_path, i + 1, seconds=2) for i in range(len(SHOTS["shots"]))]
-    calls: list[str] = []
-
-    async def fake_render_shot(client_, settings_, shot):
-        calls.append(gemini.shot_prompt(shot))
-        return made[len(calls) - 1]
-
-    monkeypatch.setattr(gemini, "render_shot", fake_render_shot)
-
-    render = SocialRender(
-        asset_id=asset.id,
-        status="queued",
-        provider=renders.PROVIDER,
-        model="test-model",
-        shots_total=len(SHOTS["shots"]),
-    )
-    session.add(render)
-    await session.commit()
-    render_id = render.id
-
-    await renders.run(render_id)
-
-    await session.refresh(render)
-    await session.refresh(asset)
-    assert render.status == "succeeded", render.error
-    assert len(render.clip_keys) == len(SHOTS["shots"]), "a clip key per shot"
-    assert all(key.startswith("social/") for key in render.clip_keys), "never under children/"
-    assert render.render_key, "the joined file was stored"
-    assert render.finished_at is not None
-    # 8 seconds of treatment at ten cents a second, recorded as it was spent.
-    # Derived rather than hardcoded: the price moved from 10c to 5c a second with the Veo
-    # switch, and a literal here fails for the wrong reason when it moves again.
-    expected = sum(int(shot["seconds"]) for shot in SHOTS["shots"]) * (
-        get_settings().gemini_video_cents_per_second
-    )
-    assert render.cost_cents == expected
-    # The post now points at the finished film.
-    assert asset.render_key == render.render_key
-    assert asset.render_provider == renders.PROVIDER
-    # Every shot was actually sent, as direction rather than as raw JSON.
-    assert len(calls) == len(SHOTS["shots"])
-    assert "identifiable faces" in calls[0]
+    with tempfile.TemporaryDirectory() as directory:
+        out = Path(directory) / "in.webm"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=c=0xC05A2B:s={width}x{height}:r=30:d={seconds}",
+                "-c:v",
+                "libvpx-vp9",
+                "-b:v",
+                "300k",
+                str(out),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return out.read_bytes()
 
 
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-async def test_a_vendor_failure_midway_keeps_the_clips_it_already_paid_for(
-    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
+needs_ffmpeg = pytest.mark.skipif(not transcode.available(), reason="ffmpeg is not installed")
+
+
+#: Two scenes totalling 7300ms — inside the 6000..60000 treatment window.
+#:
+#: **Every refusal test below uses this pair, and that is not incidental.** Written with the
+#: module's default 1500ms scene, a two-scene graph totals 4700ms and `VideoTreatment`'s runtime
+#: bound refuses it *whatever else it contains* — so the test passes, asserts `422`, and would go
+#: on passing with the thing it names deleted. That defect was found in one test here and then
+#: found again, by a mutation run, in four more. Each of these now also asserts the **field** the
+#: refusal names, which is what distinguishes "refused for the reason this test is about" from
+#: "refused at all".
+def _pair(**overrides) -> list[dict]:
+    return [_scene(duration_ms=3000, **overrides), SCENES[3]]
+
+
+# --- The closed sets, which are the whole value of a typed graph -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("template", ""),
+        ("template", "collage"),
+        ("palette", ""),
+        ("palette", "chartreuse"),
+        ("transition", ""),
+        ("transition", "swipe"),
+    ],
+)
+async def test_a_scene_cannot_name_something_the_renderer_cannot_draw(
+    client: AsyncClient, admin, field: str, value: str
 ) -> None:
-    """The money is spent at generation. A job that dies on shot two must say what shot one cost."""
-    from rascal.models import SocialAsset, SocialRender
-    from rascal.services.social import gemini, renders
+    """The phase 101 defect, one level up.
 
-    asset = SocialAsset(headline="partial", alt_text="A card.", format="video", shot_list=SHOTS)
-    session.add(asset)
-    await session.commit()
-
-    good = _clip(tmp_path, 1, seconds=2)
-    seen = {"n": 0}
-
-    async def flaky(client_, settings_, shot):
-        seen["n"] += 1
-        if seen["n"] == 1:
-            return good
-        raise RuntimeError("429 from Gemini. Billing is not enabled.")
-
-    monkeypatch.setattr(gemini, "render_shot", flaky)
-
-    render = SocialRender(
-        asset_id=asset.id,
-        status="queued",
-        provider=renders.PROVIDER,
-        model="test-model",
-        shots_total=2,
-    )
-    session.add(render)
-    await session.commit()
-
-    await renders.run(render.id)
-    await session.refresh(render)
-    await session.refresh(asset)
-
-    assert render.status == "failed"
-    assert "Billing is not enabled" in render.error
-    assert len(render.clip_keys) == 1, "the clip it bought is still recorded"
-    expected_paid = sum(int(shot["seconds"]) for shot in SHOTS["shots"][:1]) * (
-        get_settings().gemini_video_cents_per_second
-    )
-    assert render.cost_cents == expected_paid, "and so is what that clip cost"
-    assert render.render_key is None
-    assert asset.render_key is None, "a failed job must not point the post at nothing"
-
-
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-async def test_a_failed_commit_does_not_leave_the_row_running_forever(
-    client: AsyncClient, session, admin, bucket, tmp_path: Path, monkeypatch
-) -> None:
-    """The poisoned-session path, which is the one with teeth.
-
-    If the per-clip `commit` is what fails, SQLAlchemy deactivates the transaction and every
-    later write raises `PendingRollbackError` — including the one that records the failure. A
-    detached background task then raises into nothing and the row stays `running`, which
-    `preflight` refuses on forever. `_finish` rolls back first for exactly this.
+    `models/social.py` keeps these as plain text because the renderer that has to know them is
+    in JavaScript, so a Postgres CHECK would be a second list to keep in step — which makes the
+    `Literal`s in `schemas/social.py` the only thing between the closed set and a card the
+    browser cannot draw. The empty string is in here on its own account: it is what a `<select>`
+    with no selection posts, and it is what phase 101 actually found in the database.
     """
-    from rascal.models import SocialAsset, SocialRender
-    from rascal.services.social import gemini, renders
-
-    asset = SocialAsset(headline="poisoned", format="video", shot_list=SHOTS)
-    session.add(asset)
-    await session.commit()
-
-    async def fine(client_, settings_, shot):
-        return _clip(tmp_path, 1, seconds=2)
-
-    monkeypatch.setattr(gemini, "render_shot", fine)
-    # An integer overflow on `cost_cents` — reachable through the API, since `shot_list` is
-    # free-form JSON — makes the commit itself fail rather than the generation.
-    monkeypatch.setattr(renders, "store", lambda *a, **k: "social/x.mp4", raising=False)
-
-    render = SocialRender(
-        asset_id=asset.id,
-        status="queued",
-        provider=renders.PROVIDER,
-        model="m",
-        shots_total=1,
-        cost_cents=2**31 - 1,
+    response = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": _pair(**{field: value})},
+        },
+        headers=auth_headers(admin),
     )
-    session.add(render)
-    await session.commit()
-    render_id = render.id
-
-    # Never raises, however the commit fails.
-    await renders.run(render_id)
-
-    # Read through a fresh session: `run()` owns its own, and this test's session holds a
-    # snapshot from before it committed.
-    from rascal.db import get_sessionmaker
-
-    async with get_sessionmaker()() as fresh:
-        row = await fresh.get(SocialRender, render_id)
-        assert row.status == "failed", f"the row must reach a terminal state, not {row.status}"
-        assert row.finished_at is not None
-        assert "GEMINI_API_KEY" not in (row.error or "")
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == f"treatment.scenes.0.{field}", (
+        "refused for the closed set, not for the runtime — see `_pair`"
+    )
 
 
-async def test_an_abandoned_render_stops_blocking_the_post(
-    client: AsyncClient, session, app, admin
+@pytest.mark.parametrize("duration", [0, 1199, 8001, 20_000])
+async def test_a_scene_duration_outside_its_bounds_is_refused(
+    client: AsyncClient, admin, duration: int
 ) -> None:
-    """A deploy kills the task mid-render. The post must not become unrenderable forever.
+    """Both sides. Under about a second nothing on a card can be read; over eight it has stopped.
 
-    `asyncio.CancelledError` is a `BaseException`, so even the broad handler may not get to
-    write a terminal status — which leaves a `running` row that `preflight` refuses on and only
-    hand-edited SQL can clear.
+    Every value here is paired with a scene long enough that the *treatment* bound is satisfied,
+    so the only thing left to refuse it is `duration_ms` itself — `20_000` rather than `60_000`
+    for the same reason.
     """
-    from rascal.config import get_settings as real_settings
-    from rascal.models import SocialRender
-
-    asset_id = await _asset(client, admin, shot_list=SHOTS)
-    long_ago = dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1)
-    session.add(
-        SocialRender(
-            asset_id=uuid.UUID(asset_id),
-            status="running",
-            provider=renders.PROVIDER,
-            model="m",
-            shots_total=2,
-            started_at=long_ago,
-        )
+    response = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": [_scene(duration_ms=duration), SCENES[3], SCENES[1]]},
+        },
+        headers=auth_headers(admin),
     )
-    await session.commit()
-
-    app.dependency_overrides[real_settings] = lambda: _settings()
-    try:
-        response = await client.post(
-            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
-        )
-    finally:
-        app.dependency_overrides.pop(real_settings, None)
-    assert response.status_code == 202, response.text
-
-    from rascal.db import get_sessionmaker
-
-    async with get_sessionmaker()() as fresh:
-        rows = (
-            await fresh.scalars(
-                select(SocialRender).where(SocialRender.asset_id == uuid.UUID(asset_id))
-            )
-        ).all()
-    assert any(r.status == "cancelled" for r in rows), "the abandoned row is reaped"
-    # A second row exists — the render the reaping unblocked. Its own status depends on how far
-    # the background task got, which is not what this test is about.
-    assert len(rows) == 2, [r.status for r in rows]
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == "treatment.scenes.0.duration_ms"
 
 
-async def test_a_render_that_is_merely_slow_is_not_reaped(
-    client: AsyncClient, session, app, admin
+@pytest.mark.parametrize("count", [0, 1, 11])
+async def test_a_scene_count_outside_its_bounds_is_refused(
+    client: AsyncClient, admin, count: int
 ) -> None:
-    """Cancelling a slow job starts a second one beside it and pays for the clips twice."""
-    from rascal.config import get_settings as real_settings
-    from rascal.models import SocialRender
+    """One scene is a still with a fade on it; eleven is a video nobody watches to the end.
 
-    asset_id = await _asset(client, admin, shot_list=SHOTS)
-    session.add(
-        SocialRender(
-            asset_id=uuid.UUID(asset_id),
-            status="running",
-            provider=renders.PROVIDER,
-            model="m",
-            shots_total=2,
-            started_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(seconds=30),
-        )
+    A one-scene graph is deliberately given a duration that clears the treatment floor on its
+    own: without that it is refused for its runtime and `MIN_SCENES` is never the reason, which
+    is exactly the trap `_pair` exists to avoid. `min_length`/`max_length` on the list are field
+    constraints, so they are reported against `treatment.scenes` rather than the whole object.
+    """
+    graph = [_scene(duration_ms=7000) for _ in range(count)]
+    response = await client.post(
+        "/v1/social/assets",
+        json={"headline": "a treatment", "format": "video", "treatment": {"scenes": graph}},
+        headers=auth_headers(admin),
     )
-    await session.commit()
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == "treatment.scenes"
 
-    app.dependency_overrides[real_settings] = lambda: _settings()
-    try:
-        response = await client.post(
-            f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin)
-        )
-    finally:
-        app.dependency_overrides.pop(real_settings, None)
+
+@pytest.mark.parametrize(
+    ("count", "each", "why"),
+    [
+        (2, 1200, "2400ms is under the floor"),
+        (10, 8000, "80000ms is over the ceiling"),
+    ],
+)
+async def test_a_total_runtime_outside_its_bounds_is_refused(
+    client: AsyncClient, admin, count: int, each: int, why: str
+) -> None:
+    """**Every scene legal and the whole thing not.**
+
+    This is the bound a per-field validator cannot see, and it is reachable with values that
+    are individually fine — ten eight-second scenes is eighty seconds, which no feed will play
+    to the end, and every one of those scenes is inside its own limits.
+    """
+    graph = [_scene(duration_ms=each) for _ in range(count)]
+    response = await client.post(
+        "/v1/social/assets",
+        json={"headline": "a treatment", "format": "video", "treatment": {"scenes": graph}},
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 422, why
+    message = response.json()["error"]["message"]
+    # The actual total, not just the letters "ms" — which "…8000ms and 60000ms…" would satisfy
+    # while saying nothing about what was sent.
+    assert f"total {count * each}ms" in message, message
+    assert response.json()["error"]["field"] == "treatment"
+
+
+async def test_copy_longer_than_the_renderer_can_draw_is_refused(
+    client: AsyncClient, admin
+) -> None:
+    """`cards.js` shrinks type to fit and then stops at a floor, so past that it overflows.
+
+    The limit is derived in `brand.py` from the tightest template's geometry rather than
+    guessed, and it is enforced here and in the JSON schema Claude is constrained by — both
+    sides, in the same commit, which is what the phase asked for.
+    """
+    from rascal.services.social import brand
+
+    response = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": _pair(headline="x" * (brand.HEADLINE_MAX + 1))},
+        },
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == "treatment.scenes.0.headline"
+
+    # And the just-inside value is accepted, or a limit of zero would pass the assertion above.
+    ok = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": _pair(headline="x" * brand.HEADLINE_MAX)},
+        },
+        headers=auth_headers(admin),
+    )
+    assert ok.status_code == 201, ok.text
+
+
+async def test_a_scene_with_no_headline_is_refused_rather_than_silently_uncaptioned(
+    client: AsyncClient, admin
+) -> None:
+    """A headline-less scene is a card holding a wordmark, and it produces no caption cue.
+
+    Both are legal outcomes of a graph the schema permitted, and neither is one anybody asked
+    for — so the schema does not permit it. `scenes.caption_track` still handles the case,
+    because a derivation that assumes its input was validated is a derivation that breaks the
+    first time somebody calls it from somewhere else.
+    """
+    response = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": _pair(headline="")},
+        },
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["field"] == "treatment.scenes.0.headline"
+
+
+# --- The captions are derived, and cannot be authored ------------------------------------------
+
+
+async def test_saving_a_treatment_derives_the_caption_track_and_the_runtime(
+    client: AsyncClient, admin
+) -> None:
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    saved = (await client.get("/v1/social/assets", headers=auth_headers(admin))).json()["assets"][0]
+
+    assert saved["caption_track"] == scenes.caption_track(SCENES)
+    assert saved["duration_seconds"] == 11, "1500 + 3200 + 2000 + 4300, rounded to seconds"
+    assert saved["treatment"] == TREATMENT
+    assert saved["id"] == asset_id
+
+
+async def test_a_caller_cannot_write_a_caption_track_that_disagrees_with_the_cards(
+    client: AsyncClient, admin
+) -> None:
+    """**The defect this phase removed, asserted as a refusal.**
+
+    Until phase 120 `caption_track` and `duration_seconds` were both editable fields on the
+    asset, so a caller could save a track that said something the cards did not, or a runtime
+    that was not the sum of the shots, and nothing anywhere compared them. Pydantic ignores an
+    unknown key rather than erroring, so the assertion is that the value did not land — not
+    that the request failed.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    patched = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={
+            "caption_track": "WEBVTT\n\n1\n00:00:00.000 --> 09:59:59.000\nsomething else",
+            "duration_seconds": 999,
+        },
+        headers=auth_headers(admin),
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["caption_track"] == scenes.caption_track(SCENES)
+    assert patched.json()["duration_seconds"] == 11
+
+
+async def test_editing_the_scenes_re_derives_the_track_rather_than_leaving_the_old_one(
+    client: AsyncClient, admin
+) -> None:
+    """The invariant is not "derived on creation" — it is that the track is always these scenes'.
+
+    An edit that changed the graph and left the previous track standing would be the same
+    divergence arriving through a different door, and it is the shape a fix applied only to the
+    create path actually leaves behind.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    shorter = {"scenes": [SCENES[0], {**SCENES[1], "headline": "9,001", "duration_ms": 5000}]}
+    patched = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={"treatment": shorter},
+        headers=auth_headers(admin),
+    )
+    assert patched.status_code == 200, patched.text
+    assert "9,001" in patched.json()["caption_track"]
+    assert "4,812" not in patched.json()["caption_track"]
+    assert patched.json()["duration_seconds"] == 7, "1500 + 5000"
+
+
+# --- The route that takes bytes ----------------------------------------------------------------
+
+
+async def test_a_post_with_no_treatment_is_refused(client: AsyncClient, admin) -> None:
+    asset_id = await _asset(client, admin)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=b"\x1a\x45\xdf\xa3nope",
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
     assert response.status_code == 422
-    assert "already running" in response.json()["error"]["message"]
+    assert "no treatment" in response.json()["error"]["message"]
 
 
-async def test_a_missing_key_is_not_reported_as_a_missing_api_key(
-    client: AsyncClient, session, admin, bucket, monkeypatch
+async def test_a_body_that_is_not_a_webm_is_refused_and_the_message_names_the_format(
+    client: AsyncClient, admin, bucket
 ) -> None:
-    """`LookupError` is also `KeyError`. Reporting one as the other misdirects the fix."""
+    """Same reasoning as the JPEG check on `/image`.
+
+    A wrong format otherwise surfaces as an ffmpeg error naming neither the format nor the
+    file, which sends the next person to read the wrong code.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=b"\xff\xd8\xff\xe0 this is a JPEG",
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert "WebM" in message and "EBML" in message
+    assert "ff d8 ff e0" in message, "and it names what it actually got"
+
+
+async def test_an_empty_body_says_so_rather_than_failing_downstream(
+    client: AsyncClient, admin, bucket
+) -> None:
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=b"",
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 422
+    assert "nothing to transcode" in response.json()["error"]["message"].lower()
+
+
+async def test_a_recording_over_the_cap_is_refused_before_it_is_read_into_memory(
+    client: AsyncClient, admin, bucket
+) -> None:
+    """**On the header, not on `len(data)`.**
+
+    `request.body()` buffers the whole upload first, so a size check afterwards means the
+    oversized request has already cost what it was going to cost. The assertion is that a
+    declared length alone is enough — the body sent here is four bytes.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    # **Not `MAX + 1`.** At exactly one byte over, the reported size and the reported limit both
+    # floor to 64 and the message says "64MB" twice — so an assertion on that string passes if
+    # the two are swapped, or if the sentence is otherwise wrong. 200MB makes the two halves
+    # distinguishable and the assertion falsifiable.
+    over = 200 * 1024 * 1024
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=b"\x1a\x45\xdf\xa3",
+        headers={
+            **auth_headers(admin),
+            "content-type": "video/webm",
+            "content-length": str(over),
+        },
+    )
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert "200MB" in message, "the refusal names what was actually sent"
+    assert "limit is 64MB" in message, "and what the limit is"
+
+
+async def test_a_recording_over_the_cap_is_refused_when_no_length_was_declared(
+    client: AsyncClient, admin, bucket
+) -> None:
+    """**The header check is not the cap, and this is the request that proves it.**
+
+    `Content-Length` is absent entirely on a chunked request — which is what `fetch()` sends when
+    the body is a `ReadableStream` rather than a `Blob` — so the header branch is skipped, the
+    body is buffered whole, and without a second check on `len(data)` the cap is advisory. The
+    sibling card upload has always had that backstop; the video route was written with only the
+    first half.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    # Comfortably over, so the reported size and the reported limit are different numbers —
+    # at exactly one byte over, both floor to "64MB" and the assertion cannot tell them apart.
+    oversized = b"\x1a\x45\xdf\xa3" + b"\x00" * int(transcode.MAX_RECORDING_BYTES * 1.5)
+
+    async def chunks():
+        yield oversized
+
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=chunks(),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert "content-length" not in {k.lower() for k in response.request.headers}, (
+        "the point of this test is a request with no declared length"
+    )
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    assert "96MB" in message, "the refusal names what actually arrived"
+    assert "limit is 64MB" in message
+
+
+# --- What actually comes out of ffmpeg ---------------------------------------------------------
+
+
+@needs_ffmpeg
+async def test_the_stored_file_is_h264_yuv420p_with_no_audio_and_the_right_length(
+    client: AsyncClient, admin, session, bucket
+) -> None:
+    """**The properties a platform's decoder reads**, not the argv this code happens to run.
+
+    Asserting on the command would only prove the command. `-pix_fmt yuv420p` in particular is
+    one flag between "works" and "Instagram rejects it and QuickTime plays it black", and the
+    only way to know it took effect is to probe the file.
+
+    The duration is asserted against the *recording's* length rather than the scene graph's,
+    because that is what the transcoder is responsible for — and it is worth asserting at all
+    only because the re-encode recomputes timestamps. `MediaRecorder` writes an unknown duration
+    into the WebM header, so the same assertion against a stream copy would read `N/A`.
+    """
+    from rascal.models import SocialRender
+    from rascal.services import s3
+
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 200, response.text
+    row = response.json()
+
+    assert row["status"] == "succeeded"
+    assert row["provider"] == "canvas", "no vendor made these bytes"
+    assert row["model"] == renders.RENDERER_VERSION
+    assert row["scene_count"] == len(SCENES)
+    assert row["render_key"].startswith("social/"), "never under children/"
+    assert row["error"] is None
+
+    stored = (
+        s3.get_s3_client()
+        .get_object(Bucket=get_settings().s3_bucket, Key=row["render_key"])["Body"]
+        .read()
+    )
+    probed = transcode.probe(stored)
+    assert probed["codec_name"] == "h264"
+    assert probed["pix_fmt"] == "yuv420p"
+    assert probed["audio_streams"] == 0, "a canvas capture has no audio and none is invented"
+    expected = scenes.total_ms(SCENES) / 1000
+    assert abs(probed["duration_seconds"] - expected) < 0.1, probed
+    # Not only the container: a 240x426 input must come out at 240x426. An assertion that stopped
+    # at the codec would pass against an encoder that silently rescaled every card.
+    assert probed["width"] == 240 and probed["height"] == 426, probed
+
+    # The post points at the file, and the row is the one attempt.
+    saved = (await client.get("/v1/social/assets", headers=auth_headers(admin))).json()["assets"][0]
+    assert saved["render_key"] == row["render_key"]
+    assert saved["render_provider"] == "canvas"
+    rows = (await session.execute(select(SocialRender))).scalars().all()
+    assert len(rows) == 1
+
+
+@needs_ffmpeg
+async def test_a_success_costs_nothing_and_says_so(client: AsyncClient, admin, bucket) -> None:
+    """Zero is the finding this phase exists to produce, so it is reported rather than omitted."""
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.json()["cost_cents"] == 0
+
+
+async def test_ffmpeg_failing_writes_a_failed_row_with_the_reason_and_never_a_500(
+    client: AsyncClient, admin, session, bucket, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure is an attempt that happened, and it is recorded as one.
+
+    The alternative is a button that reports an error and leaves no trace of having been
+    pressed, which makes "it did nothing" and "it failed" the same event. The stderr tail
+    reaches the row; the whole of stderr does not — `errors.py` forbids a stack trace and a
+    paragraph of ffmpeg is one by another name.
+    """
+    from rascal.models import SocialRender
+
+    real_run = subprocess.run
+
+    def _failing_run(command, *args, **kwargs):
+        # Only ffmpeg. Patching `subprocess.run` outright would also break `ffprobe` and
+        # anything else the suite shells out to, and a test that fails for the wrong reason
+        # is worse than one that does not run.
+        if command and command[0] == "ffmpeg":
+            return subprocess.CompletedProcess(
+                command,
+                1,
+                stdout="",
+                stderr="some noise\n[libvpx-vp9] failed to decode: corrupt frame\n",
+            )
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", _failing_run)
+
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=b"\x1a\x45\xdf\xa3 pretending to be a recording",
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 422, "a readable refusal, never a 500"
+    assert "corrupt frame" in response.json()["error"]["message"]
+
+    row = (await session.execute(select(SocialRender))).scalars().one()
+    assert row.status == "failed"
+    assert "corrupt frame" in row.error
+    assert "some noise" not in row.error, "the last line, not the whole of stderr"
+    assert row.cost_cents == 0, "a failure is free too, and the ledger says so"
+    assert row.render_key is None
+    assert row.finished_at is not None
+
+
+@needs_ffmpeg
+async def test_a_recording_shorter_than_the_treatment_is_refused_and_recorded(
+    client: AsyncClient, admin, session, bucket
+) -> None:
+    """**The server half of the backgrounded-tab guard, and the half that cannot be bypassed.**
+
+    `cards.js` refuses to record in a hidden tab because `requestAnimationFrame` does not fire in
+    one and the result is a file that is *silently short*. That guard is the browser promising.
+    This is the server checking — and it holds against a tab the browser mis-detected, a
+    `MediaRecorder` that dropped frames under load, and anything at all posting to this route.
+
+    The refusal is a `failed` row like any other, because the attempt happened and produced
+    bytes; they were simply not the video the treatment describes.
+    """
+    from rascal.models import SocialRender
+    from rascal.services import s3
+
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(seconds=4.0),  # against an 11.0s treatment
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 422, response.text
+    message = response.json()["error"]["message"]
+    # **In order, not merely both present.** "The recording is 11.0s and the treatment is 4.0s"
+    # contains the same two numbers and says the opposite thing.
+    assert message.index("4.0s") < message.index("11.0s"), message
+    assert "recording is 4.0s" in message and "treatment is 11.0s" in message, message
+    assert "background" in message, "the message must name the likely cause, not just the numbers"
+
+    row = (await session.execute(select(SocialRender))).scalars().one()
+    assert row.status == "failed"
+    assert row.render_key is None, "a short film must not become the post's film"
+    assert row.cost_cents == 0
+
+    # And nothing reached the bucket: the check runs before the store, not after it.
+    listing = s3.get_s3_client().list_objects_v2(Bucket=get_settings().s3_bucket)
+    assert listing.get("KeyCount", 0) == 0, listing
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize(
+    ("short_by", "refused"),
+    [(0.10, False), (0.20, False), (0.50, True), (1.00, True)],
+)
+async def test_the_length_tolerance_sits_where_the_constant_says_it_does(
+    client: AsyncClient, admin, bucket, short_by: float, refused: bool
+) -> None:
+    """**Both sides of `DURATION_TOLERANCE_SECONDS`, which nothing else pins.**
+
+    The two tests around this one bracket the constant at (0.0, 7.0): a 4.0s recording against
+    an 11.0s treatment keeps being refused for any tolerance under seven seconds, and the
+    one-frame-long case is *longer* than expected so the one-sided comparison never consults the
+    tolerance at all. Measured: with those two alone, 0.0, 5.0 and 6.9 all pass.
+
+    These four points bracket it into (0.2, 0.5), which is where 0.25 lives — close enough that
+    moving the constant in either direction fails, and far enough from the frame-length wobble
+    of a real encode not to be flaky.
+    """
+    from rascal.services.social import renders as renders_module
+
+    assert 0.2 < renders_module.DURATION_TOLERANCE_SECONDS < 0.5, (
+        "this test brackets the constant; move them together or not at all"
+    )
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(seconds=scenes.total_ms(SCENES) / 1000 - short_by),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == (422 if refused else 200), response.text
+
+
+@needs_ffmpeg
+async def test_a_recording_one_frame_long_is_accepted_because_a_correct_one_always_is(
+    client: AsyncClient, admin, bucket
+) -> None:
+    """The control. A correct recording measures **one frame long**, every time.
+
+    The console draws one extra `requestAnimationFrame` after the final frame so the compositor
+    samples it, which puts every real output about 33ms over the graph. A length check with no
+    tolerance — or one that compared for equality — would reject every genuine render, and this
+    is the assertion that would have caught that before it shipped.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    over = scenes.total_ms(SCENES) / 1000 + 0.034
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(seconds=over),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "succeeded"
+
+
+# --- Reading it back ---------------------------------------------------------------------------
+
+
+async def test_status_is_null_before_anything_has_been_recorded(client: AsyncClient, admin) -> None:
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.get(f"/v1/social/assets/{asset_id}/video", headers=auth_headers(admin))
+    assert response.status_code == 200, response.text
+    assert response.json()["render"] is None
+
+
+@needs_ffmpeg
+async def test_the_file_route_hands_back_a_url_for_the_thing_that_was_made(
+    client: AsyncClient, admin, bucket
+) -> None:
+    """The console's *Open the film* button called this route and it did not exist.
+
+    Nothing caught it: `admin.js` has no test runner, the route was never in an authorization
+    sweep because there was no route, and the button only appears after a render succeeds —
+    which, on a path that cost real money and had never succeeded end to end in production,
+    was never.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    render = (
+        await client.post(
+            f"/v1/social/assets/{asset_id}/video",
+            content=_webm(),
+            headers={**auth_headers(admin), "content-type": "video/webm"},
+        )
+    ).json()
+
+    response = await client.get(
+        f"/v1/social/renders/{render['id']}/file", headers=auth_headers(admin)
+    )
+    assert response.status_code == 200, response.text
+    assert render["render_key"] in response.json()["url"]
+    assert response.json()["expires_in"] > 0
+
+
+async def test_a_render_that_produced_no_file_is_a_404_carrying_the_reason(
+    client: AsyncClient, admin, session
+) -> None:
+    """*This render has no file* and *here is a URL that will not resolve* are different answers."""
     from rascal.models import SocialAsset, SocialRender
-    from rascal.services.social import gemini, renders
 
-    asset = SocialAsset(headline="keyerror", format="video", shot_list=SHOTS)
+    asset = SocialAsset(headline="failed one", format="video")
     session.add(asset)
-    await session.commit()
-
-    async def explodes(client_, settings_, shot):
-        raise KeyError("some_field")
-
-    monkeypatch.setattr(gemini, "render_shot", explodes)
+    await session.flush()
     render = SocialRender(
-        asset_id=asset.id, status="queued", provider=renders.PROVIDER, model="m", shots_total=1
+        asset_id=asset.id,
+        status="failed",
+        provider=renders.PROVIDER,
+        model=renders.RENDERER_VERSION,
+        scene_count=4,
+        error="ffmpeg failed (exit 1): corrupt frame",
     )
     session.add(render)
     await session.commit()
 
-    await renders.run(render.id)
-    await session.refresh(render)
-    assert render.status == "failed"
-    assert "GEMINI_API_KEY" not in (render.error or ""), render.error
+    response = await client.get(f"/v1/social/renders/{render.id}/file", headers=auth_headers(admin))
+    assert response.status_code == 404
+    assert "corrupt frame" in response.json()["error"]["message"]
 
 
-# --- The estimate -----------------------------------------------------------------------------
-
-
-def test_the_estimate_is_seconds_times_the_configured_rate() -> None:
-    """Eight seconds of treatment at ten cents a second is eighty cents, shown before spending."""
-    assert renders.estimate_cents(_settings(), SHOTS["shots"]) == 80
-    assert (
-        renders.estimate_cents(_settings(gemini_video_cents_per_second=40), SHOTS["shots"]) == 320
+async def test_an_unknown_render_is_a_404(client: AsyncClient, admin) -> None:
+    response = await client.get(
+        f"/v1/social/renders/{uuid.uuid4()}/file", headers=auth_headers(admin)
     )
+    assert response.status_code == 404
 
 
-# --- The stitch, which is the one part with no vendor in it -----------------------------------
+# --- The transcoder on its own -----------------------------------------------------------------
 
 
-def _clip(tmp: Path, index: int, seconds: int = 2) -> bytes:
-    """A real mp4 with real audio, built by the same ffmpeg the stitcher uses."""
-    path = tmp / f"c{index}.mp4"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            f"color=c=0x{index}05A2B:s=360x640:d={seconds}:r=24",
-            "-f",
-            "lavfi",
-            "-i",
-            f"sine=frequency={300 * index}:duration={seconds}",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-c:a",
-            "aac",
-            "-shortest",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return path.read_bytes()
+def test_a_body_that_is_not_ebml_is_refused_by_the_transcoder_itself() -> None:
+    """Checked in the module as well as at the route, because the route is not its only caller."""
+    with pytest.raises(transcode.TranscodeError, match="not a WebM"):
+        transcode.to_mp4(b"RIFF....AVI ")
 
 
-def _duration(blob: bytes, tmp: Path) -> float:
-    path = tmp / "probe.mp4"
-    path.write_bytes(blob)
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(out.stdout.strip())
+@needs_ffmpeg
+def test_the_encoder_recomputes_the_duration_rather_than_trusting_the_header() -> None:
+    """**`MediaRecorder` writes an unknown duration into the WebM header**, and this is why.
 
-
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-def test_clips_join_into_one_file_of_their_combined_length(tmp_path: Path) -> None:
-    clips = [_clip(tmp_path, i, seconds=2) for i in (1, 2, 3)]
-    joined = stitch.concat(clips)
-    assert abs(_duration(joined, tmp_path) - 6.0) < 0.5
-
-
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-def test_a_single_clip_is_returned_untouched(tmp_path: Path) -> None:
-    """One shot is already the finished file. Re-encoding it to prove a point is pure loss."""
-    only = _clip(tmp_path, 1)
-    assert stitch.concat([only]) == only
-
-
-@pytest.mark.skipif(not stitch.available(), reason="ffmpeg is not installed")
-def test_a_join_that_exits_zero_but_lost_a_clip_is_rejected(tmp_path: Path) -> None:
-    """An exit code of zero is not correctness, and this is the case that proves it.
-
-    The concat demuxer stream-copies clips whose codecs do not match — h264 packets and mpeg4
-    packets written into one h264 track — and exits 0 having produced something that plays as
-    garbage after the first clip. Verified by hand before this test existed. The copy is
-    therefore accepted only when the joined duration is the sum of the parts.
+    A stream copy would carry that straight through into the MP4 and everything downstream —
+    a platform's own transcoder, a `<video>` element's scrubber, this suite — would read
+    nothing. The re-encode derives the duration from the frames, so it is a number.
     """
-    h264 = _clip(tmp_path, 1, seconds=2)
-    mpeg4_path = tmp_path / "mpeg4.mp4"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=blue:s=360x640:d=2:r=24",
-            "-c:v",
-            "mpeg4",
-            "-pix_fmt",
-            "yuv420p",
-            str(mpeg4_path),
-        ],
-        check=True,
-        capture_output=True,
+    out = transcode.to_mp4(_webm(seconds=1.5))
+    probed = transcode.probe(out)
+    assert probed["duration_seconds"] is not None
+    assert abs(probed["duration_seconds"] - 1.5) < 0.1, probed
+
+
+def test_the_encoder_pins_every_flag_it_documents_as_load_bearing() -> None:
+    """A readable check on the argv, beside the probe rather than instead of it.
+
+    The probe proves the output; this names *why* each flag is in the command, so removing one
+    to "simplify" fails a test whose message says what it costs.
+
+    **It reads the command `to_mp4` actually builds, not the `_ENCODE` tuple.** Asserting on
+    `_ENCODE` alone missed `-fflags +genpts`, which is spliced in ahead of `-i` because it is a
+    *demuxer* option — and which the module documents as the difference between a card that
+    starts on frame one and one whose first fraction of a second is trimmed off the front. A
+    test that cannot see the flag cannot protect it.
+    """
+    seen: list[list[str]] = []
+
+    def _capture(command, *args, **kwargs):
+        seen.append(list(command))
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="captured\n")
+
+    with mock.patch.object(subprocess, "run", _capture), pytest.raises(transcode.TranscodeError):
+        transcode.to_mp4(b"\x1a\x45\xdf\xa3 not really a webm")
+
+    argv = seen[0]
+    assert argv[0] == "ffmpeg"
+    assert "libx264" in argv, "H.264 is what a platform accepts; VP9 in WebM is not"
+    assert "yuv420p" in argv, "4:4:4 H.264 is rejected by Instagram and misrendered by QuickTime"
+    assert "-an" in argv, "a canvas capture has no audio; encoding one is bytes for nothing"
+    assert "+faststart" in argv, "the moov atom belongs at the front for a file served over HTTP"
+    assert "+genpts" in argv, "MediaRecorder can write a first cluster with no timestamp"
+    assert "-nostdin" in argv, (
+        "ffmpeg reads the console for interactive keys; a copy of it in a web server is a way "
+        "to lose bytes that belong to something else"
     )
-    joined = stitch.concat([h264, mpeg4_path.read_bytes()])
-    # Four seconds of playable video, which only the re-encode path can produce here.
-    assert abs(_duration(joined, tmp_path) - 4.0) < 0.6
+    assert argv[argv.index("-profile:v") + 1] == "high"
+    assert "-y" in argv, "the output path is ours and pre-exists in no case worth prompting about"
+    assert argv.index("+genpts") < argv.index("-i"), (
+        "-fflags is a demuxer option: after -i it applies to the muxer and means nothing"
+    )
+    assert argv[argv.index("-r") + 1] == "30", "a VFR mp4 drifts against the caption track"
 
 
-def test_nothing_to_stitch_says_so(tmp_path: Path) -> None:
-    with pytest.raises(stitch.StitchError, match="Nothing to stitch"):
-        stitch.concat([])
+@needs_ffmpeg
+async def test_a_storage_failure_is_recorded_as_an_attempt_rather_than_becoming_a_500(
+    client: AsyncClient, admin, session, bucket, caplog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**The transcode is not the only thing in that `try`.**
+
+    `record()` wraps the encode *and* the bucket write, and caught only `TranscodeError` — so a
+    boto3 error raised straight past it, the row was never added, `get_session` rolled the
+    request back, and the operator got a 500 for a storage outage from a function whose docstring
+    promises the attempt is recorded either way.
+
+    The error on the row is the exception's **type**, never its text: a boto3 `ClientError`
+    stringifies to the whole request context including the bucket and the endpoint, which
+    `errors.py` forbids putting on a row for the same reason it forbids a raw SQL error.
+
+    The sentence names no stage, deliberately. The same handler catches an `OSError` writing the
+    temp file, so "while storing the recording" would be confidently wrong half the time — and a
+    wrong location on a row somebody reads at 2am is worse than no location.
+    """
+    from rascal.models import SocialRender
+    from rascal.services.social import renders as renders_module
+
+    def _no_bucket(*args, **kwargs):
+        raise RuntimeError("An error occurred (NoSuchBucket) when calling PutObject: s3://secret")
+
+    monkeypatch.setattr(renders_module, "store", _no_bucket)
+    caplog.set_level("WARNING", logger="rascal.social.renders")
+
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    response = await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    assert response.status_code == 422, "a readable refusal, never a 500"
+
+    # **The traceback has to exist somewhere**, which is the whole argument for the broad
+    # `except`: an unexpected error is a defect being reported to an operator as a validation
+    # failure, and without `exc_info` the stack would exist nowhere at all.
+    assert any(
+        record.levelname == "ERROR" and record.exc_info
+        for record in caplog.records
+        if record.name == "rascal.social.renders"
+    ), [(r.levelname, r.name, bool(r.exc_info)) for r in caplog.records]
+
+    row = (await session.execute(select(SocialRender))).scalars().one()
+    assert row.status == "failed"
+    assert row.error == "RuntimeError while producing the file."
+    assert "NoSuchBucket" not in row.error and "s3://" not in row.error
+    assert row.cost_cents == 0
+    assert row.render_key is None
+
+
+# --- The schema Claude is constrained by -------------------------------------------------------
+
+
+def test_no_schema_carries_a_keyword_structured_outputs_rejects() -> None:
+    """**The failure mode this guards is a 400 in production, not a red test.**
+
+    `output_config.format` accepts a small subset of JSON Schema: `minItems` above 1, `maxItems`,
+    `minLength`, `maxLength`, `minimum`, `maximum`, `pattern` and friends are all refused, as a
+    400 at request time. The official SDKs strip them and validate client-side; this service
+    talks to `/v1/messages` with raw `httpx`, so nothing strips them here.
+
+    Measured against the live API on Aug 25, 2026, one refusal at a time — *"For 'array' type,
+    'minItems' values other than 0 or 1 are not supported"*, then *"property 'maxItems' is not
+    supported"*. Both were written into the schema first, because both are the obvious thing to
+    write when the Pydantic model beside it has them.
+
+    So the bound belongs in `treatment_instruction` and in `VideoTreatment`, and this is what
+    stops somebody helpfully putting it back. It walks the schemas rather than naming fields,
+    because a new property added later is exactly the case a field list would miss.
+    """
+    from rascal.services.social import director
+
+    offenders: list[str] = []
+
+    def walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in director.UNSUPPORTED_SCHEMA_KEYWORDS:
+                    offenders.append(f"{path}.{key} = {value!r}")
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                walk(value, f"{path}[{index}]")
+
+    assert len(director.UNSUPPORTED_SCHEMA_KEYWORDS) >= 6, (
+        "emptying the list would make every assertion below vacuous"
+    )
+    assert {
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+    } <= director.UNSUPPORTED_SCHEMA_KEYWORDS
+
+    walk(director.TREATMENT_SCHEMA, "TREATMENT_SCHEMA")
+    walk(director.CONCEPT_SCHEMA, "CONCEPT_SCHEMA")
+    assert not offenders, (
+        "structured outputs rejects these with a 400 at request time, and nothing in this "
+        f"service strips them before the POST: {offenders}. State the bound in the "
+        "instruction and enforce it in schemas/social.py instead."
+    )
+
+
+def test_the_schema_still_carries_the_closed_sets_that_do_the_real_work() -> None:
+    """The control for the test above, and it is not decoration.
+
+    A schema stripped of every constraint would pass that test perfectly. `enum` **is**
+    supported, it is the keyword that makes a template or a transition a closed set, and losing
+    it would mean the model could name a card the browser cannot draw — while the guard above
+    stayed green.
+    """
+    from rascal.services.social import brand, director
+
+    scene = director.TREATMENT_SCHEMA["properties"]["scenes"]["items"]["properties"]
+    assert scene["template"]["enum"] == list(brand.TEMPLATES)
+    assert scene["palette"]["enum"] == list(brand.PALETTES)
+    assert scene["transition"]["enum"] == list(brand.TRANSITIONS)
+    assert director.TREATMENT_SCHEMA["additionalProperties"] is False
+    assert scene.keys() >= {"headline", "duration_ms"}
+
+
+def test_the_copy_bounds_reach_the_model_as_prose_since_they_cannot_reach_it_as_schema() -> None:
+    """`brand.py` says the limits are enforced on both sides. On the model's side they are words.
+
+    That is a real constraint rather than an oversight — see the test above — but a number
+    written into a description drifts from the constant silently, which is the one failure mode
+    prose has and a keyword does not.
+    """
+    from rascal.services.social import brand, director
+
+    scene = director.TREATMENT_SCHEMA["properties"]["scenes"]["items"]["properties"]
+    assert str(brand.HEADLINE_MAX) in scene["headline"]["description"]
+    assert str(brand.SUBHEAD_MAX) in scene["subhead"]["description"]
+    assert str(brand.EYEBROW_MAX) in scene["eyebrow"]["description"]
+    assert str(brand.SCENE_MIN_MS) in scene["duration_ms"]["description"]
+    assert str(brand.SCENE_MAX_MS) in scene["duration_ms"]["description"]
+
+    # **`f"{MIN}ms"`, not `str(MIN)`.** 6000 is a substring of 60000, so a bare containment
+    # check for the floor is satisfied by the ceiling and the test cannot tell them apart.
+    instruction = director.treatment_instruction("a brief", 20)
+    assert f"{brand.TREATMENT_MIN_MS}ms" in instruction
+    assert f"{brand.TREATMENT_MAX_MS}ms" in instruction
+
+
+# --- The scene copy cannot break the track it is interpolated into -----------------------------
+
+
+@pytest.mark.parametrize(
+    "headline",
+    ["Two lines\n\nand a gap", "One\nline break", "\n\nleading gap", "trailing gap\n\n"],
+)
+async def test_a_newline_in_the_copy_cannot_split_its_own_cue(
+    client: AsyncClient, admin, headline: str
+) -> None:
+    """**A blank line terminates a WebVTT cue**, and scene copy is interpolated straight in.
+
+    Left alone, a headline containing one splits its own cue and orphans the rest of the
+    sentence into a fragment the parser reads as a timing line. The card renderer wraps text
+    itself and has no use for an authored break either, so the copy is flattened at the schema
+    boundary — once, rather than in every consumer.
+    """
+    # 3000 + 4300 = 7300ms, over the treatment floor. Two scenes so the cue count is a number
+    # the assertion below can be exact about.
+    asset_id = await _asset(
+        client,
+        admin,
+        treatment={"scenes": _pair(headline=headline)},
+    )
+    saved = (await client.get("/v1/social/assets", headers=auth_headers(admin))).json()["assets"][0]
+    assert saved["id"] == asset_id
+
+    track = saved["caption_track"]
+    assert "\n\n\n" not in track, "a doubled blank line is a cue the parser cannot place"
+    # Exactly two cues, one per scene, however many line breaks the copy tried to add.
+    assert track.count(" --> ") == 2
+    for scene in saved["treatment"]["scenes"]:
+        assert "\n" not in scene["headline"]
+
+
+@pytest.mark.parametrize("headline", ["   ", "\t\n ", "\u00a0", ""])
+async def test_a_whitespace_only_headline_is_refused_rather_than_silently_uncaptioned(
+    client: AsyncClient, admin, headline: str
+) -> None:
+    """`min_length=1` accepts `"   "`, and `caption_track` strips before it tests.
+
+    So such a scene produced no cue while still consuming its slice of the clock — silently,
+    which is the exact outcome the comment on `headline` claims cannot happen. The collapse runs
+    before the length check, so the field is `""` by the time `min_length` sees it.
+
+    **The durations are over the treatment floor on purpose.** Written with the module's default
+    1500ms scene, the pair totals 4700ms and the request is refused by the *runtime* bound — so
+    the test passed while proving nothing about headlines, which is exactly what a break-test of
+    the validator revealed.
+    """
+    response = await client.post(
+        "/v1/social/assets",
+        json={
+            "headline": "a treatment",
+            "format": "video",
+            "treatment": {"scenes": _pair(headline=headline)},
+        },
+        headers=auth_headers(admin),
+    )
+    assert response.status_code == 422, response.text
+    # **The exact path, not just "treatment".** The runtime bound refuses with `field:
+    # "treatment"`, so asserting on that alone is what let the first version of this test pass
+    # for the wrong reason — it was being refused for its durations, not its headline.
+    assert response.json()["error"]["field"] == "treatment.scenes.0.headline"
+
+
+async def test_a_scene_that_survives_validation_always_has_a_headline_that_is_a_string(
+    client: AsyncClient, admin
+) -> None:
+    """The control for the test above: it asserts what a *surviving* scene looks like.
+
+    That test only ever sees refusals, so on its own it cannot tell a validator that rejects
+    correctly from one that also mangles the copy it accepts. This one pins the accepted case —
+    collapsed, still a `str`, still producing a cue.
+
+    **Stated honestly after break-testing it**: the `after`-mode-returning-`None` mistake this
+    phase actually made is caught by the whitespace test above, not by this one, because
+    `"  spaced   out  "` collapses to something non-empty and never reaches the `or None`. What
+    this test uniquely covers is a collapse that mangles or drops accepted copy.
+    """
+    asset_id = await _asset(
+        client,
+        admin,
+        treatment={
+            "scenes": [
+                _scene(headline="  spaced   out  ", subhead="   ", eyebrow="  ", duration_ms=3000),
+                SCENES[3],
+            ]
+        },
+    )
+    saved = (await client.get("/v1/social/assets", headers=auth_headers(admin))).json()["assets"][0]
+    assert saved["id"] == asset_id
+    first = saved["treatment"]["scenes"][0]
+    assert first["headline"] == "spaced out", "collapsed, not nulled"
+    assert isinstance(first["headline"], str)
+    assert not first["subhead"] and not first["eyebrow"], "emptied optionals read as absent"
+    assert saved["caption_track"].count(" --> ") == 2
+
+
+async def test_clearing_the_treatment_clears_everything_derived_from_it(
+    client: AsyncClient, admin
+) -> None:
+    """`"treatment": null` is a real operation and used to be silently ignored with a 200.
+
+    A partial update makes *absent* and *explicitly null* both arrive as `None`, so the clear
+    did nothing. Worse than doing nothing: leaving a caption track standing beside no scenes is
+    the divergence the derivation exists to prevent, arriving by the one door left open.
+    """
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    cleared = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={"treatment": None},
+        headers=auth_headers(admin),
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["treatment"] is None
+    assert cleared.json()["caption_track"] is None
+    assert cleared.json()["duration_seconds"] is None
+
+    # And an omitted field still means "leave it alone", which is the other half.
+    restored = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={"treatment": TREATMENT},
+        headers=auth_headers(admin),
+    )
+    assert restored.status_code == 200
+    untouched = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={"headline": "renamed"},
+        headers=auth_headers(admin),
+    )
+    assert untouched.json()["treatment"] == TREATMENT
+    assert untouched.json()["caption_track"] == scenes.caption_track(SCENES)
+
+
+# --- The archive is not reachable from here ----------------------------------------------------
+
+
+@needs_ffmpeg
+async def test_a_render_never_writes_under_the_archive_prefix(
+    client: AsyncClient, admin, bucket
+) -> None:
+    """`social/`, never `children/`. Marketing output must not be mistaken for somebody's archive
+    by a lifecycle rule, a deletion sweep, or a person reading a bucket listing."""
+    from rascal.services import s3
+
+    asset_id = await _asset(client, admin, treatment=TREATMENT)
+    await client.post(
+        f"/v1/social/assets/{asset_id}/video",
+        content=_webm(),
+        headers={**auth_headers(admin), "content-type": "video/webm"},
+    )
+    listing = s3.get_s3_client().list_objects_v2(Bucket=get_settings().s3_bucket)
+    keys = [item["Key"] for item in listing.get("Contents", [])]
+    assert keys, "the recording should have been stored"
+    assert all(key.startswith("social/") for key in keys), keys

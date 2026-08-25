@@ -40,8 +40,9 @@ class RevalidatedStatic(StaticFiles):
     """`StaticFiles` that makes the browser ask before reusing a file.
 
     The console's HTML is `no-store` and its JavaScript was not, which is the wrong way round:
-    `index.html` holds no behaviour and `admin.js` and `cards.js` hold all of it. Starlette
-    sends `etag` and `last-modified` on a static file and no `Cache-Control` at all, and a
+    `index.html` holds no behaviour and `admin.js`, `cards.js` and `timeline.js` hold all of
+    it. Starlette sends `etag` and `last-modified` on a static file and no `Cache-Control` at
+    all, and a
     browser handed validators with no freshness directive invents one — Chrome's heuristic is a
     fraction of the file's age. So a console open across an edit keeps executing the previous
     script and never asks about it. **That is precisely the failure the `no-store` on the HTML

@@ -19,6 +19,7 @@
 // token and attaches it on purpose.
 
 import * as cards from "/admin/static/cards.js";
+import * as timeline from "/admin/static/timeline.js";
 
 const TOKEN_KEY = "vellum.admin.token";
 const REFRESH_KEY = "vellum.admin.refresh";
@@ -39,12 +40,13 @@ const state = {
   concepts: [],
   candidates: [],
   composing: null,
-  // The in-flight poll for a video render, so closing the composer stops it.
-  renderPoll: null,
-  // Bumped whenever the poll should stop. `clearTimeout` cannot cancel a poll that is already
-  // awaiting its fetch, and that poll would otherwise reschedule itself after the composer
-  // closed — two loops, one cancellable slot.
-  renderPollEpoch: 0,
+  // The scene graph the composer currently has open, as an array. Held here rather than read
+  // back out of the DOM every time: the recorder and the save need the same objects, and
+  // reparsing a rendered list is how they stop being the same objects.
+  scenes: [],
+  // Whether a recording is in flight. One button element serves every post, so without this the
+  // composer-open reset re-enables it underneath a record that has not finished.
+  recording: false,
   // Which provider's series the costs chart is showing. More than one vendor has a series
   // since phase 100, and they are not all denominated in money.
   chart: null,
@@ -1411,6 +1413,12 @@ function renderOps(data) {
 
 function renderStudioState(state) {
   state && (window.__studio = state);
+  // **The server's answer about video: which sizes record, and whether ffmpeg is there.**
+  // `whyNotRecord` reads both and keeps no copy of either. The other two gates it applies —
+  // can this browser record at all, and how big is the frame — are `cards.canRecord()` and
+  // `cards.SIZES`, which are properties of the browser and of the renderer rather than of the
+  // server, and are not in this payload.
+  video = state.video || null;
   const ledger = state.library_ledger;
   const pct = Math.min(100, (ledger.featured / Math.max(1, ledger.cap)) * 100);
   $("studio-state").innerHTML =
@@ -1701,19 +1709,24 @@ function renderConcepts() {
   });
 }
 
-async function writeShotList() {
+async function writeTreatment() {
   const brief = $("v-brief").value.trim();
   if (!brief) return;
   const button = $("v-go");
   button.disabled = true;
   button.textContent = "Writing…";
   try {
-    const result = await api("/social/shot-list", {
+    const result = await api("/social/treatment", {
       method: "POST",
-      body: JSON.stringify({ brief, seconds: 30 }),
+      body: JSON.stringify({ brief, seconds: 20 }),
     });
-    // Saved immediately rather than shown and discarded: a shot list is the thing somebody
-    // takes out to a park with a phone, and it should survive closing the tab.
+    // Saved immediately rather than shown and discarded: a treatment is a piece of work, and
+    // it should survive closing the tab.
+    //
+    // `caption_track` and `duration_seconds` are deliberately not sent. The server derives
+    // both from the scenes and refuses to accept them from a caller — a console that could
+    // set them could make the captions disagree with the cards, which is the whole defect
+    // phase 120 removed.
     const asset = await api("/social/assets", {
       method: "POST",
       body: JSON.stringify({
@@ -1721,23 +1734,21 @@ async function writeShotList() {
         format: "video",
         angle: result.premise,
         headline: result.title,
-        caption: result.shots
-          .map((s, i) => `${i + 1}. (${s.seconds}s) ${s.visual}\n   “${s.on_screen_text}”`)
-          .join("\n"),
-        shot_list: { shots: result.shots },
-        caption_track: result.caption_track,
-        duration_seconds: result.duration_seconds,
+        caption: result.scenes.map((scene, i) => `${i + 1}. ${scene.headline}`).join("\n"),
+        treatment: { scenes: result.scenes },
         model: result.model,
       }),
     });
-    toast(`Shot list saved — ${result.shots.length} shots, ${result.duration_seconds}s.`);
+    toast(
+      `Treatment saved — ${result.scenes.length} scenes, ${(result.duration_ms / 1000).toFixed(1)}s.`,
+    );
     await loadAssets();
     openComposer(null, asset);
   } catch (err) {
     banner(err.message);
   } finally {
     button.disabled = false;
-    button.textContent = "Shot list";
+    button.textContent = "Treatment";
   }
 }
 
@@ -1794,130 +1805,164 @@ const specOf = (source) => ({
   subhead: source.subhead || "",
 });
 
-// A shot list was written to the database and read back by nothing. The Studio would call
-// Claude, get seven shots and a caption track, save them — and then there was no screen in the
+// A treatment is written to the database and read back here, beside the post it belongs to.
+// The predecessor of this section had a real version of that defect — the Studio would call
+// Claude, get seven shots and a caption track, save them, and there was no screen in the
 // console that could show them. Generating something nobody can read is the same defect as not
-// generating it, so the treatment renders here, beside the post it belongs to.
+// generating it.
+/** What `GET /social/studio` says about video: the closed sets, the bounds, and whether the
+ * machine can finish a recording at all. Null until the Studio tab has loaded once. */
+let video = null;
+
+/** Every reason the Record button must not be offered, in the words the operator needs.
+ *
+ * **The server runs the same two checks and refuses**, in `renders.preflight`; this is the half
+ * that stops somebody pressing a button that cannot work. A disabled control with a sentence
+ * beside it is a better answer than a 422 after twenty seconds of recording.
+ */
+function whyNotRecord(scenes, platform) {
+  if (!scenes.length) return "";
+  // **Read-only mode, which the stylesheet's own hide-list misses.** `admin.css` hides every
+  // other write control by id or by `.drawer-actions` descent, and `#m-record` lives in
+  // `.treatment-render` so it matches none of them. `POST /social/assets/{id}/video` carries
+  // `LocalWrites` and refuses outright — after a whole treatment has been recorded.
+  if (document.body.dataset.readonly === "true")
+    return "The console is reading another database, so a recording would be made and then refused. Unset ADMIN_READ_DATABASE_URL to record.";
+  if (!cards.canRecord())
+    return "This browser cannot record WebM from a canvas. Chrome and Edge can; Safari cannot.";
+  if (video && video.ffmpeg === false)
+    return "This machine has no ffmpeg, so a recording could be made and then not converted. The server refuses too.";
+  // **No hardcoded fallback.** `["instagram_story", "instagram"]` here would be a second copy
+  // of `brand.VIDEO_PLATFORMS` in a file that cannot see it — and it would be *used* whenever
+  // the Studio tab had not loaded, which is exactly when it would be wrong without anybody
+  // noticing. Not knowing is a reason to refuse, not a reason to guess.
+  if (!video) return "The Studio has not loaded yet — open the Studio tab and try again.";
+  if (!video.platforms.includes(platform))
+    return `A treatment records at ${video.platforms.join(" or ")} only — ${platform} is a card size. Change the platform above.`;
+  return "";
+}
+
 function renderTreatment(source) {
-  const shots = (source.shot_list || {}).shots || [];
+  state.scenes = ((source.treatment || {}).scenes || []).slice();
+  const scenes = state.scenes;
   const track = source.caption_track || "";
-  $("m-treatment").hidden = !shots.length && !track;
-  // The treatment's own runtime, next to its title. Worth showing because the WebM button a
-  // few lines below is hardcoded to four seconds and has nothing to do with this number — a
-  // thirty-second treatment above a four-second export is the confusion this label heads off.
-  const runtime =
-    source.duration_seconds || shots.reduce((total, shot) => total + (shot.seconds || 0), 0);
-  $("m-runtime").textContent = shots.length
-    ? `· ${runtime}s across ${shots.length} shot${shots.length === 1 ? "" : "s"}`
+  $("m-treatment").hidden = !scenes.length && !track;
+
+  const total = timeline.totalMs(scenes);
+  $("m-runtime").textContent = scenes.length
+    ? `· ${(total / 1000).toFixed(1)}s across ${scenes.length} scene${scenes.length === 1 ? "" : "s"}`
     : "";
-  const list = $("m-shots");
+
+  const list = $("m-scenes");
   list.replaceChildren();
-  for (const shot of shots) {
+  const ends = timeline.boundaries(scenes);
+  scenes.forEach((scene, index) => {
     const item = document.createElement("li");
-    item.className = "shot";
+    item.className = "scene";
 
     const head = document.createElement("p");
-    head.className = "shot-head";
-    const seconds = document.createElement("span");
-    seconds.className = "chip chip-plain";
-    seconds.textContent = `${shot.seconds ?? "?"}s`;
-    head.append(seconds);
-    if (shot.on_screen_text) {
-      const onScreen = document.createElement("span");
-      onScreen.className = "shot-super";
-      onScreen.textContent = shot.on_screen_text;
-      head.append(onScreen);
-    }
+    head.className = "scene-head";
+    const clock = document.createElement("span");
+    clock.className = "chip chip-plain";
+    // The scene's own span on the timeline, not just its length. This is the number that has
+    // to equal a caption cue boundary, so it is the number worth showing.
+    const from = index === 0 ? 0 : ends[index - 1];
+    clock.textContent = `${(from / 1000).toFixed(1)}–${(ends[index] / 1000).toFixed(1)}s`;
+    head.append(clock);
+    const shape = document.createElement("span");
+    shape.className = "chip chip-plain";
+    shape.textContent = `${scene.template} · ${scene.palette} · ${scene.transition}`;
+    head.append(shape);
     item.append(head);
 
-    if (shot.visual) {
-      const visual = document.createElement("p");
-      visual.className = "shot-visual";
-      visual.textContent = shot.visual;
-      item.append(visual);
+    if (scene.eyebrow) {
+      const eyebrow = document.createElement("p");
+      eyebrow.className = "scene-eyebrow";
+      eyebrow.textContent = scene.eyebrow.toUpperCase();
+      item.append(eyebrow);
     }
-    if (shot.voiceover) {
-      const voice = document.createElement("p");
-      voice.className = "shot-voice";
-      voice.textContent = shot.voiceover;
-      item.append(voice);
+    const headline = document.createElement("p");
+    headline.className = "scene-headline";
+    headline.textContent = scene.headline;
+    item.append(headline);
+    if (scene.subhead) {
+      const subhead = document.createElement("p");
+      subhead.className = "scene-subhead";
+      subhead.textContent = scene.subhead;
+      item.append(subhead);
     }
     list.append(item);
-  }
+  });
+
   $("m-vtt").textContent = track;
   $("m-vtt").hidden = !track;
 
-  // The render button lives with the shots because that is what it renders. It is hidden for a
-  // post with no treatment: a card has nothing to turn into footage.
-  const seconds = shots.reduce((total, shot) => total + (shot.seconds || 0), 0);
-  $("m-render").hidden = !shots.length;
-  $("m-render-note").textContent = shots.length
-    ? `${shots.length} generations, about ${seconds}s of video. Each shot is generated ` +
-      "separately and joined here — nothing renders thirty seconds in one call."
-    : "";
-  stopRenderPoll();
-  $("m-render-state").hidden = true;
-  // One button element is reused for every post, so its disabled state has to be reset here
-  // or a render started on one post leaves it stuck for the next.
-  $("m-render").disabled = false;
-  if (state.composing?.id) pollRender(state.composing.id, { once: true });
+  refreshRecordButton();
+  $("m-record-state").hidden = true;
+  if (state.composing?.id) showLatestRender(state.composing.id);
 }
 
-// --- Rendering a treatment ------------------------------------------------------------------
-//
-// Seven generations and a concatenation take minutes, so the button gets a 202 and a row id
-// and everything after that is polling. `shots_done` counts clips that actually landed in the
-// bucket, so the bar is progress rather than an animation.
-
-function stopRenderPoll() {
-  if (state.renderPoll) {
-    clearTimeout(state.renderPoll);
-    state.renderPoll = null;
+/**
+ * The Record button's whole visible state, in one function called from three places.
+ *
+ * **Called on platform change as well as on open**, because the platform is a field somebody can
+ * edit with the composer open — the note used to be written once and then went stale, and the
+ * button stayed offered at a size nothing records. The size comes from `cards.SIZES`, which
+ * `test_social.py` already asserts matches `brand.PLATFORM_SIZES`, rather than from a third copy
+ * of that table written inline.
+ */
+function refreshRecordButton() {
+  const button = $("m-record");
+  const scenes = state.scenes;
+  const platform = $("m-platform").value;
+  button.hidden = !scenes.length;
+  if (!scenes.length) {
+    $("m-record-note").textContent = "";
+    return;
   }
-  // Invalidates any poll already in flight: it will see a stale epoch when its fetch returns
-  // and decline to reschedule.
-  state.renderPollEpoch += 1;
+  const blocked = whyNotRecord(scenes, platform);
+  // **`recording` is not cleared here.** This runs on every composer open, and resetting the
+  // disabled state unconditionally also un-sticks a record that is still in flight — which is
+  // how one post's recording ends up writing into another post's composer.
+  button.disabled = state.recording || Boolean(blocked);
+  const [w, h] = cards.SIZES[platform] || cards.SIZES.generic;
+  const total = timeline.totalMs(scenes);
+  $("m-record-note").textContent =
+    blocked ||
+    `Draws all ${scenes.length} scenes and records ${(total / 1000).toFixed(1)}s at ${w}×${h}. ` +
+      "Nothing is generated and nothing is bought — this is the same renderer as the card " +
+      "above, animated. Keep this tab in front while it records.";
 }
 
-function renderStateNode(render) {
-  const box = $("m-render-state");
+// --- Recording a treatment --------------------------------------------------------------------
+//
+// **The browser is the renderer, so there is no job to poll.** What stood here was a 202, a
+// render id, and a four-second poll loop reporting `shots_done` of `shots_total`, because the
+// work was seven paid generations and a concatenation and took minutes. It is now a canvas
+// capture and a few seconds of ffmpeg, both of which happen while the operator is looking at
+// the button — so the button does the work and the response is the finished row.
+
+function renderStateNode(render, { note } = {}) {
+  const box = $("m-record-state");
   box.hidden = false;
-  box.dataset.state = render.status;
+  box.dataset.state = render?.status || "running";
   box.replaceChildren();
 
   const line = document.createElement("p");
   line.className = "card-note";
-  line.style.marginTop = "0";
-  const done = render.shots_done ?? 0;
-  const total = render.shots_total || 0;
   line.textContent =
+    note ||
     {
-      queued: "Queued.",
-      running: `Rendering shot ${Math.min(done + 1, total)} of ${total}.`,
-      succeeded: `Done — ${total} shots joined into one file.`,
+      succeeded: `Done — ${render.scene_count} scenes, one file. Cost: nothing.`,
       failed: "Failed.",
-      cancelled: "Cancelled.",
-    }[render.status] || render.status;
-  if (render.cost_cents) {
-    // "so far" is only true while it is still spending.
-    const live = render.status === "queued" || render.status === "running";
-    line.textContent += ` ${money(render.cost_cents)} ${live ? "spent so far" : "spent"}.`;
-  }
+    }[render?.status] ||
+    render?.status ||
+    "";
   box.append(line);
 
-  if (render.status === "queued" || render.status === "running") {
-    const bar = document.createElement("div");
-    bar.className = "render-bar";
-    const fill = document.createElement("span");
-    // A width is a measurement, not a decoration — CSSOM, which the CSP permits, rather than a
-    // `style=` attribute, which it drops.
-    fill.style.width = `${total ? Math.round((done / total) * 100) : 0}%`;
-    bar.append(fill);
-    box.append(bar);
-  }
-  if (render.status === "succeeded" && render.render_key) {
-    // Otherwise the one thing this feature pays money to produce is unreachable from the
-    // console that produced it.
+  if (render?.status === "succeeded" && render.render_key) {
+    // Otherwise the one thing this feature exists to produce is unreachable from the console
+    // that produced it. That button used to call a route that did not exist.
     const link = document.createElement("button");
     link.type = "button";
     link.className = "btn btn-quiet";
@@ -1925,7 +1970,7 @@ function renderStateNode(render) {
     link.addEventListener("click", () => openRender(render.id));
     box.append(link);
   }
-  if (render.error) {
+  if (render?.error) {
     const why = document.createElement("p");
     why.className = "card-note";
     why.textContent = render.error;
@@ -1942,52 +1987,88 @@ async function openRender(renderId) {
   }
 }
 
-async function pollRender(assetId, { once = false } = {}) {
-  const epoch = state.renderPollEpoch;
+/** The newest attempt for this post, if there is one. A snapshot, not a loop. */
+async function showLatestRender(assetId) {
   let payload;
   try {
     payload = await api(`/social/assets/${assetId}/video`);
   } catch {
-    return; // a poll that fails is not worth a banner; the next one will say so
+    return; // not worth a banner; the button still works
   }
   // The composer may have closed, or moved to another post, while that request was open.
-  if (epoch !== state.renderPollEpoch || state.composing?.id !== assetId) return;
-
-  const render = payload.render;
-  if (!render) return;
-  renderStateNode(render);
-  const live = render.status === "queued" || render.status === "running";
-  $("m-render").disabled = live;
-  // `once` is the snapshot taken when the composer opens; it still resumes the loop if the
-  // render is live, or the progress box would freeze at whatever it happened to catch.
-  if (live) {
-    state.renderPoll = setTimeout(() => pollRender(assetId), 4000);
-  } else if (render.render_key) {
-    loadAssets().catch(() => {});
-  }
+  if (state.composing?.id !== assetId || !payload.render) return;
+  renderStateNode(payload.render);
 }
 
-async function startRender() {
+async function recordTreatment() {
   const assetId = state.composing?.id;
   if (!assetId) {
-    toast("Save this post first — a render is recorded against a saved post.");
+    toast("Save this post first — a recording is recorded against a saved post.");
     return;
   }
-  $("m-render").disabled = true;
+  const scenes = state.scenes;
+  if (!scenes.length || state.recording) return;
+  const platform = $("m-platform").value;
+  const blocked = whyNotRecord(scenes, platform);
+  if (blocked) {
+    toast(blocked);
+    return;
+  }
+
+  const button = $("m-record");
+  // **The label is a constant, not whatever the DOM happens to say.** It was read live off the
+  // button, so a second entrant — or a `finally` running after the label had already been
+  // changed — restored "Recording…" as the resting text.
+  const RESTING = "Record this treatment";
+  state.recording = true;
+  button.disabled = true;
+
+  // **Everything below writes to the composer only while it is still showing this post.** The
+  // sibling `showLatestRender` has had this guard from the start; the recorder did not, so a
+  // twenty-second recording started on one post painted its progress, and then its result, into
+  // whatever post the operator had opened in the meantime.
+  const mine = () => state.composing?.id === assetId;
   try {
-    const render = await api(`/social/assets/${assetId}/video`, { method: "POST" });
-    renderStateNode(render);
-    state.renderPoll = setTimeout(() => pollRender(assetId), 3000);
+    button.textContent = "Recording…";
+    const blob = await cards.recordTreatment(scenes, platform, {
+      onProgress: ({ index, of, elapsed, total }) =>
+        mine() &&
+        renderStateNode(null, {
+          note: `Recording scene ${index + 1} of ${of} — ${(elapsed / 1000).toFixed(1)}s of ${(
+            total / 1000
+          ).toFixed(1)}s.`,
+        }),
+    });
+    if (mine()) {
+      button.textContent = "Encoding…";
+      renderStateNode(null, {
+        note: `Recorded ${(blob.size / (1024 * 1024)).toFixed(1)}MB. Re-encoding to H.264…`,
+      });
+    }
+    // Raw body through `api()`, exactly as `uploadCard()` sends the JPEG — the content type
+    // overrides the JSON default and the blob goes straight out. Going round `api()` with a
+    // bare `fetch` would work and would also skip the token refresh, which is how a recording
+    // that took thirty seconds to make dies on a fifteen-minute access token.
+    const payload = await api(`/social/assets/${assetId}/video`, {
+      method: "POST",
+      body: blob,
+      headers: { "content-type": "video/webm" },
+    });
+    if (mine()) renderStateNode(payload);
+    // **Swallowed, and that is the point.** The upload has already succeeded and the row exists;
+    // letting a failed list refresh fall into the catch below would report a recording that
+    // worked as one that did not, which is the worst of the three possible wrong answers.
+    await loadAssets().catch(() => {});
   } catch (error) {
-    $("m-render").disabled = false;
-    const box = $("m-render-state");
-    box.hidden = false;
-    box.dataset.state = "failed";
-    box.replaceChildren();
-    const why = document.createElement("p");
-    why.className = "card-note";
-    why.textContent = error.message;
-    box.append(why);
+    if (mine()) renderStateNode({ status: "failed", error: error.message }, { note: "Not recorded." });
+    else toast(`That recording failed: ${error.message}`);
+  } finally {
+    state.recording = false;
+    button.textContent = RESTING;
+    // Through the same function that decides the button's state everywhere else, so a recording
+    // that finished on a post the operator has since closed does not re-enable a button whose
+    // platform, browser or machine now says no.
+    if (state.composing) refreshRecordButton();
   }
 }
 
@@ -2016,7 +2097,7 @@ function openComposer(concept, asset) {
   $("m-webm").hidden = !cards.canRecord();
   renderTreatment(source);
   $("card-note").textContent = cards.canRecord()
-    ? "WebM records the card settling in — an animated post, not generated footage."
+    ? "WebM records this one card settling in. A whole video is the treatment below."
     : "This browser cannot record WebM from a canvas. PNG still works.";
   $("composer").hidden = false;
   paintPreview();
@@ -2026,9 +2107,9 @@ function openComposer(concept, asset) {
 const closeComposer = () => {
   $("composer").hidden = true;
   state.composing = null;
-  // Otherwise the poll keeps running against a post nobody is looking at, forever, and a
-  // second open starts a second one beside it.
-  stopRenderPoll();
+  state.scenes = [];
+  // `state.recording` is deliberately NOT cleared: the recording is still running, and clearing
+  // it here is what would let a second one start beside it.
 };
 
 function composerSpec() {
@@ -2712,7 +2793,7 @@ $("chat-input").addEventListener("keydown", (event) => {
   }
 });
 $("concepts-form").addEventListener("submit", writeConcepts);
-$("v-go").addEventListener("click", writeShotList);
+$("v-go").addEventListener("click", writeTreatment);
 $("a-filter").addEventListener("change", () => loadAssets().catch((e) => banner(e.message)));
 $("composer-form").addEventListener("submit", saveComposer);
 $("m-png").addEventListener("click", downloadPng);
@@ -2731,8 +2812,12 @@ $("m-publish-cancel").addEventListener("click", hidePublishConfirm);
 // The publish section only applies to platforms with a publisher, and the platform is a field
 // somebody can change with the composer open.
 $("m-platform").addEventListener("change", refreshPublish);
+// The platform decides the recorded size and whether a treatment may be recorded at all, so the
+// Record button and its note are recomputed with it rather than written once when the composer
+// opened and left to go stale.
+$("m-platform").addEventListener("change", () => state.scenes.length && refreshRecordButton());
 $("m-export").addEventListener("click", markExported);
-$("m-render").addEventListener("click", startRender);
+$("m-record").addEventListener("click", recordTreatment);
 $("m-copy-vtt").addEventListener("click", async () => {
   // `toast`, not `banner`: banner is the red `role="alert"` strip with no dismissal timer, so
   // a success message there is an error-coloured alert pinned to the console until somebody

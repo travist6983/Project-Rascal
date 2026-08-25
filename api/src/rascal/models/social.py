@@ -108,8 +108,16 @@ class SocialAsset(Base):
     #: the expensive half to reconstruct the day one is connected.
     image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    #: Video. The shot list as the model wrote it, and the caption track derived from it.
-    shot_list: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    #: Video. **The scene graph, `{"scenes": [...]}`** — an ordered list of cards, each naming
+    #: a template, a palette, its copy, how long it holds and how it enters, every value from a
+    #: closed set. Renamed from `shot_list` by phase 120: what it held was prose direction for a
+    #: camera that does not exist, and a column called `shot_list` holding a scene graph would
+    #: be the kind of name that survives a rewrite and misleads everybody after it.
+    #:
+    #: `caption_track` is **derived** from the scenes by `services/social/scenes.py` and never
+    #: authored beside them. Two artifacts describing one video, written in one pass with
+    #: nothing checking that they agreed, is the defect that rename is really about.
+    treatment: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     caption_track: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
@@ -230,9 +238,13 @@ class SocialPublication(Base):
     updated_at: Mapped[updated]
 
 
-#: A render attempt's life. `cancelled` exists because a job that the machine restarted out
-#: from under is not the same fact as one the vendor refused, and a status that cannot tell
-#: them apart is a status somebody has to go and check the logs about.
+#: A render attempt's life. **Only `succeeded` and `failed` are reachable since phase 120** —
+#: the work happens inside the request, so nothing can leave a row live and nothing can cancel
+#: one. The other three are kept unwritten rather than dropped, for the same reason `cost_cents`
+#: is kept at zero: they are the shape an asynchronous path needs, and a narrowed CHECK would be
+#: a decision to reverse rather than a tidy-up. Their original justification — that a job the
+#: machine restarted out from under is not the same fact as one the vendor refused — applies to
+#: that path if it returns, and to nothing today.
 SOCIAL_RENDER_STATUSES: tuple[str, ...] = (
     "queued",
     "running",
@@ -243,21 +255,30 @@ SOCIAL_RENDER_STATUSES: tuple[str, ...] = (
 
 
 class SocialRender(Base):
-    """One attempt to turn a shot list into a video.
+    """One attempt to record a scene graph into a video.
 
-    **An attempt, not a property of the post.** It takes minutes, it can fail on the seventh
-    of seven clips, and the retry must not erase what the first attempt already paid for.
-    `SocialAsset.render_key` holds the artifact a post currently shows; this holds the job.
+    **An attempt, not a property of the post.** A post stays editable after a file is made, so
+    a table that read the current draft to tell you what was rendered would be rewriting
+    history. `SocialAsset.render_key` holds the artifact a post currently shows; this holds the
+    attempt that produced it, including the ones that failed.
+
+    **Phase 120 writes only terminal statuses.** The work is a few seconds of ffmpeg inside the
+    request, so no row is ever left live and there is nothing to poll, reap or refuse a second
+    of. `queued`, `running`, `cancelled` and the partial unique index below are kept unwritten
+    rather than dropped, for the same reason `cost_cents` is kept and set to zero: they are the
+    shape an asynchronous path needs, and taking them out would be a decision to reverse rather
+    than a tidy-up.
     """
 
     __tablename__ = "social_renders"
     __table_args__ = (
         one_of("status", SOCIAL_RENDER_STATUSES, name="status"),
         Index("ix_social_renders_asset_id_created_at", "asset_id", text("created_at DESC")),
-        # **Unique, not merely indexed.** `preflight` reads for a live render and then inserts,
-        # and two overlapping requests can both pass that read — which pays for the same seven
-        # clips twice. The index makes it impossible rather than unlikely, and doubles as the
-        # "is anything still running" lookup.
+        # **Unwritten since phase 120, and kept deliberately.** Nothing sets `queued` or
+        # `running` any more — the work happens inside the request — so this index can no
+        # longer fire. It stays because it is the guarantee an asynchronous path needs on the
+        # day one exists, and re-deriving "two overlapping requests can both pass a read then
+        # both insert" from scratch is how that path ships without it.
         Index(
             "uq_social_renders_one_live_per_asset",
             "asset_id",
@@ -272,25 +293,26 @@ class SocialRender(Base):
     )
     status: Mapped[str] = mapped_column(Text, server_default="queued")
 
-    #: Recorded per attempt rather than read from config when displayed. Every video model on
-    #: the Gemini API is preview and the ids move; a render from last month should still be
-    #: able to say what actually made it.
+    #: Recorded per attempt rather than read at display time. `provider` is `canvas` — the
+    #: pixels come from `admin/static/cards.js` in the operator's own browser and no vendor is
+    #: involved — and `model` is the renderer's version string, bumped when the templates move
+    #: enough that an old render no longer matches a new one. A render from last month should
+    #: still be able to say what actually drew it.
     provider: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
 
-    shots_total: Mapped[int] = mapped_column(Integer, server_default="0")
-    #: Object keys in shot order, and the length of this is the progress. Seven shots are seven
-    #: generations — nothing stitches them for us — so clips landed is the honest unit.
-    clip_keys: Mapped[list[str]] = mapped_column(
-        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
-    )
+    #: How many cards were in the graph. Renamed from `shots_total` by phase 120, and `clip_keys`
+    #: went with the clips: the browser records one continuous capture, so there is nothing to
+    #: count landing and nothing to concatenate.
+    scene_count: Mapped[int] = mapped_column(Integer, server_default="0")
     render_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: One sentence. Never a stack trace, and never a URL carrying a key.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    #: Written as clips land, including on a job that later fails. The money is spent when the
-    #: clip is generated, not when the job succeeds, and a ledger that records only successful
-    #: spend is how a bill becomes a surprise.
+    #: **Zero, and written down rather than dropped.** Nothing is bought to make one of these,
+    #: and that is the finding phase 120 exists to produce — a ledger that stops recording when
+    #: the number becomes zero is a ledger that cannot show you it went to zero. It is also the
+    #: column a future generated-footage path would need back.
     cost_cents: Mapped[int] = mapped_column(Integer, server_default="0")
 
     started_at: Mapped[optional_moment]

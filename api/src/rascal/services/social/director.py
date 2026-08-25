@@ -91,29 +91,108 @@ CONCEPT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-SHOT_LIST_SCHEMA: dict[str, Any] = {
+#: **Structured outputs accept a small subset of JSON Schema, and every bound this treatment
+#: needs is outside it.** `minItems`, `maxItems`, `minLength`, `maxLength`, `minimum` and
+#: `maximum` are all rejected — as a **400 at request time**, not as a warning — and the
+#: Anthropic SDKs paper over this by stripping them and validating client-side. This service
+#: talks to `/v1/messages` with raw `httpx` (see the module docstring), so nothing strips them
+#: here and every one of them would be an outage on the first call.
+#:
+#: Measured against the live API on Aug 25, 2026, one refusal at a time:
+#:   `minItems: 2` → *"For 'array' type, 'minItems' values other than 0 or 1 are not supported"*
+#:   `maxItems: 10` → *"For 'array' type, property 'maxItems' is not supported"*
+#:
+#: So the schema below carries **only `type`, `enum`, `required`, `additionalProperties` and
+#: `description`** — the parts that are supported and that do the real work anyway, because
+#: `enum` is what makes a template or a transition a closed set. The numeric and length bounds
+#: live in two places instead: stated in words in `treatment_instruction`, and **enforced** by
+#: `schemas/social.VideoTreatment` on the way out of the route, so a graph the console could not
+#: save never reaches the console. `test_social_video.py` asserts this schema stays inside the
+#: supported subset, because the failure mode is a 400 in production rather than a red test.
+TREATMENT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "title": {"type": "string"},
-        "premise": {"type": "string"},
-        "shots": {
+        "title": {"type": "string", "description": "A short working title for this video."},
+        "premise": {
+            "type": "string",
+            "description": "What this video is arguing, in one clause. Not a logline.",
+        },
+        "scenes": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "seconds": {"type": "integer"},
-                    "visual": {"type": "string"},
-                    "on_screen_text": {"type": "string"},
-                    "voiceover": {"type": "string"},
+                    "template": {"type": "string", "enum": list(brand.TEMPLATES)},
+                    "palette": {"type": "string", "enum": list(brand.PALETTES)},
+                    "eyebrow": {
+                        "type": "string",
+                        "description": f"A short label above the headline, or an empty string. "
+                        f"At most {brand.EYEBROW_MAX} characters.",
+                    },
+                    "headline": {
+                        "type": "string",
+                        "description": f"The line on the card. Required and never empty. At "
+                        f"most {brand.HEADLINE_MAX} characters — longer than that will not "
+                        f"fit and the treatment will be refused.",
+                    },
+                    "subhead": {
+                        "type": "string",
+                        "description": f"A second line under the headline, or an empty string. "
+                        f"At most {brand.SUBHEAD_MAX} characters.",
+                    },
+                    "duration_ms": {
+                        "type": "integer",
+                        "description": f"How long this card holds, in milliseconds. Between "
+                        f"{brand.SCENE_MIN_MS} and {brand.SCENE_MAX_MS}.",
+                    },
+                    "transition": {
+                        "type": "string",
+                        "enum": list(brand.TRANSITIONS),
+                        "description": "How this scene ENTERS, not how it leaves.",
+                    },
                 },
-                "required": ["seconds", "visual", "on_screen_text", "voiceover"],
+                "required": [
+                    "template",
+                    "palette",
+                    "eyebrow",
+                    "headline",
+                    "subhead",
+                    "duration_ms",
+                    "transition",
+                ],
                 "additionalProperties": False,
             },
         },
     },
-    "required": ["title", "premise", "shots"],
+    "required": ["title", "premise", "scenes"],
     "additionalProperties": False,
 }
+
+#: Keywords `output_config.format` rejects outright. Kept as data rather than prose so the test
+#: that walks `TREATMENT_SCHEMA` and `CONCEPT_SCHEMA` looking for them reads from the same list
+#: this comment describes.
+UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+        "pattern",
+        "uniqueItems",
+    }
+)
+
+#: **There is no `caption_track` in that schema and there is no `voiceover`.** Both are
+#: deliberate and both are the phase 120 argument. The captions are computed from the scene
+#: copy and the scene durations by `services/social/scenes.py`, so they cannot disagree with
+#: what is on screen; asking the model for them as well would restore exactly the divergence
+#: this phase removed. There is no voiceover because a canvas capture has no audio track — the
+#: register is on-screen type plus the derived cues, which is what the brand is anyway.
 
 
 def _require_key(settings: Settings) -> str:
@@ -339,13 +418,20 @@ def concept_instruction(brief: str, count: int, platform: str, featured_body: st
     return "\n".join(lines)
 
 
-def shot_list_instruction(brief: str, seconds: int) -> str:
+def treatment_instruction(brief: str, seconds: int) -> str:
+    """The user turn for a scene graph. The brand brief is the system prompt; this is the job."""
+    target = seconds * 1000
     return (
-        f"Write a {seconds}-second vertical video for Vellum.\n\n"
+        f"Write a vertical video for Vellum of about {seconds} seconds — around {target}ms "
+        f"across your scenes, and it must land between {brand.TREATMENT_MIN_MS}ms and "
+        f"{brand.TREATMENT_MAX_MS}ms in total.\n\n"
         f"The brief: {brief}\n\n"
-        "Shots should total roughly the target length. `on_screen_text` is what appears "
-        "burned into the frame and should be short enough to read at that duration. "
-        "`voiceover` is what is said over it, or an empty string if the shot is silent. "
-        "Assume this is shot on a phone by one person with no crew and no actors — a visual "
-        "that needs a second pair of hands is a visual that does not get made."
+        "Every scene is one of the brand cards, drawn by the template renderer. There is no "
+        "camera and no footage: do not describe a shot, do not write a voiceover, and do not "
+        "write anything that only works over an image that does not exist. Write the cards a "
+        "reader would actually read in sequence, and pace them so each one can be read in the "
+        "time you give it — a four-word card can hold for 1500ms, a full sentence needs 3000 "
+        "or more.\n\n"
+        "`eyebrow` and `subhead` may be empty strings on any scene where they would be "
+        "filler. A card with three things on it says less than a card with one."
     )

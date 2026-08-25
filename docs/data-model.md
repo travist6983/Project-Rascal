@@ -785,9 +785,9 @@ not user data.
 | `caption`, `alt_text` | text NULL | The post. **`alt_text` is not the caption** |
 | `hashtags` | text[] | |
 | `image_prompt` | text NULL | A brief for a photographic renderer, written whether or not one is configured |
-| `shot_list` | jsonb NULL | Video: what the model wrote |
-| `caption_track` | text NULL | WebVTT, derived from the shot list |
-| `duration_seconds` | integer NULL | |
+| `treatment` | jsonb NULL | Video: the **scene graph**, `{"scenes": [...]}`. ~~*`shot_list` — what the model wrote*~~, renamed by phase 120 (`0023`) when its contents stopped being direction for a camera |
+| `caption_track` | text NULL | WebVTT, **derived** from `treatment` and never settable by a caller — see below |
+| `duration_seconds` | integer NULL | Derived too. The rounded-**up** display figure; the exact runtime is the sum of `duration_ms` in the graph |
 | `render_provider`, `render_key` | text NULL | A key, never a URL — same rule as `media` |
 | `featured_prompt_id` | uuid FK NULL | → `prompts`, `ON DELETE SET NULL` |
 | `featured_body` | text NULL | **The D7 ledger.** See below |
@@ -881,35 +881,54 @@ start of every run by asking Instagram whether the post is on the account. It ne
 
 ## `social_renders`
 
-One row per **attempt** to turn a shot list into a video. Added by phase 103.
+One row per **attempt** to record a post's scene graph into a video. Added by phase 103; reshaped
+by phase 120, which removed the vendor.
 
 ```
 id · asset_id → social_assets(id) ON DELETE CASCADE
 status: queued | running | succeeded | failed | cancelled     (CHECK, named)
 provider · model
-shots_total · clip_keys text[] · render_key · error · cost_cents
+scene_count · render_key · error · cost_cents
 started_at · finished_at · created_at · updated_at
 ```
 
+~~`shots_total · clip_keys text[] · render_key · error · cost_cents`~~ — `clip_keys` was dropped
+and `shots_total` renamed to `scene_count` by `0023_canvas_video`.
+
 ### An attempt, not a property of the post
 
-A render takes minutes, can fail on the seventh of seven clips, and can be retried — and the
-retry must not erase what the first attempt already paid for. `social_assets.render_key` holds
-the one artifact a post currently shows; this holds the job that produced it, including the six
-clips that came back before the seventh timed out.
+A post stays editable after a file is made, so a table that read the current draft to say what was
+rendered would be rewriting history. `social_assets.render_key` holds the one artifact a post
+currently shows; this holds the attempt that produced it, including the ones that failed.
 
-### `clip_keys` is the progress bar
+### ~~`clip_keys` is the progress bar~~ — struck, and there is nothing left to count
 
-No video API joins clips, so seven shots are seven separate generations and the honest unit of
-progress is **clips landed**, not a percentage. Keys, never URLs — a signed URL in a column
-outlives its signature and then looks like data loss, the same rule `media` and
-`social_assets.render_key` already keep.
+~~No video API joins clips, so seven shots are seven separate generations and the honest unit of
+progress is clips landed, not a percentage.~~ **True until Aug 25, 2026.** The browser now records
+one continuous capture of the card renderer, so there is nothing landing one at a time and nothing
+to concatenate. The column is gone; **any object its keys pointed at stays in the bucket** —
+`0023` drops the pointer, not the bytes, and its downgrade restores an empty array rather than
+inventing keys it cannot recover.
 
-### `cost_cents` is written on failure too
+### `provider` is `canvas` and `model` is a renderer version
 
-The money is spent when a clip is generated, not when the job succeeds. A job that dies at shot
-six has still bought six clips and this says so. A ledger that records only successful spend is
-how a bill becomes a surprise.
+Not a vendor. `provider = "canvas"` because the pixels come from `admin/static/cards.js` in the
+operator's own browser; `model = "cards-v1"`, bumped when the templates move enough that an old
+render no longer matches a new one. The column has always meant *what made these bytes* rather
+than *who was paid*.
+
+### `cost_cents` is zero, and it is written down
+
+Zero is the finding phase 120 exists to produce, on the success path and the failure path alike.
+A ledger that stops recording when the number becomes zero is a ledger that cannot show you it
+went to zero — and it is the column a future generated-footage path would need back.
+
+### Only terminal statuses are written, and the rest are kept unwritten
+
+The work is a few seconds of ffmpeg inside the request, so no row is ever left live. `queued`,
+`running`, `cancelled` and `uq_social_renders_one_live_per_asset` are all still here and none of
+them can now be reached. They stay for the same reason `cost_cents` does: they are the shape an
+asynchronous path needs, and removing them would be a decision to reverse rather than a tidy-up.
 
 ### No `deleted_at`, and this is not a second exception to rule 5
 
