@@ -268,7 +268,11 @@ full-access role. The role is the belt; that is the braces.
 
 ---
 
-## 3a. Seeing the free tier — the one entitlement lever
+## 3a. Seeing the free tier — the trial lever
+
+~~*the one entitlement lever*~~ — **struck Aug 24, 2026 by phase 121, which added a second
+one.** This section is the *trial*; §3b below is *grants*. Both reach entitlement and neither
+touches `tier`.
 
 **Today tab → *Membership — move a household's trial*.** Pick the household, pick a date, press
 **Set trial**. **Clear trial** removes the date entirely.
@@ -312,6 +316,12 @@ Moving `trial_ends_at` reaches both states without going near that column, which
 reason this is the lever. If you genuinely need to make a household `subscribed`, that is still
 `docs/runbook-deploy.md` §7a — a hand-run SQL statement, deliberately not a button.
 
+**A grant will also hide the free tier from you, and since phase 121 the response says so.** An
+active `entitlement_grants` row reads `access: "subscribed"` exactly as a paid tier does, so the
+paragraph above about *"a household already on subscribed will not move"* now has two possible
+causes. The confirmation line names which: it reads *"a grant is holding this household open —
+revoke it in Grants below"* rather than sending you to §7a for a tier that was never the reason.
+
 **It is hidden while `ADMIN_READ_DATABASE_URL` is set.** The console is reading production and
 writing to your local database in that state, so a control that appeared to work and did not would
 be worse than no control. Unset it to edit locally, or use the deployed console.
@@ -320,6 +330,88 @@ be worse than no control. Unset it to edit locally, or use the deployed console.
 household you re-entitle at 2pm gets its missions on the next pull rather than tomorrow morning.
 Going the other way, the mission rows that already exist are **not deleted**; they stop being
 served and go on existing, and they come back if you re-entitle.
+
+---
+
+## 3b. Grants — entitling a household without a payment
+
+**Today tab → *Grants — entitle a household without a payment*.** Added by phase 121.
+
+A founding tester, a refund made good, a family who should not be paying. A grant entitles a
+household exactly as a subscription does — full board, and the guardian invite unlocked — and
+**it does not touch `tier`**. The household goes on reading `tier: "free"` and starts reading
+`entitled: true`; both are true sentences, and `entitlement_source` on the wire says which of the
+two is holding the door open.
+
+### Issuing one
+
+1. **Find a household.** Type an email, a display name, or a family id into *Find a household*.
+   The picker searches account metadata only — nothing here can reach a child's name or anything
+   in an archive. An empty box lists the most recent households.
+2. **Pick it in the *Household* dropdown.** The label carries the short family id and the current
+   access state, because two accounts can share a display name and picking the wrong one grants
+   the wrong household.
+3. **Write a reason.** Required, free text: `founding tester`, `refund goodwill`, `press`. A blank
+   one is refused — the reason is the only thing that makes the ledger worth having in six months.
+4. **Set an end date, or leave it empty.** *Empty means no end date*, which is a real state rather
+   than a missing one. The date you pick is the **last day** the grant covers, stored as the end of
+   that day in your own timezone — the same rule the trial date follows.
+5. **Issue grant.**
+
+**A date already in the past is refused** rather than written: the row would be inactive from the
+moment it was saved, sitting in the ledger looking like a grant.
+
+### Extending somebody
+
+**Issue a second grant.** There is deliberately no edit: extending is a new row, the old one stays,
+and the two together are the history. The household is entitled until the *longest* of them runs
+out, and that is the date the wire reports.
+
+### Revoking
+
+**Revoke** on the row. It takes effect on the next read — every entitlement surface computes the
+answer per request, so there is nothing to wait for and no cache to clear. Revoking twice is a
+success and writes nothing the second time.
+
+**The row stays.** There is no delete and no route that could issue one: the record of who you gave
+something to, why, and when you took it back is the part a support conversation actually needs. A
+revoked row reads `REVOKED` in the ledger and stops entitling immediately.
+
+### The `By` column, and when it is empty
+
+`By` is whoever pressed the button, taken from the bearer token and never from the request. It
+reads **`account deleted`** when that account has since been erased — account deletion hard-deletes
+`users` rows, and the alternative to letting this go null was either destroying the ledger row with
+the account (`ON DELETE CASCADE`) or making somebody's erasure request fail (`RESTRICT`). The grant
+itself survives and goes on entitling; only the name is gone.
+
+### While `ADMIN_READ_DATABASE_URL` is set
+
+**The ledger still renders and the form does not.** Read-only mode replaces the form with a
+sentence naming the variable, and the *Revoke* buttons go with it. That is deliberately different
+from the Membership card above, which disappears entirely: half of this card is a *read*, and
+"who already has one of these" is usually the question you are in read-only mode to answer.
+
+Unset `ADMIN_READ_DATABASE_URL` to issue or revoke against the database this process reads, or use
+the deployed console.
+
+### Checking it by hand
+
+```bash
+TOKEN=...   # an is_admin access token; the console's dev-login button mints one locally
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/v1/admin/grants | jq
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:8000/v1/admin/households?q=someone@example.com' | jq
+```
+
+And from the household's side — this is the pair worth reading together, because it is the whole
+phase in two lines:
+
+```bash
+curl -s -H "Authorization: Bearer $PARENT_TOKEN" localhost:8000/v1/families/me \
+  | jq '{tier, access, entitled, entitlement_source, grant_expires_at}'
+# { "tier": "free", "access": "subscribed", "entitled": true,
+#   "entitlement_source": "grant", "grant_expires_at": null }
+```
 
 ---
 

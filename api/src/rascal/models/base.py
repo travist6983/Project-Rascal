@@ -118,4 +118,8 @@ TABLES_WITH_UPDATED_AT: tuple[str, ...] = (
     # subscription, so it wants the trigger for the same reason `email_broadcasts` does.
     "app_store_transactions",
     "social_renders",
+    # Phase 121. Complimentary entitlement, as a ledger. Not user data and not synced — no
+    # client reads it — but a row is updated in place when a grant is revoked, which is the
+    # same reason `email_broadcasts` and `app_store_transactions` are on this list.
+    "entitlement_grants",
 )

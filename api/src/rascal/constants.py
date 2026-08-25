@@ -63,6 +63,50 @@ TIERS: Final = ("free", "subscribed")
 AccessState = Literal["free", "trial", "subscribed"]
 ACCESS_STATES: Final = ("free", "trial", "subscribed")
 
+#: **Why** a household is entitled, when it is. Computed beside `access` by the same one
+#: authority and reported as `entitlement_source` on the wire.
+#:
+#: `access` says what a household may reach; this says what is holding it open, which becomes
+#: a different question the moment there is more than one way in. `receipt` is a payload Apple
+#: signed; `grant` is a row an admin wrote in `entitlement_grants`; `trial` is the fourteen
+#: days every household starts with; `none` is the free tier.
+#:
+#: **Ordered, and the order is the precedence.** A household can hold all three at once — the
+#: owner's does — and the label names the most durable claim: `receipt` first because it is
+#: the one that can lapse and therefore the one a client has to be ready to talk about,
+#: `grant` next because somebody decided it deliberately, `trial` last because it is the one
+#: that arrives without anybody choosing it.
+#:
+#: **Additive to `access` rather than a fourth value inside it.** An iOS client decodes three
+#: `access` strings and a fourth would be a contract change on a shipped app; a granted
+#: household therefore reads `access: "subscribed"` — it reaches exactly what a subscriber
+#: reaches — and this field is how a Settings screen tells complimentary from paid.
+EntitlementSource = Literal["receipt", "grant", "trial", "none"]
+ENTITLEMENT_SOURCES: Final = ("receipt", "grant", "trial", "none")
+
+#: The sources that are a *membership* rather than a courtesy clock — somebody is paying, or
+#: somebody decided this household should be treated as though they were.
+#:
+#: **This is what the guardian-invite paywall asks, and it is deliberately not `entitled`.**
+#: D4 sells the second parent on a subscription and a trial does not add one, which is the rule
+#: phase 107 settled; phase 121 adds a grant to the *left* of that line rather than moving the
+#: line. See `services.guardians.Access.is_member`.
+MEMBER_SOURCES: Final = ("receipt", "grant")
+
+#: How one row of the grant ledger reads. **Display only, and never the gate.**
+#:
+#: The gate is `services.grants.unexpired`, evaluated in SQL against the database's own rows;
+#: this is that answer rendered for a person from a row already in hand, plus the one distinction
+#: SQL does not need to make. `revoked` outranks `expired` because it is the thing somebody
+#: *did* — a grant revoked in March that would have run out in June is a revocation, and calling
+#: it an expiry loses the only part of that sentence with a person in it.
+#:
+#: A `Literal` rather than a bare `str` for the reason `AccessState` is one: these three strings
+#: are a wire vocabulary with a decoder on the other side (`admin.js`), so a fourth is a change
+#: somebody should have to make deliberately.
+GrantStatus = Literal["active", "expired", "revoked"]
+GRANT_STATUSES: Final = ("active", "expired", "revoked")
+
 #: How long a new household is entitled for, from the moment its `entitlements` row is
 #: created. Per D1, which settles the trial at fourteen days.
 TRIAL_DAYS: Final = 14

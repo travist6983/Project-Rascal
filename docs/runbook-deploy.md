@@ -810,9 +810,21 @@ household becomes subscribed and the only way one becomes free again.~~ — **st
 Store Server Notification, and it is the only code that does.
 
 **This statement is now the override rather than the only way in**, and it is still the lever
-when you find a family on the wrong tier. There is still no admin route that writes `tier`,
+when you find a family on the wrong tier. ~~There is still no admin route that writes `tier`,
 deliberately — phase 107 added one that writes `entitlements.trial_ends_at`, which is a different
-column and cannot reach this one.
+column and cannot reach this one.~~ — **still exactly true, and worth restating with its subject
+after phase 121, Aug 24, 2026.** There is still no admin route that writes **`tier`**, and there
+are now *two* console levers that reach entitlement without touching it: phase 107's
+`trial_ends_at`, and phase 121's `entitlement_grants` — a separate table, written by
+`POST /v1/admin/grants`. **Nothing in this API can set a tier over HTTP except a payload Apple
+signed**, the exactly-one-writer test still passes unmodified, and this statement is still the
+only way to move the column by hand.
+
+**If what you actually want is to make one household entitled, use a grant rather than this.**
+It is auditable — who, why, when, and revocable — and it does not create a second household whose
+`subscribed` has no receipt behind it. This statement stays for the case it was written for: your
+*own* household, where the tier itself is what a reconciliation job would come for and the guard
+in the webhook is what protects it.
 
 **The reverse, which phase 107 made necessary.** The free tier now serves the daily question only,
 and the console's trial lever cannot show it to you while this row says `subscribed` —
@@ -825,6 +837,12 @@ WHERE family_id = (SELECT family_id FROM users WHERE email = '<your email>');
 
 Then use the console's Membership card to move between `trial` and `free`. **Run the statement at
 the top of this section again afterwards** — on `free` you cannot mint a guardian invite.
+
+**And check the Grants card while you are there, as of phase 121.** An active grant on your own
+household reads `access: "subscribed"` exactly as the tier does, so it will hide the free tier from
+you just as effectively — and the trial lever's own response now says which of the two is holding
+it (`entitlement_source`) rather than sending you back to this section for a tier that was never
+the reason. A trial does *not* let you mint an invite; a grant does.
 
 **Your own household is subscribed by one of these and always will be.** There is no App Store
 transaction behind the row §7a wrote on Aug 17, 2026, and there never will be — you did not
