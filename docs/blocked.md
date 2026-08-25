@@ -585,8 +585,11 @@ the day a browser first loads a photo, and nothing else will prompt that.
 
 ## 3. ~~Fly and Docker — blocks deployment~~ — RESOLVED Aug 10, 2026. **The API is deployed.**
 
-`https://rascal-api.fly.dev` serves, `/health` returns `{"status":"ok","db":"ok"}`, and
-`scripts/verify_deployment.py` passes **6/6** against it — including the Tigris round trip
+`https://rascal-api.fly.dev` serves, ~~`/health` returns `{"status":"ok","db":"ok"}`~~ —
+**`/health` returns `{"status":"ok"}` and `/health/db` returns `{"status":"ok","db":"ok"}` as of
+Aug 24, 2026 (phase 119); the evidence this section rests on was collected against the single
+route and is not weakened by the split** — and `scripts/verify_deployment.py` passes **6/6**
+against it — including the Tigris round trip
 that had never once succeeded anywhere. Two machines in `ord`, an hourly scheduler machine
 beside them, secrets set, Smoke green.
 
@@ -612,7 +615,7 @@ a real machine on **Aug 8, 2026**, with a Docker daemon available for the first 
 |---|---|
 | `.github/workflows/ci.yml` passes | **executed, green** — dozens of runs, lint plus the full suite against a real Postgres 16 |
 | `api/Dockerfile` builds | **executed, green** — builds clean; the `0.8.17` uv pin reads `revision = 3` as intended |
-| `api/Dockerfile` *runs* | **executed, green** — non-root `rascal` (uid 1001), venv on PATH, binds `0.0.0.0:8080`, `/health` → `{"status":"ok","db":"ok"}` |
+| `api/Dockerfile` *runs* | **executed, green** — non-root `rascal` (uid 1001), venv on PATH, binds `0.0.0.0:8080`, `/health` → `{"status":"ok","db":"ok"}` (that body is `/health/db` since phase 119, Aug 24, 2026; this row records Aug 8) |
 | `docker-compose.yml` starts Postgres | **executed, green** — healthy, after the host port was made overridable |
 | `make migrate && make seed && make test` | **executed, green** — `0004_full_text_search`, 113 prompts, 265 passed |
 | `dev-login` absent outside `local` | **executed, green** — with `ENVIRONMENT=prod` the real image returns 404 for `/v1/auth/dev-login` and `/v1/debug/*` |

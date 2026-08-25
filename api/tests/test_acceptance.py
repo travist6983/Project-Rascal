@@ -173,6 +173,7 @@ async def test_the_openapi_document_covers_every_endpoint_in_the_contract() -> N
 
     assert paths >= {
         "/health",
+        "/health/db",
         "/v1/auth/apple",
         "/v1/auth/refresh",
         "/v1/auth/logout",

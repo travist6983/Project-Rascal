@@ -5,7 +5,10 @@
 Runs against any base URL, including http://localhost:8000. Six checks, in the order that a
 failure is cheapest to understand:
 
-  1. `/health` answers, and it answers `ok/ok`, which means the app reached its database.
+  1. `/health` answers — the process is up — and then `/health/db` answers `ok/ok`, which
+     means the app reached its database. Two routes since phase 119: `/health` is liveness
+     and deliberately touches nothing, because Fly polls it every 30 seconds and a probe
+     that queries a serverless Postgres never lets it suspend.
   2. The database is migrated to the revision this checkout expects — not merely *a*
      revision, the head. A running app in front of a stale schema is the failure mode the
      Fly release command exists to prevent, and this is how you confirm it did.
@@ -150,13 +153,33 @@ class Verifier:
     # --- the checks ------------------------------------------------------------------------
 
     def check_health(self) -> bool:
+        # Both routes, in the order that separates the two failures: if /health is silent the
+        # process is not up and DATABASE_URL is not the question, and if /health answers while
+        # /health/db does not, the app is serving and cannot reach Neon.
         try:
-            response = self.get("/health")
+            liveness = self.get("/health")
         except httpx.HTTPError as exc:
             return self.record("health", False, f"{self.base}/health is unreachable: {exc}")
+        if liveness.status_code != 200 or liveness.json() != {"status": "ok"}:
+            return self.record(
+                "health",
+                False,
+                f"HTTP {liveness.status_code}: {liveness.text.strip()[:200]}. The process is "
+                "not serving at all.",
+            )
+
+        try:
+            response = self.get("/health/db")
+        except httpx.HTTPError as exc:
+            return self.record("health", False, f"{self.base}/health/db is unreachable: {exc}")
         body = response.text.strip()
         if response.status_code != 200:
-            return self.record("health", False, f"HTTP {response.status_code}: {body[:200]}")
+            return self.record(
+                "health",
+                False,
+                f"HTTP {response.status_code}: {body[:200]}. The app is serving but cannot "
+                "reach its database — check DATABASE_URL.",
+            )
         payload = response.json()
         if payload != {"status": "ok", "db": "ok"}:
             return self.record(
@@ -165,7 +188,9 @@ class Verifier:
                 f"expected {{'status':'ok','db':'ok'}}, got {payload}. The app is serving but "
                 "cannot reach its database — check DATABASE_URL.",
             )
-        return self.record("health", True, f"{self.base}/health -> ok/ok")
+        return self.record(
+            "health", True, f"{self.base}/health -> ok, {self.base}/health/db -> ok/ok"
+        )
 
     def check_migrations(self) -> bool:
         config = Config(str(API_DIR / "alembic.ini"))

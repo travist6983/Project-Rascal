@@ -17,13 +17,28 @@ jobs:
     env:
       BASE: ${{ inputs.base_url }}
     steps:
-      - name: The app is serving and can reach its database
+      # Two routes since phase 119, and they answer different questions. /health is what
+      # Fly polls every 30 seconds and it deliberately touches nothing — a probe that
+      # queried Neon would hold the compute awake and spend the free plan by mid-month. So
+      # liveness proves the process; /health/db is what proves the database, and it is
+      # asked here because a human tapping a button is not a seconds-scale poll.
+      - name: The app is serving
         run: |
           set -uo pipefail
           body=$(curl -fsS --max-time 15 "$BASE/health" || true)
           echo "GET /health -> ${body:-<no response>}"
+          if [ "$body" != '{"status":"ok"}' ]; then
+            echo "::error::/health did not return ok. The app is down."
+            exit 1
+          fi
+
+      - name: The app can reach its database
+        run: |
+          set -uo pipefail
+          body=$(curl -fsS --max-time 15 "$BASE/health/db" || true)
+          echo "GET /health/db -> ${body:-<no response>}"
           if [ "$body" != '{"status":"ok","db":"ok"}' ]; then
-            echo "::error::/health did not return ok/ok. The app is down, or it cannot reach Neon."
+            echo "::error::/health/db did not return ok/ok. The app cannot reach Neon."
             exit 1
           fi
 
@@ -68,7 +83,7 @@ jobs:
           set -uo pipefail
           paths=$(curl -fsS --max-time 15 "$BASE/openapi.json" | jq -r '.paths | keys[]' | sort)
           echo "$paths"
-          for required in /health /v1/auth/apple /v1/children /v1/entries /v1/sync; do
+          for required in /health /health/db /v1/auth/apple /v1/children /v1/entries /v1/sync; do
             if ! echo "$paths" | grep -qx "$required"; then
               echo "::error::$required is missing from the published OpenAPI document."
               exit 1

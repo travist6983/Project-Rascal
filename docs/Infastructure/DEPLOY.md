@@ -14,7 +14,7 @@ open the Actions tab and tap **Run workflow**.
 
 - **`.github/workflows/deploy.yml`** — deploys on push to `main` and on demand. Runs
   migrations through Fly's `release_command`, checks the release actually succeeded, then
-  polls `/health` until the app is genuinely serving.
+  polls `/health/db` until the app is genuinely serving.
 - **`.github/workflows/smoke.yml`** — on demand, read-only. Tap it any time to find out
   whether the deployed API is alive and correctly locked down.
 
@@ -199,8 +199,13 @@ The workflow:
 3. Asks Fly whether the latest release's status is actually `succeeded`. Fly can report a
    successful deploy while the release command errored; this step catches that and dumps the
    last 80 log lines.
-4. Polls `/health` for up to 90 seconds, requiring exactly `{"status":"ok","db":"ok"}`.
-   `/health` touches the database, so green means the app is genuinely serving.
+4. Polls `/health/db` for up to 90 seconds, requiring exactly `{"status":"ok","db":"ok"}`.
+   ~~`/health` touches the database, so green means the app is genuinely serving.~~ —
+   **phase 119 split the two on Aug 24, 2026.** `/health` is liveness and touches nothing,
+   because Fly polls it every 30 seconds and a probe that queries Neon never lets the compute
+   suspend; `/health/db` is the one that proves the database, and a deploy is exactly when to
+   ask. A green Fly check no longer means the app can serve — the deploy poll is where that is
+   established.
 
 If any step fails the workflow goes red with a message naming the likely cause.
 
@@ -286,7 +291,8 @@ fly ssh console --app rascal-api --command "python -m rascal.jobs.scheduler --da
 GitHub app → **Actions** → **Smoke** → **Run workflow**. It takes about fifteen seconds and
 asserts:
 
-- `/health` returns `{"status":"ok","db":"ok"}` — serving, and reaching Neon.
+- `/health` returns `{"status":"ok"}` — the process is up.
+- `/health/db` returns `{"status":"ok","db":"ok"}` — and it is reaching Neon.
 - `POST /v1/auth/dev-login` returns **404** — the fixture login does not exist in production.
 - `POST /v1/debug/scheduler/run` returns **404** — nor do the debug routes.
 - `GET /v1/children` returns **401** — auth is enforced.

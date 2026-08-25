@@ -418,12 +418,18 @@ curl -s -H "Authorization: Bearer $PARENT_TOKEN" localhost:8000/v1/families/me \
 ## 4. Checking it worked
 
 ```bash
-curl -s https://rascal-api.fly.dev/health                       # {"status":"ok","db":"ok"}
+curl -s https://rascal-api.fly.dev/health                       # {"status":"ok"}
+curl -s https://rascal-api.fly.dev/health/db                    # {"status":"ok","db":"ok"}
 curl -so /dev/null -w '%{http_code}\n' https://rascal-api.fly.dev/admin              # 200
 curl -so /dev/null -w '%{http_code}\n' https://rascal-api.fly.dev/v1/admin/snapshot  # 401
 ```
 
 The last one **should** be 401 — the page is public, the data is not.
+
+**`/health` stopped carrying `"db":"ok"` on Aug 24, 2026 (phase 119)** and it is the database
+question that moved, not the answer: `/health` is liveness, `/health/db` runs the query. Fly
+polls the first one every 30 seconds, and a probe that touched Postgres held the Neon compute
+awake around the clock — 400 wall-clock hours of a 730-hour month, spent by the 17th.
 
 Signed in, the Costs tab shows one card per provider: connected ones report figures, the rest
 name the variable they want. The Studio's provider strip does the same.
