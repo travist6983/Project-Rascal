@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from botocore.exceptions import ClientError, ReadTimeoutError
 from httpx import AsyncClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +22,7 @@ from helpers import auth_headers
 from rascal.config import get_settings
 from rascal.models import (
     Child,
+    Credential,
     DeletionRequest,
     Entry,
     Guardian,
@@ -28,7 +30,7 @@ from rascal.models import (
     RefreshToken,
     User,
 )
-from rascal.services import deletion, s3
+from rascal.services import apple_revocation, deletion, s3
 
 
 @pytest.fixture
@@ -328,3 +330,376 @@ async def test_a_cancelled_request_is_never_executed(
     assert totals["accounts"] == 0
     assert await session.get(User, user.id) is not None
     assert await session.get(Child, child.id) is not None
+
+
+# --- What the erasure still owes Apple and the bucket, phase 127 -----------------------------
+#
+# Everything below runs *after* the commit in `run_due_deletions`, which is the ordering fix
+# phase 127 made: the rows are certainly gone before a byte is destroyed or a vendor is told
+# anything. These tests are mostly about failure, because a revocation that works is one line
+# and a revocation that fails without abandoning the person who asked to be deleted is the
+# feature.
+
+
+@pytest.fixture
+def apple_calls(monkeypatch):
+    """Capture the revocations a deletion would send instead of reaching Apple."""
+    calls: list[uuid.UUID | None] = []
+
+    async def _revoke(token, settings, *, credential_id=None, **kwargs):
+        calls.append(credential_id)
+        return True
+
+    monkeypatch.setattr(apple_revocation, "revoke", _revoke)
+    return calls
+
+
+async def _apple_credential(session: AsyncSession, user: User, token: str | None) -> Credential:
+    credential = Credential(
+        user_id=user.id,
+        provider="apple",
+        subject_id=f"001.{uuid.uuid4().hex[:8]}",
+        apple_refresh_token=token,
+    )
+    session.add(credential)
+    await session.flush()
+    return credential
+
+
+async def _erase(session: AsyncSession, user: User) -> dict[str, int]:
+    await deletion.request_deletion(session, user)
+    await session.commit()
+    return await deletion.run_due_deletions(
+        session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+    )
+
+
+async def test_deleting_an_account_revokes_its_sign_in_with_apple(
+    session: AsyncSession, no_object_store, apple_calls
+) -> None:
+    """Guideline 5.1.1(v): the link Apple knows about has to end with the account."""
+    user = await make_user(session)
+    credential = await _apple_credential(session, user, "r3fresh")
+
+    await _erase(session, user)
+
+    assert apple_calls == [credential.id]
+    assert await session.get(User, user.id) is None
+
+
+async def test_a_credential_with_no_stored_token_is_skipped_not_attempted(
+    session: AsyncSession, no_object_store, apple_calls
+) -> None:
+    """Every Apple credential written before phase 127 is in this state, and there is nothing
+    to send Apple. It is a gap `docs/blocked.md` §24 owns, not a per-erasure warning."""
+    user = await make_user(session)
+    await _apple_credential(session, user, None)
+
+    await _erase(session, user)
+
+    assert apple_calls == []
+    assert await session.get(User, user.id) is None
+
+
+async def test_a_failed_revocation_does_not_abort_the_deletion(
+    session: AsyncSession, no_object_store, monkeypatch
+) -> None:
+    """**The assertion this whole path exists for.** A user who asked to be deleted and was
+    not, because Apple returned a 500, is a compliance failure — so Apple's answer may not
+    decide whether the archive is destroyed."""
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    await _apple_credential(session, user, "r3fresh")
+
+    async def _fails(token, settings, *, credential_id=None, **kwargs):
+        return False
+
+    monkeypatch.setattr(apple_revocation, "revoke", _fails)
+
+    totals = await _erase(session, user)
+
+    assert totals["accounts"] == 1
+    assert await session.get(User, user.id) is None
+    assert await session.get(Child, child.id) is None
+
+
+async def test_a_revocation_that_raises_does_not_abort_the_deletion(
+    session: AsyncSession, no_object_store, monkeypatch
+) -> None:
+    """`revoke` is written not to raise. This asserts the belt around it anyway, because by
+    the time it is called the erasure is already irreversible."""
+    user = await make_user(session)
+    await _apple_credential(session, user, "r3fresh")
+
+    async def _explodes(token, settings, *, credential_id=None, **kwargs):
+        raise RuntimeError("apple fell over")
+
+    monkeypatch.setattr(apple_revocation, "revoke", _explodes)
+
+    totals = await _erase(session, user)
+
+    assert totals["accounts"] == 1
+    assert await session.get(User, user.id) is None
+
+
+async def test_a_childs_avatar_goes_with_them(
+    session: AsyncSession, no_object_store, apple_calls
+) -> None:
+    """**Not reached through `entries`**, so the media join never saw it and a child's face
+    survived their own erasure in the bucket until phase 127."""
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    child.avatar_key = f"children/{child.id}/avatar/abc.jpg"
+    await session.flush()
+
+    totals = await _erase(session, user)
+
+    assert no_object_store == [f"children/{child.id}/avatar/abc.jpg"]
+    assert totals["objects"] == 1
+
+
+async def test_a_media_thumbnail_goes_with_the_media(
+    session: AsyncSession, no_object_store, apple_calls
+) -> None:
+    """`thumb_key` is NULL for every row today, so this is latent rather than live — which is
+    exactly why it needs a test that sets the column itself."""
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    entry = await _entry(session, child, user, "the swing")
+    session.add(
+        Media(
+            id=uuid.uuid4(),
+            entry_id=entry.id,
+            s3_key="children/x/photo.jpg",
+            thumb_key="children/x/photo-thumb.jpg",
+            kind="photo",
+            bytes=1024,
+            upload_status="complete",
+        )
+    )
+
+    await _erase(session, user)
+
+    assert sorted(no_object_store) == [
+        "children/x/photo-thumb.jpg",
+        "children/x/photo.jpg",
+    ]
+
+
+async def test_the_rows_are_gone_even_when_the_bucket_refuses(
+    session: AsyncSession, monkeypatch, apple_calls
+) -> None:
+    """**The ordering, asserted from the only side that can see it.** Objects are removed after
+    the commit, so a bucket failure cannot roll back an erasure somebody was already told had
+    happened. Before phase 127 the delete ran pre-commit and this raised straight out of the
+    run, leaving the rows behind."""
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    entry = await _entry(session, child, user, "the slide")
+    session.add(
+        Media(
+            id=uuid.uuid4(),
+            entry_id=entry.id,
+            s3_key="children/x/photo.jpg",
+            kind="photo",
+            bytes=1024,
+            upload_status="complete",
+        )
+    )
+
+    async def _refuses(keys, settings):
+        raise RuntimeError("tigris is down")
+
+    monkeypatch.setattr(s3, "delete_objects", _refuses)
+
+    totals = await _erase(session, user)
+
+    assert totals["accounts"] == 1
+    assert await session.get(User, user.id) is None
+    assert await session.get(Child, child.id) is None
+
+
+async def test_one_accounts_failure_does_not_cost_the_rest_of_the_run(
+    session: AsyncSession, no_object_store, monkeypatch, apple_calls
+) -> None:
+    """A batch that abandoned the run on the tenth account left nine deletions committed,
+    their totals discarded, and every later request unattempted until somebody noticed."""
+    first = await make_user(session)
+    second = await make_user(session)
+    await deletion.request_deletion(session, first)
+    await deletion.request_deletion(session, second)
+    await session.commit()
+    # Read before the run. The rollback in the middle of it expires the identity map, so
+    # touching `first.id` afterwards is a lazy load on an async session — a `MissingGreenlet`
+    # inside the assertion rather than the failure this test is actually about.
+    both = {first.id, second.id}
+
+    real = deletion.execute_deletion
+    seen: list[uuid.UUID] = []
+
+    async def _fails_once(inner_session, request, settings, **kwargs):
+        seen.append(request.user_id)
+        if len(seen) == 1:
+            raise RuntimeError("that one went wrong")
+        return await real(inner_session, request, settings, **kwargs)
+
+    monkeypatch.setattr(deletion, "execute_deletion", _fails_once)
+
+    totals = await deletion.run_due_deletions(
+        session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+    )
+
+    # Both were attempted — the run did not stop at the first failure — and exactly the one
+    # that failed is still standing.
+    assert set(seen) == both
+    assert totals["accounts"] == 1
+    survivors = set()
+    for user_id in both:
+        if await session.get(User, user_id) is not None:
+            survivors.add(user_id)
+    assert survivors == {seen[0]}
+
+
+async def test_an_upload_that_never_finished_is_aborted_not_left_behind(
+    session: AsyncSession, no_object_store, apple_calls, monkeypatch
+) -> None:
+    """**Parts are not objects**, so `delete_objects` against the key they will become removes
+    nothing and reports success. Without the abort, a video a parent started uploading when the
+    app was killed outlives the erasure — invisibly, because the `media` row that named the
+    upload has cascaded away and no object listing shows the parts."""
+    aborted: list[tuple[str, str]] = []
+
+    async def _abort(uploads, settings):
+        aborted.extend(uploads)
+        return len(uploads)
+
+    monkeypatch.setattr(s3, "abort_multipart_uploads", _abort)
+
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    entry = await _entry(session, child, user, "the first steps")
+    session.add(
+        Media(
+            id=uuid.uuid4(),
+            entry_id=entry.id,
+            s3_key="children/x/video.mp4",
+            s3_upload_id="upload-abc",
+            kind="video",
+            bytes=99999,
+            upload_status="pending",
+        )
+    )
+
+    await _erase(session, user)
+
+    assert aborted == [("children/x/video.mp4", "upload-abc")]
+
+
+async def test_a_completed_upload_is_not_aborted(
+    session: AsyncSession, no_object_store, apple_calls, monkeypatch
+) -> None:
+    """`s3_upload_id` is cleared on completion, and a finished upload is an object the delete
+    above already removed. Aborting one would be a wasted call at best."""
+    aborted: list[tuple[str, str]] = []
+
+    async def _abort(uploads, settings):
+        aborted.extend(uploads)
+        return len(uploads)
+
+    monkeypatch.setattr(s3, "abort_multipart_uploads", _abort)
+
+    user = await make_user(session)
+    child = await make_child(session, parent=user)
+    entry = await _entry(session, child, user, "the swing again")
+    session.add(
+        Media(
+            id=uuid.uuid4(),
+            entry_id=entry.id,
+            s3_key="children/x/done.jpg",
+            kind="photo",
+            bytes=1024,
+            upload_status="complete",
+        )
+    )
+
+    await _erase(session, user)
+
+    assert aborted == []
+    assert no_object_store == ["children/x/done.jpg"]
+
+
+async def test_the_due_request_is_re_read_under_a_row_lock(
+    session: AsyncSession, no_object_store, apple_calls
+) -> None:
+    """**The window this closes.** `cancel_on_sign_in` can commit `cancelled_at` after the row
+    is read and before the deletes commit, and the cascade takes the request row away either
+    way — so a parent who was told their cancellation worked would lose the archive anyway.
+
+    Asserted on the compiled statement rather than by racing two transactions: a genuine race
+    would either deadlock the suite or pass by luck, and what is being pinned here is that the
+    read takes the lock at all."""
+    statements: list[str] = []
+    original = session.scalar
+
+    async def _record(statement, *args, **kwargs):
+        statements.append(str(statement))
+        return await original(statement, *args, **kwargs)
+
+    user = await make_user(session)
+    await deletion.request_deletion(session, user)
+    await session.commit()
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(session, "scalar", _record)
+        await deletion.run_due_deletions(
+            session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+        )
+
+    locked = [s for s in statements if "deletion_requests" in s and "FOR UPDATE" in s]
+    assert locked, f"the due request was re-read without a row lock; saw: {statements}"
+
+
+async def test_one_unreachable_upload_does_not_strand_the_ones_behind_it() -> None:
+    """**The guard has to catch both botocore bases, because they are siblings.**
+
+    `ClientError` is a refusal S3 has an opinion about; every transport failure — a read
+    timeout, an unreachable endpoint — is a `BotoCoreError` and is *not* a `ClientError`.
+    Catching only the first meant one timed-out upload escaped the loop and every upload behind
+    it was never attempted, which is the opposite of what the function promises.
+
+    Driven against the real loop with a stubbed client: both existing callers monkeypatch the
+    whole function away, so the loop, the guard and the counter had no coverage at all.
+    """
+    attempted: list[str] = []
+
+    class _Client:
+        def abort_multipart_upload(self, *, Bucket, Key, UploadId):
+            attempted.append(UploadId)
+            if UploadId == "upload-2":
+                raise ReadTimeoutError(endpoint_url="https://tigris.test")
+            if UploadId == "upload-3":
+                raise ClientError({"Error": {"Code": "NoSuchUpload"}}, "AbortMultipartUpload")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(s3, "get_s3_client", lambda: _Client())
+        aborted = await s3.abort_multipart_uploads(
+            [(f"children/x/{n}.mp4", f"upload-{n}") for n in (1, 2, 3, 4)],
+            get_settings(),
+        )
+
+    assert attempted == ["upload-1", "upload-2", "upload-3", "upload-4"], (
+        "a failure stranded the uploads behind it"
+    )
+    # Two succeeded; the timeout and the NoSuchUpload are both counted as not-aborted.
+    assert aborted == 2
+
+
+async def test_nothing_to_abort_makes_no_call_at_all() -> None:
+    """The common case by far — most erasures have no upload in flight."""
+
+    def _explodes():
+        raise AssertionError("the client must not be built when there is nothing to abort")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(s3, "get_s3_client", _explodes)
+        assert await s3.abort_multipart_uploads([], get_settings()) == 0

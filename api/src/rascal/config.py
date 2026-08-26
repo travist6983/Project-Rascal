@@ -477,6 +477,32 @@ class Settings(DatabaseSettings):
     # and `_apns_topic_is_unambiguous` refuses to start. See `resolved_apns_topic`.
     apns_topic: str | None = None
 
+    # --- Sign in with Apple revocation (phase 127) -----------------------------------------
+    #
+    # Guideline 5.1.1(v) requires an app offering Sign in with Apple to call Apple's REST
+    # token-revocation endpoint when the account is deleted. That call is authenticated with a
+    # `client_secret` JWT signed with a **Sign in with Apple** key — a different `.p8` from the
+    # APNs one above, from the same portal, with a different capability. The errand is
+    # `docs/blocked.md` §24, and until it is run this is the state the repository has always
+    # been in: unset.
+    #
+    # `apple_siwa_private_key` is the *contents* of the `.p8`, not a path, for exactly the
+    # reason `apns_private_key` is. **Unset means revocation is skipped and said so at ERROR,
+    # and the deletion still happens** — a parent who asked to be erased and was not, because a
+    # key was missing, is the worse of the two failures by a wide margin.
+    apple_siwa_key_id: str | None = None
+    apple_siwa_private_key: str | None = None
+    #: The `client_id` Apple's token endpoints expect: the audience the identity token was
+    #: issued to. One string, never a list, and it defaults to `apple_bundle_id` for the same
+    #: reason `app_store_bundle_id` does — a second place to get the same value wrong is worse
+    #: than a default. `None` when the allowlist names several and none was chosen.
+    apple_siwa_client_id: str | None = None
+    apple_token_url: str = "https://appleid.apple.com/auth/token"
+    apple_revoke_url: str = "https://appleid.apple.com/auth/revoke"
+    #: Both Apple calls sit on a path a person is waiting on — sign-in for the exchange, the
+    #: deletion job for the revoke — so neither may hang. Ten seconds matches `fetch_jwks`.
+    apple_siwa_timeout_seconds: float = 10.0
+
     # --- App Store Server Notifications V2 (phase 37a) -------------------------------------
     #
     # **Nothing here has ever been exercised against Apple**, because no subscription product
@@ -523,6 +549,36 @@ class Settings(DatabaseSettings):
         if self.app_store_bundle_id:
             return self.app_store_bundle_id
         return self.apple_bundle_id[0] if len(self.apple_bundle_id) == 1 else None
+
+    @property
+    def resolved_apple_siwa_client_id(self) -> str | None:
+        """The single `client_id` Apple's token endpoints are addressed with, or `None`.
+
+        **`None` rather than a startup failure when `APPLE_BUNDLE_ID` names more than one
+        audience**, which is where this follows `resolved_app_store_bundle_id` rather than
+        `resolved_apns_topic`. Nothing here is configured today, so hard-failing would take the
+        whole API down the day somebody adds a web Services ID — for a call that is already
+        being skipped for want of a key.
+        """
+        if self.apple_siwa_client_id:
+            return self.apple_siwa_client_id
+        return self.apple_bundle_id[0] if len(self.apple_bundle_id) == 1 else None
+
+    @property
+    def apple_siwa_configured(self) -> bool:
+        """Whether a `client_secret` can be signed and addressed to Apple.
+
+        All three or none, the same argument `apns_configured` makes: a partial set is a
+        misconfiguration, and treating it as "nearly working" hides which piece is missing.
+        `apple_team_id` is not counted — it has a default and is not secret.
+        """
+        return all(
+            (
+                self.apple_siwa_key_id,
+                self.apple_siwa_private_key,
+                self.resolved_apple_siwa_client_id,
+            )
+        )
 
     @property
     def apns_configured(self) -> bool:

@@ -638,3 +638,78 @@ def _column_exists(conn: sa.Connection, table: str, column: str) -> bool:
             {"t": table, "c": column},
         ).scalar_one()
     )
+
+
+def test_the_apple_refresh_token_column_round_trips_and_keeps_its_credential(
+    scratch_url: str,
+) -> None:
+    """0025 adds one nullable column — so what needs proving is the downgrade, not the upgrade.
+
+    **The downgrade drops a column that holds a live credential**, and the thing that would make
+    it a defect is if it took the credential row with it. A parent whose `credentials` row
+    vanished on a rollback cannot sign in at all; a parent whose stored Apple token vanished
+    simply gets a new one on their next sign-in, which is the whole reason this column is
+    allowed to be lossy.
+
+    Written at the revision *before* 0025 so the upgrade is observed adding the column to a row
+    that already existed — every other test in the suite builds credentials through the ORM,
+    which cannot see whether the migration runs at all.
+    """
+    # Up then down lands on 0024 from wherever the module left the scratch database; a bare
+    # `upgrade 0024` is a silent no-op when it is already at head.
+    _alembic("upgrade head", scratch_url)
+    _alembic("downgrade 0024_canvas_video", scratch_url)
+    engine = sa.create_engine(scratch_url)
+
+    with engine.begin() as conn:
+        assert _column_exists(conn, "credentials", "apple_refresh_token") is False, (
+            "0024 must not already have the column, or this proves nothing about 0025"
+        )
+        family_id = conn.execute(
+            sa.text("INSERT INTO families (id) VALUES (gen_random_uuid()) RETURNING id")
+        ).scalar_one()
+        user_id = conn.execute(
+            sa.text(
+                "INSERT INTO users (id, family_id) VALUES (gen_random_uuid(), :f) RETURNING id"
+            ),
+            {"f": family_id},
+        ).scalar_one()
+        credential_id = conn.execute(
+            sa.text(
+                "INSERT INTO credentials (id, user_id, provider, subject_id) "
+                "VALUES (gen_random_uuid(), :u, 'apple', '001.migration') RETURNING id"
+            ),
+            {"u": user_id},
+        ).scalar_one()
+    engine.dispose()
+
+    _alembic("upgrade head", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.begin() as conn:
+        assert _column_exists(conn, "credentials", "apple_refresh_token") is True
+        # NULL for a row written before the migration, which is the documented state of every
+        # Apple credential in production the day this deploys. Nothing is backfilled because
+        # no authorization code was ever kept.
+        stored = conn.execute(
+            sa.text("SELECT apple_refresh_token FROM credentials WHERE id = :id"),
+            {"id": credential_id},
+        ).scalar_one()
+        assert stored is None
+        conn.execute(
+            sa.text("UPDATE credentials SET apple_refresh_token = 'r3fresh' WHERE id = :id"),
+            {"id": credential_id},
+        )
+    engine.dispose()
+
+    _alembic("downgrade 0024_canvas_video", scratch_url)
+    engine = sa.create_engine(scratch_url)
+    with engine.connect() as conn:
+        assert _column_exists(conn, "credentials", "apple_refresh_token") is False
+        survived = conn.execute(
+            sa.text("SELECT count(*) FROM credentials WHERE id = :id"), {"id": credential_id}
+        ).scalar_one()
+    engine.dispose()
+    assert survived == 1, "the downgrade removed a credential when it should remove a column"
+
+    # Leave the scratch database at head, so this test cannot decide what the next one sees.
+    _alembic("upgrade head", scratch_url)

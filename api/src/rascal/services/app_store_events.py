@@ -9,7 +9,7 @@ Everything in this module runs *after* `services/app_store.verify_notification` 
 signature. There is no other entry point: the router hands this function a
 `VerifiedNotification`, which cannot be constructed from an unverified payload.
 
-## Four guards, and the table of notification types matters less than any of them
+## Five guards, and the table of notification types matters less than any of them
 
 **1. Ordering.** Apple retries until it gets a 2xx, and retries arrive interleaved with new
 notifications. An `EXPIRED` delivered *after* a `RESUBSCRIBE` will, in the obvious
@@ -40,6 +40,22 @@ recorded — the audit trail is the point — but with a null `family_id`, becau
 family would mean the *next* demoting notification found the record this one was refused for
 and went through. Recording the attribution we just declined to make is how this guard would
 quietly become a one-notification delay instead of a guard.
+
+**5. Never promote a household nobody is left in.** Account deletion hard-deletes `users` and
+deliberately leaves `families` standing, so an erased household is a real row with no members —
+and Apple keeps sending renewals for a subscription nobody cancelled, because cancelling is
+something only the subscriber can do and they are gone. Without this guard a `DID_RENEW`
+arriving after an erasure walks straight into `_write_tier`, marks the empty household
+`subscribed`, and clears `lapsed_at` — which is not cosmetic, because `lapsed_at` is the clock
+D3's media-deletion policy runs off, so a renewal for somebody who no longer exists silently
+restarts the abandonment timer on what is left of their household. The notification is still
+recorded, unattributed, for the same reason a refused demotion is: a refund may follow it and
+the audit trail is the point.
+
+Symmetrical with guard 4 by construction: that one refuses a demotion it cannot justify, this
+one refuses a promotion there is nobody to give. Added by phase 127 alongside Sign in with Apple
+revocation, because both are the same question — what does this service still owe a person who
+has left — asked from two directions.
 """
 
 from __future__ import annotations
@@ -56,7 +72,7 @@ from rascal.constants import (
 )
 from rascal.models import AppStoreTransaction, Entitlement, Family, User
 from rascal.services.app_store import VerifiedNotification
-from rascal.services.guardians import family_members
+from rascal.services.guardians import active_parent_count, family_members
 
 log = logging.getLogger("rascal.app_store.events")
 
@@ -229,6 +245,31 @@ async def apply_notification(
         effect = None
         demotion_refused = True
 
+    # --- Guard 5: never promote a household nobody is left in --------------------------------
+    #
+    # An erased household is a `families` row with no `users`: account deletion hard-deletes the
+    # members and leaves the household standing. Apple goes on renewing a subscription nobody is
+    # there to cancel, and `_write_tier` would mark that empty household `subscribed` and clear
+    # `lapsed_at` — restarting D3's media-deletion clock on behalf of somebody who asked to be
+    # forgotten. Counted rather than inferred from the transaction row, because the question is
+    # about the household now and not about what Apple once knew.
+    promotion_refused = False
+    if (
+        effect == "subscribed"
+        and family_id is not None
+        and await active_parent_count(session, family_id) == 0
+    ):
+        log.warning(
+            "refusing to promote a household with no members left",
+            extra={
+                "type": note.notification_type,
+                "original_transaction_id": note.original_transaction_id,
+                "family_id": str(family_id),
+            },
+        )
+        effect = None
+        promotion_refused = True
+
     # **Two cases record the notification without recording who it is about**, and both are
     # the same argument: an attribution this service has just declined to act on must not
     # become the transaction record that lets a *later* notification act. A refused demotion
@@ -244,16 +285,26 @@ async def apply_notification(
 
     if effect is None or family_id is None:
         await session.flush()
-        return _outcome(effect, family_id, demotion_refused)
+        return _outcome(effect, family_id, demotion_refused, promotion_refused)
 
     await _write_tier(session, family_id, effect, note)
     await session.flush()
     return f"tier:{effect}"
 
 
-def _outcome(effect: Tier | None, family_id: uuid.UUID | None, demotion_refused: bool) -> str:
+def _outcome(
+    effect: Tier | None,
+    family_id: uuid.UUID | None,
+    demotion_refused: bool,
+    promotion_refused: bool,
+) -> str:
     if demotion_refused:
         return "recorded:demotion-refused"
+    # Before the `family_id is None` branch, like the demotion above it: a refused promotion is
+    # attributed — we know exactly which household it was for — and calling it `unattributed`
+    # would lose the one fact that makes it findable.
+    if promotion_refused:
+        return "recorded:promotion-refused"
     if family_id is None:
         return "recorded:unattributed"
     return "recorded:no-tier-change"

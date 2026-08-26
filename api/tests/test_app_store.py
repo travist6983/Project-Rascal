@@ -20,7 +20,9 @@ from sqlalchemy import select
 import app_store_stub as stub
 from factories import make_family, make_user
 from helpers import auth_headers
-from rascal.models import AppStoreTransaction, Entitlement, Family
+from rascal.config import get_settings
+from rascal.models import AppStoreTransaction, Entitlement, Family, User
+from rascal.services import deletion
 from rascal.services.app_store import (
     AppStoreVerifier,
     NotificationUnverifiable,
@@ -1427,3 +1429,123 @@ async def test_the_app_store_bundle_id_does_not_follow_the_apns_topic(app_store_
     )
     assert settings.resolved_apns_topic == "com.travisterry.something.else"
     assert settings.resolved_app_store_bundle_id == stub.BUNDLE_ID
+
+
+# --- Guard 5: a renewal for a household nobody is left in, phase 127 -------------------------
+#
+# Apple keeps sending renewals for a subscription nobody cancelled, because cancelling is
+# something only the subscriber can do and they have deleted their account. The `families` row
+# survives the erasure by design — account deletion hard-deletes `users` and never names
+# `Family` — so these notifications land on a real household with no members.
+
+
+async def _erased_household(session) -> Family:
+    """A real household whose members have actually been erased, not one that never had any.
+
+    Arranged by running the deletion rather than by omitting the user, because the whole point
+    of the guard is the state the erasure leaves behind — and a family that never had a member
+    is a different bug with a different guard (`recorded:unattributed`).
+    """
+    family = await make_family(session, tier="free")
+    user = await make_user(session, family=family)
+    await deletion.request_deletion(session, user)
+    await session.commit()
+
+    await deletion.run_due_deletions(
+        session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+    )
+    assert await session.get(User, user.id) is None
+    return family
+
+
+async def test_a_renewal_for_an_erased_household_writes_no_entitlement(
+    app_store_client, session, app_store_chain
+):
+    """**Break-test 6.** Before phase 127 this marked the empty household `subscribed` and
+    cleared `lapsed_at` — which is not cosmetic, because `lapsed_at` is the clock D3's
+    media-deletion policy runs off, so a renewal for somebody who no longer exists silently
+    restarted the abandonment timer on what was left of their household."""
+    family = await _erased_household(session)
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "recorded:promotion-refused"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at is None
+
+
+async def test_a_renewal_for_an_erased_household_still_records_the_receipt(
+    app_store_client, session, app_store_chain
+):
+    """The audit trail is the point, exactly as it is for a refused demotion: a refund may
+    still follow this, and Apple will send that too."""
+    family = await _erased_household(session)
+
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    row = await _transaction(session, "2000000000000001")
+    assert row is not None
+    assert row.latest_notification_type == "DID_RENEW"
+
+
+async def test_an_erased_household_is_never_given_a_payer(
+    app_store_client, session, app_store_chain
+):
+    """`_set_payer` runs inside `_write_tier`, which guard 5 keeps this notification out of.
+    A payer id pointing at a deleted user would be a foreign key to nobody."""
+    family = await _erased_household(session)
+
+    await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.payer_user_id is None
+
+
+async def test_a_household_that_still_has_a_parent_is_promoted_as_before(
+    app_store_client, session, app_store_chain
+):
+    """The other half of guard 5, and the one that would fail silently: a guard that refuses
+    every promotion would pass all three tests above and break the product."""
+    family = await _household(session)
+    await session.commit()
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT,
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.json()["status"] == "tier:subscribed"
+    assert (await _entitlement(session, family.id)).tier == "subscribed"

@@ -17,6 +17,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 from rascal.config import Settings
+from rascal.db import get_sessionmaker
 from rascal.deps import SessionDep, SettingsDep, get_apple_verifier, get_google_verifier
 from rascal.errors import validation_failed
 from rascal.schemas.auth import (
@@ -31,8 +32,9 @@ from rascal.schemas.auth import (
     TokenPairResponse,
 )
 from rascal.schemas.common import UserOut
+from rascal.services import apple_revocation
 from rascal.services.apple import AppleVerifier
-from rascal.services.auth import touch_last_sign_in, user_for_credential
+from rascal.services.auth import subject_hint, touch_last_sign_in, user_for_credential
 from rascal.services.email_sign_in import complete_sign_in, start_sign_in
 from rascal.services.google import GoogleVerifier
 from rascal.services.mail import send
@@ -61,6 +63,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 )
 async def sign_in_with_apple(
     payload: AppleSignInRequest,
+    background: BackgroundTasks,
     session: SessionDep,
     settings: SettingsDep,
     verifier: AppleVerifier = Depends(get_apple_verifier),
@@ -76,12 +79,74 @@ async def sign_in_with_apple(
     )
     tokens = await issue_token_pair(session, user.id, settings)
     await touch_last_sign_in(session, user.id)
+
+    # **The authorization code stops being decorative here.** It is exchanged for a refresh
+    # token and kept, because Apple's revocation endpoint takes one and account deletion runs
+    # seven days later with nobody present to produce a fresh code.
+    #
+    # **Queued, not awaited**, for the reason `start_email_sign_in` gives below for the same
+    # shape: `get_session` holds one transaction open for the whole request, so awaiting a
+    # round trip to `appleid.apple.com` here would keep a Neon connection — and, on a
+    # first-ever sign-in, the uncommitted row lock on `uq_credentials_provider_subject_id` —
+    # checked out for as long as Apple took to answer. A parent opening the app would wait for
+    # it, on the first request of every launch, for a call whose result never reaches the
+    # response.
+    #
+    # **The explicit commit is load-bearing and is not tidying.** FastAPI runs background tasks
+    # *before* the exit code of a dependency with `yield`, so `get_session`'s commit has not
+    # happened when the task starts: without this line the task opens its own session, cannot
+    # see the credential row this request just wrote, and stores nothing — silently, forever,
+    # because every failure on that path is deliberately non-fatal. It was written that way
+    # first and only an end-to-end test caught it. Committing here writes exactly the rows the
+    # dependency would have written a moment later, so the dependency's own commit becomes a
+    # no-op rather than a second transaction.
+    await session.commit()
+    background.add_task(
+        _capture_apple_refresh_token,
+        identity.subject_id,
+        payload.authorization_code,
+        settings,
+    )
     return SessionResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
         expires_in=tokens.expires_in,
         user=UserOut.model_validate(user),
     )
+
+
+async def _capture_apple_refresh_token(
+    subject_id: str, authorization_code: str | None, settings: Settings
+) -> None:
+    """Exchange the authorization code with Apple, after the response has gone out.
+
+    **Its own session, and not because the request's is gone — it is not.** FastAPI runs this
+    before `get_session`'s exit code, so the request's session is still open and still holds a
+    connection; borrowing it would mean two coroutines on one session and a write racing the
+    dependency's own commit. A separate session, opened after the explicit commit above has made
+    the credential row visible, is the only shape that is both correct and independent.
+
+    **Swallows its failure deliberately**, like `_deliver_sign_in_link` below. There is no
+    caller left to tell, the parent is already signed in, and the cost of losing this is one
+    credential that cannot be revoked at Apple until the next sign-in — which
+    `capture_refresh_token` already logs. What it must never do is escape and put a traceback
+    in the logs for a call the module documents as optional.
+    """
+    try:
+        async with get_sessionmaker()() as session:
+            await apple_revocation.capture_refresh_token(
+                session, subject_id, authorization_code, settings
+            )
+            await session.commit()
+    except Exception:
+        # `capture_refresh_token` is written not to raise, so this should be unreachable — and
+        # it is tested anyway, by `test_a_sign_in_survives_the_background_task_exploding`,
+        # because "should be unreachable" is a claim about code that can be edited later and a
+        # background task that escapes takes the whole sign-in response with it.
+        log.exception(
+            "could not store an apple refresh token; the sign-in was unaffected",
+            extra={"subject_hint": subject_hint("apple", subject_id)},
+        )
 
 
 @router.post(

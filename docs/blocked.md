@@ -1609,3 +1609,77 @@ and §13 from colliding: **receiving at the apex through iCloud and sending from
 Resend are two independent setups**, and adding Resend's records to the apex instead would put a
 second sender under a DMARC policy written for one. Nothing here needs doing today; it is written
 down so the day §13's step 5 is worked, nobody points it at the apex.
+
+---
+
+## §24 — There is no Sign in with Apple key, so the revocation phase 127 built cannot fire (Aug 25, 2026)
+
+**This is an errand, not a blocker.** Apple Developer enrollment is resolved (§1), so the key can
+be created today; it simply never has been. Phase 127 shipped the whole revocation path against a
+local `MockTransport` and **it has never spoken to Apple**, because there is nothing to sign a
+`client_secret` with.
+
+### Why it matters
+
+Guideline **5.1.1(v)** requires an app offering Sign in with Apple to call Apple's REST
+token-revocation endpoint as part of deleting an account. Until this is done, every erasure logs
+
+```
+ERROR  cannot revoke a sign in with apple credential: no key is configured.
+       The account is still being deleted. See docs/blocked.md section 24.
+```
+
+and the account is still deleted. **That degradation is deliberate** — a parent who asked to be
+erased and was not, because a key was missing, is by far the worse failure — but it means the
+compliance obligation is currently unmet on a path that reports success.
+
+### The errand
+
+1. Apple Developer portal → **Certificates, Identifiers & Profiles** → **Keys** → **+**.
+2. Name it something like `Rascal Sign in with Apple`, tick **Sign in with Apple**, and configure
+   it against the primary App ID. **This is a different capability from the APNs key in §1** — an
+   APNs key cannot sign for this and the reverse is also true.
+3. Download the `.p8`. Apple lets you download it **once**.
+4. Note the **Key ID** shown beside it. The Team ID is already in `config.py` and is not secret.
+5. Set three Fly secrets — `APPLE_SIWA_PRIVATE_KEY` is the *contents* of the `.p8`, newlines and
+   `BEGIN`/`END` lines intact, exactly like `APNS_PRIVATE_KEY`:
+
+   ```
+   flyctl secrets set -a rascal-api \
+     APPLE_SIWA_KEY_ID=... \
+     APPLE_SIWA_CLIENT_ID=com.travisterry.childarchive \
+     APPLE_SIWA_PRIVATE_KEY="$(cat AuthKey_XXXXXXXX.p8)"
+   ```
+
+   All three or none: a partial set reads as unconfigured, on purpose, because *"nearly working"*
+   hides which piece is missing.
+
+### The other half, and it is a separate errand
+
+**Nothing in this repository shows the Sign in with Apple server-to-server notification endpoint
+was ever registered with Apple** — §11's pre-step B has said so since Aug 16, 2026 and it is still
+true. The handler has existed since phase 53 with twenty tests, so what those tests prove is that
+a *delivered* notification is handled correctly, and nothing at all about delivery.
+
+The URL Apple must be given, which appears nowhere else in this tree as a pasteable value:
+
+```
+https://rascal-api.fly.dev/v1/webhooks/apple-signin
+```
+
+Developer portal → **Identifiers** → the App ID → **Sign in with Apple** → **Edit** → *Server to
+Server Notification Endpoint*. **Apple will not send `account-delete` until this is set.**
+
+### How to know it worked, and it is the only proof
+
+**Delete a test account, then look at that device's Settings → Apple Account → Sign in with Apple.**
+The app should no longer be listed. This is the check Apple's reviewer can perform and the only
+evidence revocation actually happened — the logs prove the call was *attempted*, which is a
+different claim.
+
+**Do this before touching §11's `sub`-stability experiment**, not after. §11 asks what Apple
+returns for `sub` after a revoke-and-reauthorize, and until then this repository's answer is to
+avoid depending on it: phase 127 revokes at *execution* rather than at request time specifically so
+that a parent who changes their mind during the seven days never has to re-consent. If §11 ever
+resolves that `sub` is stable, revoking earlier becomes available; it is not worth doing on an
+assumption.

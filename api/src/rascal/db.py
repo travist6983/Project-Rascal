@@ -24,6 +24,20 @@ def get_engine() -> AsyncEngine:
         pool_pre_ping=True,
         # Neon closes idle connections; recycling well inside that window avoids a cold 500.
         pool_recycle=1800,
+        # **A database error must not print what it was writing.** SQLAlchemy's default renders
+        # the failing statement *and its bound parameters* into `str(exc)`, so any handler that
+        # logs a traceback publishes the row it was trying to save. That became a real leak in
+        # phase 127, which added `credentials.apple_refresh_token` — a live Apple credential, and
+        # the only secret at rest in this schema: a dropped connection mid-flush would have put
+        # it in a log line, verbatim, under a message saying it had *not* been stored.
+        #
+        # Set here rather than only at that one call site, because this protects every statement
+        # that binds the column including ones nobody has written yet — the same reasoning
+        # `CredentialOut` uses for being an allowlist rather than an exclusion. The cost is that
+        # `[parameters: ...]` disappears from every SQLAlchemy error in the service; nothing sets
+        # `echo=`, so nothing was relying on it, and a statement worth seeing can be logged
+        # deliberately.
+        hide_parameters=True,
         future=True,
     )
 
