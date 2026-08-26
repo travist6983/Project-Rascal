@@ -100,8 +100,11 @@ neither key.** It is untracked and lives only in the primary checkout at
 `ios/Rascal/Config.xcconfig`; `Config.xcconfig.example:93-94` carries both values correctly.
 
 So both links resolve to `nil` and render as *absent* in every build today. This is already filed
-as a launch blocker at `docs/design/design-conformance-110.md` §7.4, which states the fix in one
-sentence: copy those two lines across.
+in two places: `docs/design/design-conformance-110.md` §7.4, and — as the owner-facing errand it
+actually is — **`docs/blocked.md` §19**, *"The paywall has no Terms and no Privacy link, and it is
+two lines in a gitignored file"*, open since Aug 22, 2026. §19 carries the exact two lines to
+paste, including the `$()` split that stops xcconfig reading `//` as a comment and truncating the
+value to `https:`. **Nothing in either lane's code changes**, which is why no phase has closed it.
 
 **Consequence for the brief.** Writing a new `Legal.swift` holding hardcoded URLs would put a second
 source of truth beside a working configurable one, and would route around the `url.host()` guard

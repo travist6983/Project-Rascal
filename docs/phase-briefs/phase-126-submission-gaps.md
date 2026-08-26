@@ -23,6 +23,16 @@
 >    `nil` in every build today because `Config.xcconfig` supplies neither value. That is an owner
 >    errand, filed at `docs/design/design-conformance-110.md` §7.4.
 >
+> **And the manual errand at the foot of the brief is now filed, with its reason corrected.**
+> The brief says `getvellumapp.com` *"currently has no mail routing"*. It has: the domain is on
+> iCloud Custom Email Domain, with both Apple exchangers, an SPF record, the `apple-domain=`
+> verification TXT and a DMARC policy at `p=quarantine`, all read off public DNS on Aug 25, 2026.
+> **What is genuinely outstanding is narrower and is not what the brief named**: an MX record
+> routes a domain and does not create an address, so whether `hello@` exists and whether mail to
+> it arrives are the open questions, and both need an inbox no lane here can reach. Filed as
+> `docs/blocked.md` **§23**, because an owner errand recorded only in a brief is the §20 failure
+> that page was opened for.
+>
 > The brief below is the owner's text, unedited apart from the number in this heading.
 
 Lane B (iOS) plus an audit that produces a document, not code. Blocks App Store submission.
