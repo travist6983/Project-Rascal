@@ -11,6 +11,8 @@ to end.
 Last reviewed: ~~**Aug 22, 2026.**~~ **Aug 25, 2026.** The Aug 11 pass is described below and its
 findings stand; what Aug 16 changed is recorded in the paragraphs immediately after it.
 
+**Aug 25, 2026 — phase 126's allocation added §23, and it is filed as a correction rather than as an errand.** The brief that prompted it said `getvellumapp.com` *"currently has no mail routing"*; the domain is on iCloud Custom Email Domain with both Apple exchangers, an SPF record, the `apple-domain=` verification TXT and a DMARC policy, all read off public DNS the same day and reproduced in the section. **What survives as genuinely yours is narrower and was not the thing named**: an MX record routes a domain and does not create an address, so whether `hello@` exists and whether a message to it arrives are the open questions, and both need an inbox this lane cannot reach. **Count the sections by running it rather than quoting this line**: `grep -c '^## §' docs/blocked.md` answers **13** as this is written. That is a different basis from the *thirteen* the phase 122 note below reports, which counted before §23 existed and over a wider set of headings; it is left alone rather than reconciled here, because a count corrected by somebody who did not re-derive it is the failure this file keeps recording.
+
 **Aug 25, 2026 — phase 122, a docs sweep, and it touched three things here.** **New: §22**, the
 three `GEMINI_*` Fly secrets that phase 120 orphaned on Aug 25 — the only genuinely owner-only act
 that phase produced, and it was written into a phase report rather than onto this page, which is
@@ -1544,3 +1546,66 @@ needed the unset — or §18's list was incomplete, which is worth knowing about
 about this. Run the list first and record which of the two it was; `CLAUDE.md` puts anything
 blocked on a credential on this page, and *"we checked and there was nothing there"* is a result
 this page should carry rather than a reason to have written nothing.
+
+---
+
+## §23 — `hello@getvellumapp.com`: the DNS half is already done, and **only you can say whether the mailbox exists** (Aug 25, 2026)
+
+**Filed because phase 126's brief named this as an owner errand and stated the reason wrongly.**
+The brief's words are *"the domain currently has no mail routing."* It has mail routing. Read off
+the public DNS on Aug 25, 2026:
+
+```
+$ dig +short MX getvellumapp.com
+10 mx01.mail.icloud.com.
+10 mx02.mail.icloud.com.
+
+$ dig +short TXT getvellumapp.com
+"v=spf1 include:icloud.com ~all"
+"apple-domain=0LNvcg0C9dw02kIC"
+
+$ dig +short TXT _dmarc.getvellumapp.com
+"v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"
+```
+
+That is **iCloud Custom Email Domain**, fully provisioned: Apple's two inbound exchangers, the
+`apple-domain=` verification record Apple requires before it will accept the domain, an SPF record
+authorising iCloud to send as it, and a DMARC policy at `p=quarantine`. The nameservers are
+GoDaddy's (`ns23/ns24.domaincontrol.com`), which matches the brief's guess at *where* the work would
+be done — it just does not need doing.
+
+### What is actually unresolved, and why it is still yours
+
+**MX records route a domain. They do not create an address.** iCloud Custom Email Domain requires
+each address to be created explicitly in iCloud settings, and mail to an address that has not been
+created is rejected by Apple rather than delivered. So the open question is not routing, it is:
+
+1. **Does `hello@` exist as an address or alias on that domain?**
+2. **Does a message sent to it from an unrelated account actually arrive somewhere you read?**
+
+Neither is answerable from this repository, from DNS, or from any machine this lane can reach — it
+needs a signed-in iCloud session and an inbox. **The test is one email.** Send to
+`hello@getvellumapp.com` from an address on a different provider and see whether it lands or
+bounces; record which here, because *"we checked and it works"* is a result this page should carry.
+
+### Why it blocks submission
+
+App Review reaches the support contact. If the address bounces, the reviewer finds a dead support
+channel on a paid subscription app, which is a rejection under 1.5 rather than a cosmetic gap.
+
+**One claim in the brief could not be checked from here and is not repeated as fact.** It says both
+legal pages point at this address. The legal pages live in `travist6983/Rascal-Marketing`, not in
+this repository, and `hello@getvellumapp.com` appears nowhere in this tree except phase 126's own
+brief — so whether `/terms` and `/privacy` publish that address is unverified from this lane. See
+**§13**, which owns the marketing site.
+
+### One thing to know before Resend sends from this domain
+
+**The SPF record above authorises iCloud and nothing else**, and DMARC is at `p=quarantine` with
+relaxed alignment. **§13 step 5 already calls for a verified sending *subdomain*, never the apex**,
+and today neither `mail.getvellumapp.com` nor `send.getvellumapp.com` has any record at all
+(`dig +short MX mail.getvellumapp.com` returns nothing). That separation is what keeps this section
+and §13 from colliding: **receiving at the apex through iCloud and sending from a subdomain through
+Resend are two independent setups**, and adding Resend's records to the apex instead would put a
+second sender under a DMARC policy written for one. Nothing here needs doing today; it is written
+down so the day §13's step 5 is worked, nobody points it at the apex.
