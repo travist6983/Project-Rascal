@@ -11,8 +11,12 @@ from rascal.schemas.common import ApiModel, UserOut
 
 class AppleSignInRequest(ApiModel):
     identity_token: str = Field(min_length=1)
-    # Carried for parity with the Sign in with Apple payload. RASCAL verifies the identity
-    # token directly and never calls Apple's token endpoint, so this is accepted and ignored.
+    # **Read since phase 127; accepted and ignored before it.** The identity token is still what
+    # proves who this is — the code is not an authentication input and nothing here trusts it.
+    # It is exchanged with Apple for a refresh token so that deleting the account seven days
+    # later can revoke the Sign in with Apple link, which Guideline 5.1.1(v) requires and which
+    # nothing in this schema could previously carry. Optional because a client that omits it
+    # must still be able to sign in, and because every client did until phase 127.
     authorization_code: str | None = None
     display_name: str | None = None
 
@@ -55,10 +59,11 @@ class SessionResponse(TokenPairResponse):
 
 
 class GoogleSignInRequest(ApiModel):
-    """The same shape as `AppleSignInRequest`, minus Apple's vestigial fields.
+    """The same shape as `AppleSignInRequest`, minus the field only Apple needs.
 
-    No `authorization_code`: Apple's is carried for parity with its own payload and ignored,
-    and copying a field we already do not use into a second provider would be inventing debt.
+    No `authorization_code`. Apple's is read (phase 127) to obtain the refresh token its
+    revocation endpoint demands; Google requires no equivalent to delete an account, so adding
+    one here would be carrying a field for a call this service does not make.
     """
 
     identity_token: str = Field(min_length=1)

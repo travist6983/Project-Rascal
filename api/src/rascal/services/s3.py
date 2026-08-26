@@ -8,13 +8,17 @@ never block the event loop.
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import lru_cache
 from typing import Any
 
 import boto3
 from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from rascal.config import Settings, get_settings
+
+log = logging.getLogger("rascal.s3")
 
 
 @lru_cache(maxsize=1)
@@ -99,6 +103,51 @@ async def complete_multipart_upload(
         UploadId=upload_id,
         MultipartUpload={"Parts": parts},
     )
+
+
+async def abort_multipart_uploads(uploads: list[tuple[str, str]], settings: Settings) -> int:
+    """Discard the parts of uploads that were started and never completed. Returns how many.
+
+    **Parts of an incomplete multipart upload are not objects**, so `delete_objects` against the
+    key they will eventually become removes nothing and reports success. Without this, a video a
+    parent started uploading when the app died outlives the erasure that was supposed to remove
+    it — invisibly, because no object listing shows it and the `media` row that named the upload
+    has cascaded away. There is no lifecycle rule on the bucket to catch it either.
+
+    **A failed abort is not an error.** S3 answers `NoSuchUpload` for one that already completed
+    or was already aborted, and that is the ordinary case for a retried erasure — the same
+    argument `delete_objects` makes for a missing key. One failure must not strand the rest, so
+    each is attempted independently.
+
+    **Both botocore bases, because they are siblings and not parent and child.** `ClientError`
+    is what S3 raises for a refusal it has an opinion about; every transport failure — a read
+    timeout, an unreachable endpoint, a closed connection — is a `BotoCoreError`, which is not a
+    `ClientError`. Catching only the first meant one timed-out upload escaped the loop and every
+    upload behind it was never attempted, which is the exact opposite of the sentence above.
+
+    Runs in a thread, like every other call here that touches the network.
+    """
+    if not uploads:
+        return 0
+
+    client = get_s3_client()
+    bucket = settings.s3_bucket
+
+    def _abort(key: str, upload_id: str) -> None:
+        client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+
+    aborted = 0
+    for key, upload_id in uploads:
+        try:
+            await asyncio.to_thread(_abort, key, upload_id)
+        except (ClientError, BotoCoreError) as exc:
+            log.warning(
+                "an incomplete upload could not be aborted",
+                extra={"key": key, "upload_id": upload_id, "reason": str(exc)},
+            )
+            continue
+        aborted += 1
+    return aborted
 
 
 async def delete_objects(keys: list[str], settings: Settings) -> int:

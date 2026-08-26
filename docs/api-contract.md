@@ -82,6 +82,15 @@ Exchanges an Apple credential for a session. Creates a `users` row on first sigh
 Verification is real: fetch Apple's JWKS, verify the signature, check `iss`, `aud`
 against the bundle ID, and `exp`. Cache the JWKS with a TTL; don't fetch it per request.
 
+**`authorization_code` is read since phase 127, and was accepted and ignored before it.** It is
+not an authentication input — the identity token is still the only thing that proves who this
+is, and nothing trusts the code. It is exchanged with Apple for a refresh token and stored on the
+credential, because Apple's revocation endpoint takes one and account deletion runs seven days
+later with nobody present to produce a fresh code. **Still optional, and a failed exchange never
+fails the sign-in**: a parent getting into their own archive is not turned away because Apple's
+token endpoint had a bad minute, and the cost is one credential that cannot be revoked until the
+next sign-in. See *Deleting the account*.
+
 **Sign-in and refresh both record activity.** `POST /auth/apple`, `POST /auth/dev-login` and
 `POST /auth/refresh` all stamp `users.last_sign_in_at`, throttled to a day's granularity. It is
 server-side bookkeeping with no field in any response — it feeds D3's twelve-month inactivity
@@ -284,6 +293,24 @@ deliberate sign-in can reach the cancel.
 `guardians` rows that gave it access. **The archive only when no other guardian remains.** A
 shared archive is not one parent's to destroy, so children, entries and media survive as long as
 somebody else guards them; when the last guardian goes, the archive and its objects go too.
+
+**The Sign in with Apple link is revoked with the account** (phase 127). Guideline 5.1.1(v)
+requires it, and it happens at execution rather than at request time: the erasure runs in a job
+with nobody present, so the token has to still be here when it does — and revoking earlier would
+force a parent who changes their mind to re-consent, which is only safe if Apple returns the same
+`sub` afterwards and that is unverified (`blocked.md` §11).
+
+**Apple's answer never decides whether the archive is destroyed.** A failed revocation is logged
+at ERROR with the credential id and the deletion proceeds; a user who asked to be deleted and was
+not, because Apple returned a 500, is a compliance failure with better logging. The same is true
+when no Sign in with Apple key is configured, which is the state of every deployment today
+(`blocked.md` §24).
+
+**Objects are removed after the commit, not before it.** Until phase 127 the bucket was emptied
+inside the transaction that removed the rows, so a rollback left `media` rows pointing at objects
+that were gone. **What a failure between the two now leaves is objects with no rows** — logged at
+ERROR with the keys, because nothing else points at them any more. The bucket's 30-day soft
+delete is the net under that, and is not a licence to treat the operation as reversible.
 
 **`entries.author_id` is nullable, and null means the author was erased.** A departing parent's
 entries survive when another guardian remains — they belong to the child — but the person is
@@ -2182,8 +2209,14 @@ entitlement.
 
 Body: `{ "signedPayload": "<JWS>" }` → `202`, `{ "status": "..." }`. The status names what the hook
 did — `tier:subscribed`, `ignored:out-of-order`, `recorded:unattributed`,
-`recorded:demotion-refused`, `recorded:no-tier-change` — because the only other way to find out is
-to read the logs of a machine you may not be able to reach.
+`recorded:demotion-refused`, `recorded:promotion-refused`, `recorded:no-tier-change` — because the
+only other way to find out is to read the logs of a machine you may not be able to reach.
+
+**`recorded:promotion-refused` means the household has no members left** (phase 127). Account
+deletion hard-deletes `users` and leaves `families` standing, and Apple keeps renewing a
+subscription nobody is there to cancel — so a `DID_RENEW` for an erased household would otherwise
+mark it `subscribed` and clear `lapsed_at`, which is the clock D3's media-deletion policy runs
+off. The receipt is still recorded, because a refund may follow it.
 
 **Verification is the whole security model.** The `x5c` chain must be exactly three certificates,
 must terminate at the **Apple Root CA - G3** bundled in the repository rather than fetched at

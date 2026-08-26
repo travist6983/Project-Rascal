@@ -143,6 +143,34 @@ class Credential(Base):
     # Apple's `consent-revoked` notification; cleared by signing in with the same subject
     # again, which is what makes revocation recoverable rather than terminal.
     revoked_at: Mapped[optional_moment]
+    # **The one secret at rest in this database, and it is here under protest.** Apple's
+    # revocation endpoint takes a refresh token and nothing else — not the `subject_id` above,
+    # which is an identifier — so unlike `refresh_tokens.token_hash` and
+    # `email_sign_in_tokens.token_hash` this cannot be a SHA-256: it has to be replayable to
+    # Apple or it is useless. There is no encryption-at-rest helper in this repository to reach
+    # for, and inventing one here would be a subsystem rather than a column.
+    #
+    # **Why it must survive the seven-day grace window rather than being spent immediately:**
+    # the erasure runs in a job with nobody present, so the token has to still be here when it
+    # does. Revoking earlier — at request time, while the code is fresh — would mean a parent
+    # who changes their mind and signs back in has to re-consent, and whether Apple hands back
+    # the same `sub` after that is unverified (`docs/blocked.md` §11). Betting a family's whole
+    # archive on that assumption, to avoid storing one string, is the wrong trade.
+    #
+    # Null for every credential that predates phase 127 and for every non-Apple provider.
+    # Nothing can be backfilled: no authorization code was ever kept.
+    #
+    # **It lives exactly as long as the credential row does, and deliberately not less.** The
+    # obvious tidiness — clearing it when `revoked_at` is set — would be wrong: a soft
+    # revocation is recoverable by signing in again, and somebody who removes the credential and
+    # then deletes their account without signing in again would have left us nothing to revoke
+    # at Apple, which is the one moment this column exists for. It goes when the row goes,
+    # `ON DELETE CASCADE` from `users`.
+    #
+    # It never reaches the wire: `CredentialOut` is an allowlist, and
+    # `test_the_list_never_returns_the_stored_apple_refresh_token` asserts it rather than
+    # trusting it.
+    apple_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[created]
     # Added in phase 52 with `revoked_at`, because a revocation that does not move a cursor is
     # a change no client can learn about. Written by the `set_updated_at()` trigger.

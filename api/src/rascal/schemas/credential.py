@@ -3,6 +3,12 @@
 `subject_id` never appears in either direction of this file. It goes in on a request as the
 provider's own token — verified here, never trusted as a field — and comes back out only as
 the masked `subject_hint`.
+
+**`apple_refresh_token` never appears either, and that matters more.** `subject_id` is an
+identifier; the refresh token added by phase 127 is a live credential Apple will act on. The
+absence is enforced by `CredentialOut` being an allowlist rather than a `model_config` exclusion,
+and asserted by `test_the_list_never_returns_the_stored_apple_refresh_token` rather than trusted
+— directly beside the `subject_id` rule above, which it mirrors.
 """
 
 from __future__ import annotations

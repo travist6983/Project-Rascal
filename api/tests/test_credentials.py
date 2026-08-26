@@ -78,6 +78,26 @@ async def test_the_list_never_returns_a_raw_subject_id(
     assert row["subject_hint"].endswith(FIRST[-4:])
 
 
+async def test_the_list_never_returns_the_stored_apple_refresh_token(
+    apple_client: AsyncClient, apple_keypair, session: AsyncSession
+) -> None:
+    """**Stricter than the rule above it, and for a bigger reason.** A `subject_id` identifies
+    the account to Apple; the refresh token phase 127 stores is a live credential Apple will
+    *act* on. `CredentialOut` is an allowlist rather than an exclusion, which is what makes the
+    absence structural — this asserts it anyway, because the cost of being wrong is a working
+    key in a response body."""
+    signed_in = await _sign_in(apple_client, apple_keypair, FIRST)
+    credential = await session.scalar(sa.select(Credential))
+    credential.apple_refresh_token = "s3cret-refresh-token"
+    await session.commit()
+
+    listed = await apple_client.get("/v1/me/credentials", headers=_auth(signed_in))
+
+    assert listed.status_code == 200
+    assert "apple_refresh_token" not in listed.text
+    assert "s3cret-refresh-token" not in listed.text
+
+
 async def test_credentials_require_a_bearer_token(apple_client: AsyncClient) -> None:
     for method, path in (
         ("get", "/v1/me/credentials"),

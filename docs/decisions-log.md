@@ -620,3 +620,151 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   The owner changed the scope in a message; the number was read from `phase-queue.md`'s next-number
   sentence before the first file moved. That sentence is this file's fifteen-strike-long complaint
   working as designed for the second consecutive phase.
+
+---
+
+## Phase 127 — Sign in with Apple revocation (Aug 25, 2026)
+
+- **The persist-vs-re-authorize fork is not a preference, it is arithmetic.** The preflight framed
+  it as an owner decision. It is not: Apple's authorization code is single-use and expires in
+  minutes, and the erasure runs seven days later in a job with nobody present. "Re-authorize at
+  deletion time" therefore cannot reach the moment it needs to, and collapses into "store a
+  long-lived token" — the same design, arrived at later. Persisting the refresh token also needs
+  **no iOS change at all**, because the client has been sending the authorization code since day
+  one and the server was discarding it in a comment that said so.
+
+- **Revocation happens at execution, not at request time, and that is what makes the column
+  necessary.** Revoking when the parent taps Delete would need no storage — the code is fresh
+  right then. It would also mean anybody who changes their mind during the seven days has to
+  re-consent to Apple, and whether Apple returns the same `sub` afterwards is **unverified**
+  (`blocked.md` §11). Betting a family's entire archive on that assumption to avoid storing one
+  string is the wrong trade, and it is the whole reason `credentials.apple_refresh_token` exists.
+
+- **It is the first secret at rest in this database and the model comment says so under protest.**
+  Every other long-lived token here is a SHA-256 — `refresh_tokens`, `email_sign_in_tokens`,
+  `guardian_invites` — explicitly so that a database dump is not a set of working keys. This one
+  cannot be: Apple's endpoint takes the token itself, not an identifier, so it must be replayable
+  or it is useless. There is no encryption-at-rest helper in this repository and inventing one
+  here would be a subsystem rather than a column. **Whether that column should be encrypted is a
+  real open question and is left open rather than answered in a docstring.**
+
+- **Apple's answer never decides whether an archive is destroyed.** Every failure mode — no key,
+  an unsignable `.p8`, Apple unreachable, Apple refusing — logs at ERROR with the credential id
+  and the deletion proceeds. A user who asked to be deleted and was not, because a vendor returned
+  a 500, is a compliance failure with better logging. The exchange at sign-in fails in the
+  opposite direction for the same reason: it must never turn a parent away from their own archive.
+
+- **A1 and A3 were struck from the spec rather than built.** Deletion shipped in phases 66/67 and
+  the `account-delete` handler in phase 53. Building `DELETE /v1/account` as specified would have
+  put a `DELETE` meaning *erase* one path from a `DELETE` meaning *cancel*, and "make
+  `account-delete` differ from `consent-revoked`" is the exact change `decisions.md:125` exists to
+  prevent. **A spec describing shipped code is the thing to notice, not to implement.**
+
+- **Question 5 is still unanswered and this phase did not answer it.** What survives an erasure for
+  billing — today a `families` row, its `entitlements` row and every `app_store_transactions` row
+  — is an accident nobody decided. Guard 5 stops the worst *consequence* of the residual without
+  ruling on the residual itself; the proposed decision text is in the preflight report's §5 and
+  remains unapplied, because a phase inventing an owner's decision is worse than a phase leaving
+  it visible.
+
+- **Three defects on the erasure path, found by reading rather than by the suite, none in scope.**
+  Objects were destroyed before the only `commit()`, under a docstring claiming the opposite;
+  `children.avatar_key` was never collected, so a child's face outlived their own erasure in the
+  bucket; and the batch loop had no exception boundary, so one bad account discarded the totals
+  for every account already committed. Fixed here because the phase was already rewriting the
+  three lines around each of them and leaving a known erasure bug in place to keep a diff narrow
+  is not a defensible trade on this particular path.
+
+- **And one defect the fix introduced, caught by its own test.** The new rollback expires the
+  session, so holding `DeletionRequest` instances across the loop made the next iteration's
+  `request.user_id` a lazy load on an async session — `MissingGreenlet`, not a reload. The loop
+  now carries ids and re-reads each row on the transaction about to act on it, which as a side
+  effect makes a cancel arriving mid-run observable for the first time. **The test failed before
+  the code did**, which is the only reason this is a paragraph and not a production incident.
+
+- **The exchange is queued, not awaited, and finding out why cost two bugs.** A review caught it
+  first: awaiting a round trip to `appleid.apple.com` inside the sign-in handler holds the
+  request's Postgres transaction — and, on a first-ever sign-in, the uncommitted row lock on
+  `uq_credentials_provider_subject_id` — open for as long as Apple takes to answer, on the first
+  request the app makes on every launch. Moving it to a `BackgroundTasks` fixed that.
+
+- **And the fix was silently inert, because FastAPI runs background tasks *before* the exit code
+  of a dependency with `yield`.** `get_session` commits in that exit code, so when the task
+  opened its own session the credential row this request had just written did not exist yet;
+  `find_credential` returned `None` and the token was never stored. **Every failure on that path
+  is deliberately non-fatal, so it would have failed silently forever** — no error, no log, a
+  compliance feature that simply never worked. The remedy is one explicit `await session.commit()`
+  before `background.add_task(...)`, and it is commented as load-bearing rather than tidying. It
+  was measured, not assumed: a twenty-line FastAPI app printed the two events in order.
+  **Only an end-to-end test through the route could see any of this**, which is the argument for
+  writing one even when the service underneath has seventeen.
+
+- **A second review round found the token could reach a log, and it is the finding this phase
+  was most wrong about.** `session.flush()` was unguarded, and a `DBAPIError` renders the failing
+  statement *and its bound parameters* into `str(exc)` — so a dropped connection mid-write would
+  have put the live Apple credential into a structured log line, verbatim, under a message saying
+  it had **not** been stored. Fixed twice over, deliberately: the flush is guarded (and rolls back,
+  because otherwise the caller's `commit()` raises a `PendingRollbackError` that quotes the
+  original exception — the same leak through a longer pipe), and `hide_parameters=True` is now set
+  on the engine. **The second is the one that holds**, because it protects every statement that
+  binds the column including ones nobody has written yet — the same reasoning `CredentialOut` uses
+  for being an allowlist rather than an exclusion. The cost is that `[parameters: ...]` disappears
+  from every SQLAlchemy error in the service; nothing sets `echo=`, so nothing was relying on it.
+
+- **And the connection-held-across-a-vendor-call bug was fixed in one place and immediately
+  recreated in another.** Moving the exchange into a background task took the held connection with
+  it: `find_credential` ran *before* `_exchange`, so the task's own session sat
+  idle-in-transaction for the whole round trip to Apple. Apple is now asked first and the database
+  is not touched until there is a value worth writing. The deletion half of the same diff had it
+  right from the start — commit, then revoke — which is what made the asymmetry visible.
+
+- **Incomplete multipart uploads survived the erasure, and that is the same bug as `avatar_key`
+  wearing different clothes.** Parts are not objects, so `delete_objects` against the key they
+  will become succeeds and removes nothing; after the erasure the `media` row that named the
+  upload has cascaded away and the parts are unreachable bytes of a child's video that outlived
+  the request to destroy them. `s3.abort_multipart_uploads` is new and runs beside the object
+  delete. **The filter is load-bearing and was verified rather than assumed**: `media.py:195`
+  nulls `s3_upload_id` on completion, so a non-null one cannot be a finished upload — aborting one
+  of those would destroy a real photograph.
+
+- **A third round found a defect inside the second round's fix, and the test written to prove
+  that fix was a false green.** The guard added above logged `credential.id` — but a failed flush
+  rolls back, a rollback *expires* every object in the identity map including the primary key, and
+  reading it afterwards is an implicit `SELECT` from a sync Session inside async code. That raises
+  `MissingGreenlet` **from inside the handler meant to contain the failure**, so the warning never
+  fired and the traceback escaped anyway. The id is now read before the flush.
+
+- **Why the test could not see it, which is the more useful half.** It monkeypatched both `flush`
+  and `rollback`, so nothing was ever expired. Replacing the fabricated exception with a real
+  constraint violation still was not enough: a row added in the *same* transaction is **expunged**
+  by the rollback and keeps its loaded `__dict__`, so the id read emits no SQL. Only a **committed**
+  row is expired — which is the shape production always has, because the background task opens a
+  fresh session and loads a row the request before it wrote. The test commits first now, and it
+  fails against the unhoisted version. **Two false greens in a row on the same three lines**, each
+  looking exactly like a passing test.
+
+- **And `except ClientError` was the wrong net.** `BotoCoreError` is its *sibling*, not its parent,
+  so every transport failure — a read timeout, an unreachable endpoint — escaped the per-upload
+  guard and stranded every upload behind it, which is precisely what the docstring three lines
+  above promised would not happen. Now `except (ClientError, BotoCoreError)`, with the loop itself
+  under test for the first time: both existing callers monkeypatched the whole function away, so
+  the loop, the guard and the counter had no coverage at all.
+
+- **One docstring in this phase was confidently wrong, and it was one written to prevent a
+  misunderstanding.** It claimed aborting a completed multipart upload "would destroy a real
+  photograph" and that the `s3_upload_id` filter was the only thing preventing it. Both false — an
+  upload id stops existing when the upload completes, so the abort is a `NoSuchUpload` no-op, and
+  this same phase said so correctly in `s3.py`. **The correction matters because the false version
+  read as a reason not to widen that query**, which is exactly what a future reader may need to do.
+
+- **Thirteen mutations, thirteen failures.** Every fix in this phase was watched failing against a
+  deliberately broken version before being believed, including the four above and the two the
+  review found. One mutation initially "passed" and that was the mutation's fault, not the test's:
+  `ruff` had collapsed the chained call onto one line so the patch string never matched. **A
+  mutation that does not apply is a green result that means nothing**, which is worth writing down
+  because it looks exactly like a test that works.
+
+- **Nothing in this phase has spoken to Apple.** No Sign in with Apple key exists — `blocked.md`
+  §24 is the errand — so every assertion is against a local `MockTransport`. What is proven is
+  that the right request is built and that no failure of it can abort a deletion. What is not
+  proven is that Apple accepts it, and that is a device check that stays in the runbook.

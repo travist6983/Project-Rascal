@@ -595,7 +595,7 @@ outside:
 | `401` on every notification | No root certificate in `api/src/rascal/certs/appstore/`, or `APP_STORE_APP_APPLE_ID` unset. Both log at `ERROR` on startup, naming themselves. **Since Aug 22, 2026 the root is present, so on Production this is the missing `APP_STORE_APP_APPLE_ID`** |
 | `202` but no row in `app_store_transactions` | Nothing — a `202` always writes a row unless the payload carried no `originalTransactionId`. Check the `status` in the response body |
 | Row written, `family_id` null | The purchase carried no `appAccountToken`. **This is the 37b obligation** and it is not recoverable server-side — see `docs/api-contract.md` |
-| Row written, tier unchanged | Read the `status` field. `ignored:out-of-order`, `recorded:demotion-refused` and `ignored:environment-mismatch` are all deliberate, and all three log at `warning` with the reason |
+| Row written, tier unchanged | Read the `status` field. `ignored:out-of-order`, `recorded:demotion-refused`, `recorded:promotion-refused` and `ignored:environment-mismatch` are all deliberate, and all four log at `warning` with the reason. `recorded:promotion-refused` means the household has no members left — the account was deleted and Apple is still renewing; there is nobody to give the entitlement to and nothing to fix |
 
 **The one thing that would be alarming**: a `500`. Every deliberate outcome here is a `202` and
 every verification failure is a `401`, so a `500` is a bug rather than a rejection — and Apple will
