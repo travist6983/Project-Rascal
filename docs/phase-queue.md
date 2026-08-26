@@ -78,7 +78,7 @@ edited on — and deletes the `Photo` row and `ChildPhotoSheet` that **phase 115
 day**. That is worth one line here rather than only in `roadmap-status.md`, because it is the first
 time this file has allocated a number to undo the shape of the number before it: 115 was not wrong
 about the risk it named, it was wrong about the remedy, and the remedy is one sentence of copy
-rather than a second sheet. ~~**The highest number used is 117. A genuinely new phase takes 118.**~~ — **struck a fourteenth time on Aug 24, 2026, and this strike is the largest single jump this header has ever recorded: three numbers went by without touching it.** 118 is the photo-as-its-own-control pass (iOS lane), 119 is the health/liveness split (API lane, branch `api/phase-119-health-liveness`) and **120 is the canvas video work, which exists only as a branch — `worktree-api-phase-120-canvas-video` — and appears in no commit subject, no pull request and nowhere under `docs/`.** That is the shape the four prescribed commands exist for: three of the four answer 118 or 119 and only `git for-each-ref` sees 120, so a number read from any single source would have collided. **121 is entitlement grants and the console panel that issues them** (API lane, branch `api/phase-121-entitlement-grants`): a household can be entitled by a grant an admin issued as well as by a receipt Apple signed, `entitlements.tier` keeps its one writer, and the union is computed in `services/guardians.access_for` — the same authority phase 107 made. **The highest number used is 121. A genuinely new phase takes 122.**
+rather than a second sheet. ~~**The highest number used is 117. A genuinely new phase takes 118.**~~ — **struck a fourteenth time on Aug 24, 2026, and this strike is the largest single jump this header has ever recorded: three numbers went by without touching it.** 118 is the photo-as-its-own-control pass (iOS lane), 119 is the health/liveness split (API lane, branch `api/phase-119-health-liveness`) and ~~**120 is the canvas video work, which exists only as a branch — `worktree-api-phase-120-canvas-video` — and appears in no commit subject, no pull request and nowhere under `docs/`.**~~ — **struck Aug 25, 2026 by phase 122: all three negatives are false, and stopped being true the day after they were written.** 120's commit subject is *"Phase 120: no vendor generates video for this product any more"* (`e66fffa`), its pull request is **#170**, merged as `01318be` at 22:45 UTC on Aug 25, and `grep -rliE 'phase[- ]120' docs/` returns **eight** files — `api-contract.md`, `data-model.md`, `decisions-log.md`, this file, `roadmap-status.md`, `runbook-admin-console.md` and the two reports under `reports/`. **The sentence is struck rather than deleted because the observation it was making is the point of the paragraph and merging does not touch it.** That is the shape the four prescribed commands exist for: three of the four answer 118 or 119 and only `git for-each-ref` sees 120, so a number read from any single source would have collided. **121 is entitlement grants and the console panel that issues them** (API lane, branch `api/phase-121-entitlement-grants`): a household can be entitled by a grant an admin issued as well as by a receipt Apple signed, `entitlements.tier` keeps its one writer, and the union is computed in `services/guardians.access_for` — the same authority phase 107 made. **119, 120 and 121 have all merged since this paragraph was written** — PR #169 (`aa130db`), PR #170 (`01318be`) and PR #168 (`084cfd2`) — so every branch it names is now on `main`. ~~**The highest number used is 121. A genuinely new phase takes 122.**~~ — **struck a fifteenth time on Aug 25, 2026, by 122 taking the number this sentence offered.** **122 is the docs sweep since 116** (branch `docs/phase-122-docs-sweep-since-116`): this file, `roadmap-status.md`, `decisions.md` and `CLAUDE.md` reconciled against the five phases that merged after PR #165 — 117, 118, 119, 120 and 121. **This is the system working rather than the system failing, and it is the second consecutive strike of the benign kind `:126` describes**: per this file's own rule at `:242` **a number is taken the moment a branch or a PR carries it, not when it merges**, and 122 was read out of this sentence and written back into it in the same pass, before a line of the work existed. `git for-each-ref refs/heads refs/remotes | grep -oiE 'phase-[0-9]+' | sort -u -t'-' -k2 -n | tail -4` returns `phase-119`, `phase-120`, `phase-121`, `phase-122`. **The highest number used is 122. A genuinely new phase takes 123.**
 
 **111 is the blocked-list
 reconciliation** (API lane, branch `api/phase-111-blocked-list-reconciliation`): Apple Root CA - G3
@@ -275,7 +275,28 @@ and **51–57 the auth bundle's API half**.
 
 ## Questions I need from you
 
-**Nothing is open.** Every question this file has asked has been answered, and the answers are in
+~~**Nothing is open.**~~ — **struck Aug 25, 2026 by phase 122: one question is open, and it is the
+only kind this section takes — a decision nobody but the owner can make.**
+
+**D5b — may entitlement have a second source that Apple never signed?** Phase 121 shipped
+`entitlement_grants`, `POST /v1/admin/grants` and the console panel that issues them (`bb78fbc`,
+merged as `084cfd2`, PR #168), and said so in its own body: *"**`docs/decisions.md` was not
+edited.** The proposed **D5b** is below, for you to apply."* **It is still a proposal and phase 122
+deliberately did not apply it**, because a row that asks the owner three questions is not a stale
+fact a sweep may correct — `decisions.md`'s **Settled** table carries no D5b row, only a Changelog
+entry saying why it does not, while `data-model.md`, `api-contract.md`, `runbook-deploy.md` §7a and
+`runbook-admin-console.md` §3b all describe the grant as shipped. **So the one file `CLAUDE.md`
+calls *settled — do not relitigate* has a decision-shaped hole in it about a term that is already
+computing `entitled` in production, and this list is where that hole is parked until you close
+it.** The drafted row is in `gh pr view 168`, to be applied verbatim or rejected; **three things
+it says it is really asking you to settle**, in its own words: *(i)* *"That a second source of entitlement is
+acceptable at all"* — 121 reads D5 as protecting *who decides about payment* rather than *how many
+reasons a household can be entitled*, and if the stronger reading was the intent then **121 is the
+wrong shape and gets reverted rather than amended**; *(ii)* *"That `entitled` includes the
+trial"*; *(iii)* *"That a granted household reads `access: "subscribed"`."* **Rejecting it is a
+real option and costs a revert**, which is why it is on this list rather than in `decisions.md`.
+
+Every other question this file has asked has been answered, and the answers are in
 `docs/decisions.md`. Add new ones here as they come up.
 
 **Answered Aug 14–15, 2026.** Per-entry visibility: **per-entry with a per-kind default**, a
@@ -396,7 +417,17 @@ Run in this order. Details and the "why here" for each are in `roadmap-status.md
   file":** `:78` interrupt an export by enabling Airplane Mode mid-download, `:99` confirm
   **Archive → Birthday** shows the same day as the row behind it, and `:213` §8a.3 cold launch
   with Airplane Mode on — the stats strip **must not render at all**, because nil is not zero.
-  **This was the longest file in the backlog and is now the shortest thing left on it.**
+  ~~**This was the longest file in the backlog and is now the shortest thing left on it.**~~ —
+  **struck Aug 25, 2026 by phase 122: three boxes is the count, not the remaining work.** Phases
+  115, 117 and 118 put an entire photo flow inside the very sheet §2, §3 and §8 already open —
+  `ChildPhotoField` is the **first** field of `EditChildSheet`, above Name
+  (`ios/Rascal/Rascal/Settings/EditChildSheet.swift:64`, `nameField` at `:71`) — and **this file
+  has no box for choosing, replacing, framing or removing a photo anywhere**: `grep -in
+  'photo\|avatar'` over it returns seven lines and not one of them is a box about the avatar. The
+  totals are unchanged at 84 of 87, so phase 117 edited a **ticked** line's text (`:263-265`, the
+  hero hint) and added none. **The camera path and `AvatarFramingScreen`'s pinch-and-drag crop
+  cannot be reached in a simulator at all**, which is the exact category this backlog exists for.
+  Somebody owes this file a section.
 - The audio list in PR #22 — needs iOS 26+ and a quiet room. Prerequisite for transcription.
 - `device-verification-transcription.md` — ~~45~~ **52**. The one whose answer could invalidate a
   design. **§4a is new (phase 79)** — seven boxes on the screen going dark mid-recording. Two of
@@ -480,6 +511,21 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
   — which is why it needs a line rather than a bug report — but a paywall verified against this
   fixture is verified against the wrong product. The decision is written up in `blocked.md` §10 and
   amended into D1 in `decisions.md`.
+
+- **iOS lane: three device documents still say `/health` answers `{"status":"ok","db":"ok"}`.**
+  *New Aug 25, 2026, from phase 119, and recorded here because the API lane may not edit `ios/`.*
+  `GET /health` is **liveness only** since `aa130db` (PR #169) — `api/src/rascal/main.py:106-107`
+  is `async def health() -> dict[str, str]: return {"status": "ok"}` and the database check is its
+  own route, `GET /health/db`, registered at `main.py:110`. **Two of the three are gates rather
+  than records**, which is what makes this worth a line rather than a shrug:
+  `ios/device-session.md:93` and `ios/device-test.md:36-37` are setup steps a developer follows
+  before anything else, and the second says the body ***should*** match — so a developer whose
+  local server is behaving exactly as designed reads a passing step as a failed one and goes
+  looking for a database that was never unreachable. `ios/preflight-report.md:117` sits under
+  *"Run in the order given"*. **Nothing goes red and nothing is broken**; the cost is entirely a
+  person's afternoon. One line each: point the reachability check at `/health` expecting
+  `{"status":"ok"}`, and add `/health/db` → `{"status":"ok","db":"ok"}` as the separate database
+  check.
 
 - **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
   **Three errors were live in this bullet until Aug 18, 2026, and they compounded.** *(i)* It was
@@ -602,7 +648,14 @@ Numbered items match `roadmap-status.md`'s forward queue. **Prioritised, in orde
 
 - ~~**97 — the social studio.**~~ **Shipped Aug 19, 2026.** A Studio tab: Claude as art
   director, schema-enforced post concepts, brand cards drawn on a canvas and exported as PNG or
-  WebM, and shot lists with a WebVTT caption track. **Two things to know before using it.**
+  WebM, and ~~shot lists with a WebVTT caption track~~ **a typed scene graph, with a WebVTT
+  caption track derived from its copy and its cumulative durations, one cue per scene** —
+  **corrected Aug 25, 2026 by phase 122, for phase 120 (`01318be`, PR #170): `POST
+  /social/shot-list` is now `POST /social/treatment`** (`api/src/rascal/routers/social.py:178`;
+  `grep -rn 'shot-list\|shot_list' api/src/rascal` finds nothing but the column comment recording
+  the rename), **and the Studio no longer stops at a written plan** — the browser records the
+  graph and the API hands back a finished H.264 MP4 from `GET /social/renders/{id}/file`
+  (`social.py:588`). **Two things to know before using it.**
   It needs `ANTHROPIC_API_KEY` — the ordinary `sk-ant-api…` kind, not the admin key the cost
   panel wants — and **Claude generates no images or video**, because no Anthropic model has
   such an endpoint; the cards are drawn locally and photographs need `OPENAI_API_KEY` or
@@ -730,13 +783,40 @@ reports; these are only the things somebody has to *do*.
   Aug 22, 2026.* One look, and it is the only place the number exists. Until it is written down,
   every document in this repository can say the broadcast sends and none of them can say to whom.
 - **§0 device verification is still 0 of 45.** Unchanged by this sprint and still wants running.
-- **Render one full treatment end to end, and read the invoice afterwards.** Gemini billing is
+- ~~**Render one full treatment end to end, and read the invoice afterwards.** Gemini billing is
   enabled and phase 106 proved the path with **one four-second clip**. A real treatment is seven
   generations plus an ffmpeg concatenation, and **nothing has exercised the concatenation against
   clips a vendor actually produced** — only against fixtures. The other half is the number:
   `GEMINI_VIDEO_CENTS_PER_SECOND` is 5 because Google publishes $0.05 a second, and **that figure
   has never been reconciled against a Google invoice**, so the console is currently showing an
-  estimate somebody typed. One render settles both.
+  estimate somebody typed. One render settles both.~~ — **struck Aug 25, 2026 by phase 120
+  (`e66fffa`, merged as `01318be`, PR #170), and closed by removal rather than by doing it.**
+  **There is no invoice to read and no price to reconcile.** `services/social/gemini.py` and
+  `stitch.py` are deleted, all three `GEMINI_*` settings are gone from `config.py` and
+  `.env.example`, `renders.estimate_cents` went with them — `grep -rn GEMINI api/src/rascal` and
+  `grep -rn estimate_cents api/src/rascal` both return nothing — and a treatment now costs
+  nothing. `cost_cents` is still written, as `0`, on the success path **and** the failure path,
+  because *"a ledger that stops recording when the number becomes zero is a ledger that cannot
+  show you it went to zero"* (`services/social/renders.py:21`). **The observation this bullet
+  actually recorded is the one worth keeping** — that a paid path had never once run end to end in
+  production, only against fixtures — and it is the reason the replacement was arguable at all.
+  **Five treatments have since been recorded and transcoded end to end against a real browser** —
+  7 scenes / 21.6s, 5 / 14.7s, 4 / 11.4s, 4 / 14.0s and 5 / 16.2s, each probed `h264 · 1080×1920 ·
+  yuv420p · 30fps · 0 audio streams` — and `roadmap-status.md`'s 120 row lists all five. **The
+  identical correction reached `roadmap-status.md:499`(iii) in phase 120's own commit and did not
+  reach this line**, which is precisely what that strike is about.
+
+  *(This file's rule is to delete a line when it is done. This one is struck rather than deleted
+  because it was not done — it was removed, and a line closed by having its subject deleted is the
+  one kind this file has always kept.)*
+- **Owner: `flyctl secrets unset GEMINI_API_KEY GEMINI_VIDEO_MODEL GEMINI_VIDEO_CENTS_PER_SECOND -a rascal-api`.**
+  *New Aug 25, 2026, from phase 120.* All three settings are gone from `config.py` and
+  `.env.example`, and the phase deliberately did not touch the Fly secrets — **a branch cannot
+  unset a production secret**, so this was always going to be somebody's one-line errand.
+  **Nothing goes red while they sit there**, which is exactly why nobody will notice: a live
+  vendor credential on `rascal-api` for a vendor this product no longer calls, and `grep -rn
+  GEMINI api/src/rascal` returns nothing that would ever read it.
+  `runbook-admin-console.md:161-163` and `.env.example:183-185` both write the command down.
 - **Owner: refresh `IG_ACCESS_TOKEN` before ~Oct 19, 2026.** ~~*in two places at once … Fly
   secrets and `.env` here, **and** the `Rascal-Marketing` Actions secret — refreshing one leaves
   the other posting to the same account with a dead token*~~ — **struck Aug 22, 2026 by phase 111:

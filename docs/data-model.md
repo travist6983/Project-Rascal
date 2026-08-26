@@ -2,8 +2,15 @@
 
 Postgres is the source of truth. SwiftData mirrors a subset locally as a cache.
 
-Last updated: **Aug 3, 2026** — build-ready. This file is the authority for the initial
-Alembic migration; if the code and this file disagree, the code is wrong.
+Last updated: ~~**Aug 3, 2026** — build-ready. This file is the authority for the initial
+Alembic migration~~ — **Aug 25, 2026, corrected by phase 122.** Aug 3 was the day this file was
+build-ready for `0001_initial`; twenty-four migrations later it is the authority for the schema
+rather than for one migration — `ls api/alembic/versions/*.py | wc -l` → `24`, the last two being
+`0023_entitlement_grants` and `0024_canvas_video`. **The header went three weeks stale while the
+body did not**: phases 121 and 120 each rewrote sections of this file and neither moved the date, so
+`git log -1 --format='%h %cs' -- docs/data-model.md` answered `37da1f3 2026-08-25` while the line
+above it read Aug 3 — and a reader checking whether the schema doc was current was told it was two
+schema changes behind when it was not. If the code and this file disagree, the code is wrong.
 
 ---
 
@@ -166,10 +173,17 @@ What a household is entitled to. **One row per family, keyed on the family** —
 
 Entitlement is therefore derived rather than stored, by one function — `services/guardians.access_for`:
 
+~~`entitled = (tier == "subscribed") or (trial_ends_at is not None and now_utc() < trial_ends_at)`~~
+~~`access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "free")`~~
+
+— **struck Aug 25, 2026 by phase 122: both lines had been one term short since phase 121 landed `0023_entitlement_grants` on Aug 24, and the corrected pair had been sitting forty-four lines further down this same file under `entitlement_grants` the whole time.** Two formulas for one pair of values in one document is worse than one stale formula on its own, because `CLAUDE.md` says the code is wrong when it disagrees with this file — so the struck copy read as a standing authorisation to go and delete the grant term out of `guardians.py`. What the one function actually computes, at `api/src/rascal/services/guardians.py:155` and `:169`:
+
 ```
-entitled = (tier == "subscribed") or (trial_ends_at is not None and now_utc() < trial_ends_at)
-access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "free")
+entitled = (tier == "subscribed") or (an active grant exists) or (trial_ends_at is not None and now_utc() < trial_ends_at)
+access   = "subscribed" if (tier == "subscribed" or granted) else ("trial" if entitled else "free")
 ```
+
+**The grant term is argued under `entitlement_grants` below and deliberately not re-argued here** — `guardians.py:155` is the one place it exists in code, and the two copies in this file now say the same thing.
 
 `access` is on the wire in three places — `GET /families/me`, `GET /families/{id}/entitlement` and `GET /children/{id}/today` — and all three read that one function. `api-contract.md` already described the first two as *"one authority with two shapes"*; phase 107 added a third **shape**, not a third authority, and a test greps `src/` for anybody who re-derives the comparison.
 
@@ -177,7 +191,7 @@ access   = "subscribed" if tier == "subscribed" else ("trial" if entitled else "
 
 **The default is on the model, not in `create_household`.** `models/family.py` gives the column a Python-side default of `now + 14 days`, so every construction of the row gets a trial — the household factory, the test factories, and anything written later. A default that lives in one caller is a default the second caller silently does without, and the failure mode is a real family landing on the free tier because of where their row happened to be created. Migration `0022` backfills every existing row with the same fourteen days for the same reason: on the day it deploys the free tier stops carrying missions, and an unbackfilled row would take somebody's board away without anybody deciding to.
 
-**A trial expiring is not a lapse, and this is the part with photographs behind it.** `lapsed_at` is about a *subscription* ending, per D3, and it is what `eligible_at` — the media deletion clock — is computed from. A household that tried the app for a fortnight and stopped has not lapsed. `access_for` touches neither field, `eligible_at` still keys off `tier` and `lapsed_at` alone, and a test pins it.
+**A trial expiring is not a lapse, and this is the part with photographs behind it.** `lapsed_at` is about a *subscription* ending, per D3, and it is what `eligible_at` — the media deletion clock — is computed from. A household that tried the app for a fortnight and stopped has not lapsed. `access_for` touches neither field, ~~`eligible_at` still keys off `tier` and `lapsed_at` alone, and a test pins it~~ — **corrected Aug 25, 2026 by phase 122: since phase 121 (`0023`, Aug 24) `eligible_at` also keys off whether a grant is holding the household open.** It took a keyword-only `granted: bool = False` and short-circuits on it — `guardians.py:322` returns `None` on `tier == "subscribed" or granted or lapsed_at is None`, and `routers/families.read_entitlement` passes `granted=grant is not None`. The test that pinned it now pins the grant case rather than its absence: `tests/test_entitlement_grants.py:888`, `test_eligible_at_is_null_for_a_granted_household`. **The half this sentence was written to protect is unchanged and still pinned** — the trial is deliberately not an input to that clock, and adding it would be the change that quietly points a deletion timer at every household that tried the app and stopped. The grant half is argued under `entitlement_grants` below.
 
 **One route writes this column and it cannot write `tier`.** `PUT /v1/admin/families/{family_id}/trial` is the admin console's single **trial** lever: set the date forward to make a household `trial`, set it to yesterday or clear it to make it `free`. It exists because the owner is the only user and would otherwise never see the free tier he is designing. `docs/runbook-admin-console.md` has the walkthrough.
 
@@ -226,7 +240,7 @@ source   = "receipt" | "grant" | "trial" | "none", in that precedence
 
 **No `deleted_at`, and this is not a second exception to the soft-delete rule.** That rule governs user data that syncs to a phone; nothing here syncs and no client can read this table. `revoked_at` *is* the soft delete — **there is no `DELETE` on this table and no route that could issue one**, which is asserted against the app's own `openapi()` rather than by reading the router. The record of who you gave something to, why, and when you took it back is the part a support conversation actually needs.
 
-**Three admin routes reach it**, all behind `users.is_admin` and all through the same `LocalWrites` guard the library edits use: `GET /v1/admin/grants`, `POST /v1/admin/grants`, `POST /v1/admin/grants/{id}/revoke`. Revoking is idempotent and writes nothing the second time. `docs/runbook-admin-console.md` has the walkthrough.
+**Three admin routes reach it**, all behind `users.is_admin` ~~and all through the same `LocalWrites` guard the library edits use~~ — **corrected Aug 25, 2026 by phase 122: the two writes carry that guard and the read deliberately does not, which was the shape on the day phase 121 shipped — the struck clause was never true of the `GET`.** `GET /v1/admin/grants`, `POST /v1/admin/grants`, `POST /v1/admin/grants/{id}/revoke`; `admin.py:209` and `:244` take `_: LocalWrites` and `admin.py:178`'s `list_grants` takes `AdminReadSession` and no such dependency. **The asymmetry is the read-only mode, not a hole in it.** `require_local_writes` refuses outright whenever `ADMIN_READ_DATABASE_URL` is set — `deps.py:156` — so putting it on the listing would make reading production mean *no ledger at all* rather than *no edits*, which is the opposite of what phase 121 built: in read-only mode the grant list still renders and the form and the Revoke buttons go away. `tests/test_admin_read_database.py:48`'s `CONSOLE_WRITES` carries the two POSTs and not the GET, and the sweep would fail if either write lost the dependency. **This mattered more than a doc nit** because `CLAUDE.md` makes the code wrong when it disagrees with this file, so the struck clause read as an instruction to add a guard that would break reading production. Revoking is idempotent and writes nothing the second time. `docs/runbook-admin-console.md` has the walkthrough.
 
 ### `app_store_transactions`
 The receipt ledger — **why** a household is entitled to what `entitlements` says it is. Created by migration `0019` as part of phase 37a.
@@ -357,9 +371,37 @@ it was asked to stop keeping.
 
 ### Which tables carry `deleted_at`, and why the rest do not
 
-`CLAUDE.md` rule 5 says *"soft deletes and `updated_at` on every user-data table"*, and eighteen
-tables do not have one. **Checked Aug 17, 2026 in phase 68 rather than left as an open worry** —
-the rule holds exactly where it does work, and every gap is principled:
+`CLAUDE.md` rule 5 says *"soft deletes and `updated_at` on every user-data table"*, and ~~eighteen~~
+**twenty-five** tables do not have one. ~~**Checked Aug 17, 2026 in phase 68 rather than left as an
+open worry**~~ — **re-derived Aug 25, 2026 by phase 122 rather than carried forward, because a
+count nobody recounts is a claim and not a check.** Three of the twenty-eight mapped tables carry a
+column named `deleted_at` — `entries`, `media` and `entry_tags` — so twenty-five do not. **Eighteen
+was true on the day phase 68 counted it and the drift is fully accounted for**: seven tables with no
+`deleted_at` have been created since, which is exactly the distance from eighteen to twenty-five —
+`email_broadcasts` (Aug 17), `prompt_library_overrides` and `social_assets` (Aug 19),
+`social_renders` and `app_store_transactions` (Aug 20), `social_publications` (Aug 21) and phase
+121's `entitlement_grants` (Aug 24), per `git log --diff-filter=A --format='%cs %s' --name-only --
+api/alembic/versions/`. **Nothing lost a column; the schema grew and the sentence did not.** The
+count is read off the model metadata rather than off the migrations, so it cannot go stale silently
+again:
+
+```
+cd api && ENVIRONMENT=local uv run python -c "from rascal.models.base import Base; import rascal.models; t=Base.metadata.tables; w=[k for k,v in t.items() if 'deleted_at' in v.c]; print(len(t),'tables',len(w),'with',sorted(w))"
+→ 28 tables 3 with ['entries', 'entry_tags', 'media']
+```
+
+**The split below is still phase 68's, and it no longer enumerates what it claims to.** Phase 122
+added `entitlement_grants` to its membership bullet, which brings it to sixteen of the twenty-five;
+it is still silent on `prompts`, `prompt_suppressions`, `prompt_library_overrides`,
+`notification_sends`, `email_broadcasts`, `social_assets`, `social_publications`, `social_renders`
+and `users`. Seven of those nine argue the point in their own sections — `prompt_suppressions` names
+`revoked_at` as the soft delete, and `prompt_library_overrides`, `notification_sends`,
+`email_broadcasts`, `social_assets`, `social_publications` and `social_renders` each carry a *"not a
+second exception to rule 5"* paragraph — `users` is covered by the hard-delete exception three
+paragraphs above this one, and **`prompts` is the only one of the twenty-five with no stated reason
+anywhere in this file.** Whether this register grows to twenty-five entries or stops presenting
+itself as exhaustive is the owner's call and is not made here. What follows is unchanged: the rule
+holds exactly where it does work, and every gap it names is principled:
 
 **The rule's actual job is sync.** *"Deletions sync as rows with `deleted_at` set, never as
 absences"* — so it binds on tables a client pulls, because an absence is indistinguishable from
@@ -380,8 +422,15 @@ erasure, and neither has a client left to inform.
   `idempotency_keys`, `rate_limit_events`, `devices`. A revocation is what `revoked_at` records
   on the two that need it; the rest are ledgers that expire or are pruned.
 - **Membership** — `guardians`, `families`, `entitlements`, `app_store_transactions`, `guardian_invites`,
-  `deletion_requests`. `guardians` and `guardian_invites` carry `revoked_at`, which is the soft
+  `deletion_requests`, **`entitlement_grants`**. `guardians` and `guardian_invites` carry `revoked_at`, which is the soft
   delete under another name and for the same reason: a revoked row keeps its unique-key namespace.
+  **`entitlement_grants` joined this bullet Aug 25, 2026 by phase 122**, having been created by
+  phase 121's `0023_entitlement_grants` on Aug 24 with a `revoked_at` and no `deleted_at` and never
+  added here — so the register `CLAUDE.md` rule 5 sends a reader to had an unnamed gap in it while
+  claiming every gap was principled. It carries `revoked_at` for a third reason again: the ledger
+  *is* the record of what was given and when it was taken back, so a tombstone would delete the part
+  a support conversation came for. Nothing syncs it and no client can read it; the argument is under
+  `entitlement_grants` above.
 - **`children`** — the one genuinely arguable case. It has no `deleted_at` because until phase 66
   **nothing could delete a child**, and what phase 66 does is erase rather than delete. A
   tombstone there would be the service keeping a record of a child it was asked to forget.

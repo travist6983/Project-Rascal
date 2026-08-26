@@ -69,7 +69,7 @@ data. On failure it is **`503` `database_unreachable`** in the standard error sh
 with a degraded body. Polled by `deploy.yml` for 90 seconds after a release, checked by
 `smoke.yml` on demand, check 1 of `scripts/verify_deployment.py`, and the `curl` in the runbooks.
 
-~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Both health routes sit outside `/v1` as well.
+~~The only route outside `/v1`.~~ — **no longer true as of the universal-link work: `wellknown.router` is mounted with no prefix**, so `/.well-known/*` sits outside `/v1` too. That is forced rather than chosen — Apple fetches the association file from a fixed path at the domain root and will not follow a prefix. Both health routes sit outside `/v1` as well. **So do the two landing pages the same router serves, `GET /invite/{token}` and `GET /signin` (`routers/wellknown.py:64`, `:105`) — HTML for a browser that opened a link on a laptop, deliberately carrying no token into any web flow. Added Aug 25, 2026 by phase 122: both have been registered in every environment since phase 62 (`main.py:161` is unconditional) and were the only two registered routes in the whole app this contract did not mention, and both are `include_in_schema=False`, so the OpenAPI sweep in `smoke.yml` could never have caught the omission.**
 
 ---
 
@@ -762,7 +762,7 @@ Three refusals:
 
 | | |
 |---|---|
-| `402` `subscription_required` | The household is on the free tier. **Per D4 the second guardian is what the subscription is sold on**, so the invite surface is the upgrade surface. The message names what subscribing unlocks — it is a door, not a wall |
+| `402` `subscription_required` | ~~The household is on the free tier.~~ — **struck Aug 25, 2026 by phase 122: phase 121 moved this gate off `entitlement.is_subscribed` and onto `Access.is_member` (`services/guardians.py:452`), which is `source in ("receipt", "grant")` (`constants.py:94`).** Nobody in the household is a member — no live receipt and no active grant. **A trial does not pass this gate and a complimentary grant does**: a household reading `tier: "free"` with a grant behind it mints an invite, and one inside its fourteen days does not. **Per D4 the second guardian is what the subscription is sold on**, so the invite surface is the upgrade surface. The message names what subscribing unlocks — it is a door, not a wall |
 | `409` `conflict` | The household already has two parents. Two adults is the household; a third is a different product, not a bigger bill |
 | `422` `validation_failed`, `field: "role"` | `viewer` was requested. Phase 30 is iceboxed; the column can hold the value, nothing may issue one |
 
@@ -1384,8 +1384,14 @@ conflict` when the resulting `(kind, cadence, body)` already exists.
 
 ## Admin console
 
-**`/admin`** serves an HTML page — the only non-JSON route in the service, and the only exception
-to *"the Fly app serves JSON and nothing else"* in D7. It is not the marketing site: it has one
+**`/admin`** serves an HTML page — ~~the only non-JSON route in the service, and the only
+exception to *"the Fly app serves JSON and nothing else"* in D7~~ — **struck Aug 25, 2026 by phase
+122: it is one of five. `GET /signin` and `GET /invite/{token}` return `HTMLResponse`
+(`routers/wellknown.py:64`, `:105`, phase 62), `GET /children/{id}/export` streams a zip, and
+`POST /social/chat` streams `text/plain` — which this document states of itself in the studio route
+table under *Social studio*, so the sentence was refuted a hundred lines below by the same file.**
+What is true and worth saying is that `/admin` is the only HTML *console*, and that D7's exception
+was written for it rather than for HTML in general. It is not the marketing site: it has one
 reader, it is behind a bearer token, and hosting it anywhere else would need CORS and a second
 origin to save nothing. See `routers/admin_ui.py` for the full argument. The page holds no
 credential and can read nothing without a token, which is why it is unauthenticated and mounted in
@@ -1410,8 +1416,13 @@ in an archive and asserts none of them appears in any admin response.
 | `POST /admin/grants/{grant_id}/revoke` | Withdraw a grant. Idempotent. **There is no `DELETE`** |
 
 **`PUT /admin/families/{family_id}/trial`** — body `{ "trial_ends_at": "2026-09-04T00:00:00Z" | null }`,
-returns `{family_id, tier, access, trial_ends_at}`. A date in the future makes the household
-`trial`; a date in the past, or `null`, makes it `free`. Added by phase 107.
+returns ~~`{family_id, tier, access, trial_ends_at}`~~ **`{family_id, tier, access,
+trial_ends_at, entitlement_source}`** — **corrected Aug 25, 2026 by phase 122. Phase 121 added the
+fifth key (`schemas/admin.py:135-149`) because there are now two ways for this lever to appear to
+do nothing: a household that still reads `subscribed` after its trial was cleared is either a
+subscriber or a granted household, and the console has to say which rather than sending somebody
+to `runbook-deploy.md` §7a to fix a tier that was never the reason.** A date in the future makes
+the household `trial`; a date in the past, or `null`, makes it `free`. Added by phase 107.
 
 **It cannot write `tier` and there is deliberately no control that can.** D5 reserves that column
 for App Store Server Notifications V2 and a test asserts it has exactly one writer, so a console
@@ -1425,9 +1436,12 @@ same `LocalWrites` guard as the library edits, so it **refuses while `ADMIN_READ
 set** — the console reads production and writes only where it can also read what it wrote. The
 console hides the control entirely in that state rather than letting it fail after a click.
 
-`snapshot.signups` carries `family_id`, `access` and `trial_ends_at` alongside `tier` so the lever
-has a household to aim at and a reader can see which state it is in. None of the three is archive
-content, and the line above still holds.
+`snapshot.signups` carries `family_id`, `access`, `trial_ends_at` **and — since phase 121 —
+`granted`** alongside `tier` so the lever has a household to aim at and a reader can see which
+state it is in. **`granted` is what explains a household whose `tier` says `free` and whose
+`access` says `subscribed`: `tier` is Apple's word and `access` is what the phone will actually be
+served (`services/admin_metrics.py:551`, `:593`). Added here Aug 25, 2026 by phase 122.** ~~None of
+the three~~ **None of the four** is archive content, and the line above still holds.
 
 `costs.providers` is **seven cards, and only two of them carry a figure the vendor computed.**
 Anthropic (`/v1/organizations/cost_report`) and GitHub (`/users/{account}/settings/billing/usage`)
@@ -1501,7 +1515,7 @@ owner sets by hand for a post made somewhere this service cannot reach.
 
 | Route | Returns |
 |---|---|
-| `GET /social/studio` | Which renderers are configured, the D7 ledger, the templates, palettes and platform sizes a concept may name, and (phase 120) the scene graph's own closed sets and bounds under `video` |
+| `GET /social/studio` | Which renderers are configured, the D7 ledger, the templates, palettes and platform sizes a concept may name, and (phase 120) a `video` block of ~~the scene graph's own closed sets and bounds~~ **exactly two keys — `platforms`, the sizes a treatment may be recorded at, and `ffmpeg`, whether the machine can finish a recording. Corrected Aug 25, 2026 by phase 122: the block was written with eight keys and shipped with two, because phase 120's own re-read deleted the six the API served and nothing read (`routers/social.py:103-120`). The closed sets and bounds live in `services/social/brand.py`, are enforced by `schemas/social.py::VideoTreatment`, and are stated correctly in the prose below under *Video, and the fact that nothing buys one*.** |
 | `POST /social/chat` | **Streams `text/plain`.** The whole conversation goes up each time — nothing stores a thread |
 | `POST /social/concepts` | `n` post concepts, schema-enforced: angle, template, palette, headline, subhead, caption, alt text, hashtags, image brief |
 | `POST /social/treatment` | A typed **scene graph** for a short vertical video, plus the WebVTT track **derived** from it. ~~*`POST /social/shot-list` — a shot list plus a caption track*~~, replaced by phase 120 |
@@ -1911,8 +1925,12 @@ same failure the strike in `blocked.md` §13 records. The evidence is in `blocke
 
 ### Grants — entitling a household without a payment (phase 121)
 
-**`GET /admin/households?q=`** — households matching `q` on **account metadata only**: email,
-display name, family id. Returns `{family_id, label, tier, access, entitlement_source, grants}`
+**`GET /admin/households?q=&limit=`** — households matching `q` on **account metadata only**:
+email, display name, family id. **`limit` is `ge=1, le=100` and defaults to 20, and `q` is capped
+at 200 characters; both are a `422` outside those bounds rather than a clamp
+(`routers/admin.py:157-158`). Written down Aug 25, 2026 by phase 122, having shipped undocumented
+with phase 121 — a search route whose page size lives only in the signature is one a caller reads
+as exhaustive.** Returns `{family_id, label, tier, access, entitlement_source, grants}`
 per household, where `grants` is how many rows that household holds in total. An empty `q` returns
 the most recent households, because that is what a picker wants on first paint. The family id
 matches as text, so a UUID pasted from another screen finds its household and so does the
@@ -1927,6 +1945,14 @@ revoked_by}`. `status` is `active | expired | revoked`, computed from the row an
 clock, and `revoked` outranks `expired` because it is the thing somebody *did*. `granted_by` is a
 display name or email and is **`null` when that account has since been deleted** — account
 deletion hard-deletes `users` and the column is `ON DELETE SET NULL`.
+
+- **Capped at 200 rows, and there is deliberately no pager, cursor or `limit` parameter.**
+  `GRANT_LIST_LIMIT` (`services/grants.py:42`) is applied inside `grants_for` (`:125`), and
+  **nothing on the wire says a ledger came back truncated** — a household holding more grants than
+  that is a product that has stopped being one owner and a handful of testers, and that is the day
+  to build the pager rather than today. **Stated here Aug 25, 2026 by phase 122: phase 121 wrote
+  the cap into its own PR body and into no document, which is the half of *stated rather than
+  hidden* that did not happen.**
 
 **`POST /admin/grants`** — body `{ "family_id": "…", "reason": "founding tester", "expires_at":
 "2026-10-01T00:00:00Z" | null }`, returns `201` with one ledger row.
@@ -1954,8 +1980,16 @@ entitlement surface computes the answer per request, so there is no cached boole
 **Extending somebody is a new grant, not an edit.** There is no unique constraint on `family_id`
 and no `PATCH`; multiple rows per household is the intended shape and the history is the point.
 
-All three are `users.is_admin` and all three go through the same `LocalWrites` guard as the
-library edits, so all three **refuse while `ADMIN_READ_DATABASE_URL` is set**.
+~~All three are `users.is_admin` and all three go through the same `LocalWrites` guard as the
+library edits, so all three **refuse while `ADMIN_READ_DATABASE_URL` is set**.~~ — **struck Aug 25,
+2026 by phase 122: this section documents four routes, and only the two writes carry the guard.**
+All four are `users.is_admin`. `POST /admin/grants` and `POST /admin/grants/{grant_id}/revoke` take
+`SessionDep` and `LocalWrites` exactly as the library edits do (`routers/admin.py:205-209`,
+`:240-244`), so both refuse while `ADMIN_READ_DATABASE_URL` is set. `GET /admin/households` and
+`GET /admin/grants` are reads on `AdminReadSession` (`routers/admin.py:154-158`, `:178-181`), carry
+no `LocalWrites`, and stay readable in that state — the console keeps the ledger on screen and
+removes the form and the Revoke buttons, which is the whole shape of showing production and
+refusing to write to it.
 
 ## Monetization
 
@@ -2079,7 +2113,15 @@ for copy and a client must not compute entitlement from it.
 
 **A trial expiring is not a lapse.** `lapsed_at` stays `null` through one and `eligible_at` stays
 `null` with it, so a household that tried the app for a fortnight and stopped never has a deletion
-clock pointed at it. `eligible_at` below is still computed from `tier` and `lapsed_at` alone.
+clock pointed at it. ~~`eligible_at` below is still computed from `tier` and `lapsed_at`
+alone.~~ — **struck Aug 25, 2026 by phase 122: phase 121 gave `eligible_at` a keyword-only
+`granted=` (`services/guardians.py:288-294`) and `read_entitlement` passes `granted=grant is not
+None` (`routers/families.py:198-203`), so it is computed from `tier`, `lapsed_at` and whether a
+grant is holding the household open.** The trial is still not an input and that asymmetry is the
+point: a household that lapsed for real and was then granted carries a live `lapsed_at`, and must
+not read a deletion date while it is fully entitled. The struck sentence contradicted the paragraph
+above beginning **`eligible_at` is `null` while a grant is active** — **the same PR wrote both** —
+from the moment either was written.
 
 **`eligible_at` is computed per request**, never stored — `max(lapsed_at + 24 months,
 last_sign_in_at + 12 months)`, and both clocks move. A client may display it and must not cache it.

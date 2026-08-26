@@ -63,9 +63,22 @@ scoped by path so a commit in one lane never runs or deploys the other.
 - `dev-login` and every `/debug/*` route are registered only when `ENVIRONMENT == "local"`.
 - Prompts are seeded from `api/seeds/prompts.yaml`. `docs/mission-library.md` is the
   authoring surface; runtime never parses markdown.
-- **The seeded library is tokenised.** All **133** bodies carry the pronoun tokens — 113 were tokenised in phase 24 and phase 25 added twenty more already tokenised, so *"113"* has been the wrong count since Aug 14, 2026;
+- **The seeded library is tokenised.** ~~All **133** bodies carry the pronoun tokens~~ — **struck
+  Aug 25, 2026 by phase 122.** **119** of the **133** carry a `{token}`, and the other fourteen
+  correctly carry none, because they never refer to the child in the third person: *"What song
+  is stuck in the house right now?"*, *"Take a photo of the two of you. You're in almost none of
+  them."* Run it rather than quoting it: `grep -c '^  body: ' api/seeds/prompts.yaml` prints
+  **133**, `grep '^  body: ' api/seeds/prompts.yaml | grep -c '{'` prints **119**, and
+  the **Prompt library** row of `docs/roadmap-status.md`'s facts table has carried the measured
+  form since Aug 18, 2026 — *"119 of the 133 carry a `{token}`"*. 113 were
+  tokenised in phase 24 and phase 25 added twenty more already tokenised, so *"113"* has been the
+  wrong **total** since Aug 14, 2026 — but *how many bodies there are* and *how many carry a token*
+  are two different numbers, and this line ran them together while narrating the first one's
+  history. **The loader does not require a token; it rejects an unrecognised one.**
   `constants.PROMPT_TOKENS` is the list and the seed loader rejects a body containing anything
-  else. Never write copy that assumes a child's gender — client-side strings are neutral too and
+  else (`api/src/rascal/services/seeding.py:109-114`) — which is why a body with no braces at all
+  passes untouched, and why **the fourteen are not a backlog: do not go inserting tokens into
+  them.** Never write copy that assumes a child's gender — client-side strings are neutral too and
   stay that way. Edit `docs/mission-library.md` and regenerate; never touch `prompts.yaml` by
   hand. Re-seeding keys idempotency on `sha256(kind, cadence, body)`, so **an edited body is a
   new prompt, not an update** — `seed_prompts` deactivates the seeded rows the file no longer
@@ -94,16 +107,50 @@ line was protecting**: nothing generates a prompt at request time for a child, n
 candidate, and no bulk-approve endpoint exists — a candidate is `active=false` until a person reads
 it and presses a button. See `decisions.md` and `decisions-log.md` for the reversal.
 
-~~*thumbnail or transcode pipelines*~~ — **struck for one feature and one only, by the owner's call of Aug 20, 2026.** The
-studio's video render generates a clip per shot — no video API on any vendor joins clips — so
-`services/social/stitch.py` shells out to ffmpeg to concatenate them, and the runtime image
-installs it. That is a transcode pipeline by any honest reading and it was authorised
-deliberately rather than argued around; `docs/decisions.md` carries the reasoning.
+**Phase 120 removed the other vendor on Aug 25, 2026**, and it is recorded here because this is the
+paragraph about what this repository asks a model for. Nothing above has moved. What left the tree
+is `services/social/gemini.py` and all three `GEMINI_*` settings — `grep -n -i gemini
+api/src/rascal/config.py` returns nothing — so **no vendor generates video pixels for this product
+any more** either; the transcode paragraph below says what does instead. Check `api/` before
+writing a line here.
+
+~~*thumbnail or transcode pipelines*~~ — **struck for one feature and one only, by the owner's
+call of Aug 20, 2026, and narrowed further by phase 120 on Aug 25, 2026.**
+
+**What it covers now: one WebM in, one H.264 MP4 out.** The studio's video is an ordered list of
+brand cards; `admin/static/cards.js` draws every frame in the operator's own browser and
+`MediaRecorder` captures the canvas (`cards.js:330-331`), and `services/social/transcode.py`
+shells out to ffmpeg to re-encode that recording into the format a platform will accept. The
+runtime image installs ffmpeg (`api/Dockerfile:53-55`). That is a transcode pipeline by any honest
+reading and it was authorised deliberately rather than argued around; `docs/decisions.md` carries
+the reasoning.
+
+~~*The studio's video render generates a clip per shot — no video API on any vendor joins clips —
+so `services/social/stitch.py` shells out to ffmpeg to concatenate them.*~~ — **struck Aug 25, 2026
+by phase 120 (`01318be`, PR #170): there are no clips.** The browser records one continuous
+capture, so there is nothing to concatenate, and `stitch.py` is deleted along with `gemini.py` and
+all three `GEMINI_*` settings — `ls api/src/rascal/services/social/` prints nine files and neither
+of those two is among them. The re-encode is now **unconditional**, because `MediaRecorder` writes
+an unknown duration into the WebM header and a stream copy would carry it straight through into the
+MP4 (`transcode.py:16-25`). The strike **narrows**, which is worth saying plainly because a struck
+scope line is the sentence an agent quotes when it deletes something: the input is no longer a
+vendor's output at all, it is bytes this repository's own console recorded seconds earlier.
+
+**Below, this list counts *three entries* struck for naming shipped subsystems. The strike
+immediately above is the fourth, and it is the first for the opposite reason** — the other three
+named subsystems that were built and serving, which is the failure of writing this list from
+intent rather than from the tree; this one named a file the tree no longer has, inside the very
+paragraph this list wrote to authorise it. `api/Dockerfile:43-46` struck the identical sentence
+in the same phase that made it false. This file did not, because phase 120 was told to *propose*
+against `CLAUDE.md` rather than edit it — `docs/reports/phase-120-proposed-diffs.md` §5 is the
+text above, and that report's own first line reads *"Nothing in this file has been applied."* **A correction that exists only in a report
+is a correction the tree does not have.**
 
 **It is struck narrowly.** Thumbnails, transcoding *user media*, and anything touching the
 `children/` prefix remain out of scope and are the thing the original line was protecting: an
 archive that re-encodes what a parent uploaded is an archive that can corrupt it. This
-concatenates marketing output that a vendor generated seconds earlier, under `social/`, and
+~~concatenates~~ **re-encodes** marketing output that ~~a vendor generated~~ — **this repository's
+own browser recorded, since phase 120 on Aug 25, 2026** — seconds earlier, under `social/`, and
 never reads a family's bytes.
 
 ~~*push notifications, full-text search*~~ — **both removed from this list Aug 18, 2026, because
@@ -153,5 +200,14 @@ adding one to the highest integer in sight, and not from whatever a prompt happe
 
 **A phase number is an identifier, not a position in a queue.** A lower number does not run first,
 and phases are executed in whatever order makes sense at the time. Nothing is renumbered or
-reordered to make the sequence read as an execution order. The existing collisions at 3, 11, 19 and
-20 stay exactly as they are.
+reordered to make the sequence read as an execution order. The existing collisions at ~~3, 11, 19
+and 20~~ — **3, 11, 19, 20 and 103; the fifth added here Aug 25, 2026 by phase 122** — stay exactly
+as they are. **103 happened on Aug 20, 2026, and `docs/roadmap-status.md`'s *103 is spent twice*
+note has cited this very sentence as its authority ever since — *"the collisions at 3, 11, 19 and
+20 stay as they are; this is now the fifth"* — while this sentence went on listing four.** The two rows are *the shot list
+becomes a video* (PR #153) and *LLM prompt generation* (PR #152): both shipped, both carrying `103`
+in their branch names and their commit subjects, and counting the ledger's own phase column finds
+exactly one number used twice. **103 is the only collision this project created *after* the rule
+was written** — two branches allocating hours apart on the same day, neither able to see the
+other's allocation because neither had written a row yet — and it is why the paragraph above says
+numbers are **read from the file**.

@@ -8,8 +8,19 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: **Aug 22, 2026.** The Aug 11 pass is described below and its findings stand; what
-Aug 16 changed is recorded in the paragraphs immediately after it.
+Last reviewed: ~~**Aug 22, 2026.**~~ **Aug 25, 2026.** The Aug 11 pass is described below and its
+findings stand; what Aug 16 changed is recorded in the paragraphs immediately after it.
+
+**Aug 25, 2026 — phase 122, a docs sweep, and it touched three things here.** **New: §22**, the
+three `GEMINI_*` Fly secrets that phase 120 orphaned on Aug 25 — the only genuinely owner-only act
+that phase produced, and it was written into a phase report rather than onto this page, which is
+the same failure §20 was filed for three days earlier. **§17 gains a note under its heading**: its
+subject — `services/social/gemini.py`, `stitch.py` and the three settings — was deleted out from
+under it, so a section that reads as a closed billing errand is now explicit that there is no
+billing left to check, and its surviving *"Omni Flash stays reachable by setting
+`GEMINI_VIDEO_MODEL`"* is struck because that setting no longer exists. **And the unstruck-section
+count went ~~eleven~~ → thirteen**, twelve of which were already there when this pass opened the
+file: the Aug 22 recount was stale within three days, for the exact reason its own note gives.
 
 **Aug 22, 2026 — this pass closed a section whose stated blocker was environment-specific rather
 than universal, and struck one that had been resolved for four days.** §10a item 1 said Apple Root
@@ -903,10 +914,10 @@ These were left out on purpose. Each is a small piece of work if you decide othe
 
 **Everything in the bulleted list immediately below** was on this list on Aug 3 and is now
 closed. **That sentence used to say “everything below” without qualification, and it had quietly
-stopped being true** — ~~three~~ ~~**four**~~ ~~**nine**~~ **eleven** `##` sections further down are
-not closed. A
-reader skimming headings after this line would have read all of them as resolved, which is the
-exact defect this file records against itself twice. Scoped to its list, Aug 16, 2026.
+stopped being true** — ~~three~~ ~~**four**~~ ~~**nine**~~ ~~**eleven**~~ **thirteen** `##` sections
+further down are not closed. A reader skimming headings after this line would have read all of
+them as resolved, which is the exact defect this file records against itself twice. Scoped to its
+list, Aug 16, 2026.
 
 > **The number was counted rather than incremented, Aug 22, 2026, and it had drifted by six.** The
 > line said "four" and named four — Phase 16, §9, §10, §10a. Counting every `##` heading below this
@@ -930,8 +941,20 @@ exact defect this file records against itself twice. Scoped to its list, Aug 16,
 >   | grep '^## ' | grep -v '^## ~~' | tail -n +2
 > ```
 >
-> Today it prints, in file order: **Phase 16, §9, §10, §10a, §11, §13, §15, §16, §18, §19 and
-> §20** — eleven.
+> ~~Today it prints, in file order: **Phase 16, §9, §10, §10a, §11, §13, §15, §16, §18, §19 and
+> §20** — eleven.~~ — **struck Aug 25, 2026 by phase 122, which ran the command rather than reading
+> the figure.** It prints, in file order: **Phase 16, §9, §10, §10a, §11, §13, §15, §16, §18, §19,
+> §20, §21 and §22** — **thirteen**.
+>
+> **Both intervening numbers are written here on purpose, exactly as ten and nine were above.**
+> When this pass audited the file the command printed **twelve**: *"eleven"* had drifted by one
+> within three days of being written, because **§21 arrived in the same Aug 22 pass, from a
+> different phase, and nobody came back up here to increment it** — precisely the failure the note
+> above this one diagnoses in six consecutive authors, committed by the pass that diagnosed it and
+> inside the paragraph naming the habit. Then this pass filed **§22** and made it **thirteen**, so
+> the difference between twelve and thirteen is one section's worth of work rather than a
+> correction. **The figure is written down anyway, because the command beside it is the part that
+> survives the next author: run the command, do not quote the number.**
 >
 > **What moved it.** *First*, this pass moved four resolved iOS sections down here, and three of
 > the four carried struck headings while **iOS Settings did not** — so the method counted a section
@@ -2654,6 +2677,18 @@ changed afterwards and the next person will need to know what the key can and ca
 
 ## ~~§17 — Gemini video: an **errand**, and the error names the wrong thing~~ (Aug 20, 2026) — **RESOLVED Aug 21, 2026. Billing is enabled and a clip has been generated.**
 
+**The subject of this section was deleted on Aug 25, 2026, and that is the last thing that will
+ever happen to it.** Phase 120 (`01318be`, PR #170) removed `services/social/gemini.py`,
+`services/social/stitch.py` and all three `GEMINI_*` settings — `ls api/src/rascal/services/social/`
+prints nine files and neither of the two is among them. Claude now writes a typed scene graph, the
+console's own browser draws and records it (`admin/static/cards.js`), and ffmpeg re-encodes the
+recording (`services/social/transcode.py`). **There is no billing to check, no model to switch and
+no errand left in here** — do not read one out of it. It is kept because its *finding* outlived its
+subject: a blocker can name the right credential, be right about it, and still not be the last
+thing in the way, and the safety refusal recorded below is now part of the argument *for* owning
+the renderer. **The one thing phase 120 did leave for you is in §22**, and it is three Fly secrets
+nothing reads.
+
 **Closed by phase 106.** Billing was enabled on the key's project, and the render path has now
 seen a 200: a four-second Veo 3.1 Lite clip came back as a **416KB MP4** in about ninety seconds.
 The last paragraph of this section — *"one thing is genuinely unverified"* — is the one that
@@ -2669,7 +2704,10 @@ not a credential:
   around; a safety filter that refuses a still life is not one this product can plan around.
 - **Every Veo 3.1 tier accepts the identical prompt**, byte for byte. So the default moved to
   `veo-3.1-lite-generate-preview`, which is also **half the price** ($0.05 a second against
-  $0.10), and Omni Flash stays reachable by setting `GEMINI_VIDEO_MODEL`.
+  $0.10), ~~and Omni Flash stays reachable by setting `GEMINI_VIDEO_MODEL`~~ — **struck Aug 25,
+  2026 by phase 122: neither model is reachable by setting anything.** Phase 120 deleted
+  `GEMINI_VIDEO_MODEL` along with the client that read it, and `grep -n -i gemini
+  api/src/rascal/config.py` returns nothing.
 - **Two more things only the live API said**, both now pinned in tests: the clip URI Veo hands
   back already carries `?alt=media`, and passing `params=` to httpx *replaces* the query rather
   than merging it — which silently turns the download into a 400. **Every mocked test passed with
@@ -2950,3 +2988,34 @@ nothing retroactively for purchases already made, and nobody has asked for it.
 subscription-management sheet. The failure direction is deliberate and matches standing rule D9:
 **`is_payer` must never be `false` on a null.** Shipping `false` on a guess would hide the
 management control from somebody who is paying, which is the one outcome worse than saying nothing.
+
+---
+
+## §22 — three Fly secrets nothing reads, and only you can unset them (Aug 25, 2026)
+
+**Blocked on you, and it is the shortest errand on this page.** Phase 120 (`01318be`, PR #170)
+deleted every reader of `GEMINI_API_KEY`, `GEMINI_VIDEO_MODEL` and `GEMINI_VIDEO_CENTS_PER_SECOND`:
+`config.py` no longer declares them (`grep -n -i gemini api/src/rascal/config.py` returns nothing),
+`.env.example` no longer lists them, and `services/social/gemini.py` is gone. **Removing them from
+Fly is a separate manual act and this lane cannot do it:**
+
+```bash
+flyctl secrets unset GEMINI_API_KEY GEMINI_VIDEO_MODEL GEMINI_VIDEO_CENTS_PER_SECOND -a rascal-api
+```
+
+**Nothing breaks either way, which is exactly why it will be forgotten.** A secret no process reads
+is not an outage; it is a live Google API key sitting in a production machine's environment for no
+reason, and the only two records that it is dead are a comment in `.env.example` (:183-185) and a
+paragraph in `docs/reports/phase-120-canvas-video.md` (:179-181). **Phase 120 named the act in its
+own report rather than filing it here**, which is the same failure §20 was filed for three days
+earlier: the one document an operator opens to ask *what is outstanding* was the one document that
+did not say it.
+
+**Read before you unset, because this page already contains evidence it may be a no-op.** §18's
+complete production secret list on `rascal-api`, read in full on Aug 22, 2026 and reproduced there
+verbatim, contains **no `GEMINI_*` name at all**. So either the key was never a Fly secret on
+`rascal-api` — in which case this closes on one `flyctl secrets list -a rascal-api` and never
+needed the unset — or §18's list was incomplete, which is worth knowing about **§18** as much as
+about this. Run the list first and record which of the two it was; `CLAUDE.md` puts anything
+blocked on a credential on this page, and *"we checked and there was nothing there"* is a result
+this page should carry rather than a reason to have written nothing.
