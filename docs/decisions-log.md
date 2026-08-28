@@ -962,10 +962,15 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   **So the half-applied state this bullet describes is the state that actually shipped**, in the
   one direction that cannot be recalled: `decisions.md` open item 15 names outbound email as the
   first of the two surfaces that make a name expensive, for exactly this reason.
-  **`MARKETING_ORIGINS` and `MARKETING_SITE_URL` are Deployed secrets too**, so phase 131 has the
-  same gap. The general lesson, which is the one worth carrying: **in this service, editing a
-  settings default is not a deploy.** Check `flyctl secrets list` before claiming any `config.py`
-  change reached production.
+  ~~**`MARKETING_ORIGINS` and `MARKETING_SITE_URL` are Deployed secrets too**, so phase 131 has
+  the same gap.~~ — **corrected within the hour: only one of those two is a secret.**
+  `flyctl secrets list -a rascal-api` holds `MAIL_FROM`, `MARKETING_ORIGINS` and
+  `MARKETING_EMAIL_ENABLED`, and **no `MARKETING_SITE_URL`** — so phase 131's `marketing_site_url`
+  edit *is* what production reads on the next deploy, and only the CORS origin list needs a hand
+  edit. **This correction is itself a case of the lesson it was drawing**: the first draft asserted
+  a secret from the shape of the name instead of from the list. The lesson, stated properly:
+  **in this service, editing a settings default is not a deploy *if* a secret shadows it — so read
+  `flyctl secrets list` and check, rather than assuming either way.**
 - **The admin wordmark was geometry, not text, so neither grep nor sed could see it.** The console
   header and every generated brand card drew the name as a six-glyph SVG path and a canvas
   `Path2D` (`admin/static/index.html:24`, `:97`, `cards.js:100`). A text-only rename would have
@@ -982,7 +987,8 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   `docs/api-contract.md:651` documents the scoped form and was changed in the same commit — a
   second coupling the brief's file list did not name.
 - **Four things were deliberately left alone.** The `getvellumapp.com` domain and the
-  `@getvellum.app` handle (`config.py:408`) are a domain and a social account, not display copy,
+  `@getvellum.app` handle (`config.py:418` — it was `:408` until this run's own CORS comment added
+  lines above it) are a domain and a social account, not display copy,
   and the brief says to ask rather than invent. The admin console's `localStorage` keys
   (`vellum.admin.token` / `.refresh`) are identifiers no user sees, and moving them would sign
   every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
@@ -1009,7 +1015,7 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   var overrides this default silently. **Check `flyctl secrets list -a rascal-api` and the app's
   env before assuming this shipped.** Filed here rather than fixed because this lane cannot read
   Fly's secret values.
-- **`@getvellum.app` at `config.py:408` was left alone.** It is an Instagram handle, not a URL, and
+- **`@getvellum.app` at `config.py:418` was left alone.** It is an Instagram handle, not a URL, and
   the brief is explicit that a new handle is not something an agent invents. The comment around it
   is a dated record of a two-publisher decision and stays as written.
 - **`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to

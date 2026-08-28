@@ -106,9 +106,12 @@ function drawLines(ctx, lines, x, y, size, lineHeight) {
  */
 function wordmark(ctx, x, y, height, color) {
   ctx.save();
-  // 1.30, not 0.78: `height` is the band the old geometry filled cap-to-baseline, and a font's
-  // point size is its em, of which the caps are roughly 0.7. Sizing by the em drew the mark at
-  // about 56% of the height it replaced.
+  // 1.30, not 0.78. `height` is the band the old geometry filled, and that band was the
+  // ASCENDER height, not the cap height: the drawn path's tallest points were the two `l`
+  // stems at y=-116.25 against a baseline at y=-9.75, i.e. 106.5 of the 126-unit viewBox.
+  // A font's point size is its em, of which the ascender is roughly 0.75, so filling the same
+  // band takes height / 0.75 ~= 1.3. Sizing by the em drew the mark at about 60% of what it
+  // replaced.
   ctx.font = font(ROUNDED_BOLD, height * 1.3);
   ctx.fillStyle = color;
   ctx.textBaseline = "alphabetic";

@@ -264,6 +264,12 @@ class Settings(DatabaseSettings):
     # ⚠️ **`MARKETING_ORIGINS` is a Deployed Fly secret on `rascal-api`**, which overrides this
     # default entirely — so this edit does NOT reach production. The deployed value must be set
     # to include the new origin by hand. See `docs/blocked.md` §13.
+    #
+    # **`MARKETING_SITE_URL` is NOT a secret** — checked against `flyctl secrets list -a
+    # rascal-api`, which holds `MAIL_FROM`, `MARKETING_ORIGINS` and `MARKETING_EMAIL_ENABLED` and
+    # no site URL — so its default *is* what production reads and phase 131's edit ships on the
+    # next deploy. The two settings look alike and behave differently; check the list rather than
+    # assuming, which is the mistake that produced an earlier draft of this comment.
     marketing_origins: Annotated[list[str], NoDecode] = [
         "https://pocketchronicle.app",
         "https://travist6983.github.io",

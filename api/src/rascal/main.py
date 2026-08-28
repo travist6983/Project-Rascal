@@ -56,8 +56,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # **CORS, and this is the first browser client this API has ever had.**
     #
-    # Scoped three ways on purpose: to the marketing origins from config and **never `*`**, to
-    # the one path a browser calls, and to the two methods it needs. `docs/blocked.md` §2b,
+    # Scoped ~~three~~ **two** ways on purpose: to the marketing origins from config and
+    # **never `*`**, and to the two methods a browser needs. ~~to the one path a browser
+    # calls~~ — **struck Aug 27, 2026: that scoping does not exist and never did.**
+    # `app.add_middleware` is app-wide, so these origins and methods apply to *every* route, not
+    # to `/v1/subscribe` alone. It is not a hole in practice — every other route requires a
+    # `Bearer` token and `allow_credentials` is off, so a browser gains nothing it could not
+    # already do — but a false scoping claim in a security comment is the kind of sentence
+    # somebody later relies on. Narrowing it for real needs a per-route middleware or an
+    # `OPTIONS` handler, and that is a change, not a comment fix. `docs/blocked.md` §2b,
     # *"CORS should be tightened when a web client exists"*, reserved that tightening for a browser
     # client — it exists now, and it arrived through a marketing form rather than the web app that
     # sentence was imagining. ~~`docs/blocked.md:809`~~ — **cited by section and by the sentence
