@@ -675,7 +675,7 @@ struct SettingsScreen: View {
     /// why none of the rest of it is alarming. Set `inkMuted`, not the import's `inkFaint`: that
     /// measures 2.13:1 on the canvas, and this is a sentence meant to be read.
     private var closingNote: some View {
-        Text("Vellum writes to this phone first. Everything you see here exists whether or not the network does.")
+        Text("Pocket Chronicle writes to this phone first. Everything you see here exists whether or not the network does.")
             .typeRole(.metadata)
             .foregroundStyle(Color.inkMuted)
             .fixedSize(horizontal: false, vertical: true)

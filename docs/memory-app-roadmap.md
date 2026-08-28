@@ -10,8 +10,11 @@
 > than in the text**, because editing a founding document to match the present erases what was
 > actually decided at the start:
 >
-> - **"Working name: TBD"** — the product is **Vellum**, settled by the owner Aug 17, 2026
->   (`decisions.md:115`), after being `Dogear` from Aug 12. The name moved twice; the mark did not.
+> - **"Working name: TBD"** — the product is **Pocket Chronicle**, settled by the owner Aug 27,
+>   2026 on an attorney's trademark-conflict finding, after being `Vellum` from Aug 17
+>   (`decisions.md:120`, ~~`:115`~~ — the citation was already stale before this rename carried it
+>   forward) and `Dogear` from Aug 12. **The name has moved three times; the bundle id,
+>   the URL scheme and `manifest.format` have moved none.**
 > - **Design principle 5, "Nothing is deleted. Soft deletes only."** — still the rule everywhere in
 >   the archive, and **no longer true of accounts.** Phase 66 (Aug 17, 2026) shipped a deliberate,
 >   documented exception: a deletion request hard-deletes after seven days, because a soft delete

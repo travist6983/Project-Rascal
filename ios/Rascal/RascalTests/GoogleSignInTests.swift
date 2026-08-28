@@ -266,7 +266,8 @@ private final class LockedBox<T>: @unchecked Sendable {
 
 // MARK: - Phase 82: the name in every system dialog, and the browser session's one decision
 
-/// The alert a parent sees at sign-in reads *"Vellum" Wants to Use "accounts.google.com" to Sign In*,
+/// The alert a parent sees at sign-in reads *"Pocket Chronicle" Wants to Use "accounts.google.com"
+/// to Sign In*,
 /// and there is no API to change what that alert calls the app — it reads the name out of the bundle.
 /// So the name is not a sign-in concern at all; it is the bundle leaking into every sentence iOS
 /// writes about this app.
@@ -283,22 +284,37 @@ private final class LockedBox<T>: @unchecked Sendable {
 /// different strings and started an `ASWebAuthenticationSession`; the alert rendered the
 /// `CFBundleName` one. There are **two** name keys, they are not interchangeable, and a rename has
 /// to move both in all four plists.
+///
+/// **Phase 130, Aug 27, 2026: the two keys stopped holding the same string.** Vellum became Pocket
+/// Chronicle on an attorney's trademark-conflict finding, and "Pocket Chronicle" is sixteen
+/// characters against a home-screen label that truncates around eleven. So `CFBundleDisplayName` is
+/// **"Chronicle"** and `CFBundleName` is **"Pocket Chronicle"** — a display name that is a substring
+/// of the store name, the way Chrome, Maps and Photos all are. This is deliberate and must not be
+/// "fixed".
+///
+/// That is why the sweep below pins **each key to its own expected value** rather than looping both
+/// keys against one string. The old loop would have passed a rename that put one name in both keys,
+/// which is the failure mode this suite exists to catch and had already missed once.
 @MainActor
 @Suite("Phase 82 — the name in system dialogs")
 struct BundleDisplayNameTests {
 
-    @Test("the app's display name is the product name, not the codename or the target name")
-    func displayNameIsVellum() throws {
+    @Test("the app's display name is the home-screen label, not the codename or the target name")
+    func displayNameIsChronicle() throws {
         // Unit tests run in the app's host process, so `Bundle.main` here is the app bundle — which
         // makes this the built artefact's own answer rather than a re-reading of the source plist.
         // That distinction is the whole point: a doc claimed this was "verified out of the built
         // bundles" on Aug 12, for a name that has changed twice since.
         let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
 
-        #expect(name == "Vellum")
+        #expect(name == "Chronicle")
         // The codename and the Xcode target name are the two things that have actually leaked here.
         #expect(name != "Rascal", "the codename reached every system alert for as long as it was set")
         #expect(name != "Dogear", "superseded Aug 17, 2026")
+        #expect(name != "Vellum", "superseded Aug 27, 2026")
+        // The store name is sixteen characters and this label truncates around eleven. If this ever
+        // equals `CFBundleName`, somebody has "fixed" a difference that is there on purpose.
+        #expect(name != "Pocket Chronicle", "that is CFBundleName; this key is the truncating label")
     }
 
     /// **Phase 114. The assertion the test above was believed to be making.**
@@ -307,16 +323,20 @@ struct BundleDisplayNameTests {
     /// different string from the one under the icon. Read from `Bundle.main` for the same reason the
     /// test above is: unit tests run in the app's host process, so this is the built artefact's own
     /// answer and not a re-reading of the source plist that produced it.
-    @Test("the bundle name — the string the sign-in alert actually reads — is the product name")
-    func bundleNameIsVellum() throws {
+    @Test("the bundle name — the string the sign-in alert actually reads — is the full product name")
+    func bundleNameIsPocketChronicle() throws {
         let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
 
-        #expect(name == "Vellum")
+        #expect(name == "Pocket Chronicle")
         #expect(
             name != "Rascal",
             "the target name is what the Google sign-in alert asked a parent to trust until Aug 23"
         )
         #expect(name != "Dogear", "superseded Aug 17, 2026")
+        #expect(name != "Vellum", "superseded Aug 27, 2026")
+        // The alert says the full name. If this ever shortens to the home-screen label, the one
+        // dialog whose job is to prove the app's identity starts using a truncation of it.
+        #expect(name != "Chronicle", "that is CFBundleDisplayName; this alert says the full name")
     }
 
     /// **Phase 114. The two tests above can only see the app.**
@@ -326,7 +346,10 @@ struct BundleDisplayNameTests {
     /// reads all four from source and pins both keys in each, as literals: a `$(PRODUCT_NAME)`
     /// left in any of them resolves to a target name — "Rascal", "RascalWidget", "RascalShare" —
     /// and parses as that string here, so this fails on the exact defect rather than on its shape.
-    @Test("all four plists carry both name keys, literally")
+    ///
+    /// **Phase 130: each key has its own expected value.** This looped both keys against one string
+    /// until Aug 27, 2026, which was correct only for as long as the two happened to agree.
+    @Test("all four plists carry both name keys, literally, and the two keys differ")
     func everyPlistCarriesBothNamesLiterally() throws {
         // `ios/Rascal`, resolved from this file so the scan survives Xcode, xcodebuild and CI.
         let root = URL(fileURLWithPath: #filePath)
@@ -337,10 +360,13 @@ struct BundleDisplayNameTests {
             let parsed = try PropertyListSerialization.propertyList(from: data, format: nil)
             let plist = parsed as? [String: Any]
 
-            for key in ["CFBundleName", "CFBundleDisplayName"] {
+            for (key, expected) in [
+                ("CFBundleDisplayName", "Chronicle"),
+                ("CFBundleName", "Pocket Chronicle"),
+            ] {
                 let value = plist?[key] as? String
                 #expect(
-                    value == "Vellum",
+                    value == expected,
                     "\(file) declares \(key) as \(value ?? "nothing"); iOS renders it to a parent"
                 )
             }

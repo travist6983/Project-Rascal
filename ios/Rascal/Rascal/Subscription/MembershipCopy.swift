@@ -153,8 +153,11 @@ nonisolated enum MembershipCopy {
     /// sentence rather than write a sibling for it.
     ///
     /// **One thing this puts out of step, flagged rather than fixed here:**
-    /// `getvellumapp.com/terms` still reads *"One membership covers the household — every child,
-    /// both parents."* The marketing site is a different repository and a different lane.
+    /// `pocketchronicle.app/terms/` still reads *"One membership covers the household — every
+    /// child, both parents."* — re-checked against the live page on Aug 27, 2026, after the
+    /// domain moved with the Pocket Chronicle rename, so the mismatch is still real rather than
+    /// inherited. ~~`getvellumapp.com/terms`~~ is the retired host and no longer the page the
+    /// paywall links to. The marketing site is a different repository and a different lane.
     static let footnote = "One price covers everyone in the house — every parent, every child."
 
     /// **Guideline 3.1.2's renewal disclosure, and the one string here Apple asked for.**

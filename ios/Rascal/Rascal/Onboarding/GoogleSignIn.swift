@@ -165,7 +165,8 @@ nonisolated struct LiveGoogleAuthorizer: GoogleAuthorizing {
     ///
     /// Named rather than left as a literal because it is a product decision with a real trade on
     /// both sides, and it was raised again in the phase that added this constant. Setting it `true`
-    /// would suppress the system alert that reads *"Vellum" Wants to Use "accounts.google.com" to
+    /// would suppress the system alert that reads *"Pocket Chronicle" Wants to Use
+    /// "accounts.google.com" to
     /// Sign In* — **and that suppression is unverified.** It is a reasonable belief about current
     /// iOS, not an observed fact, and nobody has checked it on a device. Flipping a documented
     /// decision on an unverified belief is the wrong order, so this is one constant and one test

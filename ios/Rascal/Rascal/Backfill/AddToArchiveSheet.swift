@@ -64,7 +64,7 @@ nonisolated struct AddToArchiveModel: Equatable, Sendable {
             return "Look back through the months you haven't written about yet."
         case .limited:
             guard let offer else {
-                return "Browsing the photos you've shared with Vellum."
+                return "Browsing the photos you've shared with Pocket Chronicle."
             }
             return "\(Self.photos(offer.assetCount)) from \(offer.month.label()), "
                 + "out of the photos you've shared."
