@@ -1007,8 +1007,8 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
     fitting the welcome screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an
     overflow there puts the sign-in buttons off-screen with no way to reach them. It is the same
     failure phase 18 found on the five onboarding steps, arriving on the one screen that was
-    exempted from that fix. **The mark now sets on one line**, which removes the regression
-    instead of absorbing it.
+    exempted from that fix. **The mark now sets on one line**, which removes the *wrap*
+    instead of absorbing it — see the correction below for what it does not remove.
   - **Aug 28, 2026 — and the one-line version was sized wrong too, for a subtler reason.** It kept
     the old `× 0.92` factor, which made the type 22.68pt: a **174pt × 27.0pt line box** whose actual
     **ink is 16.97pt against the drawn mark's 24.65pt — 31% smaller**. The comment claiming parity
@@ -1021,6 +1021,27 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
     screen budget cares about. It fits one line against 319pt of content on the narrowest iPhone
     this app supports (deployment target 18.6, iPhone-only, so a 375pt SE — **not** the 320pt an
     earlier version of the comment claimed).
+  - ⚠️ **Aug 28, 2026 — and the vertical budget was not re-checked after that resize, which is the
+    one thing round 2 said mattered.** Round 2's entire argument was a Dynamic Type budget: the
+    two-line mark's 53pt tipped `accessibility1` into overflowing `WelcomeScreen`. Round 3 then
+    grew the line box from **27.0pt to 39.0pt** to fix the ink size, verified that it still fits
+    *horizontally*, and did not re-run the *vertical* check it had just made the argument about.
+    **Re-measured after the fact it still fits at `accessibility1`, but narrowly** — the mark is
+    now **+14.35pt** on the drawn mark it replaced, not the +2.3pt an earlier line here claimed,
+    and that eats most of the remaining headroom on a 375pt SE.
+    **What is genuinely unresolved, stated rather than buried:** `WelcomeScreen` has no
+    `ScrollView`, so at `accessibility2` and above it overflows with no way to reach the sign-in
+    buttons — **that pre-dates this rename** and is not caused by it, but this change moved the
+    screen closer to the edge rather than further from it. The remedy is the one phase 18 already
+    applied to the five onboarding steps and four backfill screens (`OnboardingStepScaffold`:
+    `ScrollView` + `.frame(minHeight:)` from a `GeometryReader`, so the `Spacer()` still centres);
+    `WelcomeScreen` was exempted then because it is not a step. **Deliberately not done here** — it
+    is a structural change to the first screen, outside a rename, and an attempt at it during this
+    review was itself wrong (a `Spacer` inside a `ScrollView` is inert without the `minHeight`).
+    **Filed rather than fixed, and the honest reason is risk, not scope.**
+    **No test renders `WelcomeScreen` at any Dynamic Type size**, which is why every number here
+    came from hand measurement — `SubscriptionScreenshotTests` does exactly this for the membership
+    surfaces and is the pattern a real check would follow.
 - **The `docs/app-icon/` kit was not renamed, deliberately.** Twelve `vellum-*` files draw the
   old name as geometry — **ten SVGs, one PNG and one HTML**, counted with
   `ls docs/app-icon/ | grep '^vellum-' | sed 's/.*\.//' | sort | uniq -c` rather than from memory.
