@@ -100,9 +100,9 @@ true record of an errand that happened and **is not edited**. Append:
 +~~**The highest number used is 129. A genuinely new phase takes 130.**~~ — **struck a twenty-first
 +time on Aug 27, 2026, by 130 taking the number this sentence offered.** **130 is the iOS half of
 +the Pocket Chronicle rename** (iOS lane, branch `ios/phase-130-pocket-chronicle`), paired with
-+**128**, the API half (PR #176, merged). **This is the first pair in this file's history allocated
-+*across* lanes for one piece of work**, and the split was the owner's call after the brief asked
-+for a single cross-lane PR: `CLAUDE.md:16` forbids one, and the Dogear → Vellum rename was itself
++**128**, the API half (PR #176, merged). **The split was the owner's call** after the brief asked
++for a single cross-lane PR, and it is the shape the previous rename already used:
++`CLAUDE.md:16` forbids one branch touching both lanes, and the Dogear → Vellum rename was itself
 +two phases — 71 and 73, PRs #119 and #121, merged one minute apart. **128's row was written by
 +phase 129 rather than by 128 itself**, which is the gap `:242` exists to close: 128 existed as a
 +branch with no row anywhere under `docs/` for long enough that 129's allocation had to discover it
@@ -118,3 +118,84 @@ true record of an errand that happened and **is not edited**. Append:
 +| **128** | Vellum becomes Pocket Chronicle, the API half | ✅ **shipped Aug 27, 2026** — PR #176, merged | API lane, branch `api/phase-128-pocket-chronicle`. Email subjects and bodies, `wellknown.py`'s public page, `mail_from`, the export viewer, the admin console, the social brand prompts, and the export filename with `api-contract.md:651` beside it. **Three things the brief's file list did not name**: the live broadcast footer and From line (the two protected email files are dormant — their four occurrences are all in `welcome[].body` and the welcome sequence is not built); the admin wordmark, drawn as an SVG path and a canvas `Path2D` that carry no `vellum` token at all; and `api-contract.md`. `manifest.format` unchanged and already break-tested. Suite `1430 passed / 7 failed / 1 skipped` — **the same 7 fail on unmodified `main`** (local `.env` gives real vendor keys to tests asserting their absence). |
 +| **130** | Vellum becomes Pocket Chronicle, on the phone | 🟡 **built and green Aug 27, 2026** — PR pending | iOS lane, branch `ios/phase-130-pocket-chronicle`, paired with 128. **Both name keys in all four plists, split on purpose**: `CFBundleDisplayName` = `Chronicle`, `CFBundleName` = `Pocket Chronicle`. **The invariant that broke is the finding**: until today both keys held one string, three comments said so, and a test looped both keys against **one** expected value across all four files — so a substitution rename would have stayed green while putting one name in both keys, the same failure phase 82 shipped and 114 caught. The test now pins per key and asserts they differ. Every user-facing string takes the name **its surface renders** — *"Settings → Chronicle → Notifications"*, *"Open Chronicle and sign in"*, but *"Pocket Chronicle writes to this phone first"*. `Wordmark.swift` dropped 208 lines of Bézier geometry spelling the dead name and **sets type at the display weight as a stopgap**; a real lockup is owed and `docs/app-icon/` is marked superseded rather than renamed, because a file named `pocket-chronicle-wordmark.svg` that draws *Vellum* is worse than one named honestly. **The app icon needed no change** — it carries no lettering, which is the third rename that has paid off. `Vellum.storekit` → `PocketChronicle.storekit`, safe because nothing references it. Legal URLs repointed at `pocketchronicle.app`, **confirmed 200 by `curl` first** — `SubmissionComplianceTests` asserts they resolve and never asserts a host, so it would have passed against an unregistered domain. **1242 tests in 150 suites passed, cold, `DerivedData` deleted, zero warnings under the four-directory gate.** |
 ```
+
+---
+
+# Addendum — Aug 27, 2026, after a ten-dimension review of the rename
+
+The review found operator-facing instructions in the gate documents that are now **actively
+wrong** — a human typing from them would reproduce the retired name in a place that is permanent
+or unrecallable. These are more urgent than the ledger rows above.
+
+## 7. `blocked.md` §10 step 3 — the runbook still creates the group under the dead name 🔴
+
+`:608` reads *"Create the subscription group `Vellum Membership`"* and, two lines down, *"Nothing
+has been created yet, which is the only reason this edit was still possible."*
+
+```diff
+-3. **Create the subscription group** `Vellum Membership`. **Renamed from `Dogear Membership` on
++3. **Create the subscription group** `Pocket Chronicle Membership`. ~~`Vellum Membership`~~
++   — **struck Aug 27, 2026 with the third rename.** **Renamed from `Dogear Membership` on
+```
+
+**And the premise underneath it needs re-checking before anything is typed.** §25 of this same
+file, written Aug 27–28, 2026, reports a TestFlight purchase against a real household and says the
+products *"did"* exist in App Store Connect. If that is right, *"nothing has been created yet"* is
+false, the group name may already be permanent, and `SubscriptionProducts.groupName` records a name
+the store does not have. **Only the owner can look.** The client constant carries this warning in
+its doc comment rather than asserting the rename succeeded.
+
+## 8. `blocked.md` §19 — the copy-paste block ships a dead domain 🔴
+
+`:1451` still prescribes `TERMS_URL = https://getvellumapp.com/terms`. This block is **the only
+checked-in instruction for a gitignored file**, and it is where the shipped test's own failure
+message sends a developer. Following it links the paywall to a retired domain, and
+`SubmissionComplianceTests` cannot catch it — it asserts the URL parses with a non-empty host,
+never which host.
+
+```diff
+-TERMS_URL   = https:$()/$()/getvellumapp.com/terms
+-PRIVACY_URL = https:$()/$()/getvellumapp.com/privacy
++TERMS_URL   = https:$()/$()/pocketchronicle.app/terms/
++PRIVACY_URL = https:$()/$()/pocketchronicle.app/privacy/
+```
+
+Both pages confirmed **200** on Aug 27, 2026.
+
+## 9. `blocked.md` §13 step 5 — the `fly secrets set` line signs mail with the dead name 🔴
+
+`:1080` prescribes `fly secrets set --app rascal-api MAIL_FROM='Vellum <hello@mail.yourdomain>'`.
+
+**`MAIL_FROM` is a Deployed secret today** (`flyctl secrets list -a rascal-api`), and a
+`pydantic-settings` field takes the environment over its default — so **phase 128's edit to
+`config.py:175` did not change what production sends.** Every broadcast still signs with the
+retired name until this command is run with the new one. Outbound email is the surface
+`decisions.md` item 15 names as unrecallable.
+
+```diff
+-| 5 | … | `fly secrets set --app rascal-api MAIL_FROM='Vellum <hello@mail.yourdomain>'` and `MAIL_PROVIDER=resend` |
++| 5 | … | `fly secrets set --app rascal-api MAIL_FROM='Pocket Chronicle <hello@mail.yourdomain>'` and `MAIL_PROVIDER=resend` |
+```
+
+**Same class, same fix, two more secrets:** `MARKETING_ORIGINS` must gain
+`https://pocketchronicle.app` or the new site's subscribe form is CORS-refused; `MARKETING_SITE_URL`
+must move or every broadcast footer still links to the old host.
+
+## 10. `blocked.md` §11 step 2 — a device checklist naming a label iOS will not render
+
+`:889` tells the tester *"Settings → Apple ID → Sign-In & Security → Sign in with Apple → find
+Vellum"*. That list renders `CFBundleDisplayName`, so the label is now **`Chronicle`** — not
+`Pocket Chronicle`, and not `Vellum`.
+
+## 11. `decisions.md` D5a — the settled record of the group name
+
+`:43` still reads *"Subscription group **`Vellum Membership`**"*. Amend by strike-and-date the way
+D5a already handled `Dogear Membership`, and carry the §25 caveat above with it.
+
+## 12. Six live documents still name `ios/Rascal/RascalTests/Vellum.storekit`
+
+The path no longer exists. `decisions.md`, `blocked.md`, `phase-queue.md` and `roadmap-status.md`
+are gate documents and are listed here; `docs/phase-briefs/phase-125-…` and
+`docs/reports/phase-124-preflight.md` are dated records and are correctly left alone.
+One of the gate-document mentions is an **open iOS-lane action item that names the file as the
+thing to edit**, so it must move or the errand points at nothing.

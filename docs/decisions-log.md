@@ -1000,17 +1000,25 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   the view sets the name at the display weight and **keeps its `WordmarkView(width:tint:)`
   signature** so a drawn mark takes over without touching the one call site. **A real lockup is
   owed.**
-- **The `docs/app-icon/` kit was not renamed, deliberately.** Thirteen `vellum-*` files draw the
-  old name as geometry. A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
+- **The `docs/app-icon/` kit was not renamed, deliberately.** Twelve `vellum-*` files draw the
+  old name as geometry — eleven SVGs plus one PNG, counted with
+  `ls docs/app-icon/ | grep -c '^vellum-'` rather than from memory. A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
   than one honestly named for what it contains, so the names stay and a `README.md` marks the whole
   kit superseded. **Nothing shipped is affected**: `render-appicon.mjs` reads `rascal-icon-fan.svg`,
   which carries no lettering at all, so the app icon on every phone was already name-neutral —
   the third rename in a row that has paid off. The README warns against repointing it at
   `vellum-icon-fan.svg`, which is the variant *with* the wordmark in the front card.
-- **`Vellum.storekit` → `PocketChronicle.storekit`, and it was safe because nothing references
-  it.** No `.pbxproj` entry, no scheme entry, no test plan — `RascalTests` is a
-  `PBXFileSystemSynchronizedRootGroup`, so the file is picked up by path. Only
-  `SKTestSession(configurationFileNamed:)` and one doc comment named it, and both moved with it.
+- **`Vellum.storekit` → `PocketChronicle.storekit`, and it was safe *for the build*.** No
+  `.pbxproj` entry, no scheme entry, no test plan — `RascalTests` is a
+  `PBXFileSystemSynchronizedRootGroup`, so the file is picked up by path.
+  ~~and it was safe because nothing references it … only `SKTestSession(configurationFileNamed:)`
+  and one doc comment named it, and both moved with it.~~ — 🔴 **corrected Aug 27, 2026: that was
+  true of code and false of the documents.** Four live docs still name
+  `ios/Rascal/RascalTests/Vellum.storekit`, one of them an open iOS-lane action item that names the
+  file as the thing to edit. Three of the four are gate documents this run may not edit, so those
+  corrections are proposed in `docs/reports/phase-130-gate-document-diffs.md` rather than applied.
+  **"Nothing references it" should have been scoped to the build the moment it was written**: a
+  rename that moves a path is a docs change as much as a code one.
   **The two product identifiers inside it did not move** and must not: they are permanent on first
   save in App Store Connect.
 - **`SubscriptionProducts.groupName` moved; the product ids did not.** The group name is a display
@@ -1022,9 +1030,11 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   The owner supplied the domain mid-phase; `curl` answered **200** on
   `https://pocketchronicle.app/terms/` and `https://pocketchronicle.app/privacy/` before either
   value was written. **That check was the whole point**: `SubmissionComplianceTests` asserts those
-  URLs *resolve to a `URL`* and **never asserts a host**, so pointing them at a domain that does
-  not exist would have passed the suite green and failed at App Review — the one reviewer that
-  opens the page. A test that cannot fail on the thing that matters is worse than no test, and
+  URLs resolve to a `URL` **with a non-empty host** — and never asserts **which** host, which is
+  the gap that matters: pointing them at a domain that does not exist would have passed the suite
+  green and failed at App Review, the one reviewer that opens the page. (An earlier draft of this
+  line said the test "never asserts a host" at all; it does, via the `url.host()` guard that exists
+  to catch the xcconfig `//` truncation.) A test that cannot fail on the thing that matters is worse than no test, and
   this is filed rather than fixed here because widening it is a copy decision, not a rename one.
 - **`Config.xcconfig` is gitignored, so half that change is invisible to the PR.** `.gitignore:229`
   excludes it, and it is the file the *build actually reads* — the `.example` beside it is only a

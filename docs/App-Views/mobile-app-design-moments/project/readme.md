@@ -2,8 +2,7 @@
 > This bundle was exported Aug 16, 2026 and is accurate about that day. **Two things changed on
 > Aug 17–18 and both bear directly on the `Wordmark` rules below:**
 >
-> 1. **The product is called `Pocket Chronicle`, not `RASCAL`.** Settled by the owner Aug 27, 2026
->    (`Vellum` from Aug 17, 2026)
+> 1. **The product is called `Vellum`, not `RASCAL`.** Settled by the owner Aug 17, 2026
 >    (`docs/decisions.md:115`) and renamed through both lanes as phases 71 and 73. `RASCAL` remains
 >    the repository, package and path name and is correct wherever you see it as an identifier —
 >    but it is no longer the product's name in any copy a person reads.
@@ -19,6 +18,14 @@
 > **Do not "fix" the body below to match.** It is a dated export and its value is that it records
 > what was true on Aug 16. `docs/design-system.md` is the live authority for the app.
 
+> **⚠️ SUPERSEDED AGAIN, Aug 27, 2026 — appended, not merged into the Aug 18 note above.**
+> **The product is called `Pocket Chronicle`.** An attorney found a trademark conflict and `Vellum`
+> was retired; phases 128 and 130 renamed both lanes. **The banner above is left exactly as it was
+> written on Aug 18, 2026 and is a true record of that day** — it says `Vellum` because that was
+> the name then, and phases 71 and 73 really were the Dogear → Vellum rename. Editing a dated note
+> to name a name that did not exist yet is the failure `docs/decisions.md:120` records from the
+> last rename, and this file carried it for one commit before it was caught.
+> **`RASCAL` still remains the repository, package and path name.**
 # RASCAL Design System
 
 RASCAL is a daily-memory app for parents. Every morning it hands you **one** small

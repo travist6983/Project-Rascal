@@ -31,8 +31,8 @@
 	     The widget and the share extension carry the same string in their own plists, and so does
 	     Info-Debug.plist. **All four have to agree** — this file, Info-Debug.plist,
 	     RascalWidget-Info.plist and RascalShare-Info.plist — and since Aug 23, 2026 they have to
-	     agree on both name keys, not just this one. ~~Three of these comments said "all
-	     three"~~ and undercounted the debug variant, which is the copy of this file most likely to
+	     agree on both name keys, not just this one. Three of these comments said "all
+	     three" and undercounted the debug variant, which is the copy of this file most likely to
 	     drift precisely because it is maintained by hand. iOS groups the widget gallery by the
 	     app's display name, and a widget reading one name under a heading reading something else
 	     is worse than either alone.

@@ -20,7 +20,7 @@ historical artefact of the Vellum identity, not as current brand assets.**
 | `vellum-mark.svg`, `vellum-mark-compact.svg` | Superseded. |
 | `vellum-logo-{horizontal,stacked,mono}.svg`, `vellum-logo-hover.html` | Superseded — all lockups pair the mark with the dead wordmark. |
 | `vellum-icon-fan.{svg,png}`, `vellum-icon-alt-{v,monogram}.svg` | Superseded. The fan carries the wordmark in the front card. |
-| `generate-vellum.mjs` | Generates all of the above. Regenerating reproduces the dead name. |
+| `generate-vellum.mjs` | Generates the **SVGs** above — its own header says it *"writes `vellum-*.svg` in this directory and nothing else"*, so `vellum-icon-fan.png` is **not** its output and must be re-exported by hand. Regenerating reproduces the dead name. |
 | `index.html` | The identity page. Presents the above. |
 | `rascal-icon-{fan,tinted,tonal}.svg`, `render-appicon.mjs`, `generate.mjs` | **Unaffected.** |
 

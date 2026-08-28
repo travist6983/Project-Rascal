@@ -35,13 +35,23 @@ struct WordmarkView: View {
     var width: CGFloat = 104
     var tint: Color = .ink
 
-    /// The drawn mark's aspect ratio, `531.5 × 126`. Retained so a wordmark set as type occupies
-    /// roughly the block a drawn one did, and so swapping back does not reflow the screen around it.
+    /// The drawn mark's aspect ratio, `531.5 × 126`. Retained as the basis for the type size, and
+    /// **not** because the two occupy the same block — measured with CoreText at `width: 104`, the
+    /// drawn mark was 24.7pt tall and this one is about 53pt over two lines, roughly **2.2×**.
+    /// Swapping a drawn lockup back in *will* reflow the screen around it, and that is the honest
+    /// statement; the welcome screen absorbs it today because a `Spacer()` sits above the mark.
     static let designAspectRatio: CGFloat = 531.5 / 126
 
     /// Chosen so the cap height lands near the drawn mark's stroke-inset height at the same width.
-    /// Two words wrap at this size on the narrowest supported phone, which is intended: the lockup
-    /// stacks rather than shrinking below legibility.
+    ///
+    /// **The lockup always stacks onto two lines, on every device.** Not an edge case on small
+    /// phones — the frame below is a fixed `width`, independent of the screen, so the wrap is a
+    /// property of the string and the size rather than of the hardware. Measured with CoreText at
+    /// `width: 104` (pointSize 22.68): *"Pocket Chronicle"* on one line is 174pt, *"Pocket"* is
+    /// 71pt and *"Chronicle"* is 99pt. So it wraps, and both lines fit — but *"Chronicle"* clears
+    /// the frame by about 5pt, which is thin enough that `lineLimit` and `minimumScaleFactor`
+    /// below are load-bearing rather than decorative: they turn a clipped mark into a slightly
+    /// smaller one if a future font or a wider name eats that margin.
     private var pointSize: CGFloat {
         width / WordmarkView.designAspectRatio * 0.92
     }
@@ -50,7 +60,11 @@ struct WordmarkView: View {
         Text("Pocket Chronicle")
             .font(.system(size: pointSize, weight: .bold, design: .rounded))
             .kerning(-0.4)
-            .lineSpacing(-2)
+            // Two lines, and never more — the name is two words. `minimumScaleFactor` is the
+            // guard on the ~5pt of headroom the measurement above found: without it a wider
+            // rendering of "Chronicle" clips at the frame instead of shrinking to fit.
+            .lineLimit(2)
+            .minimumScaleFactor(0.75)
             .foregroundStyle(tint)
             .fixedSize(horizontal: false, vertical: true)
             .frame(width: width, alignment: .leading)
