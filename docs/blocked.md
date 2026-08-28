@@ -11,7 +11,7 @@ to end.
 Last reviewed: ~~**Aug 22, 2026.**~~ **Aug 25, 2026.** The Aug 11 pass is described below and its
 findings stand; what Aug 16 changed is recorded in the paragraphs immediately after it.
 
-**Aug 25, 2026 — phase 126's allocation added §23, and it is filed as a correction rather than as an errand.** The brief that prompted it said `getvellumapp.com` *"currently has no mail routing"*; the domain is on iCloud Custom Email Domain with both Apple exchangers, an SPF record, the `apple-domain=` verification TXT and a DMARC policy, all read off public DNS the same day and reproduced in the section. **What survives as genuinely yours is narrower and was not the thing named**: an MX record routes a domain and does not create an address, so whether `hello@` exists and whether a message to it arrives are the open questions, and both need an inbox this lane cannot reach. **Count the sections by running it rather than quoting this line**: `grep -c '^## §' docs/blocked.md` answers **13** as this is written. That is a different basis from the *thirteen* the phase 122 note below reports, which counted before §23 existed and over a wider set of headings; it is left alone rather than reconciled here, because a count corrected by somebody who did not re-derive it is the failure this file keeps recording.
+**Aug 25, 2026 — phase 126's allocation added §23, and it is filed as a correction rather than as an errand.** The brief that prompted it said `getvellumapp.com` *"currently has no mail routing"*; the domain is on iCloud Custom Email Domain with both Apple exchangers, an SPF record, the `apple-domain=` verification TXT and a DMARC policy, all read off public DNS the same day and reproduced in the section. **What survives as genuinely yours is narrower and was not the thing named**: an MX record routes a domain and does not create an address, so whether `hello@` exists and whether a message to it arrives are the open questions, and both need an inbox this lane cannot reach. **Count the sections by running it rather than quoting this line**: `grep -c '^## §' docs/blocked.md` answers **13** as this is written. **Answers 15 as of Aug 28, 2026 by phase 129, which added §25** — a delta this line notes rather than reconciles, per its own rule two sentences later that a count corrected by somebody who did not re-derive the whole thing is the failure this file keeps recording. That is a different basis from the *thirteen* the phase 122 note below reports, which counted before §23 existed and over a wider set of headings; it is left alone rather than reconciled here, because a count corrected by somebody who did not re-derive it is the failure this file keeps recording.
 
 **Aug 25, 2026 — phase 122, a docs sweep, and it touched three things here.** **New: §22**, the
 three `GEMINI_*` Fly secrets that phase 120 orphaned on Aug 25 — the only genuinely owner-only act
@@ -645,22 +645,29 @@ one.
 click paths on purpose — App Store Connect's navigation changes, and a stale menu path in a runbook
 is worse than a described destination. Nobody on this branch has an App Store Connect session.
 
-**Phase 37b shipped against a `.storekit` file and has never been exercised against Apple** (Aug 20,
-2026). The client half — products, paywall, purchase, restore, the `Transaction.updates` listener —
-is built and merged, and `ios/Rascal/RascalTests/Vellum.storekit` is the local configuration it was
-written against. The errand above is unchanged and still gates the first real transaction: until
-steps 1–5 are done there is no sandbox purchase to make, and **the `appAccountToken` round trip to
-37a's webhook has never been observed end to end.**
+~~**Phase 37b shipped against a `.storekit` file and has never been exercised against Apple**~~
+(Aug 20, 2026; **the client half has since been exercised, Aug 27–28, 2026, by phase 129**). The
+client half — products, paywall, purchase, restore, the `Transaction.updates` listener — is built
+and merged, and `ios/Rascal/RascalTests/Vellum.storekit` is the local configuration it was written
+against. **A real TestFlight purchase reached the App Store and a real `DID_RENEW` notification
+came back**, so this is no longer untested against Apple — see §10a below for what that
+notification proved and correctly did not do. ~~The errand above is unchanged and still gates the
+first real transaction: until steps 1–5 are done there is no sandbox purchase to make, and **the
+`appAccountToken` round trip to 37a's webhook has never been observed end to end.**~~ — **wrong as
+of Aug 28, 2026: the round trip has been observed end to end, in Sandbox.** What is still true is
+narrower — **no Production purchase has ever reached this service**, which is the first live
+subscriber's job to prove, not this errand's.
 
 
 ---
 
-## §10a — The webhook is built; ~~and cannot verify anything yet~~ **it verifies Sandbox today and still cannot verify Production** (Aug 20, 2026; item 1 closed Aug 22, 2026)
+## §10a — The webhook is built; ~~and cannot verify anything yet~~ ~~it verifies Sandbox today and still cannot verify Production~~ **it verifies both today, and a live Sandbox notification has round-tripped through the whole path** (Aug 20, 2026; item 1 closed Aug 22, 2026; item 2 closed Aug 28, 2026)
 
 **Phase 37a shipped `POST /v1/webhooks/app-store`, the only code that writes
 `entitlements.tier`.** It is tested, reviewed twice, and ~~**refuses every notification with
-`401`** until the two items below are done~~ — **that was true until Aug 22, 2026. Item 1 is now
-closed and only Production is still blocked.** The fail-closed design is unchanged and is still the
+`401`** until the two items below are done~~ — ~~**that was true until Aug 22, 2026. Item 1 is now
+closed and only Production is still blocked.**~~ — **both items are closed as of Aug 28, 2026; see
+below.** The fail-closed design is unchanged and is still the
 point: the signature is the
 only thing standing between a stranger and somebody's billing state, so there is no branch that
 accepts an unverified payload and no local bypass.
@@ -724,7 +731,7 @@ phase**, along with the macOS caveat — that file sits next to the code and is 
 when they need it, so a verification step that lives only on this page is a step that will not be
 run.
 
-### 2. `APP_STORE_APP_APPLE_ID` is unset
+### ~~2. `APP_STORE_APP_APPLE_ID` is unset~~ — **CLOSED Aug 28, 2026. It is set, and both verifiers build.**
 
 The app's **numeric** Apple ID from App Store Connect — not the bundle id. Apple's own library
 refuses to construct a Production verifier without it, because a bundle id alone does not pin which
@@ -736,21 +743,49 @@ It is on the app's page in App Store Connect and takes a minute to read off. Set
 **This does not wait on the Paid Applications agreement.** The app record has existed since
 TestFlight, so unlike everything in §10 this one is available today.
 
-**Still open, confirmed Aug 22, 2026.** `flyctl secrets list -a rascal-api` was read in full and
-`APP_STORE_APP_APPLE_ID` is **absent**.
+~~**Still open, confirmed Aug 22, 2026.** `flyctl secrets list -a rascal-api` was read in full and
+`APP_STORE_APP_APPLE_ID` is **absent**.~~
 
-**What closing item 1 changed about this one, precisely.** Apple's library refuses to construct a
-verifier without the app's numeric Apple ID **only for `Environment.PRODUCTION`** — a Sandbox
-verifier needs the root and the bundle id and nothing else. So as of today **the Sandbox verifier
-builds and Production does not.** Two consequences follow and they point in opposite directions:
+**Wrong by Aug 28, 2026, and stale for longer than that was noticed.** `flyctl secrets list -a
+rascal-api`, read that day, shows `APP_STORE_APP_APPLE_ID` **Deployed**, alongside
+`APPLE_BUNDLE_ID`. Nobody had re-run the check since Aug 22 to see it change. Confirmed by
+constructing the verifier directly, on the production machine, rather than trusting the secret's
+mere presence:
 
-- **The first sandbox purchase in §10 is now verifiable end to end.** The `appAccountToken` round
-  trip that §10's closing paragraph calls never-observed is observable the moment steps 1–5 of that
-  errand are done — the webhook will accept a Sandbox notification, and there is no longer a second
-  thing to fix before the evidence exists.
-- **Production is still blocked, and it fails the same way it always did**: `401`, loudly, on every
-  Production notification. That is one secret away, and it is a minute at a keyboard rather than a
-  decision.
+```
+$ flyctl ssh console -a rascal-api -C "python -c \"
+from rascal.services.app_store import AppStoreVerifier
+from rascal.config import get_settings
+v = AppStoreVerifier(get_settings())
+print(sorted(e.name for e in v._verifiers))
+\""
+['PRODUCTION', 'SANDBOX']
+```
+
+**Both verifiers build today.** The distinction §10a drew between them — Sandbox needs only the
+root and the bundle id, Production needs the app id too — is still correct; what changed is that
+the app id is now present, so both branches of that distinction construct rather than one.
+
+**And more than construction was proven, the same day, by a live notification rather than a
+manual check.** A Sandbox `DID_RENEW` for `com.travisterry.childarchive.subscription.monthly`
+arrived at `POST /v1/webhooks/app-store` on Aug 28, 2026 and is in `app_store_transactions`.
+Reading it end to end: the outer JWS verified, the nested `signedTransactionInfo` verified and
+decoded, `appAccountToken` decoded to a real `family_id` that `session.get(Family, …)` resolves —
+every step this item and its heading describe as unverified, verified, on production, against a
+payload Apple actually signed. **The one thing that did not happen, correctly:** the notification
+did not write `entitlements.tier`, because `may_write_tier("Sandbox", "prod")` returns `False` —
+Guard 3, working exactly as `app_store_events.py`'s own docstring says it should: *"a Sandbox
+tester account is free to create, so treating its notifications as real would let anybody
+subscribe a production household by buying nothing."* The row was correctly recorded and
+correctly left unattributed. That guard is not this item's business and is not weakened by
+closing it — see the new entry below for what *is* worth fixing about it.
+
+**What is still genuinely unverified, stated so the next reader does not read "both verifiers
+build" as "a real purchase has gone through end to end."** No Production App Store Server
+Notification has ever reached this service — the evidence above is Sandbox, by construction,
+because that is what a TestFlight build sends. The first live subscriber is still the first time
+the Production branch of this code runs against a real Apple payload rather than a constructed
+verifier object.
 
 ### What is *not* blocked
 
@@ -1711,3 +1746,36 @@ avoid depending on it: phase 127 revokes at *execution* rather than at request t
 that a parent who changes their mind during the seven days never has to re-consent. If §11 ever
 resolves that `sub` is stable, revoking earlier becomes available; it is not worth doing on an
 assumption.
+
+## §25 — A sandbox-blocked App Store notification is invisible everywhere except a log line (Aug 28, 2026)
+
+**Not a defect in Guard 3.** `may_write_tier` correctly refuses to let a Sandbox notification touch
+a production entitlement — the docstring's reasoning stands: *"a Sandbox tester account is free to
+create, so treating its notifications as real would let anybody subscribe a production household by
+buying nothing."* This section is about what happens **after** the guard fires correctly, which is
+nothing a person can see without SSHing into the machine and reading a table by hand.
+
+**How this cost an evening, on Aug 27–28, 2026.** A TestFlight purchase was made against a real
+household. `AppStore.sync()` succeeded on the device. The App Store card in Settings kept reading
+*Free*. Every plausible cause was checked in the wrong order — whether the sandbox tester was
+configured (it was, and irrelevant: TestFlight bills the tester who redeemed the invite, not the
+device's Sandbox Apple Account), whether the products existed in App Store Connect (they did),
+whether `APP_STORE_APP_APPLE_ID` was set (it was, and §10a item 2 above said otherwise until this
+was found) — before landing on the actual answer: the notification arrived, verified, resolved to
+the right family, and was correctly discarded by Guard 3, three steps before any of that would have
+shown up anywhere a person looks.
+
+**What exists today:** `log.warning("sandbox notification recorded without touching tier", …)` in
+`app_store_events.py`, and the row itself in `app_store_transactions` with `family_id = NULL`.
+Neither is reachable without `flyctl logs` or a hand-written query — not the app, not the admin
+console, not this file until now.
+
+**What would have answered the question in seconds instead of an evening:** one line on the admin
+console's cost or families panel — *"N unattributed Sandbox transactions"* — or a `GET` route
+that lists `app_store_transactions` rows where `family_id IS NULL`. Either makes the state Guard 3
+produces something a person can see without a database credential.
+
+**Not filed as blocking anything.** Guard 3 is correct and stays exactly as written. This is an
+observability gap, not a bug, and it is the kind of gap this repository is worst at catching —
+nothing goes red while it is missing, per the pattern §12 above already named for the deletion
+machine.
