@@ -1027,3 +1027,129 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   `mail.getvellumapp.com` at Resend, and the four broadcasts already sent from it are all outside
   this repository. See the proposed `blocked.md` §13 amendment in
   `docs/reports/phase-130-gate-document-diffs.md`.
+## Aug 27, 2026 — Phase 130: Vellum becomes Pocket Chronicle, on the phone
+
+- **Three names, and they are different on purpose.** `CFBundleDisplayName` is **`Chronicle`**,
+  `CFBundleName` is **`Pocket Chronicle`**, and the App Store name is **`Pocket Chronicle`**. The
+  home-screen label truncates around eleven characters and the store name is sixteen. A display
+  name that is a substring of the store name is ordinary — Chrome, Maps and Photos all do it.
+  **This is not an inconsistency to fix**, and there are now assertions in `GoogleSignInTests` that
+  fail if somebody makes the two keys equal in either direction.
+- **The invariant this broke is the interesting part.** Until today both keys held *the same*
+  string in all four plists, and three places said so in prose: `Info.plist:55` (*"both move
+  together on a rename"*), `RascalShare-Info.plist:23` (*"All four read 'Vellum' and must stay that
+  way"*), and a test that looped `["CFBundleName", "CFBundleDisplayName"]` against **one** expected
+  value across all four files. **A substitution rename would have left that loop green while
+  putting one name in both keys** — the identical failure mode phase 82 shipped and phase 114
+  caught. The loop now pins each key to its own value; the prose is struck and dated rather than
+  overwritten, because what it recorded was true when written.
+- **Which name a string gets depends on which iOS surface renders it, not on the file it lives
+  in.** Copy *about* the product takes `Pocket Chronicle`. Copy telling a parent to **go find the
+  app** takes `Chronicle`, because that is what the surface actually shows: *"Settings → Chronicle
+  → Notifications"* (Settings lists apps by display name), *"Open Chronicle and sign in"* (the share
+  extension pointing at the home screen), *"iPhone Storage → Chronicle"*. Using the store name
+  there would be an instruction that is **literally false on a device**. `docs/design-system.md`
+  carried both kinds on one line and now states the rule explicitly.
+- **The wordmark is type again, and that is a stopgap rather than a decision.** `Wordmark.swift`
+  was 208 lines of Bézier geometry ported from `docs/app-icon/vellum-wordmark.svg` — six
+  letterforms spelling the dead name. Two words and sixteen characters cannot be re-lettered into
+  a lockup drawn for six, and condensing it would ship proportions drawn for a different word. So
+  the view sets the name at the display weight and **keeps its `WordmarkView(width:tint:)`
+  signature** so a drawn mark takes over without touching the one call site. **A real lockup is
+  owed.**
+  - **Aug 28, 2026 — the first version of that view wrapped, and wrapping was a layout defect
+    rather than a look.** It clamped the text to `.frame(width: width)`, which forced *"Pocket
+    Chronicle"* onto two lines and made the mark **53pt** tall against the drawn mark's **24.7pt**.
+    Measured on an iPhone SE, that extra 29pt is what tipped Dynamic Type `accessibility1` from
+    fitting the welcome screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an
+    overflow there puts the sign-in buttons off-screen with no way to reach them. It is the same
+    failure phase 18 found on the five onboarding steps, arriving on the one screen that was
+    exempted from that fix. **The mark now sets on one line**, which removes the *wrap*
+    instead of absorbing it — see the correction below for what it does not remove.
+  - **Aug 28, 2026 — and the one-line version was sized wrong too, for a subtler reason.** It kept
+    the old `× 0.92` factor, which made the type 22.68pt: a **174pt × 27.0pt line box** whose actual
+    **ink is 16.97pt against the drawn mark's 24.65pt — 31% smaller**. The comment claiming parity
+    compared this view's *line box* to the drawn mark's *ink box*. **Compare like with like**: the
+    factor is now **1.337**, which is `1 / 0.75` for the same reason `cards.js` uses 1.3 — the
+    drawn band was the ascender, and an ascender is ~0.75 of the em. The API half of this same
+    round diagnosed exactly that error in `cards.js` and the iOS half did not, in the same commit.
+    Measured with `CTLineGetImageBounds` rather than `size()`: **32.96pt, 253.8pt advance, 24.66pt
+    of ink, 39.0pt line box** — ink parity, and **+14.35pt of layout height**, which is the number a
+    screen budget cares about. It fits one line against 319pt of content on the narrowest iPhone
+    this app supports (deployment target 18.6, iPhone-only, so a 375pt SE — **not** the 320pt an
+    earlier version of the comment claimed).
+  - ⚠️ **Aug 28, 2026 — and the vertical budget was not re-checked after that resize, which is the
+    one thing round 2 said mattered.** Round 2's entire argument was a Dynamic Type budget: the
+    two-line mark's 53pt tipped `accessibility1` into overflowing `WelcomeScreen`. Round 3 then
+    grew the line box from **27.0pt to 39.0pt** to fix the ink size, verified that it still fits
+    *horizontally*, and did not re-run the *vertical* check it had just made the argument about.
+    **Re-measured after the fact it still fits at `accessibility1`, but narrowly** — the mark is
+    now **+14.35pt** on the drawn mark it replaced, not the +2.3pt an earlier line here claimed,
+    and that eats most of the remaining headroom on a 375pt SE.
+    **What is genuinely unresolved, stated rather than buried:** `WelcomeScreen` has no
+    `ScrollView`, so at `accessibility2` and above it overflows with no way to reach the sign-in
+    buttons — **that pre-dates this rename** and is not caused by it, but this change moved the
+    screen closer to the edge rather than further from it. The remedy is the one phase 18 already
+    applied to the five onboarding steps and four backfill screens (`OnboardingStepScaffold`:
+    `ScrollView` + `.frame(minHeight:)` from a `GeometryReader`, so the `Spacer()` still centres);
+    `WelcomeScreen` was exempted then because it is not a step. **Deliberately not done here** — it
+    is a structural change to the first screen, outside a rename, and an attempt at it during this
+    review was itself wrong (a `Spacer` inside a `ScrollView` is inert without the `minHeight`).
+    **Filed rather than fixed, and the honest reason is risk, not scope.**
+    **No test renders `WelcomeScreen` at any Dynamic Type size**, which is why every number here
+    came from hand measurement — `SubscriptionScreenshotTests` does exactly this for the membership
+    surfaces and is the pattern a real check would follow.
+- **The `docs/app-icon/` kit was not renamed, deliberately.** Twelve `vellum-*` files draw the
+  old name as geometry — **ten SVGs, one PNG and one HTML**, counted with
+  `ls docs/app-icon/ | grep '^vellum-' | sed 's/.*\.//' | sort | uniq -c` rather than from memory.
+  (A first draft said *"eleven SVGs plus one PNG"* — the right total, distributed wrongly, in the
+  one sentence that advertised having counted. `vellum-logo-hover.html` is the twelfth.) A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
+  than one honestly named for what it contains, so the names stay and a `README.md` marks the whole
+  kit superseded. **Nothing shipped is affected**: `render-appicon.mjs` reads `rascal-icon-fan.svg`,
+  which carries no lettering at all, so the app icon on every phone was already name-neutral —
+  the third rename in a row that has paid off. The README warns against repointing it at
+  `vellum-icon-fan.svg`, which is the variant *with* the wordmark in the front card.
+- **`Vellum.storekit` → `PocketChronicle.storekit`, and it was safe *for the build*.** No
+  `.pbxproj` entry, no scheme entry, no test plan — `RascalTests` is a
+  `PBXFileSystemSynchronizedRootGroup`, so the file is picked up by path.
+  ~~and it was safe because nothing references it … only `SKTestSession(configurationFileNamed:)`
+  and one doc comment named it, and both moved with it.~~ — 🔴 **corrected Aug 27, 2026: that was
+  true of code and false of the documents.** **Five** live docs still name
+  `ios/Rascal/RascalTests/Vellum.storekit`, one of them an open iOS-lane action item that names the
+  file as the thing to edit. **Four of the five are gate documents** — `decisions.md`,
+  `blocked.md`, `phase-queue.md`, `roadmap-status.md` — so those corrections are proposed in
+  `docs/reports/phase-130-gate-document-diffs.md` rather than applied; **the fifth is this file**.
+  (A first draft of this correction said *"four … three of the four are gate documents"*, which is
+  not an undercount but an impossibility: the gate subset alone would exhaust the total. Counted
+  with `grep -rln` the second time.) Three further mentions sit in `docs/archive/` and in dated
+  reports and briefs, and are correctly left alone.
+  **"Nothing references it" should have been scoped to the build the moment it was written**: a
+  rename that moves a path is a docs change as much as a code one.
+  **The two product identifiers inside it did not move** and must not: they are permanent on first
+  save in App Store Connect.
+- **`SubscriptionProducts.groupName` moved; the product ids did not.** The group name is a display
+  string in App Store Connect that no code reads, and nothing has been saved there yet — the same
+  window `decisions-log`'s Aug 17 entry used to correct it to *"Vellum Membership"*. **This needs a
+  matching edit in App Store Connect by hand**; the constant only records what the client was built
+  against.
+- **The legal URLs moved to `pocketchronicle.app`, and only after the pages were confirmed live.**
+  The owner supplied the domain mid-phase; `curl` answered **200** on
+  `https://pocketchronicle.app/terms/` and `https://pocketchronicle.app/privacy/` before either
+  value was written. **That check was the whole point**: `SubmissionComplianceTests` asserts those
+  URLs resolve to a `URL` **with a non-empty host** — and never asserts **which** host, which is
+  the gap that matters: pointing them at a domain that does not exist would have passed the suite
+  green and failed at App Review, the one reviewer that opens the page. (An earlier draft of this
+  line said the test "never asserts a host" at all; it does, via the `url.host()` guard that exists
+  to catch the xcconfig `//` truncation.) A test that cannot fail on the thing that matters is worse than no test, and
+  this is filed rather than fixed here because widening it is a copy decision, not a rename one.
+- **`Config.xcconfig` is gitignored, so half that change is invisible to the PR.** `.gitignore:229`
+  excludes it, and it is the file the *build actually reads* — the `.example` beside it is only a
+  template CI copies into place. **Both were edited**, but only `.example` appears in the diff, so
+  the working copy on any other machine still needs the same two lines by hand. The `//` trap
+  applies: the values are written `https:$()/$()/pocketchronicle.app/terms/`, because an unescaped
+  `//` is a comment in xcconfig and would truncate the value to `https:` — which `URL(string:)`
+  accepts, which is how this shipped dark once already.
+- **`docs/archive/` was left untouched** — its README says its contents are kept *"whole and
+  unedited"*, and fourteen occurrences there are a true record of what the product was called.
+  Same reasoning for the dated reports under `docs/reports/` and the briefs under
+  `docs/phase-briefs/`.

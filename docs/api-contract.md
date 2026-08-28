@@ -1938,9 +1938,14 @@ explicitly because the limiter phase 57 built for `/auth/email/start` is right t
 reader will otherwise assume its absence here was an oversight. If Turnstile proves insufficient,
 reusing that limiter is the fix and it is a small one.
 
-**CORS: allowlisted to the marketing origin only**, one entry, from `MARKETING_ORIGIN`. No CORS
+~~**CORS: allowlisted to the marketing origin only**, one entry, from `MARKETING_ORIGIN`. No CORS
 middleware is configured on this app today; this endpoint is what introduces it, and it must not
-be introduced as a wildcard.
+be introduced as a wildcard.~~ — **struck Aug 28, 2026.** Every clause of it is stale: the setting
+is `MARKETING_ORIGINS`, plural since phase 60; it holds **two** entries, not one; and the
+middleware has been configured since that phase. **The paragraph at the top of this section is the
+current one** — this was written when the endpoint was the thing that would introduce CORS, and it
+outlived that. Struck rather than deleted, and struck now because correcting the other paragraph
+without this one left the same document saying two different things about one middleware.
 
 **Timing.** ~~The endpoint and the page it serves may ship before the P0 behavioural gate. **No
 marketing email sends before that gate passes** — the send job is a separate, later phase, and

@@ -13,10 +13,12 @@
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<!-- **Literal, not `$(PRODUCT_NAME)`.** That variable resolves to this target's name,
 	     "RascalWidget", which is what the widget gallery would have shown a parent. It reads
-	     "Vellum" now, matching the app, its debug variant and the share extension — the gallery
-	     groups by the app's display name, so **all four** have to say the same thing. -->
+	     "Chronicle" now, matching the app, its debug variant and the share extension — the gallery
+	     groups by the app's display name, so **all four** have to say the same thing **for this
+	     key**. Since Aug 27, 2026 that qualifier matters: `CFBundleName` below is a different
+	     string ("Pocket Chronicle"), and the four plists agree per key rather than on one name. -->
 	<key>CFBundleDisplayName</key>
-	<string>Vellum</string>
+	<string>Chronicle</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,7 +29,7 @@
 	     `CFBundleName` when it writes its own sentences about a bundle, so `$(PRODUCT_NAME)` here
 	     puts “RascalWidget” into system UI that the display name does not cover. -->
 	<key>CFBundleName</key>
-	<string>Vellum</string>
+	<string>Pocket Chronicle</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>

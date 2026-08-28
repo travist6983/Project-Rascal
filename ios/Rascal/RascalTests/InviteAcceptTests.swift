@@ -6,7 +6,8 @@ import Testing
 /// Tapping an invitation link.
 ///
 /// **`everyRefusalGetsItsOwnSentence` is the test that matters here.** The person on the other
-/// end of this link may never have heard of Vellum — they were handed a URL by their spouse. A
+/// end of this link may never have heard of Pocket Chronicle — they were handed a URL by their
+/// spouse. A
 /// generic error is a dead end for them: they cannot retry their way out of an expired
 /// invitation, and "something went wrong" makes the other parent debug it.
 @Suite("The invitation link")

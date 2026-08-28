@@ -735,7 +735,7 @@ enum LegalLinks {
         let trimmed = raw.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
         // **A host, not merely a parseable string.** The xcconfig `//` trap this key documents
-        // truncates `https://getvellumapp.com/terms` to `https:` — which `URL(string:)` happily
+        // truncates `https://pocketchronicle.app/terms/` to `https:` — which `URL(string:)` happily
         // accepts. Without this check the very failure that comment warns about ships as a link to
         // nowhere rather than as an absent link, and a dead Terms link on a paywall is a Review
         // rejection rather than a cosmetic bug.

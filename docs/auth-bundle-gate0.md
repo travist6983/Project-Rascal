@@ -1,6 +1,11 @@
-# Vellum auth bundle — Gate 0 preflight
+# Pocket Chronicle auth bundle — Gate 0 preflight
 
 > **Renamed Aug 18, 2026.** The title read *"Dogear auth bundle"*. This was the last live occurrence of the dead name in `docs/`, and it survived phase 76's sweep — which reported the repo clean — because the sweep read the body of each file and a title is the one line nobody re-reads. The product is **Vellum** (`decisions.md:115`); the bundle's contents are unaffected.
+>
+> **Renamed again Aug 27, 2026, and the note above is left as written.** The product is
+> **Pocket Chronicle**; an attorney found a trademark conflict and `Vellum` was retired. The Aug 18
+> paragraph stays because it is a true record of that day, and because the lesson it draws — *a
+> title is the one line nobody re-reads* — is why this heading was checked at all this time.
 
 **Run:** Aug 16, 2026, against `main` at `f47a2a1`, working tree clean.
 **Verdict: PASSED, with three of the gate's own premises corrected.** No check failed in the

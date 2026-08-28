@@ -41,7 +41,7 @@ import Testing
 ///
 /// So the failure is below this file and outside this phase's diff. **Nothing here is known to be
 /// wrong; it is unrun**, which is a different and weaker claim, and the PR says so in those words.
-/// `Vellum.storekit` is committed exactly so this suite becomes runnable the moment the
+/// `PocketChronicle.storekit` is committed exactly so this suite becomes runnable the moment the
 /// environment does — remove the `.disabled` trait and nothing else needs to change.
 ///
 /// **Even fully green, this suite would not prove the thing the phase actually rests on.** No
@@ -55,7 +55,7 @@ import Testing
 struct SubscriptionStoreKitTests {
 
     private func makeSession() throws -> SKTestSession {
-        let session = try SKTestSession(configurationFileNamed: "Vellum")
+        let session = try SKTestSession(configurationFileNamed: "PocketChronicle")
         session.resetToDefaultState()
         session.clearTransactions()
         session.disableDialogs = true

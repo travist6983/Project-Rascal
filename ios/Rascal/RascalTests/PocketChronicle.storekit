@@ -15,7 +15,7 @@
     {
       "id": "21550401",
       "localizations": [],
-      "name": "Vellum Membership",
+      "name": "Pocket Chronicle Membership",
       "subscriptions": [
         {
           "adHocOffers": [],
@@ -38,7 +38,7 @@
           ],
           "productID": "com.travisterry.childarchive.subscription.annual",
           "recurringSubscriptionPeriod": "P1Y",
-          "referenceName": "Vellum Yearly",
+          "referenceName": "Pocket Chronicle Yearly",
           "subscriptionGroupID": "21550401",
           "type": "RecurringSubscription"
         },
@@ -63,7 +63,7 @@
           ],
           "productID": "com.travisterry.childarchive.subscription.monthly",
           "recurringSubscriptionPeriod": "P1M",
-          "referenceName": "Vellum Monthly",
+          "referenceName": "Pocket Chronicle Monthly",
           "subscriptionGroupID": "21550401",
           "type": "RecurringSubscription"
         }

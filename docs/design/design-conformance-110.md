@@ -409,7 +409,8 @@ absent right now.**
 
 **The host check is correct and must not be relaxed** — the app refuses to render a link whose URL
 has no host, which is the right behaviour. The problem is upstream: the values are never supplied.
-The example values *would* have a host (`getvellumapp.com`) once copied across.
+The example values *would* have a host (~~`getvellumapp.com`~~ **`pocketchronicle.app`** since
+Aug 27, 2026) once copied across.
 
 `SubscriptionTests.swift:938–946` documents this hole and **states that the test cannot detect it**
 — so nothing in CI will fail while the links are missing.
@@ -417,9 +418,15 @@ The example values *would* have a host (`getvellumapp.com`) once copied across.
 **Phase 109 is creating those pages.** The app expects, once set:
 
 ```
-TERMS_URL   = https://getvellumapp.com/terms
-PRIVACY_URL = https://getvellumapp.com/privacy
+TERMS_URL   = https://pocketchronicle.app/terms/
+PRIVACY_URL = https://pocketchronicle.app/privacy/
 ```
+
+~~`https://getvellumapp.com/terms` and `/privacy`~~ — **struck Aug 28, 2026 with the Pocket
+Chronicle rename.** Both pages above were confirmed **200** before this block was changed. Note the
+`//` trap: in the real `Config.xcconfig` these must be written `https:$()/$()/…`, because an
+unescaped `//` is a comment in xcconfig and truncates the value to `https:` — which `URL(string:)`
+accepts, so it ships as a link to nowhere rather than as an absent link.
 
 **This is a launch blocker, not a phase-110 fix.** Setting the build variables is a signing/config
 change and is out of scope for both iOS phases.
