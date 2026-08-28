@@ -1000,9 +1000,23 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   the view sets the name at the display weight and **keeps its `WordmarkView(width:tint:)`
   signature** so a drawn mark takes over without touching the one call site. **A real lockup is
   owed.**
+  - **Aug 28, 2026 — the first version of that view wrapped, and wrapping was a layout defect
+    rather than a look.** It clamped the text to `.frame(width: width)`, which forced *"Pocket
+    Chronicle"* onto two lines and made the mark **53pt** tall against the drawn mark's **24.7pt**.
+    Measured on an iPhone SE, that extra 29pt is what tipped Dynamic Type `accessibility1` from
+    fitting the welcome screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an
+    overflow there puts the sign-in buttons off-screen with no way to reach them. It is the same
+    failure phase 18 found on the five onboarding steps, arriving on the one screen that was
+    exempted from that fix. **The mark now sets on one line at its natural width: 174pt × 27.0pt,
+    +2.3pt on the drawn mark**, which removes the regression instead of absorbing it. It fits the
+    narrowest device iOS runs on — 264pt of content at 320pt logical — with `minimumScaleFactor`
+    as the guard rather than the plan. **Measured with CoreText both times; the first version's
+    comment asserted the wrap was fine without measuring it.**
 - **The `docs/app-icon/` kit was not renamed, deliberately.** Twelve `vellum-*` files draw the
-  old name as geometry — eleven SVGs plus one PNG, counted with
-  `ls docs/app-icon/ | grep -c '^vellum-'` rather than from memory. A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
+  old name as geometry — **ten SVGs, one PNG and one HTML**, counted with
+  `ls docs/app-icon/ | grep '^vellum-' | sed 's/.*\.//' | sort | uniq -c` rather than from memory.
+  (A first draft said *"eleven SVGs plus one PNG"* — the right total, distributed wrongly, in the
+  one sentence that advertised having counted. `vellum-logo-hover.html` is the twelfth.) A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
   than one honestly named for what it contains, so the names stay and a `README.md` marks the whole
   kit superseded. **Nothing shipped is affected**: `render-appicon.mjs` reads `rascal-icon-fan.svg`,
   which carries no lettering at all, so the app icon on every phone was already name-neutral —
@@ -1013,10 +1027,15 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   `PBXFileSystemSynchronizedRootGroup`, so the file is picked up by path.
   ~~and it was safe because nothing references it … only `SKTestSession(configurationFileNamed:)`
   and one doc comment named it, and both moved with it.~~ — 🔴 **corrected Aug 27, 2026: that was
-  true of code and false of the documents.** Four live docs still name
+  true of code and false of the documents.** **Five** live docs still name
   `ios/Rascal/RascalTests/Vellum.storekit`, one of them an open iOS-lane action item that names the
-  file as the thing to edit. Three of the four are gate documents this run may not edit, so those
-  corrections are proposed in `docs/reports/phase-130-gate-document-diffs.md` rather than applied.
+  file as the thing to edit. **Four of the five are gate documents** — `decisions.md`,
+  `blocked.md`, `phase-queue.md`, `roadmap-status.md` — so those corrections are proposed in
+  `docs/reports/phase-130-gate-document-diffs.md` rather than applied; **the fifth is this file**.
+  (A first draft of this correction said *"four … three of the four are gate documents"*, which is
+  not an undercount but an impossibility: the gate subset alone would exhaust the total. Counted
+  with `grep -rln` the second time.) Three further mentions sit in `docs/archive/` and in dated
+  reports and briefs, and are correctly left alone.
   **"Nothing references it" should have been scoped to the build the moment it was written**: a
   rename that moves a path is a docs change as much as a code one.
   **The two product identifiers inside it did not move** and must not: they are permanent on first

@@ -29,29 +29,36 @@ import SwiftUI
 /// `CFBundleDisplayName` and belongs only in copy naming a surface iOS renders.
 struct WordmarkView: View {
 
-    /// The width the mark is laid out to. Kept as the unit of size — rather than a font size — so
-    /// the call sites that sized the drawn mark still read correctly, and so a future drawn mark
-    /// can take over this API unchanged.
+    /// The width the *drawn* mark occupied, kept as the unit of size — rather than a font size —
+    /// so the call sites still read correctly and a future drawn mark can take over this API
+    /// unchanged. **It sizes the type; it no longer clamps it.** See `pointSize`.
     var width: CGFloat = 104
     var tint: Color = .ink
 
-    /// The drawn mark's aspect ratio, `531.5 × 126`. Retained as the basis for the type size, and
-    /// **not** because the two occupy the same block — measured with CoreText at `width: 104`, the
-    /// drawn mark was 24.7pt tall and this one is about 53pt over two lines, roughly **2.2×**.
-    /// Swapping a drawn lockup back in *will* reflow the screen around it, and that is the honest
-    /// statement; the welcome screen absorbs it today because a `Spacer()` sits above the mark.
+    /// The drawn mark's aspect ratio, `531.5 × 126`, kept as the basis for the type size.
+    ///
+    /// **Measured, not assumed** (CoreText, `width: 104`): the drawn mark was **24.7pt** tall and
+    /// this one is **27.0pt** on a single line — `+2.3pt`, so swapping a drawn lockup back in
+    /// barely moves the screen around it.
     static let designAspectRatio: CGFloat = 531.5 / 126
 
-    /// Chosen so the cap height lands near the drawn mark's stroke-inset height at the same width.
+    /// Chosen so the cap height lands near the drawn mark's stroke-inset height at `width`.
     ///
-    /// **The lockup always stacks onto two lines, on every device.** Not an edge case on small
-    /// phones — the frame below is a fixed `width`, independent of the screen, so the wrap is a
-    /// property of the string and the size rather than of the hardware. Measured with CoreText at
-    /// `width: 104` (pointSize 22.68): *"Pocket Chronicle"* on one line is 174pt, *"Pocket"* is
-    /// 71pt and *"Chronicle"* is 99pt. So it wraps, and both lines fit — but *"Chronicle"* clears
-    /// the frame by about 5pt, which is thin enough that `lineLimit` and `minimumScaleFactor`
-    /// below are load-bearing rather than decorative: they turn a clipped mark into a slightly
-    /// smaller one if a future font or a wider name eats that margin.
+    /// **The mark sets on ONE line and takes its natural width, which is wider than `width`.**
+    /// That is the whole reason this reads as a lockup rather than a paragraph. At `width: 104`
+    /// the point size is 22.68 and *"Pocket Chronicle"* measures **174pt × 27.0pt**; the drawn
+    /// mark it replaced was 104pt × 24.7pt. Wider, and 2.3pt taller.
+    ///
+    /// **An earlier version of this view clamped the text to `.frame(width: width)`, which forced
+    /// a two-line wrap and made the mark 53pt tall.** That is not a cosmetic difference: measured
+    /// on an iPhone SE, the extra 29pt is what tipped `accessibility1` from fitting the welcome
+    /// screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an overflow there
+    /// leaves the sign-in buttons unreachable. One line costs nothing and removes that entirely.
+    ///
+    /// **It fits.** 174pt against a content width of `screen − 2 × OnboardingLayout.margin`, which
+    /// is 264pt on the narrowest device iOS still runs on (320pt logical) and 319pt on an SE.
+    /// `minimumScaleFactor` below is the guard if a longer name or a different font ever eats
+    /// that margin — it shrinks the mark rather than truncating it.
     private var pointSize: CGFloat {
         width / WordmarkView.designAspectRatio * 0.92
     }
@@ -60,14 +67,12 @@ struct WordmarkView: View {
         Text("Pocket Chronicle")
             .font(.system(size: pointSize, weight: .bold, design: .rounded))
             .kerning(-0.4)
-            // Two lines, and never more — the name is two words. `minimumScaleFactor` is the
-            // guard on the ~5pt of headroom the measurement above found: without it a wider
-            // rendering of "Chronicle" clips at the frame instead of shrinking to fit.
-            .lineLimit(2)
-            .minimumScaleFactor(0.75)
+            // One line, always. A wordmark that wraps is a paragraph.
+            .lineLimit(1)
+            // The guard, not the plan: shrink rather than truncate if a narrower screen or a
+            // longer name ever eats the ~90pt of margin the measurement above found.
+            .minimumScaleFactor(0.6)
             .foregroundStyle(tint)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(width: width, alignment: .leading)
             .accessibilityLabel("Pocket Chronicle")
     }
 }

@@ -14,7 +14,7 @@ whole and unedited** — the precedent it set itself is explicit: *"a decision t
 overturned cannot be revisited."*
 
 ```diff
-+| **The app is called `Pocket Chronicle`** — settled Aug 27, 2026 by the owner, superseding the `Vellum` row below | **The trigger was an attorney's trademark-conflict finding, not a preference**, which makes this the first rename of the three that was forced rather than chosen. Open item 15 has asked since Aug 17, 2026 for exactly this artifact — a clearance answer on `Vellum` — and it has now been answered in the worst of the two available ways. **The `Vellum` row below is kept rather than edited**, for the reason that row set when it kept `Dogear`. **Three names, deliberately different, and the difference is not an inconsistency to fix:** `CFBundleDisplayName` is **`Chronicle`** (home screen, the Settings app's list, share sheet, notification titles), `CFBundleName` is **`Pocket Chronicle`** (the `ASWebAuthenticationSession` consent alert), and the App Store name is **`Pocket Chronicle`**. The store name is sixteen characters and the home-screen label truncates around eleven; a display name that is a substring of the store name is ordinary — Chrome, Maps and Photos all do it. **The precedent holds for a third time: display strings move, identifiers do not.** `manifest.format` stays `rascal-export` — **three renames now**, and the break-test pinning that literal already existed at `api/tests/test_export.py:359`; `API_HOST` stays `rascal-api.fly.dev`; the bundle id stays `com.travisterry.childarchive`; the URL scheme stays `childarchive`; the two subscription product identifiers stay. The download filename is decoration and moved again, `vellum-<child>-<date>.zip` → `pocket-chronicle-…`, with `api-contract.md:651` moved in the same commit. **Phase 128 did the `api/` half** (PR #176, merged): email subjects and bodies, `wellknown.py`'s public HTML, `mail_from`, the export viewer, the admin console, and the social brand prompts. **Phase 130 did the `ios/` half**: both name keys in all four plists, the wordmark, and every user-facing string, each taking the name the surface it names actually renders. **`docs/marketing/email-sequence.md` and `api/seeds/email_copy.yaml` were deliberately not touched** — the markdown's header forbids an agent editing it and the YAML is generated from it. **Four lessons this rename adds to the two the row below records.** **(1) The dangerous prose is the prescriptive kind, not the historical kind.** The last rename's lesson was that substituting history makes it false. This one found the opposite failure: four plist comments and a test asserted an *invariant* — that both name keys hold the same string and "all four read X and must stay that way" — that was true when written and that this rename **breaks by design**. Prose that tells the future what to do goes stale in a way prose about the past cannot. **(2) A test that pins two things to one value hides the split.** `GoogleSignInTests` looped `["CFBundleName", "CFBundleDisplayName"]` against one expected string across all four plists. A substitution rename would have left it **green** while putting one name in both keys — the identical failure phase 82 shipped and phase 114 caught. It now pins each key separately and asserts they differ. **(3) Grep cannot see a wordmark.** The name was drawn as geometry in *two* places — `ios/.../Wordmark.swift` and, unrecorded anywhere, the admin console's `index.html` and `cards.js`, which put it on every generated social asset. Neither carries the string. A text rename would have flipped `aria-label="Vellum"` to the new name while the letterforms still spelled the old one. **(4) The live copy was not in the file the brief protected.** The two off-limits email files hold four occurrences, all in `welcome[].body`, and the welcome sequence is not built. What actually mails daily carried the name in `broadcast.py:177` and `config.py:175` — ordinary code, no header, no warning. **What is still owed:** a drawn lockup (both wordmarks currently set type at the display weight, flagged in both files), the subscription group's display name in App Store Connect, and the marketing site, which is a different repository. |
++| **The app is called `Pocket Chronicle`** — settled Aug 27, 2026 by the owner, superseding the `Vellum` row below | **The trigger was an attorney's trademark-conflict finding, not a preference**, which makes this the first rename of the three that was forced rather than chosen. Open item 15 has asked since Aug 17, 2026 for exactly this artifact — a clearance answer on `Vellum` — and it has now been answered in the worst of the two available ways. **The `Vellum` row below is kept rather than edited**, for the reason that row set when it kept `Dogear`. **Three names, deliberately different, and the difference is not an inconsistency to fix:** `CFBundleDisplayName` is **`Chronicle`** (home screen, the Settings app's list, share sheet, notification titles), `CFBundleName` is **`Pocket Chronicle`** (the `ASWebAuthenticationSession` consent alert), and the App Store name is **`Pocket Chronicle`**. The store name is sixteen characters and the home-screen label truncates around eleven; a display name that is a substring of the store name is ordinary — Chrome, Maps and Photos all do it. **The precedent holds for a third time: display strings move, identifiers do not.** `manifest.format` stays `rascal-export` — **three renames now**, and the break-test pinning that literal already existed at `api/tests/test_export.py:359`; `API_HOST` stays `rascal-api.fly.dev`; the bundle id stays `com.travisterry.childarchive`; the URL scheme stays `childarchive`; the two subscription product identifiers stay. The download filename is decoration and moved again, `vellum-<child>-<date>.zip` → `pocket-chronicle-…`, with `api-contract.md:651` moved in the same commit. **Phase 128 did the `api/` half** (PR #176, merged): email subjects and bodies, `wellknown.py`'s public HTML, `mail_from`, the export viewer, the admin console, and the social brand prompts. **Phase 130 did the `ios/` half**: both name keys in all four plists, the wordmark, and every user-facing string, each taking the name the surface it names actually renders. **`docs/marketing/email-sequence.md` and `api/seeds/email_copy.yaml` were deliberately not touched** — the markdown's header forbids an agent editing it and the YAML is generated from it. **Four lessons this rename adds to the two the row below records.** **(1) The dangerous prose is the prescriptive kind, not the historical kind.** The last rename's lesson was that substituting history makes it false. This one found the opposite failure: four plist comments and a test asserted an *invariant* — that both name keys hold the same string and "all four read X and must stay that way" — that was true when written and that this rename **breaks by design**. Prose that tells the future what to do goes stale in a way prose about the past cannot. **(2) A test that pins two things to one value hides the split.** `GoogleSignInTests` looped `["CFBundleName", "CFBundleDisplayName"]` against one expected string across all four plists. A substitution rename would have left it **green** while putting one name in both keys — the identical failure phase 82 shipped and phase 114 caught. It now pins each key separately and asserts they differ. **(3) Grep cannot see a wordmark.** The name was drawn as geometry in *two* places — `ios/.../Wordmark.swift` and, unrecorded anywhere, the admin console's `index.html` and `cards.js`, which put it on every generated social asset. Neither carries the string. A text rename would have flipped `aria-label="Vellum"` to the new name while the letterforms still spelled the old one. **(4) The live copy was not in the file the brief protected.** The two off-limits email files hold nine occurrences between them — five in the markdown, one of which is its H1, and four in the YAML, all four of those in `welcome[].body` — and the welcome sequence is not built. What actually mails daily carried the name in `broadcast.py:177` and `config.py:175` — ordinary code, no header, no warning. **What is still owed:** a drawn lockup (both wordmarks currently set type at the display weight, flagged in both files), the subscription group's display name in App Store Connect, and the marketing site, which is a different repository. |
  | **The app is called `Vellum`** — settled Aug 17, 2026 by the owner, superseding the `Dogear` row below | **Vellum is the name.** …
 ```
 
@@ -30,7 +30,7 @@ Two edits at `:268`:
 
 ```diff
 -| **15** | **The Vellum trademark has never been cleared** | **P1 — before the App Store listing, and before the first marketing send** | …
-+| **15** | ~~**The Vellum trademark has never been cleared**~~ — **closed Aug 27, 2026, by the name being retired rather than by the question being answered** | ~~**P1**~~ ~~**P3**~~ — **closed** | **Outcome: an attorney found a conflict, and `Vellum` is gone.** …[existing body kept verbatim]… **What this item cost, recorded because the item existed to make the cost visible:** four Vellum-branded marketing broadcasts sent from production on Aug 19–22, 2026 and unrecallable; a domain, `getvellumapp.com`, registered and DNS-configured; an identity kit of thirteen drawn assets under `docs/app-icon/`, now superseded wholesale; a wordmark ported into the iOS app and the admin console as geometry, both now reduced to type until a new mark is drawn; and about a week. **The item worked.** It was filed on Aug 17 specifically so *"proceeded knowingly"* would not decay into *"nobody checked"*, and the thing it was holding open is exactly the thing that came true. **What it did not do is prevent the cost**, because a filed risk is not a mitigation — the four sends happened while this row asserted they had not, and the row was corrected three days late. ⚠️ **The row also carried an internal contradiction from Aug 18 until now** — a priority column reading `P1` above a body reading *"Priority drops from P1 to P3"* — which is fixed here rather than carried forward. ⚠️ **One claim in this row was wrong and is corrected on closing:** it asserts *"the icon the owner chose has the wordmark drawn into the front card, so the artwork encodes the name"*, and uses that to argue the cost has "the longest tail". **The shipped icon carries no lettering at all.** `docs/app-icon/render-appicon.mjs:29` reads `rascal-icon-fan.svg` — five fanned cards, no type — and that is what `AppIcon-1024.png` is. The wordmark-bearing variant is `vellum-icon-fan.svg`, which nothing wires up. The app icon needed **no change** for this rename. |
++| **15** | ~~**The Vellum trademark has never been cleared**~~ — **closed Aug 27, 2026, by the name being retired rather than by the question being answered** | ~~**P1**~~ ~~**P3**~~ — **closed** | **Outcome: an attorney found a conflict, and `Vellum` is gone.** …[existing body kept verbatim]… **What this item cost, recorded because the item existed to make the cost visible:** four Vellum-branded marketing broadcasts sent from production on Aug 19–22, 2026 and unrecallable; a domain, `getvellumapp.com`, registered and DNS-configured; an identity kit of twelve drawn assets under `docs/app-icon/` (ten SVGs, one PNG, one HTML), now superseded wholesale; a wordmark ported into the iOS app and the admin console as geometry, both now reduced to type until a new mark is drawn; and about a week. **The item worked.** It was filed on Aug 17 specifically so *"proceeded knowingly"* would not decay into *"nobody checked"*, and the thing it was holding open is exactly the thing that came true. **What it did not do is prevent the cost**, because a filed risk is not a mitigation — the four sends happened while this row asserted they had not, and the row was corrected three days late. ⚠️ **The row also carried an internal contradiction from Aug 18 until now** — a priority column reading `P1` above a body reading *"Priority drops from P1 to P3"* — which is fixed here rather than carried forward. ⚠️ **One claim in this row was wrong and is corrected on closing:** it asserts *"the icon the owner chose has the wordmark drawn into the front card, so the artwork encodes the name"*, and uses that to argue the cost has "the longest tail". **The shipped icon carries no lettering at all.** `docs/app-icon/render-appicon.mjs:29` reads `rascal-icon-fan.svg` — five fanned cards, no type — and that is what `AppIcon-1024.png` is. The wordmark-bearing variant is `vellum-icon-fan.svg`, which nothing wires up. The app icon needed **no change** for this rename. |
 ```
 
 ```diff
@@ -107,7 +107,9 @@ true record of an errand that happened and **is not edited**. Append:
 +phase 129 rather than by 128 itself**, which is the gap `:242` exists to close: 128 existed as a
 +branch with no row anywhere under `docs/` for long enough that 129's allocation had to discover it
 +with `git for-each-ref`. It worked, and it worked because that command was run. **The highest
-+number used is 130. A genuinely new phase takes 131.**
++number used is 131. A genuinely new phase takes 132.** **131 is the marketing domain**
++(API lane, branch `api/phase-131-pocket-chronicle-domain`): `pocketchronicle.app`, split out of
++130 only because `CLAUDE.md:16` forbids one branch touching both lanes.
 ```
 
 ---
@@ -116,7 +118,7 @@ true record of an errand that happened and **is not edited**. Append:
 
 ```diff
 +| **128** | Vellum becomes Pocket Chronicle, the API half | ✅ **shipped Aug 27, 2026** — PR #176, merged | API lane, branch `api/phase-128-pocket-chronicle`. Email subjects and bodies, `wellknown.py`'s public page, `mail_from`, the export viewer, the admin console, the social brand prompts, and the export filename with `api-contract.md:651` beside it. **Three things the brief's file list did not name**: the live broadcast footer and From line (the two protected email files are dormant — their four occurrences are all in `welcome[].body` and the welcome sequence is not built); the admin wordmark, drawn as an SVG path and a canvas `Path2D` that carry no `vellum` token at all; and `api-contract.md`. `manifest.format` unchanged and already break-tested. Suite `1430 passed / 7 failed / 1 skipped` — **the same 7 fail on unmodified `main`** (local `.env` gives real vendor keys to tests asserting their absence). |
-+| **130** | Vellum becomes Pocket Chronicle, on the phone | 🟡 **built and green Aug 27, 2026** — PR pending | iOS lane, branch `ios/phase-130-pocket-chronicle`, paired with 128. **Both name keys in all four plists, split on purpose**: `CFBundleDisplayName` = `Chronicle`, `CFBundleName` = `Pocket Chronicle`. **The invariant that broke is the finding**: until today both keys held one string, three comments said so, and a test looped both keys against **one** expected value across all four files — so a substitution rename would have stayed green while putting one name in both keys, the same failure phase 82 shipped and 114 caught. The test now pins per key and asserts they differ. Every user-facing string takes the name **its surface renders** — *"Settings → Chronicle → Notifications"*, *"Open Chronicle and sign in"*, but *"Pocket Chronicle writes to this phone first"*. `Wordmark.swift` dropped 208 lines of Bézier geometry spelling the dead name and **sets type at the display weight as a stopgap**; a real lockup is owed and `docs/app-icon/` is marked superseded rather than renamed, because a file named `pocket-chronicle-wordmark.svg` that draws *Vellum* is worse than one named honestly. **The app icon needed no change** — it carries no lettering, which is the third rename that has paid off. `Vellum.storekit` → `PocketChronicle.storekit`, safe because nothing references it. Legal URLs repointed at `pocketchronicle.app`, **confirmed 200 by `curl` first** — `SubmissionComplianceTests` asserts they resolve and never asserts a host, so it would have passed against an unregistered domain. **1242 tests in 150 suites passed, cold, `DerivedData` deleted, zero warnings under the four-directory gate.** |
++| **130** | Vellum becomes Pocket Chronicle, on the phone | 🟡 **built and green Aug 27, 2026** — PR pending | iOS lane, branch `ios/phase-130-pocket-chronicle`, paired with 128. **Both name keys in all four plists, split on purpose**: `CFBundleDisplayName` = `Chronicle`, `CFBundleName` = `Pocket Chronicle`. **The invariant that broke is the finding**: until today both keys held one string, three comments said so, and a test looped both keys against **one** expected value across all four files — so a substitution rename would have stayed green while putting one name in both keys, the same failure phase 82 shipped and 114 caught. The test now pins per key and asserts they differ. Every user-facing string takes the name **its surface renders** — *"Settings → Chronicle → Notifications"*, *"Open Chronicle and sign in"*, but *"Pocket Chronicle writes to this phone first"*. `Wordmark.swift` dropped 208 lines of Bézier geometry spelling the dead name and **sets type at the display weight as a stopgap**; a real lockup is owed and `docs/app-icon/` is marked superseded rather than renamed, because a file named `pocket-chronicle-wordmark.svg` that draws *Vellum* is worse than one named honestly. **The app icon needed no change** — it carries no lettering, which is the third rename that has paid off. `Vellum.storekit` → `PocketChronicle.storekit`, safe **for the build** — no `.pbxproj`, scheme or test-plan reference; five live documents still name the old path and are corrected separately. Legal URLs repointed at `pocketchronicle.app`, **confirmed 200 by `curl` first** — `SubmissionComplianceTests` asserts they resolve to a URL with a non-empty host and never asserts **which** host, so it would have passed against an unregistered domain. **1242 tests in 150 suites passed, cold, `DerivedData` deleted, zero warnings under the four-directory gate.** |
 ```
 
 ---
@@ -177,9 +179,13 @@ retired name until this command is run with the new one. Outbound email is the s
 +| 5 | … | `fly secrets set --app rascal-api MAIL_FROM='Pocket Chronicle <hello@mail.yourdomain>'` and `MAIL_PROVIDER=resend` |
 ```
 
-**Same class, same fix, two more secrets:** `MARKETING_ORIGINS` must gain
-`https://pocketchronicle.app` or the new site's subscribe form is CORS-refused; `MARKETING_SITE_URL`
-must move or every broadcast footer still links to the old host.
+**Same class, and exactly ONE more secret — not two.** `MARKETING_ORIGINS` **is** a Deployed
+secret and must gain `https://pocketchronicle.app`, or the new site's subscribe form is
+CORS-refused. **`MARKETING_SITE_URL` is NOT a secret** — `flyctl secrets list -a rascal-api` holds
+`MAIL_FROM`, `MARKETING_ORIGINS` and `MARKETING_EMAIL_ENABLED` and no site URL — so phase 131's
+default ships on the next deploy with no operator action. An earlier draft of this addendum called
+them "two more secrets"; that was inferred from the shape of the names rather than read off the
+list, which is the same mistake this section exists to warn about.
 
 ## 10. `blocked.md` §11 step 2 — a device checklist naming a label iOS will not render
 
@@ -192,10 +198,68 @@ Vellum"*. That list renders `CFBundleDisplayName`, so the label is now **`Chroni
 `:43` still reads *"Subscription group **`Vellum Membership`**"*. Amend by strike-and-date the way
 D5a already handled `Dogear Membership`, and carry the §25 caveat above with it.
 
-## 12. Six live documents still name `ios/Rascal/RascalTests/Vellum.storekit`
+## 12. Seven live documents still name `ios/Rascal/RascalTests/Vellum.storekit`
 
-The path no longer exists. `decisions.md`, `blocked.md`, `phase-queue.md` and `roadmap-status.md`
-are gate documents and are listed here; `docs/phase-briefs/phase-125-…` and
-`docs/reports/phase-124-preflight.md` are dated records and are correctly left alone.
+The path no longer exists. **Four are gate documents** — `decisions.md`, `blocked.md`,
+`phase-queue.md`, `roadmap-status.md` — and are listed here. **`docs/decisions-log.md` is the
+fifth**, is not a gate document, and was corrected in place. `docs/phase-briefs/phase-125-…` and
+`docs/reports/phase-124-preflight.md` are dated records and are correctly left alone, as is the
+mention in `docs/archive/`.
 One of the gate-document mentions is an **open iOS-lane action item that names the file as the
 thing to edit**, so it must move or the errand points at nothing.
+
+---
+
+# Addendum II — Aug 28, 2026, after a second review round
+
+Round 2 audited round 1's fixes and found that several of them, and parts of this report, were
+wrong. Those are corrected above in place. Three items are new.
+
+## 13. `blocked.md` §10 — the *other* place the group name is printed 🔴
+
+Item 7 above fixes step 3 of the runbook at `:608`. It misses `:590`, and `:590` is the more
+dangerous of the two — a bare fenced values block under a heading that calls these values
+**permanent once created**, which is exactly what a human transcribes into App Store Connect:
+
+```diff
+ ### The product identifiers, chosen Aug 16 and permanent once created
+ 
+ ```
+-Subscription group:  Vellum Membership
++Subscription group:  Pocket Chronicle Membership
+ Annual:              com.travisterry.childarchive.subscription.annual
+ Monthly:             com.travisterry.childarchive.subscription.monthly
+ ```
+```
+
+The two identifiers are unchanged and must stay so. **Carry the §25 caveat here too**: if the
+products already exist, this value may no longer be settable and the block should say which name
+the store actually holds rather than which one we wish it held.
+
+## 14. `blocked.md` §23 — an open errand whose entire action is on the retired domain 🔴
+
+§23 is submission-blocking and its action is *"send to `hello@getvellumapp.com` from an address on
+a different provider and see whether it lands or bounces"*. It also names that address as the
+**App Store support contact**. Both are now the wrong domain: the product is served from
+`pocketchronicle.app`, whose DNS this repository has never examined.
+
+The section cannot simply be re-pointed — the DNS work it documents was done against
+`getvellumapp.com` and is a true record of that. Amend by strike-and-date:
+
+```diff
++> **Aug 28, 2026 — the domain in this section is retired and the errand has to move with it.**
++> Everything below about `getvellumapp.com` — the iCloud exchangers, the SPF record, the
++> `apple-domain=` TXT, the DMARC policy — was read off public DNS on Aug 25, 2026 and is a true
++> record of that domain on that day. **It is no longer the product's domain.** The App Store
++> support contact must be an address on `pocketchronicle.app`, and **none of the DNS checks in
++> this section have been run against it.** The errand is unchanged in shape and entirely
++> re-pointed: does the mailbox exist, and does a message to it arrive?
+```
+
+## 15. `roadmap-status.md` — a third ledger row
+
+§6 proposes rows for 128 and 130 only. 131 shipped inside the diff this report covers:
+
+```diff
++| **131** | The marketing domain moves to `pocketchronicle.app` | 🟡 **built and green Aug 27, 2026** — PR #178 | API lane, branch `api/phase-131-pocket-chronicle-domain`. Split out of the rename phases because a domain is not display copy and the brief said to ask rather than invent one; the owner supplied it mid-run with `/terms/` and `/privacy/` already serving, both confirmed **200** by `curl` before either value was written. `marketing_site_url` is the broadcast footer's href and the post-confirmation redirect target, so this is not decoration. **`MARKETING_SITE_URL` is not a Fly secret**, so the default ships on the next deploy — unlike `MAIL_FROM` and `MARKETING_ORIGINS`, which are, and which need `fly secrets set` by hand. |
+```
