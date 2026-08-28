@@ -107,6 +107,25 @@ final class AppSession {
         phase = .signedOut
     }
 
+    /// Drop the session without revoking anything, for a credential that is already dead.
+    ///
+    /// **The user record goes too, and leaving it behind was a live hazard rather than untidiness.**
+    /// `AppSession.init` rehydrates `user` from this record on every cold launch
+    /// (`self.user = record.load()`), so a session ended involuntarily left a *ghost identity*
+    /// behind: the app was signed out, and `account.user?.id` still answered. `completeEmailSignIn`
+    /// compares a magic link's account against exactly that value, and until phase 132 a mismatch
+    /// ran the erasing sign-out — so a stale record could route a re-authentication into deleting
+    /// an archive. Both halves are fixed; this is the half that stops the ghost existing.
+    ///
+    /// Deliberately **not** `signOut()`: there is nothing to revoke with, and a network call to
+    /// hand back a token the server has already rejected would fail and change nothing.
+    func forgetSession() async {
+        await api.signOut()
+        user = nil
+        record.clear()
+        phase = .signedOut
+    }
+
     // MARK: - The dev-login path — debug builds only
 
     /// Everything below is the local fixture sign-in, and none of it is in a shipped binary.

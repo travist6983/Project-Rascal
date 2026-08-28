@@ -207,6 +207,12 @@ final class OnboardingSession {
             //
             // Reached on a fresh install too, where it writes an empty record over nothing.
             membership.save(MembershipPresentationRecord())
+            // **And the user record, which is the same argument a third time.** This branch is
+            // reached precisely because `APIClient` threw the token pair away on its own, so the
+            // stored user is a ghost: `AppSession.init` rehydrates `user` from it on the next cold
+            // launch, and a magic-link sign-in compares the link's account against that value. See
+            // `AppSession.forgetSession`.
+            await account.forgetSession()
             state = .signedOut
             return
         }
@@ -475,7 +481,17 @@ final class OnboardingSession {
             // token is already spent, and leaving somebody signed in to an archive that is not
             // theirs is the one outcome worth refusing outright.
             if let signedInAs, signedInAs != session.user.id {
-                await signOut()
+                // **Signed out, and nothing erased — the fourth way a session can end.**
+                //
+                // `LocalArchiveErasing` names three ways and says only the deliberate one may
+                // erase. This is a fourth, and it used to take the erasing path: a stranger who
+                // knows a parent's address could mail a link for their own account and destroy
+                // every unsynced entry on that phone, from outside, with one tap. The guard above
+                // is a security guard; it has no business also being an irreversible delete.
+                //
+                // Worse in combination with the ghost identity this used to compare against —
+                // see `forgetSession`, which now clears the user record for exactly this reason.
+                await endSession(erasingArchive: false)
                 notice = "That sign-in link was for a different account, so you've been "
                     + "signed out. Sign in again to get back to your archive."
                 return
@@ -761,6 +777,18 @@ final class OnboardingSession {
     /// a rejected refresh both end the session too, and both leave every byte where it is; see
     /// `LocalArchiveErasing`.
     func signOut() async {
+        await endSession(erasingArchive: true)
+    }
+
+    /// Ending the session, with the erase as an explicit argument rather than an implication.
+    ///
+    /// **`erasingArchive` is spelled at every call site on purpose.** A parent tapping Sign out is
+    /// asking for their child's data to leave this phone, and a phone handed on with the
+    /// thumbnails, transcripts and staged files still on it is the bug that added the eraser. Every
+    /// *other* way a session ends — a revoked credential, a refresh the server rejected, a
+    /// sign-in link that turns out to belong to somebody else — is not that request, and passing
+    /// `false` is how each of them says so out loud instead of by omission.
+    private func endSession(erasingArchive: Bool) async {
         // **Before `account.signOut()`, and the order is the point.** `DELETE /v1/devices/{token}`
         // authenticates with the session it is revoking against, so revoking after the tokens are
         // cleared is a request that 401s and a phone that keeps receiving the child's missions
@@ -769,6 +797,7 @@ final class OnboardingSession {
         await account.signOut()
         forgetLocalIdentity()
         state = .signedOut
+        guard erasingArchive else { return }
         // **After the state change, and with no `await` between them.** Setting `.signedOut` is
         // what takes `RootView` off screen; running these two statements in one turn means SwiftUI
         // never renders a timeline over a store that is being emptied underneath it. Anything
@@ -809,7 +838,12 @@ final class OnboardingSession {
     /// `forgetLocalIdentity` runs when the parent taps Sign out. Clearing in only one of them
     /// leaves the other with a Home Screen the app no longer has an account for.
     private func forgetSession() async {
-        await account.api.signOut()
+        // **`account.forgetSession()`, not `account.api.signOut()`.** The old call cleared the
+        // token pair and left the stored user record behind, so the next cold launch rehydrated
+        // `account.user` for a session that no longer existed. A parent who then signed in by
+        // emailed link had that ghost compared against the link's account — and a mismatch used to
+        // erase the local archive. See `AppSession.forgetSession`.
+        await account.forgetSession()
         appleIDs.clear()
         // The same reasoning as `forgetLocalIdentity`, and for the same reason both paths already
         // clear the widget: a revoked credential ends the session just as completely as a tapped

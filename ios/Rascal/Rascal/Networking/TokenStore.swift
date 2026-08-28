@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Security
 
 nonisolated struct TokenPair: Equatable, Sendable {
@@ -21,11 +22,23 @@ nonisolated struct TokenPair: Equatable, Sendable {
 /// again is the correct price for that.
 nonisolated protocol TokenStoring: Sendable {
     func load() -> TokenPair?
-    func save(_ pair: TokenPair)
+    /// Returns whether the pair actually reached storage.
+    ///
+    /// **The return value exists because the refresh path cannot afford to guess.** Rotation is
+    /// destructive server-side — `rotate_refresh_token` revokes the presented token *before*
+    /// issuing the replacement — so a write that silently no-ops leaves this phone holding a token
+    /// the server has already killed. The launch it happens on works perfectly, off the pair still
+    /// in memory; the next one presents the dead token, takes `refresh_token_reused`, and the
+    /// entire chain is revoked. That is a permanent sign-out with a perfect network and no server
+    /// fault, and until phase 132 nothing anywhere could tell it had happened.
+    @discardableResult
+    func save(_ pair: TokenPair) -> Bool
     func clear()
 }
 
 nonisolated final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
+    private static let log = Logger(subsystem: "app.rascal", category: "keychain")
+
     private let service: String
     private let account = "session"
     private let lock = NSLock()
@@ -54,13 +67,14 @@ nonisolated final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
     /// Both tokens, always together. Persisting only the access token is the specific mistake
     /// that guarantees a forced logout: refresh is rotating, so the old refresh token is dead
     /// the moment a new pair is issued.
-    func save(_ pair: TokenPair) {
+    @discardableResult
+    func save(_ pair: TokenPair) -> Bool {
         lock.lock()
         defer { lock.unlock() }
 
         guard let data = try? JSONEncoder().encode(
             StoredTokens(access: pair.accessToken, refresh: pair.refreshToken)
-        ) else { return }
+        ) else { return false }
 
         let query = baseQuery()
         let attributes: [String: Any] = [
@@ -71,12 +85,27 @@ nonisolated final class KeychainTokenStore: TokenStoring, @unchecked Sendable {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var insert = query
-            insert.merge(attributes) { current, _ in current }
-            SecItemAdd(insert as CFDictionary, nil)
+        // **Every OSStatus here is now read, and that is the whole change.**
+        //
+        // This used to compare `SecItemUpdate`'s status against one value and throw `SecItemAdd`'s
+        // away entirely, so any other failure — `errSecInteractionNotAllowed` from a write before
+        // first unlock, `errSecDuplicateItem`, a `-34018` keychain-daemon fault — was
+        // indistinguishable from success. See the note on `TokenStoring.save` for why a silent
+        // failure here is a permanent sign-out rather than a retry.
+        let updated = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else {
+            Self.log.error("keychain update refused the token pair: OSStatus \(updated, privacy: .public)")
+            return false
         }
+
+        var insert = query
+        insert.merge(attributes) { current, _ in current }
+        let added = SecItemAdd(insert as CFDictionary, nil)
+        if added != errSecSuccess {
+            Self.log.error("keychain add refused the token pair: OSStatus \(added, privacy: .public)")
+        }
+        return added == errSecSuccess
     }
 
     func clear() {
@@ -111,9 +140,11 @@ nonisolated final class InMemoryTokenStore: TokenStoring, @unchecked Sendable {
         return pair
     }
 
-    func save(_ pair: TokenPair) {
+    @discardableResult
+    func save(_ pair: TokenPair) -> Bool {
         lock.lock(); defer { lock.unlock() }
         self.pair = pair
+        return true
     }
 
     func clear() {

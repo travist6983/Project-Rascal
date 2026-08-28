@@ -754,14 +754,9 @@ struct ComposerView: View {
             entry.promptBody = assignment.body
             entry.promptKind = assignment.kind
         }
-        context.insert(entry)
-        // From here the entry exists locally whatever the network does, so this sheet has had
-        // its one save. `EntrySync` owns every retry from now on.
-        committed = true
-
         // Media rows are created alongside the entry, before any request. The files are
         // already staged, so a force quit right here loses nothing: the sweep finds both.
-        for draft in drafts {
+        let attachments: [Media] = drafts.map { draft in
             let media = Media(
                 id: draft.id,
                 entryId: entry.id,
@@ -777,9 +772,33 @@ struct ComposerView: View {
             // From the draft, not unconditionally. Audio has no thumbnail, and the staging
             // sweep reads this flag as permission to delete the only local copy of the file.
             media.hasThumbnail = draft.hasThumbnail
-            context.insert(media)
+            return media
         }
-        try? context.save()
+
+        // **The one write this sheet is actually responsible for, and it is no longer `try?`.**
+        //
+        // Everything below this line — the request, the sync state, the retry `EntrySync` owns —
+        // rests on the row being on disk. A discarded error here meant the sheet went on to POST,
+        // set `committed`, and dismiss, so a parent who had just typed several hundred words
+        // watched a successful-looking save close over nothing at all, with no logger, no notice
+        // and no state change anywhere to say it had happened.
+        //
+        // It lives in `EntryCache` rather than here because a view's private method cannot be
+        // asserted on, and "the row is genuinely on disk before the UI claims anything" is exactly
+        // the kind of promise that has to be held by a test rather than by a reading.
+        do {
+            try EntryCache.commit(entry, media: attachments, in: context)
+        } catch {
+            // The register `docs/design-system.md` sets: say what happened and what to do, do not
+            // apologise, and do not alarm. The sheet stays open with their words still in the
+            // field, `committed` is never set, and Save is live again.
+            notice = "That didn't save to this phone. Your words are still here — try again."
+            return
+        }
+
+        // From here the entry exists locally whatever the network does, so this sheet has had
+        // its one save. `EntrySync` owns every retry from now on.
+        committed = true
 
         do {
             let response = try await api.createEntry(entry)
