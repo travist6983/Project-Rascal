@@ -57,8 +57,8 @@ Two edits at `:268`:
 +> is still live and still the reason these values are written `https:$()/$()/…`.
 +>
 +> **The gap this section should now name instead:** `SubmissionComplianceTests` asserts these URLs
-+> *resolve* and **never asserts a host**. It would have passed green against an unregistered
-+> domain. The check that mattered was `curl`, run by hand.
++> resolve to a `URL` with a non-empty host and **never asserts _which_ host**. It would have
++> passed green against an unregistered domain. The check that mattered was `curl`, run by hand.
 ```
 
 ---
@@ -263,3 +263,65 @@ The section cannot simply be re-pointed — the DNS work it documents was done a
 ```diff
 +| **131** | The marketing domain moves to `pocketchronicle.app` | 🟡 **built and green Aug 27, 2026** — PR #178 | API lane, branch `api/phase-131-pocket-chronicle-domain`. Split out of the rename phases because a domain is not display copy and the brief said to ask rather than invent one; the owner supplied it mid-run with `/terms/` and `/privacy/` already serving, both confirmed **200** by `curl` before either value was written. `marketing_site_url` is the broadcast footer's href and the post-confirmation redirect target, so this is not decoration. **`MARKETING_SITE_URL` is not a Fly secret**, so the default ships on the next deploy — unlike `MAIL_FROM` and `MARKETING_ORIGINS`, which are, and which need `fly secrets set` by hand. |
 ```
+
+---
+
+# Addendum III — Aug 28, 2026, round 4
+
+Round 4 found two things. The second is a wording fix, applied above. The first is the most
+consequential miss of the whole review, and four rounds walked past it.
+
+## 16. `phase-queue.md` §build queue — the one bullet that would put the retired name on the App Store 🔴
+
+`docs/phase-queue.md:530` is a **live, prioritised build-queue item** — the file's own header says
+*"This file says what to do next, one line each. Delete a line when it is done."* It is the single
+place in the repository that carries the **remaining owner errand** for the rename. It reads:
+
+```
+- **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
+  …
+  All four bundles read `Vellum` in source today, and `project.pbxproj` sets no
+  `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a
+  stale install rather than a source defect**
+  …
+  **Left: the App Store Connect / TestFlight listing name**, and **the repo name plus `docs/` prose**
+```
+
+**Followed as written, this creates the public App Store listing under `Vellum`** — the mark an
+attorney found a conflict on, and the entire reason for phases 128, 130 and 131. The proposed new
+open item 26 above says the window is open *precisely because* "the App Store listing does not
+exist"; this bullet is the one instruction standing between that window and closing it wrong.
+
+Its bundle sentence is also now false: all four plists read `CFBundleDisplayName = Chronicle` and
+`CFBundleName = Pocket Chronicle`.
+
+```diff
+-- **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
++- **Rename to ~~`Dogear`~~ ~~`Vellum`~~ `Pocket Chronicle` — code is done, ~~three things left~~
++  two, and both are yours.** **Restruck a third time on Aug 27, 2026**, on an attorney's
++  trademark-conflict finding — the same shape as the Aug 18 correction this bullet already
++  records, arriving for the same reason: a queue item that names a product outlives the name.
+```
+
+```diff
+-  All four bundles read `Vellum` in source today, and `project.pbxproj` sets no
++  ~~All four bundles read `Vellum` in source today~~ — **struck Aug 27, 2026.** All four read
++  `CFBundleDisplayName = Chronicle` and `CFBundleName = Pocket Chronicle`; the two keys hold
++  different strings on purpose. `project.pbxproj` sets no
+   `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a
+   stale install rather than a source defect**
+```
+
+```diff
+-  **Left: the App Store Connect / TestFlight listing name**, and **the repo name plus `docs/` prose**
++  **Left: the App Store Connect / TestFlight listing name — which must be `Pocket Chronicle`, not
++  `Vellum`** (see open item 26: the new name has had no clearance search either, and the listing
++  is the surface that makes that expensive) — and **the repo name plus `docs/` prose**
+```
+
+**Why four rounds missed it.** Every completeness sweep grepped for `vellum` and read the hits.
+This bullet was *in* those results every time, and was classified as a gate document — correctly —
+and therefore as already-covered by this report. It was not covered: §5 amends only `:81`, the
+phase-number header, and §12 only the `Vellum.storekit` bullet at `:503`. **"It is a gate document"
+answers who may edit it, not whether anybody has.** The lesson for the next sweep: a gate-document
+hit is only accounted for once it is matched to a specific proposed hunk in this file, by line.
