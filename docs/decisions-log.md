@@ -10,6 +10,45 @@ that file left open.
 > unedited by **phase 123 on Aug 25, 2026**. They were not summarised and nothing was dropped;
 > `grep -rn … docs/` still finds them. This file carries **Aug 17, 2026 onward**.
 
+## Aug 28, 2026 — phase 132, the beta auth flap
+
+- **A non-2xx from `/auth/refresh` no longer ends the session unless it says the credential is
+  dead.** `APIClient.swift` cleared the keychain for every status outside `200..<300`, so a 429, a
+  500 from a machine that could not reach Neon, or a Fly edge 502 signed the parent out. The rule is
+  now a named classifier with a stated default: **anything ambiguous keeps the session**, because
+  losing a good session costs a parent their archive until they sign in again while keeping a dead
+  one costs one request that 401s. An unrecognised error code keeps the session for the same reason.
+- **A non-envelope non-2xx from refresh raises `.unexpectedStatus`, not `.sessionExpired`.** A body
+  that is not the documented envelope did not come from `errors.py` at all; treating a proxy's HTML
+  error page as a server verdict on a credential was how an edge blip became a sign-in screen.
+- **B1 was not skipped**, though six independent read-only traces recommended skipping it. The erase
+  is single-call-site and correctly gated; the *reachability* of that call site was not. Two fixes:
+  `forgetSession` now clears the user record (it left a ghost identity that `AppSession.init`
+  rehydrated on the next cold launch), and `completeEmailSignIn`'s foreign-account branch signs out
+  without erasing. **A security guard should not have an irreversible delete as its enforcement
+  action** — a stranger who knew a parent's address could have mailed a link for their own account
+  and destroyed every unsynced entry on that phone.
+- **`endSession(erasingArchive:)` spells the erase at every call site.** The eraser was reached by
+  omission before — you got it by calling `signOut()`. Now every non-deliberate way a session ends
+  passes `false` out loud.
+- **The composer's local commit moved to `EntryCache.commit` and throws.** `try? context.save()`
+  inside a view cannot be asserted on, and "the row is on disk before the UI claims anything" is
+  exactly the promise that must be held by a test rather than by a reading. A failed save now rolls
+  back, keeps the sheet open with the parent's words in the field, and leaves Save live.
+- **`TokenStoring.save` returns `Bool`, and a refresh whose write did not land clears the stale
+  pair.** Rotation is destructive server-side, so a silently-refused keychain write left the phone
+  holding a revoked token; presenting it revokes the whole chain and takes the parent's *other*
+  devices with it. Dropping it costs one sign-in here and costs the other devices nothing — the
+  cheaper of two bad outcomes, not a fix.
+- **`X-Client-Build` is sent and nothing reads it yet.** Server-side logging of the header is an
+  API-lane phase by the brief's own scope. It is worth sending now because it costs one header and
+  makes the question answerable the day `CURRENT_PROJECT_VERSION` starts moving — it is `1` for all
+  eight target/configuration pairs today and `git log -S` says it has never changed.
+- **The server half of the diagnosis was written down and stopped on**, per the phase's hard stop:
+  `rotate_refresh_token` revokes the presented token before issuing the replacement, so a lost
+  response strands the client on a dead token and the next attempt revokes the chain. A grace window
+  is the remedy and it is an API-lane phase with a number of its own.
+
 ## Aug 17, 2026 — the Vellum rename, and what was deliberately left alone
 
 - **The owner ruled the name is officially Vellum**, with the *Vellum by 180g* trademark risk

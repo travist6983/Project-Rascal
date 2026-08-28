@@ -960,7 +960,13 @@ func onboardingSession(
             directory: URL.temporaryDirectory.appending(path: "widget-\(UUID().uuidString)")
         ),
         reload: {}
-    )
+    ),
+    // **Defaulted to nil, which `OnboardingSession.init` resolves to `NoLocalArchiveErasure`.**
+    // Every existing caller keeps the inert eraser it already had — a live one here would open the
+    // process's real `LocalStore` and empty the simulator's Application Support out from under
+    // `MediaCoordinatorTests`. Pass a spy to assert whether the archive was erased; see
+    // `BetaAuthFlapTests`.
+    localArchive: LocalArchiveErasing? = nil
 ) -> OnboardingSession {
     let store = InMemoryTokenStore(tokens)
     let account = AppSession(
@@ -981,6 +987,7 @@ func onboardingSession(
         avatars: avatars,
         pendingAvatars: pendingAvatars,
         widget: widget,
+        localArchive: localArchive,
         membership: membership
     )
 }

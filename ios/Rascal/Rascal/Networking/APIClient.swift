@@ -62,6 +62,38 @@ actor APIClient {
         return APIClient(baseURL: url, performer: performer, tokens: tokens)
     }
 
+    // MARK: Identifying this build
+
+    /// The header name every request carries. One place, so the client and any later server-side
+    /// reader cannot drift on the spelling.
+    nonisolated static let buildHeader = "X-Client-Build"
+
+    /// `ios/1.0 (1)` — platform, `CFBundleShortVersionString`, `CFBundleVersion`.
+    ///
+    /// **This exists because a TestFlight report could not be tied to a build.** Settings has shown
+    /// a Version row since long before this, and reading it requires asking a tester to go and
+    /// look — which is exactly the round trip a support conversation cannot afford, and which
+    /// nobody thought to make until a bug arrived that turned on which build she was running.
+    ///
+    /// Computed once: `Bundle.main` reads hit a dictionary lookup per call and this is on every
+    /// request. Both keys missing yields `ios/unknown`, which is still more than nothing and never
+    /// crashes a request over an Info.plist.
+    ///
+    /// **The value it reports is `1.0 (1)` today and will be until somebody bumps
+    /// `CURRENT_PROJECT_VERSION`** — it is `1` for all eight target/configuration pairs in
+    /// `project.pbxproj` and `git log -S` says it has never moved. Sending it is still worth doing:
+    /// it makes the question answerable the moment the number starts changing, and costs one header.
+    nonisolated static let buildIdentifier: String = {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return switch (short, build) {
+        case let (short?, build?): "ios/\(short) (\(build))"
+        case let (short?, nil): "ios/\(short)"
+        case let (nil, build?): "ios/unknown (\(build))"
+        default: "ios/unknown"
+        }
+    }()
+
     // MARK: Coding
 
     /// ISO 8601 with fractional seconds — `2026-08-14T18:22:00.481Z`. The server emits them,
@@ -140,6 +172,39 @@ actor APIClient {
         }
     }
 
+    /// Whether a non-2xx answer to `POST /auth/refresh` is the server refusing the credential, as
+    /// opposed to the server having a bad minute.
+    ///
+    /// **The distinction is the whole point and the default is to keep the session.** Losing a
+    /// session that was still good costs a parent their archive until they sign in again; keeping
+    /// one the server has already killed costs one more request that 401s. Those are not
+    /// comparable, so anything ambiguous resolves towards keeping it.
+    ///
+    /// `nonisolated static` because the refresh runs inside a detached `Task` that captures only
+    /// `performer`, `baseURL` and `tokens` — it has no actor to call an instance method on.
+    nonisolated static func refusesCredential(status: Int, code: APIErrorCode?) -> Bool {
+        switch code {
+        // The three `rotate_refresh_token` can raise, and the one a `child_access` style refusal
+        // would. Each of them means this token will never work again.
+        case .unauthenticated, .tokenExpired, .refreshTokenReused, .notAuthorized:
+            true
+        // **Every other documented code is about the request or the service, never the
+        // credential** — `rate_limited`, `internal_error`, `database_unreachable`,
+        // `validation_failed`, `conflict`. The session survives all of them.
+        //
+        // `.unknown` lands here too, deliberately: a code this build has never heard of is the
+        // one case where guessing wrong destroys an archive, so an unrecognised code keeps the
+        // session and the next request finds out.
+        case .some:
+            false
+        // No envelope, so this did not come from `errors.py`. Only a 401 or a 403 is an
+        // authentication answer; a 502, a 503 and a 504 are infrastructure and say nothing at all
+        // about whether the refresh token is still good.
+        case nil:
+            status == 401 || status == 403
+        }
+    }
+
     private func isAuthChallenge(_ error: APIError) -> Bool {
         guard case .api(let code, _, _, let status) = error else { return false }
         // A reused refresh token is terminal — the whole chain is revoked server-side, and
@@ -198,6 +263,8 @@ actor APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(Self.buildIdentifier, forHTTPHeaderField: Self.buildHeader)
+        // Caller-supplied headers last, so an explicit value wins over the default above.
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
 
         if let body {
@@ -263,6 +330,10 @@ actor APIClient {
             request.httpMethod = HTTPMethod.post.rawValue
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
+            // Built by hand rather than through `buildRequest`, so the header has to be set here
+            // too — and this is the one request whose failures started all of this, so it is the
+            // last one that should be missing from a log line.
+            request.setValue(Self.buildIdentifier, forHTTPHeaderField: Self.buildHeader)
             request.httpBody = try Self.encoder.encode(RefreshRequest(refreshToken: current.refreshToken))
 
             let (data, response): (Data, HTTPURLResponse)
@@ -273,8 +344,20 @@ actor APIClient {
             }
 
             guard (200..<300).contains(response.statusCode) else {
-                tokens.clear()
-                if let envelope = try? Self.decoder.decode(APIErrorEnvelope.self, from: data) {
+                let envelope = try? Self.decoder.decode(APIErrorEnvelope.self, from: data)
+                // **Only an answer that says this credential is dead may end the session.**
+                //
+                // This used to clear unconditionally for every status outside `200..<300`, which
+                // meant a 429, a 500 from a machine that could not reach the database, or a 502
+                // from the edge during a rolling deploy destroyed the keychain — and `api/fly.toml`
+                // says in as many words that a machine which cannot reach Postgres *stays in the
+                // load balancer and answers 500s*. The parent then saw "Can't reach the archive"
+                // over an already-empty keychain, and the next launch put them on the sign-in
+                // screen without a single 401 ever having been returned.
+                if Self.refusesCredential(status: response.statusCode, code: envelope?.error.code) {
+                    tokens.clear()
+                }
+                if let envelope {
                     throw APIError.api(
                         code: envelope.error.code,
                         message: envelope.error.message,
@@ -282,14 +365,40 @@ actor APIClient {
                         status: response.statusCode
                     )
                 }
-                throw APIError.sessionExpired
+                // **Not `.sessionExpired`.** A body that is not the documented envelope did not
+                // come from this service's error handler at all — it is a proxy, a load balancer,
+                // or a machine that never reached the router. `.unexpectedStatus` is what the rest
+                // of the client already raises for that, and the gate reads it as a thing to try
+                // again rather than as a session that ended.
+                throw APIError.unexpectedStatus(response.statusCode)
             }
 
-            let pair = try Self.decoder.decode(TokenPairResponse.self, from: data)
+            let pair: TokenPairResponse
+            do {
+                pair = try Self.decoder.decode(TokenPairResponse.self, from: data)
+            } catch {
+                // A 2xx whose body is not a token pair is a captive portal or a contract drift,
+                // never a verdict on the credential. Wrapped so it cannot escape as a bare
+                // `DecodingError` past every `catch let error as APIError` between here and the
+                // gate, which is how a raw Swift decoding string reached the parent.
+                throw APIError.decoding("TokenPairResponse: \(error)")
+            }
             // Both halves. Keeping the old refresh token here is the bug that logs the parent
             // out on the next 401.
             let stored = TokenPair(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
-            tokens.save(stored)
+            if !tokens.save(stored) {
+                // **The write did not land, and what is in the store now is already dead.**
+                //
+                // The server revoked the presented token before issuing this pair, so leaving the
+                // old one behind means the next launch presents it, takes `refresh_token_reused`,
+                // and has **every other session on the account revoked with it** — the parent's
+                // iPad included. Dropping it costs one sign-in on this phone and costs the other
+                // devices nothing, which is the cheaper of two bad outcomes rather than a fix.
+                //
+                // This request still succeeds off `stored`: the pair is good, it just has nowhere
+                // durable to live. See `TokenStoring.save`.
+                tokens.clear()
+            }
             return stored
         }
 

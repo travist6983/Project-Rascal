@@ -14,6 +14,32 @@ import SwiftData
 @MainActor
 enum EntryCache {
 
+    /// Write a locally-composed entry, and any media alongside it, to disk. **Throws.**
+    ///
+    /// **The one write in the app that is not allowed to fail quietly.** The composer's promise is
+    /// that pressing Save is the end of the parent's obligation — the request, the sync state and
+    /// every retry `EntrySync` owns all rest on this row existing. When this was a `try?` inside
+    /// the view, a failed write let the sheet go on to POST, mark itself committed and dismiss, so
+    /// a parent who had just typed several hundred words watched a successful-looking save close
+    /// over nothing, with no logger and no notice anywhere to say it had happened.
+    ///
+    /// **A failure rolls the inserts back rather than leaving them dangling**, so the caller can
+    /// offer the same Save again and get one row rather than a second copy of a half-inserted one.
+    ///
+    /// Media is a parameter rather than a reach through `entry`: three completion shapes exist and
+    /// two of them have no media at all, so an empty array is the ordinary case and not a
+    /// degenerate one.
+    static func commit(_ entry: Entry, media: [Media] = [], in context: ModelContext) throws {
+        context.insert(entry)
+        for item in media { context.insert(item) }
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
+    }
+
     /// Fold a page of server entries into SwiftData. Returns how many rows were new.
     @discardableResult
     static func upsert(_ responses: [EntryResponse], into context: ModelContext) -> Int {
