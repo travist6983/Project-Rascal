@@ -317,7 +317,7 @@ async def test_a_good_click_confirms_and_redirects_to_the_site(monkeypatch) -> N
     response = await _get(settings, f"/v1/subscribe/confirm?token={token}")
 
     assert response.status_code == 303
-    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=1"
+    assert response.headers["location"] == "https://pocketchronicle.app/?confirmed=1"
     assert confirmed == ["parent@example.com"]
 
 
@@ -336,7 +336,7 @@ async def test_a_bad_link_redirects_rather_than_showing_a_browser_json(monkeypat
     response = await _get(_settings(), "/v1/subscribe/confirm?token=not-a-token")
 
     assert response.status_code == 303
-    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=0"
+    assert response.headers["location"] == "https://pocketchronicle.app/?confirmed=0"
     assert called == [], "a bad token must never reach the list"
 
 
@@ -355,7 +355,7 @@ async def test_a_missing_token_redirects_instead_of_showing_fastapis_422(monkeyp
     response = await _get(_settings(), "/v1/subscribe/confirm")
 
     assert response.status_code == 303, "a missing token must not reach FastAPI's validator"
-    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=0"
+    assert response.headers["location"] == "https://pocketchronicle.app/?confirmed=0"
     assert called == []
 
 
@@ -372,7 +372,7 @@ async def test_resend_being_down_is_told_apart_from_a_bad_link(monkeypatch) -> N
 
     response = await _get(settings, f"/v1/subscribe/confirm?token={token}")
 
-    assert response.headers["location"] == "https://getvellumapp.com/?confirmed=retry"
+    assert response.headers["location"] == "https://pocketchronicle.app/?confirmed=retry"
 
 
 # --- helpers -----------------------------------------------------------------------------

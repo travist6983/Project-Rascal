@@ -211,7 +211,7 @@ class Settings(DatabaseSettings):
     # `services/broadcast.py` and went stale the day the custom domain landed — every prompt
     # email's footer would have pointed at a URL that now only redirects. A constant that names
     # somebody else's deployment target is a constant that rots silently.
-    marketing_site_url: str = "https://getvellumapp.com"
+    marketing_site_url: str = "https://pocketchronicle.app"
 
     # Where the confirmation link points. Its own setting rather than derived from anything,
     # for the reason `email_sign_in_link_base` is: the host that mail links to and the host the
@@ -255,9 +255,29 @@ class Settings(DatabaseSettings):
 
     # Browser origins allowed to call the subscribe route. **A list from the first commit**,
     # because a scalar is a thing a second origin has to migrate off — and the marketing site
-    # will have a custom domain beside its github.io one. Never `*`, and applied to that route
-    # alone rather than globally: this is the first browser client this API has ever had.
-    marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
+    # will have a custom domain beside its github.io one. Never `*`. ~~and applied to that route
+    # alone rather than globally~~ — **struck Aug 28, 2026: that scoping does not exist.** The
+    # middleware is added app-wide; what keeps authenticated routes out of reach is
+    # `allow_headers=["Content-Type"]`, which refuses a preflight carrying `Authorization`.
+    # `main.py` carries the full note and is the single place the scoping is described — do not
+    # restate it here. This is the first browser client this API has ever had.
+    # **`https://pocketchronicle.app` added Aug 27, 2026 (phase 131).** The custom domain this
+    # comment anticipated now exists and serves the marketing site, so a browser calling
+    # `POST /v1/subscribe` from it sends that Origin. Without it here the subscribe form is
+    # refused by the browser while every test stays green, because no test exercises CORS.
+    # ⚠️ **`MARKETING_ORIGINS` is a Deployed Fly secret on `rascal-api`**, which overrides this
+    # default entirely — so this edit does NOT reach production. The deployed value must be set
+    # to include the new origin by hand. See `docs/blocked.md` §13.
+    #
+    # **`MARKETING_SITE_URL` is NOT a secret** — checked against `flyctl secrets list -a
+    # rascal-api`, which holds `MAIL_FROM`, `MARKETING_ORIGINS` and `MARKETING_EMAIL_ENABLED` and
+    # no site URL — so its default *is* what production reads and phase 131's edit ships on the
+    # next deploy. The two settings look alike and behave differently; check the list rather than
+    # assuming, which is the mistake that produced an earlier draft of this comment.
+    marketing_origins: Annotated[list[str], NoDecode] = [
+        "https://pocketchronicle.app",
+        "https://travist6983.github.io",
+    ]
 
     # --- The admin console's cost panel (phase 96, extended by phase 100) ------------------
     #

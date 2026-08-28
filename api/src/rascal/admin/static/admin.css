@@ -212,7 +212,7 @@ body[data-view="console"] .signin {
   /* **Type, not the drawn lockup.** The six-glyph Vellum path was geometry spelling a name
      this product no longer has; "Pocket Chronicle" is sixteen characters and two words and
      will not fit that lockup's proportions. Set as type at the display weight until a real
-     lockup is drawn — see docs/blocked.md. Sentence case: the name is never set in caps. */
+     lockup is drawn — see docs/app-icon/README.md. Sentence case: the name is never set in caps. */
   color: var(--ink);
   font-family: var(--rounded);
   font-size: 26px;

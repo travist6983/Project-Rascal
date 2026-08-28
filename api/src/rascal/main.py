@@ -56,8 +56,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # **CORS, and this is the first browser client this API has ever had.**
     #
-    # Scoped three ways on purpose: to the marketing origins from config and **never `*`**, to
-    # the one path a browser calls, and to the two methods it needs. `docs/blocked.md` §2b,
+    # Scoped ~~three~~ **two** ways on purpose: to the marketing origins from config and
+    # **never `*`**, and to the two methods a browser needs. ~~to the one path a browser
+    # calls~~ — **struck Aug 27, 2026: that scoping does not exist and never did.**
+    # `app.add_middleware` is app-wide, so these origins and methods apply to *every* route, not
+    # to `/v1/subscribe` alone. **What actually keeps the authenticated routes out of reach is
+    # `allow_headers`, not the path**: it is `["Content-Type"]`, so a cross-origin preflight
+    # carrying `Authorization` is refused and no allowlisted page can call a route that needs a
+    # token. `allow_credentials` is off, so no cookie rides along either.
+    #
+    # **The residual exposure, stated rather than waved away**: the routes that need no token are
+    # reachable and readable from an allowlisted origin — `/v1/auth/*` and `/v1/webhooks/*`
+    # especially. That is not an attack today, because the only allowlisted origins are our own
+    # marketing site, but it is the surface a per-route narrowing would close, and it is why the
+    # narrowing is worth doing rather than merely tidy. (An earlier draft of this comment said
+    # "every other route requires a `Bearer` token", which is false — `auth.py` and `webhooks.py`
+    # are unauthenticated by design.) Narrowing it for real needs per-route middleware or an
+    # `OPTIONS` handler, and that is a change, not a comment fix. `docs/blocked.md` §2b,
     # *"CORS should be tightened when a web client exists"*, reserved that tightening for a browser
     # client — it exists now, and it arrived through a marketing form rather than the web app that
     # sentence was imagining. ~~`docs/blocked.md:809`~~ — **cited by section and by the sentence

@@ -942,12 +942,35 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   is the precedent and this follows it. Phase 130 is the iOS half; merge them together.
 - **The two files the brief protected are dormant; the live email copy was somewhere else.**
   `docs/marketing/email-sequence.md` and `api/seeds/email_copy.yaml` are untouched, as instructed.
-  But their four occurrences are all in `welcome[].body`, and **the welcome sequence is not built**
+  ~~But their four occurrences are all in `welcome[].body`~~ — **corrected Aug 27, 2026: there are
+  nine between them, five in the markdown and four in the YAML, and one of the markdown's five is
+  the document's H1 rather than a welcome body.** The four *in the YAML* are all in `welcome[].body`,
+  which is the claim that was meant and the one the argument rests on, and **the welcome sequence is
+  not built**
   (`services/broadcast.py:3-8` says so). What actually goes out daily carried the name in ordinary
   code: the footer link's anchor text (`broadcast.py:177`) and the From line
-  (`config.py:175`, mirrored in `.env.example`). Both moved. Had the brief's model been followed
+  (`config.py:175`, mirrored in `.env.example`). ~~Both moved.~~ Had the brief's model been followed
   literally, a subscriber would have received a Pocket Chronicle body inside a Vellum-signed email
   with a Vellum footer link — the exact half-applied state the Aug 17 entry names.
+- 🔴 **Correction, Aug 27, 2026: only one of the two actually moved, and this entry claimed both
+  did.** The footer anchor is code and shipped. **The From line did not.** `MAIL_FROM` is a
+  **Deployed Fly secret** on `rascal-api` — `flyctl secrets list -a rascal-api` shows it — and a
+  `pydantic-settings` field takes the environment over its default, so editing `config.py:175`
+  changed the default and **nothing a subscriber receives**. Every broadcast still signs with the
+  retired name until somebody runs
+  `fly secrets set --app rascal-api MAIL_FROM='Pocket Chronicle <…>'`.
+  **So the half-applied state this bullet describes is the state that actually shipped**, in the
+  one direction that cannot be recalled: `decisions.md` open item 15 names outbound email as the
+  first of the two surfaces that make a name expensive, for exactly this reason.
+  ~~**`MARKETING_ORIGINS` and `MARKETING_SITE_URL` are Deployed secrets too**, so phase 131 has
+  the same gap.~~ — **corrected within the hour: only one of those two is a secret.**
+  `flyctl secrets list -a rascal-api` holds `MAIL_FROM`, `MARKETING_ORIGINS` and
+  `MARKETING_EMAIL_ENABLED`, and **no `MARKETING_SITE_URL`** — so phase 131's `marketing_site_url`
+  edit *is* what production reads on the next deploy, and only the CORS origin list needs a hand
+  edit. **This correction is itself a case of the lesson it was drawing**: the first draft asserted
+  a secret from the shape of the name instead of from the list. The lesson, stated properly:
+  **in this service, editing a settings default is not a deploy *if* a secret shadows it — so read
+  `flyctl secrets list` and check, rather than assuming either way.**
 - **The admin wordmark was geometry, not text, so neither grep nor sed could see it.** The console
   header and every generated brand card drew the name as a six-glyph SVG path and a canvas
   `Path2D` (`admin/static/index.html:24`, `:97`, `cards.js:100`). A text-only rename would have
@@ -964,12 +987,46 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   `docs/api-contract.md:651` documents the scoped form and was changed in the same commit — a
   second coupling the brief's file list did not name.
 - **Four things were deliberately left alone.** The `getvellumapp.com` domain and the
-  `@getvellum.app` handle (`config.py:408`) are a domain and a social account, not display copy,
+  `@getvellum.app` handle (in `config.py`, in the header comment of the
+  **"Instagram publishing (phase 104)"** section — **cited by section rather than by line,
+  deliberately**: this run moved it three times by editing the
+  `marketing_origins` comment above it, and corrected the citation twice, each correction stale
+  before it was committed. `main.py` already carries the rule — *"a line number in this file points
+  at whatever the next reshuffle leaves behind"*) are a domain and a social account, not display copy,
   and the brief says to ask rather than invent. The admin console's `localStorage` keys
   (`vellum.admin.token` / `.refresh`) are identifiers no user sees, and moving them would sign
   every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
   test trimming behaviour, and one of them records a real incident by quoting the literal that
   caused it.
+
+## Aug 27, 2026 — Phase 131: the marketing domain moves to `pocketchronicle.app`
+
+- **A domain is not display copy, which is why the rename phases did not go looking for one.** The
+  brief said to stop and ask rather than invent a domain. ~~Both rename phases left
+  `getvellumapp.com` exactly where it was.~~ — **corrected Aug 27, 2026: phase 130 did move it**, in
+  `ios/Rascal/Config.xcconfig` and its `.example`, once the owner supplied `pocketchronicle.app`
+  mid-phase with the legal pages already serving. This phase is the **API-lane half** of that same
+  change, split out only because `CLAUDE.md:16` forbids one branch touching both lanes — not
+  because the domain was untouched.
+- **The pages were confirmed before anything was written.** `curl` answered **200** on
+  `https://pocketchronicle.app/`, `/terms/` and `/privacy/`.
+- **What actually moved:** `settings.marketing_site_url`, which is not decorative — it is the href
+  in the footer of every broadcast (`services/broadcast.py:177`) and the redirect target after a
+  subscription confirmation (`routers/subscribe.py`). Four assertions in `test_subscribe.py` and
+  one constant in `test_broadcast.py` pin it and moved with it.
+- ⚠️ **Changing the default does not change production if the environment sets it.**
+  `marketing_site_url` is a `pydantic-settings` field, so a `MARKETING_SITE_URL` Fly secret or env
+  var overrides this default silently. **Check `flyctl secrets list -a rascal-api` and the app's
+  env before assuming this shipped.** Filed here rather than fixed because this lane cannot read
+  Fly's secret values.
+- **`@getvellum.app` in `config.py` was left alone**, cited by symbol rather than line for the
+  reason the entry above gives. It is an Instagram handle, not a URL, and
+  the brief is explicit that a new handle is not something an agent invents. The comment around it
+  is a dated record of a two-publisher decision and stays as written.
+- **`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to
+  `mail.getvellumapp.com` at Resend, and the four broadcasts already sent from it are all outside
+  this repository. See the proposed `blocked.md` §13 amendment in
+  `docs/reports/phase-130-gate-document-diffs.md`.
 ## Aug 27, 2026 — Phase 130: Vellum becomes Pocket Chronicle, on the phone
 
 - **Three names, and they are different on purpose.** `CFBundleDisplayName` is **`Chronicle`**,

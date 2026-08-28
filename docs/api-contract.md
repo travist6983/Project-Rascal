@@ -374,7 +374,7 @@ the inbox that receives the link is the only one that can activate it.
 telling anybody; a magic link to a dead relay is a key that looks alive. **Always `202`, and the body says nothing about the address** — an address already on a
 *different* account is answered identically to a fresh one, with nothing written and nothing
 sent. It used to answer `409 credential_in_use`, which told any caller whether a given address
-signs in to Vellum; the route is authenticated, but anyone who can create a free account is a
+signs in to Pocket Chronicle; the route is authenticated, but anyone who can create a free account is a
 caller. `POST /auth/email/start` already refuses that question unconditionally, so answering it
 here was an inconsistency as much as a leak. Read `GET /me/credentials` for the result.
 
@@ -1882,8 +1882,12 @@ which `roadmap-status.md` names as the defect this phase was written to design a
 being unreachable is a `503` for the same reason: failing open would let an outage at their end
 silently open ours.
 
-**CORS is allowlisted to `MARKETING_ORIGINS`, never `*`**, and applied to this route's methods
-alone (`POST`, `OPTIONS`) with no credentials. An empty allowlist means no browser origin is
+**CORS is allowlisted to `MARKETING_ORIGINS`, never `*`**, and to the methods this route needs
+(`POST`, `OPTIONS`) with no credentials. ~~applied to this route's methods alone~~ — **struck
+Aug 28, 2026: the middleware is app-wide, not per-route.** What keeps the authenticated routes out
+of a browser's reach is `allow_headers=["Content-Type"]`, which refuses a preflight carrying
+`Authorization`; the routes that need no token are reachable from an allowlisted origin. See the
+note in `main.py`. An empty allowlist means no browser origin is
 permitted — a refusal a deploy can see — rather than a wildcard nobody notices.
 
 `source` names the page or campaign and reaches a log line only; the contact belongs to Resend.
