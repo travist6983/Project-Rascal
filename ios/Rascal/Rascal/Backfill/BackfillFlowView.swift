@@ -418,7 +418,7 @@ struct BackfillPermissionScreen: View {
                         .typeRole(.display)
                         .foregroundStyle(Color.ink)
                         .multilineTextAlignment(.center)
-                    Text("Vellum can look through your photos to find months worth writing about.")
+                    Text("Pocket Chronicle can look through your photos to find months worth writing about.")
                         .typeRole(.body)
                         .foregroundStyle(Color.inkMuted)
                         .multilineTextAlignment(.center)
@@ -620,8 +620,8 @@ struct BackfillLimitedAccessScreen: View {
 
     private var headline: String {
         visibleCount == 1
-            ? "Vellum can see 1 of your photos"
-            : "Vellum can see \(visibleCount) of your photos"
+            ? "Pocket Chronicle can see 1 of your photos"
+            : "Pocket Chronicle can see \(visibleCount) of your photos"
     }
 }
 
@@ -638,7 +638,7 @@ struct BackfillNoAccessScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 BackfillCloseButton(action: onClose)
                     .padding(.bottom, 30)
-                Text("Vellum can't see your photos")
+                Text("Pocket Chronicle can't see your photos")
                     .typeRole(.detailTitle)
                     .foregroundStyle(Color.ink)
                     .fixedSize(horizontal: false, vertical: true)

@@ -28,10 +28,15 @@ struct WelcomeScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 Spacer()
 
-                // **The drawn wordmark, not the word set in caps.** `Text("VELLUM")` stood here
-                // and was the one string a case-sensitive rename could not see — it is also the
-                // only place in the app where the name is a logo rather than a sentence, which
-                // is exactly why it should not be type at all.
+                // **The wordmark. Sentence case, never caps.** `Text("VELLUM")` stood here and was
+                // the one string a case-sensitive rename could not see — it is also the only place
+                // in the app where the name is a logo rather than a sentence, which is exactly why
+                // it should not be type at all.
+                //
+                // **It is type again as of Aug 27, 2026, and that is a stopgap.** Phase 130 renamed
+                // the product to Pocket Chronicle, and the drawn mark spelled the old name in six
+                // letterforms that cannot be re-lettered into two words. See `Wordmark.swift`; a
+                // real lockup is owed, and this call site does not change when one arrives.
                 WordmarkView(width: 104)
                     .accessibilityAddTraits(.isHeader)
 

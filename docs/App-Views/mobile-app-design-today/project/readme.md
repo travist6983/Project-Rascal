@@ -2,7 +2,8 @@
 > This bundle was exported Aug 16, 2026 and is accurate about that day. **Two things changed on
 > Aug 17–18 and both bear directly on the `Wordmark` rules below:**
 >
-> 1. **The product is called `Vellum`, not `RASCAL`.** Settled by the owner Aug 17, 2026
+> 1. **The product is called `Pocket Chronicle`, not `RASCAL`.** Settled by the owner Aug 27, 2026
+>    (`Vellum` from Aug 17, 2026)
 >    (`docs/decisions.md:115`) and renamed through both lanes as phases 71 and 73. `RASCAL` remains
 >    the repository, package and path name and is correct wherever you see it as an identifier —
 >    but it is no longer the product's name in any copy a person reads.

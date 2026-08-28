@@ -970,3 +970,70 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
   test trimming behaviour, and one of them records a real incident by quoting the literal that
   caused it.
+## Aug 27, 2026 — Phase 130: Vellum becomes Pocket Chronicle, on the phone
+
+- **Three names, and they are different on purpose.** `CFBundleDisplayName` is **`Chronicle`**,
+  `CFBundleName` is **`Pocket Chronicle`**, and the App Store name is **`Pocket Chronicle`**. The
+  home-screen label truncates around eleven characters and the store name is sixteen. A display
+  name that is a substring of the store name is ordinary — Chrome, Maps and Photos all do it.
+  **This is not an inconsistency to fix**, and there are now assertions in `GoogleSignInTests` that
+  fail if somebody makes the two keys equal in either direction.
+- **The invariant this broke is the interesting part.** Until today both keys held *the same*
+  string in all four plists, and three places said so in prose: `Info.plist:55` (*"both move
+  together on a rename"*), `RascalShare-Info.plist:23` (*"All four read 'Vellum' and must stay that
+  way"*), and a test that looped `["CFBundleName", "CFBundleDisplayName"]` against **one** expected
+  value across all four files. **A substitution rename would have left that loop green while
+  putting one name in both keys** — the identical failure mode phase 82 shipped and phase 114
+  caught. The loop now pins each key to its own value; the prose is struck and dated rather than
+  overwritten, because what it recorded was true when written.
+- **Which name a string gets depends on which iOS surface renders it, not on the file it lives
+  in.** Copy *about* the product takes `Pocket Chronicle`. Copy telling a parent to **go find the
+  app** takes `Chronicle`, because that is what the surface actually shows: *"Settings → Chronicle
+  → Notifications"* (Settings lists apps by display name), *"Open Chronicle and sign in"* (the share
+  extension pointing at the home screen), *"iPhone Storage → Chronicle"*. Using the store name
+  there would be an instruction that is **literally false on a device**. `docs/design-system.md`
+  carried both kinds on one line and now states the rule explicitly.
+- **The wordmark is type again, and that is a stopgap rather than a decision.** `Wordmark.swift`
+  was 208 lines of Bézier geometry ported from `docs/app-icon/vellum-wordmark.svg` — six
+  letterforms spelling the dead name. Two words and sixteen characters cannot be re-lettered into
+  a lockup drawn for six, and condensing it would ship proportions drawn for a different word. So
+  the view sets the name at the display weight and **keeps its `WordmarkView(width:tint:)`
+  signature** so a drawn mark takes over without touching the one call site. **A real lockup is
+  owed.**
+- **The `docs/app-icon/` kit was not renamed, deliberately.** Thirteen `vellum-*` files draw the
+  old name as geometry. A file called `pocket-chronicle-wordmark.svg` that spells *Vellum* is worse
+  than one honestly named for what it contains, so the names stay and a `README.md` marks the whole
+  kit superseded. **Nothing shipped is affected**: `render-appicon.mjs` reads `rascal-icon-fan.svg`,
+  which carries no lettering at all, so the app icon on every phone was already name-neutral —
+  the third rename in a row that has paid off. The README warns against repointing it at
+  `vellum-icon-fan.svg`, which is the variant *with* the wordmark in the front card.
+- **`Vellum.storekit` → `PocketChronicle.storekit`, and it was safe because nothing references
+  it.** No `.pbxproj` entry, no scheme entry, no test plan — `RascalTests` is a
+  `PBXFileSystemSynchronizedRootGroup`, so the file is picked up by path. Only
+  `SKTestSession(configurationFileNamed:)` and one doc comment named it, and both moved with it.
+  **The two product identifiers inside it did not move** and must not: they are permanent on first
+  save in App Store Connect.
+- **`SubscriptionProducts.groupName` moved; the product ids did not.** The group name is a display
+  string in App Store Connect that no code reads, and nothing has been saved there yet — the same
+  window `decisions-log`'s Aug 17 entry used to correct it to *"Vellum Membership"*. **This needs a
+  matching edit in App Store Connect by hand**; the constant only records what the client was built
+  against.
+- **The legal URLs moved to `pocketchronicle.app`, and only after the pages were confirmed live.**
+  The owner supplied the domain mid-phase; `curl` answered **200** on
+  `https://pocketchronicle.app/terms/` and `https://pocketchronicle.app/privacy/` before either
+  value was written. **That check was the whole point**: `SubmissionComplianceTests` asserts those
+  URLs *resolve to a `URL`* and **never asserts a host**, so pointing them at a domain that does
+  not exist would have passed the suite green and failed at App Review — the one reviewer that
+  opens the page. A test that cannot fail on the thing that matters is worse than no test, and
+  this is filed rather than fixed here because widening it is a copy decision, not a rename one.
+- **`Config.xcconfig` is gitignored, so half that change is invisible to the PR.** `.gitignore:229`
+  excludes it, and it is the file the *build actually reads* — the `.example` beside it is only a
+  template CI copies into place. **Both were edited**, but only `.example` appears in the diff, so
+  the working copy on any other machine still needs the same two lines by hand. The `//` trap
+  applies: the values are written `https:$()/$()/pocketchronicle.app/terms/`, because an unescaped
+  `//` is a comment in xcconfig and would truncate the value to `https:` — which `URL(string:)`
+  accepts, which is how this shipped dark once already.
+- **`docs/archive/` was left untouched** — its README says its contents are kept *"whole and
+  unedited"*, and fourteen occurrences there are a true record of what the product was called.
+  Same reasoning for the dated reports under `docs/reports/` and the briefs under
+  `docs/phase-briefs/`.

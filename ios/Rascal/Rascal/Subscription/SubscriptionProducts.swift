@@ -19,7 +19,7 @@ nonisolated enum SubscriptionProducts {
     ///
     /// Not read by any code — StoreKit addresses products, not groups. It is here so the name
     /// this app was built against is written down somewhere the client can be checked against.
-    static let groupName = "Vellum Membership"
+    static let groupName = "Pocket Chronicle Membership"
 
     static let annual = "com.travisterry.childarchive.subscription.annual"
     static let monthly = "com.travisterry.childarchive.subscription.monthly"

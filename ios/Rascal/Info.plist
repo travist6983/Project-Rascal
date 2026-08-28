@@ -16,9 +16,14 @@
 	<!-- **The name under the icon, and literal on purpose.** `CFBundleName` below was
 	     `$(PRODUCT_NAME)`, which resolves to the *target* name — "Rascal" — and a target name is a
 	     build artefact, not a product. Setting this explicitly is what renamed the app — to Dogear on
-	     Aug 12, 2026 and to Vellum on Aug 17
+	     Aug 12, 2026, to Vellum on Aug 17, 2026 and to Pocket Chronicle on Aug 27, 2026
 	     without touching the target, the Swift module, the bundle id or the App Group, none of
 	     which a parent ever sees and all of which cost signing work to move.
+
+	     **This key and `CFBundleName` below stopped being the same string on Aug 27, 2026.** The
+	     home-screen label truncates around eleven characters and "Pocket Chronicle" is sixteen, so
+	     the label is **"Chronicle"** and the name iOS speaks in its own sentences is **"Pocket
+	     Chronicle"**. Chrome, Maps and Photos all do this. It is deliberate — do not "fix" it.
 
 	     It was never sufficient on its own, and the note on `CFBundleName` below is the other
 	     half of the rename.
@@ -26,13 +31,17 @@
 	     The widget and the share extension carry the same string in their own plists, and so does
 	     Info-Debug.plist. **All four have to agree** — this file, Info-Debug.plist,
 	     RascalWidget-Info.plist and RascalShare-Info.plist — and since Aug 23, 2026 they have to
-	     agree on both name keys, not just this one. Three of these comments said "all
-	     three" and undercounted the debug variant, which is the copy of this file most likely to
+	     agree on both name keys, not just this one. ~~Three of these comments said "all
+	     three"~~ and undercounted the debug variant, which is the copy of this file most likely to
 	     drift precisely because it is maintained by hand. iOS groups the widget gallery by the
-	     app's display name, and a widget reading "Vellum" under a heading reading something else
-	     is worse than either alone. -->
+	     app's display name, and a widget reading one name under a heading reading something else
+	     is worse than either alone.
+
+	     **Since Aug 27, 2026 "agree" means per key, not across keys.** All four must read
+	     "Chronicle" for this key and "Pocket Chronicle" for `CFBundleName`. What must never happen
+	     is one plist disagreeing with another on the same key. -->
 	<key>CFBundleDisplayName</key>
-	<string>Vellum</string>
+	<string>Chronicle</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -52,9 +61,14 @@
 	     Determined by experiment rather than from the documentation, which is not specific: a
 	     throwaway simulator app with the three candidates set to three different strings
 	     (`CFBundleDisplayName`, `CFBundleName`, and the executable name) rendered the
-	     `CFBundleName` one. **Both keys are literal now and both move together on a rename.** -->
+	     `CFBundleName` one. ~~**Both keys are literal now and both move together on a rename.**~~
+	     — **struck Aug 27, 2026.** Both are still literal and both still move on a rename, but they
+	     no longer move to the *same string*: this one is "Pocket Chronicle", the display name is
+	     "Chronicle". A rename that substitutes one name into both keys is wrong in a way the test
+	     suite will not catch unless it checks each key separately, which is why
+	     `GoogleSignInTests` now pins them per key rather than in one loop. -->
 	<key>CFBundleName</key>
-	<string>Vellum</string>
+	<string>Pocket Chronicle</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -106,7 +120,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Vellum reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
+	<string>Pocket Chronicle reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>
@@ -118,8 +132,9 @@
 	     `childarchive://today`, parsed by WidgetDeepLink. Named from the bundle id rather than
 	     the product, because a scheme a parent has already tapped is as permanent as a bundle id.
 
-	     **That call paid off on Aug 12, 2026**, when the product was named Dogear, and again on Aug 17
-	     when it became Vellum: the scheme did
+	     **That call paid off on Aug 12, 2026**, when the product was named Dogear, again on Aug 17,
+	     2026 when it became Vellum, and a third time on Aug 27, 2026 when it became Pocket
+	     Chronicle: the scheme did
 	     not have to move, so nothing already tapped broke. Leave it `childarchive` — it is an
 	     identifier, and renaming it now would buy nothing and cost every existing deep link.
 	     Not written as a $() reference either, because it is not a build configuration: pointing

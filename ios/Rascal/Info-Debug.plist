@@ -15,9 +15,13 @@
 	<!-- Kept in step with Info.plist by hand. The two files differ only in App Transport
 	     Security and the debug-only DEV_* keys, so a display name that drifts between them means
 	     a Debug build on the phone wearing a different name from the TestFlight build beside
-	     it. -->
+	     it.
+
+	     **"Chronicle", not "Pocket Chronicle", since Aug 27, 2026** — this is the home-screen
+	     label, which truncates around eleven characters. `CFBundleName` below carries the full
+	     name. See Info.plist for why they differ. -->
 	<key>CFBundleDisplayName</key>
-	<string>Vellum</string>
+	<string>Chronicle</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -28,9 +32,11 @@
 	     key iOS reads for its own sentences about the app — including the
 	     `ASWebAuthenticationSession` consent alert that opens Google sign-in — so a Debug build
 	     left on `$(PRODUCT_NAME)` would be the build a developer tests the sign-in flow in and the
-	     one place the dead name could survive unnoticed. See Info.plist for the experiment. -->
+	     one place the dead name could survive unnoticed. See Info.plist for the experiment.
+
+	     **"Pocket Chronicle" — deliberately not the same string as the display name above.** -->
 	<key>CFBundleName</key>
-	<string>Vellum</string>
+	<string>Pocket Chronicle</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -92,7 +98,7 @@
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Vellum reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
+	<string>Pocket Chronicle reads the dates on your photos and how many there are, so it can suggest months worth writing about. The pictures themselves stay on your phone — nothing is uploaded, and nothing is added to the archive unless you pick it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save the original, full-quality video back to your photos. The archive keeps a smaller copy so it stays affordable to store for eighteen years.</string>
 	<key>NSCameraUsageDescription</key>

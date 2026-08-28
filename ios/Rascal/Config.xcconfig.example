@@ -1,9 +1,13 @@
-// Vellum — iOS build configuration
+// Pocket Chronicle — iOS build configuration
 //
-// The app is Vellum as of Aug 17, 2026 (Dogear from Aug 12). `API_HOST` below still says
+// The app is Pocket Chronicle as of Aug 27, 2026 (Vellum from Aug 17, Dogear from Aug 12).
+// `API_HOST` below still says
 // `rascal-api.fly.dev` and
 // must: that is the Fly app's name, an infrastructure identifier, and renaming it would mean a
 // new app, a new deploy and a new certificate for nothing a parent ever sees.
+//
+// **Three renames and it has not moved once.** That is the argument for choosing infrastructure
+// names that name no product, and it is stronger now than when it was written.
 //
 //   cp ios/Rascal/Config.xcconfig.example ios/Rascal/Config.xcconfig
 //
@@ -90,5 +94,5 @@ GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.22574619282-vs702oo01a8vn
 // The client renders each link only when its value is non-empty, so an unset key is an absent
 // link rather than a dead one. **An absent one is a release blocker, not a cosmetic gap** —
 // see LegalLinks in PaywallSheet.swift.
-TERMS_URL   = https:$()/$()/getvellumapp.com/terms
-PRIVACY_URL = https:$()/$()/getvellumapp.com/privacy
+TERMS_URL   = https:$()/$()/pocketchronicle.app/terms/
+PRIVACY_URL = https:$()/$()/pocketchronicle.app/privacy/

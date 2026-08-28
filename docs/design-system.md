@@ -192,11 +192,23 @@ A clock time is formatted at the use site in the device's zone. `occurred_at` is
 case-sensitive rename cannot find — which is exactly how it survived the Dogear → Vellum pass and
 shipped a dead name on the first screen anybody sees.
 
-**Where the name is a mark, use `WordmarkView`.** It is drawn geometry ported from
+**Where the name is a mark, use `WordmarkView`.** ~~It is drawn geometry ported from
 `docs/app-icon/vellum-wordmark.svg`, so there is no font file and no licence, and it scales and
-tints without an asset. **Where the name is a word in a sentence, write it sentence case** —
-*"Vellum writes to this phone first"*, *"Settings → Vellum → Notifications"*. A mark dropped into
-running copy reads as a brand intrusion; the sentence is not an opportunity.
+tints without an asset.~~ — **struck Aug 27, 2026 by phase 130.** It was drawn geometry, and the
+geometry spelled *Vellum* in six letterforms. Pocket Chronicle is two words and sixteen characters,
+which that lockup cannot be re-lettered into, so **`WordmarkView` currently sets the name as type at
+the display weight**. That is a stopgap and a real lockup is owed; the view keeps its
+`WordmarkView(width:tint:)` signature so a drawn mark can take over without touching the call site.
+The kit under `docs/app-icon/` still draws the old name throughout and is superseded wholesale.
+
+**Where the name is a word in a sentence, write it sentence case** — and **which name depends on
+what the sentence points at.** A sentence *about the product* takes the full name: *"Pocket
+Chronicle writes to this phone first"*. A sentence telling a parent to **go find the app in iOS**
+must say what that surface actually renders, which is `CFBundleDisplayName` — *"Settings →
+Chronicle → Notifications"*, because the Settings app lists apps by that key and *"Settings → Pocket
+Chronicle"* would be an instruction that is literally false on a device. Same for the share sheet,
+the home screen and iPhone Storage. A mark dropped into running copy reads as a brand intrusion;
+the sentence is not an opportunity.
 
 **One place, on purpose: the welcome screen.** A logo earns its place by being rare, and every
 other occurrence in the app is a sentence. Adding a second site is a decision, not a tidy-up.

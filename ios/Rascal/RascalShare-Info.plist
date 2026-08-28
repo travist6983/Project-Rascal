@@ -16,15 +16,20 @@
 	     sheet's row of app icons, and `$(PRODUCT_NAME)` resolves to the target name — "RascalShare"
 	     — which is a build artefact's name, not a product's.
 
-	     **The name closed on Aug 12, 2026 as Dogear and changed to Vellum on Aug 17, 2026.** This comment used to say
-	     it was one of the places that would have to change when it did, and the widget gallery was
-	     named as the first. Both are done, and the app now carries an explicit
-	     CFBundleDisplayName of its own rather than falling back to CFBundleName. **All four** read
-	     "Vellum" and must stay that way — the app, its debug variant, the widget and this file.
-	     Since Aug 23, 2026 that goes for `CFBundleName` below too, which is a different string with
-	     a different job and was still the dead name. -->
+	     **The name closed on Aug 12, 2026 as Dogear, changed to Vellum on Aug 17, 2026, and to
+	     Pocket Chronicle on Aug 27, 2026** on an attorney's trademark-conflict finding. This
+	     comment used to say it was one of the places that would have to change when it did, and
+	     the widget gallery was named as the first. Both are done, and the app now carries an
+	     explicit CFBundleDisplayName of its own rather than falling back to CFBundleName.
+
+	     ~~**All four** read "Vellum" and must stay that way — the app, its debug variant, the
+	     widget and this file. Since Aug 23, 2026 that goes for `CFBundleName` below too, which is
+	     a different string with a different job and was still the dead name.~~ — **struck Aug 27,
+	     2026, because the two keys stopped holding one string.** All four files must still agree,
+	     but **per key**: "Chronicle" here, "Pocket Chronicle" in `CFBundleName` below. The share
+	     sheet renders this one. -->
 	<key>CFBundleDisplayName</key>
-	<string>Vellum</string>
+	<string>Chronicle</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -35,7 +40,7 @@
 	     `CFBundleName` when it writes its own sentences about a bundle, so `$(PRODUCT_NAME)` here
 	     puts “RascalShare” into system UI that the display name does not cover. -->
 	<key>CFBundleName</key>
-	<string>Vellum</string>
+	<string>Pocket Chronicle</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>

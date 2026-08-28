@@ -1,4 +1,4 @@
-# Vellum auth bundle — Gate 0 preflight
+# Pocket Chronicle auth bundle — Gate 0 preflight
 
 > **Renamed Aug 18, 2026.** The title read *"Dogear auth bundle"*. This was the last live occurrence of the dead name in `docs/`, and it survived phase 76's sweep — which reported the repo clean — because the sweep read the body of each file and a title is the one line nobody re-reads. The product is **Vellum** (`decisions.md:115`); the bundle's contents are unaffected.
 
