@@ -106,7 +106,10 @@ function drawLines(ctx, lines, x, y, size, lineHeight) {
  */
 function wordmark(ctx, x, y, height, color) {
   ctx.save();
-  ctx.font = font(ROUNDED_BOLD, height * 0.78);
+  // 1.30, not 0.78: `height` is the band the old geometry filled cap-to-baseline, and a font's
+  // point size is its em, of which the caps are roughly 0.7. Sizing by the em drew the mark at
+  // about 56% of the height it replaced.
+  ctx.font = font(ROUNDED_BOLD, height * 1.3);
   ctx.fillStyle = color;
   ctx.textBaseline = "alphabetic";
   ctx.fillText("Pocket Chronicle", x, y + height);

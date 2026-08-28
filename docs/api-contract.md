@@ -374,7 +374,7 @@ the inbox that receives the link is the only one that can activate it.
 telling anybody; a magic link to a dead relay is a key that looks alive. **Always `202`, and the body says nothing about the address** — an address already on a
 *different* account is answered identically to a fresh one, with nothing written and nothing
 sent. It used to answer `409 credential_in_use`, which told any caller whether a given address
-signs in to Vellum; the route is authenticated, but anyone who can create a free account is a
+signs in to Pocket Chronicle; the route is authenticated, but anyone who can create a free account is a
 caller. `POST /auth/email/start` already refuses that question unconditionally, so answering it
 here was an inconsistency as much as a leak. Read `GET /me/credentials` for the result.
 

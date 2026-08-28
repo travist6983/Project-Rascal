@@ -257,7 +257,17 @@ class Settings(DatabaseSettings):
     # because a scalar is a thing a second origin has to migrate off — and the marketing site
     # will have a custom domain beside its github.io one. Never `*`, and applied to that route
     # alone rather than globally: this is the first browser client this API has ever had.
-    marketing_origins: Annotated[list[str], NoDecode] = ["https://travist6983.github.io"]
+    # **`https://pocketchronicle.app` added Aug 27, 2026 (phase 131).** The custom domain this
+    # comment anticipated now exists and serves the marketing site, so a browser calling
+    # `POST /v1/subscribe` from it sends that Origin. Without it here the subscribe form is
+    # refused by the browser while every test stays green, because no test exercises CORS.
+    # ⚠️ **`MARKETING_ORIGINS` is a Deployed Fly secret on `rascal-api`**, which overrides this
+    # default entirely — so this edit does NOT reach production. The deployed value must be set
+    # to include the new origin by hand. See `docs/blocked.md` §13.
+    marketing_origins: Annotated[list[str], NoDecode] = [
+        "https://pocketchronicle.app",
+        "https://travist6983.github.io",
+    ]
 
     # --- The admin console's cost panel (phase 96, extended by phase 100) ------------------
     #

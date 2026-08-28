@@ -354,9 +354,9 @@ async def test_the_manifest_says_what_is_in_the_box(
     # **Stays `rascal-export` through three renames now — Dogear, then Vellum, then
     # Pocket Chronicle — on purpose.**
     # This is the identifier the viewer checks; renaming it would make every archive exported
-    # before a rename fail to open in a newer viewer. That it has survived two is the point:
+    # before a rename fail to open in a newer viewer. That it has survived three is the point:
     # the product name is not allowed to reach this string. The download filename is
-    # decoration and moved both times — below.
+    # decoration and moved all three times — below.
     assert manifest["format"] == "rascal-export"
     assert manifest["format_version"] == 1
     assert manifest["child"]["name"] == "Miles"
