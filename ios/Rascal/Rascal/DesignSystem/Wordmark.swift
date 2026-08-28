@@ -37,30 +37,41 @@ struct WordmarkView: View {
 
     /// The drawn mark's aspect ratio, `531.5 × 126`, kept as the basis for the type size.
     ///
-    /// **Measured, not assumed** (CoreText, `width: 104`): the drawn mark was **24.7pt** tall and
-    /// this one is **27.0pt** on a single line — `+2.3pt`, so swapping a drawn lockup back in
-    /// barely moves the screen around it.
+    /// **The drawn mark's ink height at `width` is `width × 126 / 531.5` — 24.65pt at 104.** The
+    /// SVG path is inset from its viewBox by half the stroke, so the viewBox *is* the ink box.
+    /// That is the number the type has to match, and matching it is what `pointSize` does.
     static let designAspectRatio: CGFloat = 531.5 / 126
 
-    /// Chosen so the cap height lands near the drawn mark's stroke-inset height at `width`.
+    /// Sized so the type's **ink** matches the drawn mark's ink, which is not the same thing as
+    /// matching its line box — and getting that wrong is how this view has been wrong twice.
     ///
-    /// **The mark sets on ONE line and takes its natural width, which is wider than `width`.**
-    /// That is the whole reason this reads as a lockup rather than a paragraph. At `width: 104`
-    /// the point size is 22.68 and *"Pocket Chronicle"* measures **174pt × 27.0pt**; the drawn
-    /// mark it replaced was 104pt × 24.7pt. Wider, and 2.3pt taller.
+    /// **The factor is 1.337, and it is `1 / 0.75` for the same reason `admin/static/cards.js`
+    /// uses 1.3.** A font's point size is its em; the ascender is roughly 0.75 of it. The drawn
+    /// band was the ascender height — the path's tallest points were the two `l` stems at
+    /// `y = -116.25` against a baseline at `-9.75`, 106.5 of the 126-unit viewBox — so filling
+    /// the same band takes `height / 0.75`.
     ///
-    /// **An earlier version of this view clamped the text to `.frame(width: width)`, which forced
-    /// a two-line wrap and made the mark 53pt tall.** That is not a cosmetic difference: measured
-    /// on an iPhone SE, the extra 29pt is what tipped `accessibility1` from fitting the welcome
-    /// screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an overflow there
-    /// leaves the sign-in buttons unreachable. One line costs nothing and removes that entirely.
+    /// **Measured with CoreText, `CTLineGetImageBounds` rather than `size()`**, at `width: 104`:
     ///
-    /// **It fits.** 174pt against a content width of `screen − 2 × OnboardingLayout.margin`, which
-    /// is 264pt on the narrowest device iOS still runs on (320pt logical) and 319pt on an SE.
-    /// `minimumScaleFactor` below is the guard if a longer name or a different font ever eats
-    /// that margin — it shrinks the mark rather than truncating it.
+    /// | | point size | advance | ink height | line box |
+    /// |---|---|---|---|---|
+    /// | drawn mark | — | 104pt | **24.65pt** | — |
+    /// | ~~first try, `× 0.92`~~ | 22.68 | 174pt | **16.97pt** — 31% short | 27.0pt |
+    /// | this | **32.96** | **253.8pt** | **24.66pt** | 39.0pt |
+    ///
+    /// ~~*the drawn mark was 24.7pt and this one is 27.0pt, +2.3pt*~~ — **struck: that compared
+    /// this view's LINE BOX against the drawn mark's INK BOX**, which is why a mark 31% smaller
+    /// than its predecessor read as parity. Compare like with like.
+    ///
+    /// **It costs 14.35pt of layout height** (39.0pt line box against 24.65pt of drawn ink), and
+    /// that is the number to check against a screen budget — not the ink.
+    ///
+    /// **It fits on one line.** 253.8pt against `screen − 2 × OnboardingLayout.margin`, which is
+    /// **319pt** on the narrowest iPhone this app supports: `IPHONEOS_DEPLOYMENT_TARGET` is 18.6
+    /// and `TARGETED_DEVICE_FAMILY` is iPhone, so the floor is a 375pt SE — not the 320pt an
+    /// earlier version of this comment claimed. 65pt of margin.
     private var pointSize: CGFloat {
-        width / WordmarkView.designAspectRatio * 0.92
+        width / WordmarkView.designAspectRatio * 1.337
     }
 
     var body: some View {
@@ -69,8 +80,9 @@ struct WordmarkView: View {
             .kerning(-0.4)
             // One line, always. A wordmark that wraps is a paragraph.
             .lineLimit(1)
-            // The guard, not the plan: shrink rather than truncate if a narrower screen or a
-            // longer name ever eats the ~90pt of margin the measurement above found.
+            // The guard, not the plan: shrink rather than truncate if a longer name or a
+            // different font ever eats the 65pt of margin the measurement above found. It does
+            // not engage on any shipping device, which is the point of saying so.
             .minimumScaleFactor(0.6)
             .foregroundStyle(tint)
             .accessibilityLabel("Pocket Chronicle")

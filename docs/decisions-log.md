@@ -1007,11 +1007,20 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
     fitting the welcome screen to overflowing it — and `WelcomeScreen` has no `ScrollView`, so an
     overflow there puts the sign-in buttons off-screen with no way to reach them. It is the same
     failure phase 18 found on the five onboarding steps, arriving on the one screen that was
-    exempted from that fix. **The mark now sets on one line at its natural width: 174pt × 27.0pt,
-    +2.3pt on the drawn mark**, which removes the regression instead of absorbing it. It fits the
-    narrowest device iOS runs on — 264pt of content at 320pt logical — with `minimumScaleFactor`
-    as the guard rather than the plan. **Measured with CoreText both times; the first version's
-    comment asserted the wrap was fine without measuring it.**
+    exempted from that fix. **The mark now sets on one line**, which removes the regression
+    instead of absorbing it.
+  - **Aug 28, 2026 — and the one-line version was sized wrong too, for a subtler reason.** It kept
+    the old `× 0.92` factor, which made the type 22.68pt: a **174pt × 27.0pt line box** whose actual
+    **ink is 16.97pt against the drawn mark's 24.65pt — 31% smaller**. The comment claiming parity
+    compared this view's *line box* to the drawn mark's *ink box*. **Compare like with like**: the
+    factor is now **1.337**, which is `1 / 0.75` for the same reason `cards.js` uses 1.3 — the
+    drawn band was the ascender, and an ascender is ~0.75 of the em. The API half of this same
+    round diagnosed exactly that error in `cards.js` and the iOS half did not, in the same commit.
+    Measured with `CTLineGetImageBounds` rather than `size()`: **32.96pt, 253.8pt advance, 24.66pt
+    of ink, 39.0pt line box** — ink parity, and **+14.35pt of layout height**, which is the number a
+    screen budget cares about. It fits one line against 319pt of content on the narrowest iPhone
+    this app supports (deployment target 18.6, iPhone-only, so a 375pt SE — **not** the 320pt an
+    earlier version of the comment claimed).
 - **The `docs/app-icon/` kit was not renamed, deliberately.** Twelve `vellum-*` files draw the
   old name as geometry — **ten SVGs, one PNG and one HTML**, counted with
   `ls docs/app-icon/ | grep '^vellum-' | sed 's/.*\.//' | sort | uniq -c` rather than from memory.
