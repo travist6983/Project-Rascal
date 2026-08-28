@@ -182,7 +182,35 @@ nonisolated enum MembershipPresentation {
         return household.mayManageSubscription ? .manage : .hidden
     }
 
-    /// **What the Settings *Household* row reports.** A pure function, for the same reason the two
+    /// **Whether a restore that has just finished should close the paywall.**
+    ///
+    /// A pure function, in the presentation layer, and deliberately **not** inside
+    /// `SubscriptionModel.restore()`. The same `restore()` is called from `SubscriptionSection`,
+    /// where a success must leave the parent on the Settings screen they were reading. A shared
+    /// implementation that dismissed would need a flag threaded through it; a *caller* that decides
+    /// needs nothing. And because exactly one sentence says what "success" means, the two surfaces
+    /// cannot drift into disagreeing about it.
+    ///
+    /// **The device does not decide entitlement (D5).** `household` is the `FamilySummary` that
+    /// `EntitlementConfirmation.poll` read back from `GET /v1/families/me`; `isSubscribed` is the
+    /// server's word on it. Nothing here does arithmetic, reads a receipt, or consults StoreKit.
+    /// It is `isSubscribed` rather than `access.isEntitled` on purpose: that is the same predicate
+    /// the sheet's own **Done** button keys on, so this cannot dismiss over a state the sheet would
+    /// have described differently.
+    ///
+    /// **`notice` is what separates the outcomes, and it is load-bearing rather than
+    /// belt-and-braces.** `restore()` clears it before it starts and writes it in exactly two
+    /// places: a refused `AppStore.sync()`, and a window that closed with nothing having arrived.
+    /// So nil means the sync succeeded *and* the poll was not the not-found branch — which is what
+    /// stops a parent whose household was **already** subscribed when they tapped from being
+    /// dismissed out of the sheet by a restore that just failed, over an error they never read.
+    static func dismissAfterRestore(household: FamilySummary?, notice: String?) -> Bool {
+        guard notice == nil else { return false }
+        return household?.isSubscribed == true
+    }
+
+    /// **What the Settings *Your household* row reports** — *Household* until phase 125 renamed the
+    /// label on Aug 26, 2026. A pure function, for the same reason the two
     /// above are: the case that matters — a household three days into its trial — can then be
     /// asserted without rendering a view or touching `UserDefaults`.
     ///

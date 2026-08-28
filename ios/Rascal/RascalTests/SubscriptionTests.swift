@@ -6,6 +6,41 @@ import Testing
 // MARK: - Doubles
 
 /// A counter the drain callback and the household reader can bump from any isolation.
+/// A one-shot gate, so a test can park an injected read mid-flight and run something else on the
+/// model while it is parked.
+///
+/// Exists because `load()`'s prologue and its publish happen either side of an `await`, and the
+/// only defect that reaches the publish-site guard is one that lands inside that window. A test
+/// that cannot hold the window open cannot tell the two apart — which is how the first version of
+/// `loadReconcilesTheChannelsWithWhatItPublishes` passed against a deliberately broken model.
+private actor Gate {
+    private var opened = false
+    private var waiter: CheckedContinuation<Void, Never>?
+    private var arrival: CheckedContinuation<Void, Never>?
+    private var arrived = false
+
+    /// Called from inside the parked read.
+    func wait() async {
+        arrived = true
+        arrival?.resume()
+        arrival = nil
+        if opened { return }
+        await withCheckedContinuation { waiter = $0 }
+    }
+
+    /// Resumes once the read has actually parked, so the race is staged rather than hoped for.
+    func readyToRelease() async {
+        if arrived { return }
+        await withCheckedContinuation { arrival = $0 }
+    }
+
+    func open() {
+        opened = true
+        waiter?.resume()
+        waiter = nil
+    }
+}
+
 private actor Counter {
     private(set) var value = 0
     func bump() -> Int {
@@ -26,6 +61,10 @@ private actor FakeStore: SubscriptionPurchasing {
     private let offer: SubscriptionOffer?
     private var outcomes: [Result<PurchaseOutcome, SubscriptionStoreError>]
     private let restoreResult: Result<Void, SubscriptionStoreError>
+    /// Per-call restore results, the way `outcomes` already works for `purchase`. Needed because a
+    /// standing confirmation from a *previous* successful restore is the state that matters, and it
+    /// takes two runs with different results to reach it.
+    private var restoreResults: [Result<Void, SubscriptionStoreError>]
 
     private(set) var purchases: [(plan: SubscriptionPlan, familyID: UUID)] = []
     private(set) var restores = 0
@@ -39,11 +78,13 @@ private actor FakeStore: SubscriptionPurchasing {
         offer: SubscriptionOffer? = .double,
         outcomes: [Result<PurchaseOutcome, SubscriptionStoreError>] = [.success(.purchased)],
         restoreResult: Result<Void, SubscriptionStoreError> = .success(()),
+        restoreResults: [Result<Void, SubscriptionStoreError>] = [],
         holdPurchase: Bool = false
     ) {
         self.offer = offer
         self.outcomes = outcomes
         self.restoreResult = restoreResult
+        self.restoreResults = restoreResults
         self.holdPurchase = holdPurchase
     }
 
@@ -79,7 +120,7 @@ private actor FakeStore: SubscriptionPurchasing {
 
     func restore() async throws {
         restores += 1
-        try restoreResult.get()
+        try (restoreResults.isEmpty ? restoreResult : restoreResults.removeFirst()).get()
     }
 }
 
@@ -723,6 +764,273 @@ struct SubscriptionRestoreTests {
             model.notice == nil,
             "a successful restore should not also report a failure notice"
         )
+    }
+
+    @Test("a restore that finds a membership says so, in its own channel")
+    @MainActor
+    func aFoundRestoreWritesAConfirmation() async {
+        // **Phase 126.** Settings does not dismiss on a successful restore — the parent stays on
+        // the card they were reading — so the row spins and then stops, and without a sentence
+        // that is indistinguishable from a run that failed. `notice` cannot carry it:
+        // `aSuccessfulRestoreIsNotSilent` above asserts `notice == nil` on this exact path, and it
+        // is right to, because `notice` means "something to tell you that went not-quite-right".
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "subscribed" : "free")
+        }
+        await model.load()
+        _ = await subscribed.bump()
+
+        await model.restore()
+
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil, "the two channels are exclusive; a success is not a notice")
+    }
+
+    @Test("a restore that finds nothing writes no confirmation")
+    @MainActor
+    func anEmptyRestoreWritesNoConfirmation() async {
+        let model = makeModel(store: FakeStore()) { await household("free") }
+
+        await model.restore()
+
+        #expect(model.restoreConfirmation == nil)
+        #expect(model.notice != nil, "the parent is still told something")
+    }
+
+    @Test("a load never publishes a household its own channels contradict")
+    @MainActor
+    func loadReconcilesTheChannelsWithWhatItPublishes() async {
+        // **The last publish site that reconciled nothing, and the race has to be staged to reach
+        // it.** `load()` clears both channels in its *prologue* — so a fresh call is covered by
+        // that and the publish-site guard is never needed. The uncovered case is a `restore()` that
+        // completes *inside* load's await window: the prologue has already run, the restore sets
+        // `restoreConfirmation`, and then load publishes a household read that began before the
+        // restore proved anything. The card renders *Free* under "Found it. Your membership is
+        // active."
+        //
+        // **Written after break-test 20 came back green against a naive version of this test**,
+        // which called `load()` fresh and was satisfied by the prologue — the same shape as
+        // `aSecondRestoreClearsTheConfirmation` being satisfied by a clear it does not name.
+        let gate = Gate()
+        let reads = Counter()
+        let model = makeModel(store: FakeStore()) {
+            let n = await reads.bump()
+            // Read 1 is load's: park it mid-flight, and answer `free` when finally released.
+            if n == 1 {
+                await gate.wait()
+                return await household("free")
+            }
+            // Everything after is the restore's, which proves the household subscribed.
+            return await household("subscribed")
+        }
+
+        async let loading: Void = model.load()
+        await gate.readyToRelease()
+
+        // Runs while `load()` is parked past its prologue.
+        await model.restore()
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+
+        await gate.open()
+        await loading
+
+        #expect(model.household?.isSubscribed == false, "load published the stale read, as it must")
+        #expect(
+            model.restoreConfirmation == nil,
+            "a free household must not be published under 'your membership is active'"
+        )
+    }
+
+    @Test("a refused restore does not leave the last run's confirmation standing")
+    @MainActor
+    func aRefusedRestoreClearsAStandingConfirmation() async {
+        // **The case `aSecondRestoreClearsTheConfirmation` below looks like it covers and does
+        // not.** That test's second run reaches `refreshHousehold()`, whose subscribed→free guard
+        // clears the confirmation on its own — so it stays green with `restore()`'s prologue clear
+        // deleted. This one cannot: a refused `AppStore.sync()` returns before the poll, so the
+        // transition guard never runs and the prologue is the only thing that clears.
+        //
+        // What that protects: Settings does not dismiss on success, so the confirmation is still on
+        // the card when the parent taps Restore again. `SubscriptionSection` renders
+        // `restoreConfirmation ?? notice` — so without the prologue the card keeps saying "Found
+        // it. Your membership is active." and the App Store error is never shown at all.
+        let store = FakeStore(restoreResults: [
+            .success(()),
+            .failure(.storeKit("The App Store couldn't be reached.")),
+        ])
+        let model = makeModel(store: store) { await household("subscribed") }
+
+        await model.restore()
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+
+        await model.restore()
+
+        #expect(
+            model.restoreConfirmation == nil,
+            "the card must show the refusal, not the previous run's success"
+        )
+        #expect(model.notice == "The App Store couldn't be reached.")
+        #expect(model.household?.isSubscribed == true, "a refused sync changes no entitlement")
+    }
+
+    /// **Covers the *end state* of an empty second run, not the prologue's timing.** The clear this
+    /// lands on is `refreshHousehold()`'s subscribed→free transition, not `restore()`'s prologue —
+    /// see `aRefusedRestoreClearsAStandingConfirmation` above for the one that pins the prologue.
+    @Test("a second restore clears the first one's confirmation before it has an answer")
+    @MainActor
+    func aSecondRestoreClearsTheConfirmation() async {
+        // Without this, a run that came back empty would sit under a "your membership is here"
+        // left over from the run before it — two sentences contradicting each other on one card.
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "free" : "subscribed")
+        }
+        await model.restore()
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+
+        _ = await subscribed.bump()
+        await model.restore()
+
+        #expect(model.restoreConfirmation == nil)
+    }
+
+    @Test("opening either surface clears a confirmation left from last time")
+    @MainActor
+    func loadClearsTheConfirmation() async {
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "subscribed" : "free")
+        }
+        await model.load()
+        _ = await subscribed.bump()
+        await model.restore()
+        #expect(model.restoreConfirmation != nil)
+
+        await model.load()
+
+        #expect(model.restoreConfirmation == nil, "yesterday's answer is not a statement about now")
+    }
+
+    @Test("a restore whose window closed and then found a membership still says so")
+    @MainActor
+    func aLateRestoreThatFindsOneWritesAConfirmation() async {
+        // **The slow path, which the fast one does not cover.** `restoreSchedule` is four reads;
+        // exhausting it returns `.late`, and `restore()` then calls `refreshHousehold()` for a
+        // fifth. If *that* read says subscribed, the parent's answer arrived — just not inside the
+        // window — and the card must say the same thing it would have said quickly. Without this
+        // the branch is written and never executed by any test.
+        let reads = Counter()
+        let model = makeModel(store: FakeStore()) {
+            // free for the four polls, subscribed for the refresh that follows
+            await household(await reads.bump() > 4 ? "subscribed" : "free")
+        }
+
+        await model.restore()
+
+        #expect(await reads.read() == 5, "four polls then one refresh — the .late path, not the fast one")
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil, "arriving late is not a failure and must not read as one")
+        #expect(model.household?.isSubscribed == true)
+    }
+
+    @Test("a restore whose window closed and whose confirming read failed claims nothing")
+    @MainActor
+    func aLateRestoreWithAFailedRefreshClaimsNothing() async {
+        // **The stale-household defect.** `refreshHousehold()` returns early on a throwing read,
+        // leaving `household` holding whatever it held before. A household that was subscribed and
+        // has since lapsed would then be told "your membership is active" on the strength of a
+        // summary this restore never confirmed — the device deciding entitlement off cached state,
+        // which is exactly what D5 forbids.
+        let reads = Counter()
+        let model = makeModel(store: FakeStore()) {
+            // One good read to seed a subscribed household, then the four polls report free, then
+            // the confirming refresh throws.
+            let n = await reads.bump()
+            if n == 1 { return await household("subscribed") }
+            if n <= 5 { return await household("free") }
+            throw URLError(.timedOut)
+        }
+        await model.load()
+        #expect(model.household?.isSubscribed == true)
+
+        await model.restore()
+
+        #expect(
+            model.restoreConfirmation == nil,
+            "a read that failed is not a membership found — the summary is stale, not confirmed"
+        )
+        // **And it says nothing in the other direction either**, which round 4 corrected. The
+        // household on file is subscribed; writing "Nothing has arrived yet" under a card whose
+        // status row reads *Subscribed* is the same contradiction, inverted. A restore whose
+        // confirming read failed proved nothing either way, so it claims nothing either way.
+        #expect(model.notice == nil, "a failed read is not evidence that nothing arrived")
+        #expect(model.household?.isSubscribed == true, "the card still shows what it already knew")
+    }
+
+    @Test("a membership that goes away takes its confirmation with it")
+    @MainActor
+    func aLapseClearsTheConfirmation() async {
+        // Restore succeeds, the card says so — then a refund or a lapse arrives on
+        // `Transaction.updates` or on foreground. Leaving the sentence up makes the card
+        // contradict itself, with the stale half being the reassuring one.
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() == 1 ? "subscribed" : "free")
+        }
+        _ = await subscribed.bump()
+        await model.restore()
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+
+        _ = await subscribed.bump()
+        await model.refreshHousehold()
+
+        #expect(model.household?.isSubscribed == false)
+        #expect(model.restoreConfirmation == nil, "the card must not still say the membership is active")
+    }
+
+    @Test("an approval that lands after a fruitless restore clears the not-found notice")
+    @MainActor
+    func anApprovalClearsTheNotice() async {
+        // **The fourth writer to `household`, and the one the transition guards cannot see.**
+        // Neither restore control consults `purchase`, so an Ask-to-Buy parent can tap Restore
+        // while the approval is outstanding, get "Nothing has arrived yet", and then have the
+        // approval land through `confirm()` rather than through `refreshHousehold()`. Without the
+        // clear there, the card renders *Subscribed* with *nothing has arrived* underneath it.
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "subscribed" : "free")
+        }
+        await model.restore()
+        #expect(model.notice != nil, "the restore found nothing, and said so")
+
+        _ = await subscribed.bump()
+        await model.confirm()
+
+        #expect(model.purchase == .subscribed)
+        #expect(model.household?.isSubscribed == true)
+        #expect(model.notice == nil, "the card must not say nothing arrived above a subscribed row")
+    }
+
+    @Test("a membership that arrives after the window takes the not-found notice with it")
+    @MainActor
+    func aLateArrivalClearsTheNotice() async {
+        // **The mirror of `aLapseClearsTheConfirmation`, and the direction round 2 missed.** The
+        // window closes, the card says "Nothing has arrived yet" — and then the webhook lands, a
+        // second or two late, which is the ordinary shape of a late confirmation. Without this the
+        // status row reads "Everything open" with "Nothing has arrived yet" underneath it.
+        let subscribed = Counter()
+        let model = makeModel(store: FakeStore()) {
+            await household(await subscribed.read() > 0 ? "subscribed" : "free")
+        }
+        await model.restore()
+        #expect(model.notice != nil)
+
+        _ = await subscribed.bump()
+        await model.refreshHousehold()
+
+        #expect(model.household?.isSubscribed == true)
+        #expect(model.notice == nil, "the card must not still say nothing has arrived")
     }
 
     @Test("a restore that finds nothing says so plainly rather than failing")

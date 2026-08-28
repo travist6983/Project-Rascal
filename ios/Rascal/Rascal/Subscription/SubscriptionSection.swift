@@ -20,9 +20,10 @@ struct SubscriptionSection: View {
     ///
     /// A fixed spacing is wrong here and looked fine until it was rendered: at XXL the *leading*
     /// inside a wrapped line grows while a constant gap does not, so "Everything you've already
-    /// written / or captured" separated by 3pt read as two items rather than one wrapped one —
-    /// three statements looking like five. `PaywallSheet.ListRow` already solves this for the same
-    /// block with `base * gap`; this is that treatment, so the two surfaces stay in step.
+    /// written / and captured stays yours." separated by 3pt read as two items rather than one
+    /// wrapped one — three statements looking like five. `PaywallSheet.ListRow` already solves
+    /// this for the same block with `base * gap`; this is that treatment, so the two surfaces stay
+    /// in step.
     @ScaledMetric(relativeTo: .body) private var reassuranceGap: CGFloat = 1
     @State private var showingPaywall = false
     @State private var showingManage = false
@@ -32,7 +33,7 @@ struct SubscriptionSection: View {
             SettingsSectionHeader("Membership")
 
             SettingsCard {
-                SettingsValueRow(label: "Household", value: statusValue)
+                SettingsValueRow(label: "Your household", value: statusValue)
 
                 // **Each case carries its own leading rule** rather than the card carrying one
                 // between every pair. `hidden` emits no row, and a fixed divider above it would
@@ -49,8 +50,8 @@ struct SubscriptionSection: View {
                 case .offer:
                     SettingsDivider()
                     SettingsActionRow(
-                        label: "See the subscription",
-                        detail: "One price for the whole household — both parents, every child."
+                        label: "See what membership includes",
+                        detail: "One price covers everyone in the house — every parent, every child."
                     ) {
                         showingPaywall = true
                     }
@@ -67,7 +68,7 @@ struct SubscriptionSection: View {
                     // The honest framing. The entitlement follows the household rather than the
                     // device, so a new phone signed into the same account already works — this
                     // exists for the case where it did not, and because Review requires it.
-                    detail: "Rarely needed — your subscription follows the household, not the phone.",
+                    detail: "If you've paid before and this phone doesn't know it yet.",
                     isBusy: model.isRestoring,
                     isEnabled: !model.isRestoring
                 ) {
@@ -79,8 +80,16 @@ struct SubscriptionSection: View {
                 reassurance
             }
 
-            if let notice = model.notice {
-                Text(notice)
+            // **One line, two channels, and only one of them can be set.** `restore()` clears
+            // both before it starts: a run that found a membership sets `restoreConfirmation` and
+            // a run that did not sets `notice`. They render identically because neither is an
+            // alarm — `inkMuted` metadata under the card, never an alert, never red.
+            //
+            // Coalesced rather than stacked so the two can never appear together and read as a
+            // contradiction. The confirmation wins the ordering because it is the state a parent
+            // is looking at the card to see.
+            if let line = model.restoreConfirmation ?? model.notice {
+                Text(line)
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -123,11 +132,11 @@ struct SubscriptionSection: View {
 
     /// **The archive-scoped reassurance, on the card in every state.**
     ///
-    /// The words are `free-tier-copy.md` §2's *"What stays free, always"* block — verbatim, in its
-    /// order, already carried in `MembershipCopy` and already rendered by `PaywallSheet`. **Nothing
-    /// here is authored.** The copy file forbids an agent writing strings into a view, and this is
-    /// the one approved block that is true in every membership state, so a second surface can show
-    /// it without anything new being written.
+    /// The words are `free-tier-copy.md` §2's free block — *"Yours either way"* since phase 125 —
+    /// verbatim, in its order, already carried in `MembershipCopy` and already rendered by
+    /// `PaywallSheet`. **Nothing here is authored.** The copy file forbids an agent writing strings
+    /// into a view, and this is the one approved block that is true in every membership state, so a
+    /// second surface can show it without anything new being written.
     ///
     /// **Including when the household is subscribed**, which is the case worth stating: a member
     /// reading this is not being sold anything. Rule 3 — *"the archive is never the thing being
@@ -314,6 +323,20 @@ struct SubscriptionSection: View {
                 previewing: .loading,
                 household: .previewing(tier: "subscribed", access: .subscribed),
                 isRestoring: true
+            )
+        )
+    }
+
+    /// **The other outcome, which the card is the only surface that can report.** The paywall
+    /// dismisses on a found membership; Settings deliberately stays where it is, so a row that
+    /// spins and stops with nothing under it is indistinguishable from one that failed.
+    #Preview("Restore — found a membership") {
+        MembershipCardPreview(
+            model: SubscriptionModel(
+                previewing: .loading,
+                household: .previewing(tier: "subscribed", access: .subscribed),
+                // The string `restore()` actually sets, not one written for a preview.
+                restoreConfirmation: SubscriptionModel.restoreFound
             )
         )
     }

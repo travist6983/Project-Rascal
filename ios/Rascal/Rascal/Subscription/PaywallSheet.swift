@@ -27,15 +27,23 @@ import SwiftUI
 /// This sheet renders its strings against `PromptSubject.unknown`, which is the they/them column.
 /// **That is deliberate and it is not the same choice `LockedPromptCard` makes.** A locked card is
 /// always about one child and reads that child's pronouns; this sheet is about a *household* — it is
-/// reached from Settings and from the guardian invite, and its own footnote says *"every child, both
-/// parents"* — so there is no child to key on, and in a household with a boy and a girl any choice
-/// would be wrong for one of them. Rendering against no subject yields the neutral form of the
+/// reached from Settings and from the guardian invite, and its own footnote covers *everyone in the
+/// house* rather than one child — so there is no child to key on, and in a household with a boy and
+/// a girl any choice would be wrong for one of them. (That footnote read *"every child, both
+/// parents"* until phase 125 replaced it on Aug 26, 2026; the argument is unchanged, and the
+/// wording is `MembershipCopy.footnote`'s to carry rather than this comment's.) Rendering against no subject yields the neutral form of the
 /// owner's own sentence rather than a sentence rewritten by hand.
 struct PaywallSheet: View {
     @Bindable var model: SubscriptionModel
     var onDismiss: () -> Void
 
     @Environment(\.scenePhase) private var scenePhase
+
+    /// The legal page being read, **inside this app**.
+    ///
+    /// Nil is the normal state and is not a failure: a build with no configured URL renders no
+    /// link to set it from. See `legalLink(_:to:)`.
+    @State private var legalPage: LegalPage?
 
     var body: some View {
         ScrollView { content }
@@ -72,6 +80,22 @@ struct PaywallSheet: View {
                 guard phase == .active else { return }
                 Task { await model.refreshHousehold() }
             }
+            // **A sheet, not a `fullScreenCover`, and not a jump to Safari.**
+            //
+            // Not Safari: a `Link` hands the reader to another app, which for a reviewer checking
+            // guideline 3.1.2 means leaving the app under review halfway through the check. That is
+            // the whole of this change.
+            //
+            // Not a cover: `SFSafariViewController` ships its own Done button *and* a sheet is
+            // swipe-dismissible, so a parent who taps Terms by accident has two ways back. This
+            // sheet's own `presentationDetents` do not reach the child — a detent applies to the
+            // view it is attached to — so the page comes up full height with no configuration.
+            //
+            // Attached at `body` rather than inside `legalRow`, so the presentation hangs off the
+            // sheet itself rather than off a row inside a `ScrollView`.
+            .sheet(item: $legalPage) { page in
+                SafariView(url: page.url).ignoresSafeArea()
+            }
     }
 
     /// **Lifted out of the `ScrollView` on purpose, and not for tidiness.** `ImageRenderer` does not
@@ -85,11 +109,23 @@ struct PaywallSheet: View {
             addsBlock
             freeBlock
             offerBlock
-            // **Absent when there is nothing to buy**, because it belongs to the price group the
-            // `Notice` replaces — the artboards draw it inside that group and `2c` has no footnote
-            // at all. The sentence stays true either way; it is simply not a thing to say about a
-            // membership that is not open yet.
-            if canOffer { footnote }
+            // **Both absent when there is nothing to buy**, because both belong to the price group
+            // the `Notice` replaces — the artboards draw the footnote inside that group and `2c`
+            // has neither line. The footnote's sentence stays true either way; it is simply not a
+            // thing to say about a membership that is not open yet.
+            //
+            // The renewal terms have the stronger version of the same reason, and it is a Review
+            // reason rather than a rhythm one: a sentence about how a membership renews, on a
+            // screen where no membership can be bought, describes a thing that does not exist.
+            // `canOffer` is `.ready`, the same condition `planPicker` renders under — so this
+            // appears exactly when the plan rows it qualifies do.
+            //
+            // **Renewal terms first.** They qualify the prices immediately above them; the
+            // footnote is a separate claim, about who a membership covers.
+            if canOffer {
+                renewalTerms
+                footnote
+            }
             legalRow
         }
         .padding(.horizontal, 24)
@@ -273,6 +309,32 @@ struct PaywallSheet: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// **Guideline 3.1.2's renewal terms, on the paywall itself.**
+    ///
+    /// **Its own view rather than another line inside `footnote`, and not for tidiness.**
+    /// `footnote` is a marketing claim about what is being sold — see `MembershipCopy.footnote`,
+    /// which carries the string and its history. **Named rather than quoted on purpose**: a copy
+    /// string restated in a second file is a second place for it to go stale, and this comment did
+    /// exactly that within one commit of the footnote being replaced.
+    /// This is a disclosure about how the charge repeats, and Review reads it as one. Joining them
+    /// into a paragraph puts a **required** statement inside an **optional** sentence, where the
+    /// next person to reword the marketing half deletes the legal half without noticing and nothing
+    /// on screen looks wrong.
+    ///
+    /// **Not run through `neutral(_:)`.** Every other string on this sheet is, because the copy
+    /// file writes about a child; this one is about a subscription and carries no token. Rendering
+    /// it through `PromptTokens` would be a no-op that reads as though it might not be.
+    ///
+    /// `.metadata` in `inkMuted` — the smallest role `design-system.md` gives prose, and the
+    /// secondary ink step at **5.16:1** on canvas. **Not `inkFaint`**, which is 2.13:1 and fails AA
+    /// at every size; `footnote` above already records that substitution being refused here.
+    private var renewalTerms: some View {
+        Text(MembershipCopy.renewalTerms)
+            .typeRole(.metadata)
+            .foregroundStyle(Color.inkMuted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     // MARK: The action, and the confirmation gap
 
     /// The pinned pair at the bottom.
@@ -422,7 +484,40 @@ struct PaywallSheet: View {
     private var legalRow: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                Task { await model.restore() }
+                Task {
+                    // **The re-entry guard is here as well as on `.disabled` below**, and it is not
+                    // duplication. `model.restore()` returns at its own guard when one is already
+                    // running — correctly — but it returns having changed nothing, and the dismiss
+                    // decision underneath would then be reading state belonging to the *previous*
+                    // restore. `.disabled` makes that unreachable through this button; this makes
+                    // it unreachable full stop, which is the property the dismiss needs.
+                    guard !model.isRestoring else { return }
+                    await model.restore()
+
+                    // **The paywall's restore dismisses. Settings' restore does not.**
+                    //
+                    // The rule lives here, in the presentation layer, rather than inside
+                    // `model.restore()`: `SubscriptionSection` calls the same method from a row in
+                    // Settings, where closing the screen the parent was reading would be a defect.
+                    //
+                    // **Nothing here decides entitlement (D5).** `household` is the summary the
+                    // server returned to `EntitlementConfirmation.poll`, and the decision itself is
+                    // one pure function so it can be asserted without rendering anything.
+                    // **Not while a legal page is open on top of this sheet.** Dismissing the
+                    // paywall tears down the `.sheet(item: $legalPage)` presented from it, so a
+                    // parent who tapped Restore and then opened Terms would have the page they are
+                    // reading vanish mid-sentence — and Review's reviewer, doing exactly those two
+                    // things in that order, would watch the terms disappear. The entitlement is
+                    // already settled; the sheet simply stays until they close the page, and the
+                    // **Done** button `purchaseState` renders is then the way out.
+                    guard legalPage == nil else { return }
+
+                    if MembershipPresentation.dismissAfterRestore(
+                        household: model.household, notice: model.notice
+                    ) {
+                        onDismiss()
+                    }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Text("Restore a purchase")
@@ -444,17 +539,43 @@ struct PaywallSheet: View {
             // has no URL configured — a link to nowhere is worse than no link.
             FlowRow(spacing: 14) {
                 if let terms = LegalLinks.terms {
-                    Link("Terms of Use", destination: terms)
-                        .typeRole(.metadata)
-                        .foregroundStyle(Color.inkMuted)
+                    legalLink("Terms of Use", to: terms)
                 }
                 if let privacy = LegalLinks.privacy {
-                    Link("Privacy Policy", destination: privacy)
-                        .typeRole(.metadata)
-                        .foregroundStyle(Color.inkMuted)
+                    legalLink("Privacy Policy", to: privacy)
                 }
             }
         }
+    }
+
+    /// One legal link, opening **inside the app.**
+    ///
+    /// A SwiftUI `Link` hands the reader to Safari, which for an App Review reviewer means leaving
+    /// the app under review to read its own terms. `SFSafariViewController` is the same page, in a
+    /// sheet, with its own Done button — see the `.sheet(item:)` in `body`.
+    ///
+    /// **The `if let` at the call site stays, and with it the shape the whole of `LegalLinks` is
+    /// written for.** A build with no configured URL renders no control at all. A `Button` that
+    /// could be tapped to open nothing would be strictly worse than the `Link` it replaces — a dead
+    /// control rather than a visible gap — which is the failure `url.host()` exists to prevent and
+    /// which `AppReviewRequirementsTests.theHostGuardIsIntact` pins.
+    ///
+    /// **The styling sits on the `Text`, not on the `Button`**, which is the shipped idiom three
+    /// lines up on the restore control: a `Button`'s label takes the accent colour under the
+    /// default style, so `.foregroundStyle` on the button is not reliably the label's colour. Same
+    /// role and same ink as the `Link` it replaces, so the row's appearance does not change.
+    ///
+    /// `.isLink` because it still is one. A `Button` reads to VoiceOver as a button, and the trait
+    /// keeps the announcement honest without authoring a hint string.
+    private func legalLink(_ title: String, to url: URL) -> some View {
+        Button {
+            legalPage = LegalPage(url: url)
+        } label: {
+            Text(title)
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+        }
+        .accessibilityAddTraits(.isLink)
     }
 
     // MARK: Copy
@@ -619,6 +740,17 @@ enum LegalLinks {
         // nowhere rather than as an absent link, and a dead Terms link on a paywall is a Review
         // rejection rather than a cosmetic bug.
         guard let host = url.host(), !host.isEmpty else { return nil }
+        // **And a scheme `SFSafariViewController` can actually open**, added by phase 124 when
+        // these links stopped being `Link`s. The host guard above is not sufficient on its own:
+        // `URL(string: "ftp://example.com")` has a host, so it survives that check, and handing it
+        // to `SFSafariViewController` — which supports http and https and nothing else — produces
+        // a control that does nothing rather than a page. `javascript:`, `mailto:` and `file:` are
+        // already excluded above, because none of them parses a host.
+        //
+        // Refused **here**, where an unusable value renders as an *absent* link, rather than inside
+        // the sheet, where it could only render as a dead one. Same reasoning as the line above it,
+        // one layer out.
+        guard url.scheme == "https" || url.scheme == "http" else { return nil }
         return url
     }
 }

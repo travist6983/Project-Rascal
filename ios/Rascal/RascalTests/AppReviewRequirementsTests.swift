@@ -184,12 +184,19 @@ struct AppReviewRequirementsTests {
     /// Not one of the five, but the same rejection, and the same failure shape: the approved design
     /// draws no legal links on any artboard, so a restyle deletes them silently.
     ///
-    /// **This pins that the sheet asks for them.** It deliberately does *not* assert they render —
-    /// they cannot today, and that is a launch blocker recorded in
-    /// `docs/design/design-conformance-110.md` §7.4 rather than a thing this test can fix:
-    /// `Config.xcconfig` defines neither `TERMS_URL` nor `PRIVACY_URL`, so both resolve to empty and
-    /// `LegalLinks` correctly returns nil. The keys are present and correct in
-    /// `Config.xcconfig.example`; copying those two lines across is the entire fix.
+    /// **This pins that the sheet asks for them.** It deliberately does *not* assert they render;
+    /// ~~they cannot today~~ — **struck Aug 26, 2026 by phase 124.** When this was written
+    /// `Config.xcconfig` defined neither `TERMS_URL` nor `PRIVACY_URL`, so both resolved to empty
+    /// and `LegalLinks` correctly returned nil, and no test could say so. **Both halves have since
+    /// changed**: the keys are set on this machine, and
+    /// `SubmissionComplianceTests.theLegalURLsResolveInThisBuild` now asserts they *resolve* — the
+    /// only test in *this* suite that reads `Bundle.main` rather than source text — `GoogleSignInTests`
+    /// reads it too, for the bundle names — and it was added because
+    /// every source scan passes happily on a build with neither key.
+    ///
+    /// **The blocker is narrowed rather than closed.** `Config.xcconfig` is gitignored, so a fresh
+    /// clone and the machine that cuts the archive still need those two lines; that is
+    /// `blocked.md` §19, and the new test is what makes it fail loudly instead of silently.
     @Test("the paywall asks for both legal links")
     func theSheetRendersBothLegalLinks() throws {
         let sheet = try code("Subscription/PaywallSheet.swift")

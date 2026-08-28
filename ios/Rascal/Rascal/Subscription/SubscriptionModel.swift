@@ -69,6 +69,19 @@ final class SubscriptionModel {
     /// A restore that found nothing to restore, said as a sentence rather than an alert.
     private(set) var notice: String?
 
+    /// A restore that **did** find one, said as a sentence rather than as nothing at all.
+    ///
+    /// **Deliberately not `notice`, and that is a shipped test rather than a preference.**
+    /// `SubscriptionTests.aSuccessfulRestoreIsNotSilent` asserts `notice == nil` after a
+    /// successful restore: `notice` is the channel for a run that came back empty or was refused.
+    /// Writing a success into it would make one string mean two opposite things.
+    ///
+    /// **Rendered by the Membership card, and by nothing else.** The paywall answers a found
+    /// entitlement by dismissing — there is no sheet left to put a sentence on. Settings
+    /// deliberately stays where it is, which is the one difference between the two surfaces, and
+    /// a row that spins and then silently stops is indistinguishable from one that failed.
+    private(set) var restoreConfirmation: String?
+
     /// **`GET /v1/families/me`, and there is deliberately no second way to ask.**
     ///
     /// A closure rather than the `APIClient` itself so the confirmation window can be driven in a
@@ -166,7 +179,8 @@ final class SubscriptionModel {
             household: FamilySummary? = nil,
             purchase: PurchasePhase = .idle,
             isRestoring: Bool = false,
-            notice: String? = nil
+            notice: String? = nil,
+            restoreConfirmation: String? = nil
         ) {
             self.init(readHousehold: { throw CancellationError() })
             self.isPreview = true
@@ -175,6 +189,7 @@ final class SubscriptionModel {
             self.purchase = purchase
             self.isRestoring = isRestoring
             self.notice = notice
+            self.restoreConfirmation = restoreConfirmation
         }
     #endif
 
@@ -226,8 +241,10 @@ final class SubscriptionModel {
         // **`notice` is one string shared by the Membership card and the paywall sheet**, and
         // `noticeDismissed()` had no caller anywhere — so a restore's "nothing has arrived yet"
         // followed the parent onto the paywall and sat under the buy button indefinitely. Opening
-        // either surface clears it.
+        // either surface clears it. `restoreConfirmation` goes with it, for the same reason:
+        // yesterday's "your membership is here" is not a statement about this visit.
         notice = nil
+        restoreConfirmation = nil
         if case .ready = phase {} else { phase = .loading }
 
         // **The spinner's terminal state, and it is a deadline on the *screen* rather than a race
@@ -279,6 +296,17 @@ final class SubscriptionModel {
         // even arrived has nothing worth publishing.
         if generation == loadGeneration, let family {
             household = family
+            // **Reconciled here as well as in the prologue, and the prologue is not enough.**
+            // Both channels are cleared before the `await` above; this publish happens after it, so
+            // a `restore()` that completes inside that window sets `restoreConfirmation` and then
+            // has this line write a household read that began *before* the restore proved anything.
+            // The card would render *Free* with "Found it. Your membership is active." underneath.
+            //
+            // Stated as the invariant rather than as a race fix, because that is what it is: **a
+            // channel must never contradict the household published beside it.** Every other writer
+            // enforces it — `refreshHousehold()` on each transition, `confirm()` unconditionally,
+            // `restore()` in its prologue — and this was the one publish site that enforced nothing.
+            if family.isSubscribed { notice = nil } else { restoreConfirmation = nil }
 
             // **A load must settle a purchase the server has since answered, exactly as
             // `refreshHousehold()` does.**
@@ -331,10 +359,35 @@ final class SubscriptionModel {
     /// Re-read the household alone — the foreground re-check, and what the transaction listener
     /// calls. Never touches `purchase`, except to close a confirmation the server has since
     /// answered.
-    func refreshHousehold() async {
-        if isPreview { return }
-        guard let family = try? await readHousehold() else { return }
+    /// Returns **whether the server actually answered.** A caller that draws a conclusion from
+    /// `household` afterwards has to know the difference between *the read said this* and *the read
+    /// failed and this is what we already had* — see `restore()`'s `.late` branch, where announcing
+    /// a membership off a stale summary would tell a parent their lapsed subscription is active.
+    @discardableResult
+    func refreshHousehold() async -> Bool {
+        if isPreview { return false }
+        guard let family = try? await readHousehold() else { return false }
+        let wasSubscribed = household?.isSubscribed == true
         household = family
+        // **A confirmation is about the household it was written for.** `restoreConfirmation` says
+        // *the membership is active*; if a later read says it is not — a refund arriving on
+        // `Transaction.updates`, or a lapse picked up on foreground — leaving the sentence up
+        // makes the card contradict itself, with the stale half being the reassuring one. Cleared
+        // only on the transition, so an ordinary re-read that confirms the same membership does
+        // not wipe a sentence the parent is still reading.
+        //
+        // **`load()` clears it unconditionally and that is the other half, deliberately.** Opening
+        // either surface is a new visit, and this method's own retry branch below calls `load()`
+        // when the household read had previously failed — so a confirmation can also disappear
+        // there. Both are wanted; the guard here covers the case where no load happens at all,
+        // which is the ordinary foreground.
+        if wasSubscribed, !family.isSubscribed { restoreConfirmation = nil }
+        // **And the mirror of it, which round 3 found after round 2 fixed only one direction.**
+        // `notice` says *nothing has arrived yet*. If a later read says it has — the webhook landed
+        // a moment after the window closed, which is the ordinary shape of a late confirmation —
+        // then the card would render "Everything open" as its status with "Nothing has arrived yet"
+        // underneath it. Same defect as above, same transition, opposite sign.
+        if !wasSubscribed, family.isSubscribed { notice = nil }
         // Every non-idle state the server can settle. **`.failed` is in the list deliberately**:
         // a purchase that threw locally and then turned out to have gone through — the classic
         // shape being a timeout on Apple's side that still charged — must stop telling the parent
@@ -353,6 +406,7 @@ final class SubscriptionModel {
         if case .unavailable(.household) = phase {
             await load()
         }
+        return true
     }
 
     /// A verified transaction landed on `Transaction.updates` while this screen was open — see
@@ -447,6 +501,16 @@ final class SubscriptionModel {
             // above a Membership row showing an em dash.
             household = family
             purchase = .subscribed
+            // **The fourth door onto a subscribed household, and the one the transition guards in
+            // `refreshHousehold()` cannot see.** An Ask-to-Buy parent can tap Restore while the
+            // approval is outstanding — neither restore control consults `purchase` — get
+            // "Nothing has arrived yet", and then have the approval land here. Without this the
+            // card renders *Subscribed* with *nothing has arrived* underneath it.
+            //
+            // Unconditional rather than guarded on a transition: this branch only ever publishes a
+            // subscribed household, so any `notice` still standing is stale by construction. There
+            // is no ordinary-re-read case here to protect a sentence the parent is still reading.
+            notice = nil
         case .late:
             // **Deliberately terminal.** A spinner that never ends is worse than a sentence, and
             // re-running the purchase to fix a display problem would double-charge a parent.
@@ -460,6 +524,9 @@ final class SubscriptionModel {
         guard !isRestoring else { return }
         isRestoring = true
         notice = nil
+        // Cleared with `notice`, for the same reason: a second tap must not read as a result
+        // until this run has one. At most one of the two is set by the time this returns.
+        restoreConfirmation = nil
         defer { isRestoring = false }
 
         do {
@@ -490,9 +557,27 @@ final class SubscriptionModel {
         case .subscribed(let family):
             household = family
             if purchase != .idle, purchase != .subscribed { purchase = .subscribed }
+            restoreConfirmation = Self.restoreFound
         case .late:
-            await refreshHousehold()
-            if household?.isSubscribed != true {
+            // **The answer has to come from a read that happened.** `refreshHousehold()` returns
+            // early on a throwing read, leaving `household` holding whatever it held before — so
+            // testing it without testing the read would announce "your membership is active" to a
+            // household that lapsed, on the strength of a summary this restore never confirmed.
+            let answered = await refreshHousehold()
+            if answered, household?.isSubscribed == true {
+                // **The window closed before the server said yes, and then it said yes.** The
+                // parent gets the same sentence as the fast path: what matters to them is the
+                // answer, not which read it arrived on.
+                restoreConfirmation = Self.restoreFound
+            } else if household?.isSubscribed != true {
+                // **Guarded on the household as well as on the read, and both guards are load
+                // bearing in opposite directions.** `answered` above stops a *failed* read
+                // announcing a membership off a stale summary. This one stops the same failed read
+                // announcing *nothing arrived* over a household the app already knows is
+                // subscribed — which is what the first guard alone produced, and is the same
+                // contradiction, inverted. When the read fails and the household is subscribed,
+                // this restore proved nothing in either direction and says nothing.
+                //
                 // **Not a claim about the Apple Account.** The client cannot see what Apple holds;
                 // it can only report that nothing has arrived here yet.
                 notice = "Nothing has arrived yet. If you subscribed on another device, "
@@ -501,5 +586,19 @@ final class SubscriptionModel {
         }
     }
 
-    func noticeDismissed() { notice = nil }
+    /// **The owner's sentence, chosen Aug 26, 2026, not an agent's.**
+    ///
+    /// `docs/design/free-tier-copy.md` forbids an agent authoring a user-visible string on the
+    /// membership surface, and this surface is that one. A placeholder was written, the rule was
+    /// raised rather than quietly broken, and the owner picked this from three candidates. It is
+    /// recorded in the copy file as §7's fifth string.
+    ///
+    /// **States what happened and asks for nothing** — no urgency, no exclamation, nothing to act
+    /// on. The copy rules apply to a success as much as to a refusal.
+    static let restoreFound = "Found it. Your membership is active."
+
+    func noticeDismissed() {
+        notice = nil
+        restoreConfirmation = nil
+    }
 }

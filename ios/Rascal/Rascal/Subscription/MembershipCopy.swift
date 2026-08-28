@@ -120,15 +120,15 @@ nonisolated enum MembershipCopy {
         "{Their} other parent, on the same archive",
     ]
 
-    static let freeLabel = "What stays free, always"
+    static let freeLabel = "Yours either way"
 
     /// The block this sheet exists to be honest about. The design puts it in `surface` at **body
     /// 16, not metadata** — *"the Field vocabulary, so it reads as a stated fact rather than a
     /// footnote"* — which is the same instruction this phase's prompt gives in different words.
     static let stayFree = [
-        "A question every day, forever",
-        "Everything you've already written or captured",
-        "Search, and a full export of the whole archive",
+        "A new question every day, with no limit and no countdown.",
+        "Everything you've already written and captured stays yours.",
+        "Search the whole archive, and export all of it whenever you want.",
     ]
 
     /// The verb, per copy-file rule 2: *"A person **joins**; they do not upgrade."*
@@ -139,7 +139,41 @@ nonisolated enum MembershipCopy {
     static let notNow = "Not now"
     static let notNowHint = "Closes this and changes nothing"
 
-    static let footnote = "One membership covers the whole family — every child, both parents."
+    /// ~~*"One membership covers the whole family — every child, both parents."*~~ — **replaced
+    /// Aug 26, 2026 by the owner's call, using the sentence he had already authored for the
+    /// Settings action row in phase 125 §3.3.**
+    ///
+    /// **The reason is the same one that changed the Settings row**, and it is recorded because
+    /// this string was deliberately *not* in phase 125's list and was left alone under that
+    /// phase's match rule until the owner asked for it: *"both parents"* presumes a two-parent
+    /// household. The only user today is one parent with one child.
+    ///
+    /// **Not an agent's wording.** It is the owner's approved §3.3 string applied to a second
+    /// site, which is the same move phase 112 made with the free block — reuse an approved
+    /// sentence rather than write a sibling for it.
+    ///
+    /// **One thing this puts out of step, flagged rather than fixed here:**
+    /// `getvellumapp.com/terms` still reads *"One membership covers the household — every child,
+    /// both parents."* The marketing site is a different repository and a different lane.
+    static let footnote = "One price covers everyone in the house — every parent, every child."
+
+    /// **Guideline 3.1.2's renewal disclosure, and the one string here Apple asked for.**
+    ///
+    /// Verbatim from the phase 124 brief, so it is the owner's sentence rather than an agent's,
+    /// which is what this file's own rule requires. Review wants the renewal terms on the purchase
+    /// screen itself, not one tap away behind Terms of Use.
+    ///
+    /// **It is a statement, not a lever.** It says how the charge repeats and where to stop it, and
+    /// nothing else: no countdown, no date, no *"before it renews"*, none of the eleven banned
+    /// phrases. It is carried in `allUserVisibleStrings` so that guard covers it like every other
+    /// string here, rather than being trusted because it is legal copy.
+    ///
+    /// **No price and no cadence**, per this file's *Prices* note — the plan rows above it carry
+    /// both, formatted off the `Product`. A renewal sentence naming a figure would be a second
+    /// place for the price to be wrong, and the wrong one in every storefront but ours.
+    static let renewalTerms =
+        "Membership renews automatically until cancelled. "
+        + "Cancel any time in your Apple Account settings."
 
     /// Replaces the price rows when StoreKit has no products. **The primary action is hidden, not
     /// disabled**, and this is the ordinary state rather than an error: `api-contract.md` §37a
@@ -174,7 +208,9 @@ nonisolated enum MembershipCopy {
 
     // MARK: - The Settings membership row (phase 112)
 
-    /// What the **Household** row in Settings reports, and the four answers it can give.
+    /// What the **Your household** row in Settings reports, and the four answers it can give.
+    /// (*Household* until phase 125 renamed the label on Aug 26, 2026; the four answers below are
+    /// unchanged and were deliberately out of that phase's scope.)
     ///
     /// **These four are the only strings in this file the owner's copy does not contain.**
     /// `free-tier-copy.md` covers the locked card, the membership sheet and the two weeks; it has
@@ -260,7 +296,7 @@ nonisolated enum MembershipCopy {
         var strings = [
             lockedFooter, lockedHint,
             title, subtitle, addsLabel, freeLabel,
-            primaryAction, notNow, notNowHint, footnote, productsUnavailable,
+            primaryAction, notNow, notNowHint, footnote, renewalTerms, productsUnavailable,
             TrialWelcome.title, TrialWelcome.body, TrialWelcome.action,
             postTrialNotice, postTrialOpen, postTrialDismiss,
             membershipMissingAction,

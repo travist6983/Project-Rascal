@@ -768,3 +768,115 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   §24 is the errand — so every assertion is against a local `MockTransport`. What is proven is
   that the right request is built and that no failure of it can abort a deletion. What is not
   proven is that Apple accepts it, and that is a device check that stays in the runbook.
+
+## Phases 124, 125 and 126 — submission compliance (Aug 26, 2026)
+
+- **PR #172 was docs-only because the briefs are written to halt, and the briefs were right to
+  halt.** Each opens *"Any failed check stops the run. Produce a report, change nothing."* 124's
+  preflight failed gate 3 and gate 4; 126's gate 1 fails by construction, because it says to stop
+  if the paywall phase is in flight and the owner had deliberately put it on that branch. **The
+  gates were overridden by the owner rather than edited**, which is the same call the 126 brief's
+  own header records: a gate that gets relaxed whenever it fires stops being a gate.
+
+- **`Legal.swift` was not created, and the brief asked for it.** `LegalLinks`
+  (`PaywallSheet.swift:729`, and `:608` before this phase moved it down 121 lines — 136 added and 15 removed above it) already reads
+  both URLs out of Info.plist per rule 5, hands back
+  `URL?`, and guards on `url.host()` — a guard `AppReviewRequirementsTests.theHostGuardIsIntact`
+  pins. The brief's snippet force-unwraps two `URL(string:)` calls and hardcodes the addresses.
+  Building it would have put a second source of truth beside a working configurable one and routed
+  around the guard that stops a truncated `https:` shipping as a *dead* link rather than as no link.
+
+- **A scheme check was added beside the host check, and it is the same argument one layer out.**
+  `URL(string: "ftp://example.com")` has a host and survives `url.host()`; `SFSafariViewController`
+  opens http and https and nothing else. Refused where an unusable value renders as an *absent*
+  link, rather than inside the sheet where it could only render as a dead one.
+
+- **The dismiss decision lives in the caller, not in `restore()`.** `SubscriptionSection` calls the
+  same `restore()` from Settings, where closing the screen the parent was reading would be a
+  defect. A shared implementation that dismissed would need a flag threaded through it; a caller
+  that decides needs nothing. `MembershipPresentation.dismissAfterRestore` is one pure function, so
+  both surfaces read one sentence about what success means and cannot drift.
+
+- **`notice` is an argument to that function rather than belt-and-braces.** It is what stops a
+  household that was *already* subscribed when the parent tapped being dismissed out of the sheet
+  by a restore that just failed — over an error they never got to read.
+
+- **A success needed its own channel.** `SubscriptionTests.aSuccessfulRestoreIsNotSilent` asserts
+  `notice == nil` on the found path and is right to: `notice` means *something went
+  not-quite-right*. So `restoreConfirmation` is a second field rather than a second meaning for the
+  first, and the card coalesces the two so they can never appear together and read as a
+  contradiction.
+
+- **Phase 126's third Settings row was not built, and the reasoning is reported rather than
+  resolved.** `SubscriptionSection.swift:63-75` has offered *Restore a purchase* since phase 37b.
+  Building the brief's *Restore Purchases* row would have put two controls calling the identical
+  `model.restore()` on one screen. Guideline 3.1.2(c) asks that restore be reachable, not that it be
+  reachable twice. Moving the shipped one instead would fail
+  `AppReviewRequirementsTests.theRestoreControlIsInSettings`, whose message is *"both, not either"*.
+
+- **The export audit's first draft called the paywall claim false and the adversarial check refuted
+  it.** *"The whole archive"* means **complete rather than partial** wherever this repository
+  uses it as a term of art — `services/export.py:91-92`, `:244`, `:293`, `routers/export.py:30`,
+  `api-contract.md:602`, `ArchiveExport.swift:3`, and a full sweep found no counterexample.
+  ~~The draft had silently overturned `phase-124-preflight.md`'s *"No contradiction to report"*
+  without saying so.~~ — **withdrawn: that reading was wrong, and the third pass caught it.** The
+  preflight quotes the *pre-125* strings and answers a different question — whether the free block
+  contradicts D2-as-reversed and D3-as-narrowed — so nothing was overturned. **The withdrawal is
+  itself the lesson**: a correction round asserted a conflict it had not checked, and the round
+  after it had to take that back. **The mechanism is a
+  fact and the reading is an open question**: one route, one child, so a two-child household takes
+  two downloads. Which of those the sentence promises is the owner's call, not an auditor's.
+
+- **Four of six break-tests in the first draft of the new suite passed against the unmodified
+  tree**, and the largest change — the in-app browser — had no test at all. Rewritten: eight
+  mutations, eight confirmed red, and the four that could only ever be regression guards say so in
+  their own doc comments rather than being presented as evidence of this phase.
+
+- **The compiler warning this project has recorded three times was already gone.** `b4a1f1a` fixed
+  `SubscriptionStore.swift:201` on Aug 24; a cold build with `DerivedData` deleted reports zero
+  warnings. Phase 118's reading was Aug 23, one day earlier. **A warm build reports zero on code
+  that has plenty, so the measurement is only worth anything cold** — which is why it was re-run
+  rather than quoted.
+
+- **The Terms URL was settled by opening the page, not by trusting the brief.** 124's brief says to
+  point `TERMS_URL` at Apple's standard EULA because *"the current /terms page covers the marketing
+  site and waitlist only."* Read in a browser on Aug 26, 2026, `getvellumapp.com/terms` is a full
+  app-and-subscription agreement last updated Aug 25, 2026, naming the auto-renewing membership, both
+  prices, the term and the cancellation path. **`blocked.md` §19's value stands and the brief's
+  recommendation is superseded** — the real page answers 3.1.2 better than the standard EULA does.
+
+- **The live `/privacy` page closed two of the audit's open questions.** It states in terms that the
+  export *"is per child, so a household with three children takes three of them"* — so the per-child
+  shape is already disclosed to users and is not an undisclosed gap between the paywall and the
+  product. It also states that the monthly measurement *"is a question, not a health record: there is
+  no height field and no weight field anywhere in Vellum, nothing connects to Apple Health"*, which
+  is the deliberate mapping phase 126's brief asked for rather than one an agent invented.
+
+- **Six adversarial review rounds, and four of them found a defect the previous round's fix had
+  introduced.** Round 1 fixed a stale confirmation surviving a lapse; round 2 found the same class
+  unfixed in the other direction and found that round 1 had put a strikethrough around a correction
+  rather than around the stale quote it corrected — so `roadmap-status.md` briefly retracted the
+  phase 125 rename and left the replaced string standing as current. Round 3 found two stale
+  quotations *this phase's own diff had created*, in the same commit that struck three elsewhere.
+  Round 4 found that round 3's fix for announcing a membership off a stale summary had made a
+  *failed* read write "nothing arrived" over a subscribed card — the same contradiction, inverted.
+  **Reviewing once would have shipped every one of them.**
+
+- **A test named for a line can pass without it.** `aSecondRestoreClearsTheConfirmation` is named
+  for `restore()`'s prologue clear and was green with that line deleted, because its second run
+  happens to trip a different clear in `refreshHousehold()`. The masked defect was reachable: a
+  refused `AppStore.sync()` returns before the poll, so the card would keep showing "your membership
+  is active" while the store error stayed invisible behind `restoreConfirmation ?? notice`.
+  **Break-testing found it and the test name did not** — deleting the line turns exactly one test
+  red, and it is the one written afterwards.
+
+- **A read-only review fleet running beside a break-test reads a tree that is briefly lying.** One
+  recheck reported that `Config.xcconfig` defines neither legal key; it had read the file inside the
+  window where a break-test had removed them deliberately. Worth knowing before trusting a
+  concurrent agent's file read during mutation testing.
+
+- **An empty result from a fleet that never ran looks exactly like one from a fleet that found
+  nothing.** A review round returned `0 findings` and it was not convergence: all six agents had
+  died on a spend limit, `agents_error: 6, agents_done: 0`. **Only the error count distinguishes
+  the two**, and a loop whose stop condition is "a round comes back empty" will stop on the wrong
+  one unless it checks.

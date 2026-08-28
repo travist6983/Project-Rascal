@@ -109,6 +109,12 @@ struct SettingsScreen: View {
     /// true at once.
     private enum Route: Identifiable, Hashable {
         case editChild, editProfile, credentials
+        /// A legal page, carried as a resolved `URL` rather than as a key.
+        ///
+        /// **The URL is resolved at the row, not here**, which is what makes an unconfigured build
+        /// render the row as *absent* rather than as a control that opens nothing: `LegalLinks`
+        /// hands back `URL?`, and a nil never becomes a `Route` at all.
+        case legal(URL)
         var id: Int { hashValue }
     }
 
@@ -154,6 +160,10 @@ struct SettingsScreen: View {
                 }
 
                 appSection
+                // Beside the version, which is the other thing on this screen that is about the
+                // app rather than about the archive. Above the irreversible card, which keeps its
+                // whitespace and its isolation.
+                aboutSection
                 deleteAccountRow
 
                 if let notice {
@@ -260,6 +270,11 @@ struct SettingsScreen: View {
                 }
             case .credentials:
                 CredentialsSheet(model: CredentialsModel(api: session.api))
+            // **In the app, not in Safari.** A `Link` or an `openURL` here would send a reviewer —
+            // and a parent — out to another app to read our terms and leave them there.
+            // `SafariView` is the same wrapper the paywall's two links present.
+            case .legal(let url):
+                SafariView(url: url).ignoresSafeArea()
             case .editProfile:
                 EditProfileSheet(
                     model: EditProfileModel(
@@ -563,6 +578,49 @@ struct SettingsScreen: View {
         section("App") {
             SettingsCard {
                 SettingsValueRow(label: "Version", value: Self.version)
+            }
+        }
+    }
+
+    // MARK: About
+
+    /// Terms and Privacy, reachable without opening the paywall.
+    ///
+    /// Guideline 3.1.2 requires both **on the paywall**, and `PaywallSheet.legalRow` carries them
+    /// there. This is the second place a reviewer looks, and the only place a parent who never
+    /// opened the sheet will find them.
+    ///
+    /// **There is no Restore row here, and that is deliberate rather than an omission.**
+    /// `SubscriptionSection` already offers one under *Membership* — the same scroll, a few
+    /// sections up — beside the household it acts on and beside *Manage subscription*. Two
+    /// controls calling the identical `model.restore()` on one screen is a defect, not twice the
+    /// compliance, and `AppReviewRequirementsTests.theRestoreControlIsInSettings` pins the shipped
+    /// one where it is. The phase 126 brief asked for a third row against a stale picture of the
+    /// tree; `SubmissionComplianceTests.thereIsOneRestoreControlInSettings` pins that there is exactly one.
+    ///
+    /// **A row whose URL is unset is absent, never dead** — `LegalLinks`' own contract, and the
+    /// reason it guards on `url.host()`. A fresh clone has no `Config.xcconfig`, both keys resolve
+    /// to nil, and this whole section disappears rather than drawing a card around nothing. That
+    /// state is a release blocker recorded in `blocked.md` §19, not something this view can paper
+    /// over by inventing a URL.
+    @ViewBuilder
+    private var aboutSection: some View {
+        let terms = LegalLinks.terms
+        let privacy = LegalLinks.privacy
+
+        if terms != nil || privacy != nil {
+            section("About") {
+                SettingsCard {
+                    if let terms {
+                        SettingsRow(label: "Terms of Use") { route = .legal(terms) }
+                    }
+                    if terms != nil, privacy != nil {
+                        SettingsDivider()
+                    }
+                    if let privacy {
+                        SettingsRow(label: "Privacy Policy") { route = .legal(privacy) }
+                    }
+                }
             }
         }
     }

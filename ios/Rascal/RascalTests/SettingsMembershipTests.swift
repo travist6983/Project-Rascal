@@ -232,12 +232,12 @@ struct SettingsMembershipTests {
     /// so that editing `MembershipCopy` to say something friendlier fails here instead of shipping.
     @Test("the reassurance on the card is the owner's approved block, verbatim and in order")
     func theReassuranceIsTheApprovedBlock() {
-        #expect(MembershipCopy.freeLabel == "What stays free, always")
+        #expect(MembershipCopy.freeLabel == "Yours either way")
         #expect(
             MembershipCopy.stayFree == [
-                "A question every day, forever",
-                "Everything you've already written or captured",
-                "Search, and a full export of the whole archive",
+                "A new question every day, with no limit and no countdown.",
+                "Everything you've already written and captured stays yours.",
+                "Search the whole archive, and export all of it whenever you want.",
             ]
         )
     }
@@ -467,8 +467,8 @@ struct MembershipWireTests {
     }
 
     /// **Only an explicit `false` hides it** — and it hides to *nothing*, never to the paywall.
-    /// Offering "See the subscription" to a member because they are not the payer would try to sell
-    /// a household a subscription it already has.
+    /// Offering "See what membership includes" to a member because they are not the payer would
+    /// try to sell a household a subscription it already has.
     @Test("a subscriber who is explicitly not the payer is offered nothing, and never the paywall")
     func explicitNonPayerIsOfferedNothing() throws {
         let household = try family(
