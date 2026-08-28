@@ -422,7 +422,8 @@ def treatment_instruction(brief: str, seconds: int) -> str:
     """The user turn for a scene graph. The brand brief is the system prompt; this is the job."""
     target = seconds * 1000
     return (
-        f"Write a vertical video for Vellum of about {seconds} seconds — around {target}ms "
+        f"Write a vertical video for Pocket Chronicle of about {seconds} seconds — around "
+        f"{target}ms "
         f"across your scenes, and it must land between {brand.TREATMENT_MIN_MS}ms and "
         f"{brand.TREATMENT_MAX_MS}ms in total.\n\n"
         f"The brief: {brief}\n\n"

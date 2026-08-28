@@ -106,9 +106,9 @@ async def _deliver_confirmation(settings: Settings, address: str) -> None:
             # consent, so gating it on consent would be circular: nobody could ever opt in.
             stream="transactional",
             to=address,
-            subject="Confirm your Vellum subscription",
+            subject="Confirm your Pocket Chronicle subscription",
             text=(
-                "Tap to confirm you want the daily question from Vellum.\n\n"
+                "Tap to confirm you want the daily question from Pocket Chronicle.\n\n"
                 f"{link}\n\n"
                 f"The link works for {settings.subscribe_confirm_ttl_days} days. If you did "
                 "not ask for this, ignore it — nothing will be sent to you."

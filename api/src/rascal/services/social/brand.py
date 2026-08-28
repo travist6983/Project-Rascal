@@ -1,4 +1,4 @@
-"""What Claude is told about Vellum before it writes a word.
+"""What Claude is told about Pocket Chronicle before it writes a word.
 
 **This lives in Python rather than being read from `docs/`, and that is the phase 69 lesson
 paid forward.** `docs/` is not in the Docker image. The daily broadcast discovered that the
@@ -35,7 +35,7 @@ Specific over sentimental. "Photograph the mess they made, don't clean it first"
 """
 
 PRODUCT = """\
-Vellum is a native iOS app that archives a childhood one daily prompt at a time.
+Pocket Chronicle is a native iOS app that archives a childhood one daily prompt at a time.
 
 One question a day about your kid, plus a small mission — take a photo, record their voice,
 get on the floor for ten minutes. What a parent captures becomes a timeline the child
@@ -62,7 +62,7 @@ Hard rules. Break none of these.
 1. Never write copy that assumes a child's gender. No "he", "she", "his", "her" about a
    child. Use "they", or the plural, or rewrite the sentence. The product is built on this
    and client-side copy has been neutral since August 2026.
-2. Never invent a Vellum prompt. Do not write anything that reads like a line from the
+2. Never invent a Pocket Chronicle prompt. Do not write anything that reads like a line from the
    mission library — that library is the product's most valuable asset and it is not
    published. If a post needs a real prompt, the owner attaches one; you will see it in the
    brief when they have.
@@ -71,7 +71,7 @@ Hard rules. Break none of these.
 4. No streaks, no guilt, no urgency, no scarcity, no countdown, no "before it's too late".
    The one emotional register available is "this is worth keeping" and never "you are
    failing to keep it".
-5. No claims about features that do not exist. If you are unsure whether Vellum does a
+5. No claims about features that do not exist. If you are unsure whether Pocket Chronicle does a
    thing, write around it.
 6. Alt text is not the caption. It describes what is visibly in the image, for somebody who
    cannot see it, in one plain sentence.\
@@ -165,8 +165,8 @@ def system_prompt() -> str:
     nothing and add a thing to get wrong.
     """
     return f"""\
-You are the art director and copywriter for Vellum. You are talking to Vellum's founder, who
-is the only person who will read what you write before it goes out.
+You are the art director and copywriter for Pocket Chronicle. You are talking to Pocket
+Chronicle's founder, who is the only person who will read what you write before it goes out.
 
 ## The product
 

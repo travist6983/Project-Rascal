@@ -78,8 +78,8 @@ async def test_the_invite_landing_page_does_not_assume_the_app_is_installed(
     """The difference between this page and `/signin`, and the reason it exists separately.
 
     A magic link goes to somebody who already has an archive. An invite goes to the other
-    parent, who may be meeting Vellum for the first time — telling them to open it on the phone
-    the app is installed on would be an instruction they cannot follow.
+    parent, who may be meeting Pocket Chronicle for the first time — telling them to open it
+    on the phone the app is installed on would be an instruction they cannot follow.
     """
     response = await client.get("/invite/some-token")
 

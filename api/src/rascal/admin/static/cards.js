@@ -3,7 +3,7 @@
  * This is the renderer that makes "generate an image with our Anthropic key" a true sentence
  * rather than a hopeful one. Claude cannot produce pixels — there is no image endpoint on any
  * model — so it does the part it is good at, which is picking a layout and writing the words,
- * and this file draws them in the Vellum design system at whatever size the platform wants.
+ * and this file draws them in the Pocket Chronicle design system at whatever size the platform wants.
  *
  * Canvas rather than SVG-then-rasterize, for three reasons that all showed up in the first
  * attempt. Fonts resolve reliably here and do not silently fall back inside a data-URL SVG.
@@ -97,20 +97,19 @@ function drawLines(ctx, lines, x, y, size, lineHeight) {
   return cursor;
 }
 
-/** The wordmark, as geometry rather than type — the same path the app draws. */
+/**
+ * The wordmark. **Type, not geometry, since the Pocket Chronicle rename.**
+ * This drew a six-glyph Path2D spelling the old name — the same path the app and the console
+ * header drew. Sixteen characters in two words do not fit that lockup, so this sets the name
+ * as type at the display weight rather than shipping stretched letterforms. When a real
+ * lockup exists, this goes back to a path.
+ */
 function wordmark(ctx, x, y, height, color) {
-  const path = new Path2D(
-    "M 9.75 -90.25 L 46 -9.75 L 82.25 -90.25 M 106.949 -46 L 187.051 -46 A 40.25 40.25 0 0 0 147 -90.25A 40.25 40.25 0 1 0 176.912 -23.067 M 214.75 -116.25 L 214.75 -9.75 M 249.25 -116.25 L 249.25 -9.75 M 283.75 -90.25 L 283.75 -47.5 A 37.75 37.75 0 0 0 359.25 -47.5 M 359.25 -90.25 L 359.25 -9.75 M 393.75 -9.75 L 393.75 -58.25 A 32 32 0 0 1 457.75 -58.25 M 457.75 -58.25 L 457.75 -9.75 M 457.75 -58.25 A 32 32 0 0 1 521.75 -58.25 M 521.75 -58.25 L 521.75 -9.75",
-  );
-  const scale = height / 126;
   ctx.save();
-  ctx.translate(x, y + height);
-  ctx.scale(scale, scale);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 19.5;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.stroke(path);
+  ctx.font = font(ROUNDED_BOLD, height * 0.78);
+  ctx.fillStyle = color;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("Pocket Chronicle", x, y + height);
   ctx.restore();
 }
 
@@ -375,7 +374,7 @@ export function recordCard(spec, platform, seconds = 4) {
  * this section plus `drawCard` above are what replaced it.
  *
  * **The browser is the renderer, and that is a constraint rather than an accident.** `drawCard`
- * is the only implementation of the Vellum card in existence. A second one server-side would be
+ * is the only implementation of the Pocket Chronicle card in existence. A second one server-side would be
  * a second thing to keep in step with the design system, and it would put Chromium in a Python
  * image to run it. So the timeline lives next to the renderer and the pixels are made where the
  * pixels are already made.

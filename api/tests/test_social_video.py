@@ -81,7 +81,7 @@ SCENES = [
         "template": "announcement",
         "palette": "ink",
         "eyebrow": None,
-        "headline": "Vellum",
+        "headline": "Pocket Chronicle",
         "subhead": "One question a day about your kid.",
         "duration_ms": 4300,
         "transition": "fade",

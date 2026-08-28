@@ -1,4 +1,4 @@
-/* Vellum admin console.
+/* Pocket Chronicle admin console.
  *
  * The palette, radii, shadow and type ramp are lifted from docs/design-system.md rather than
  * re-picked, so the console looks like the product rather than like a tool bolted to it. Two
@@ -209,16 +209,19 @@ body[data-view="console"] .signin {
 }
 
 .wordmark {
+  /* **Type, not the drawn lockup.** The six-glyph Vellum path was geometry spelling a name
+     this product no longer has; "Pocket Chronicle" is sixteen characters and two words and
+     will not fit that lockup's proportions. Set as type at the display weight until a real
+     lockup is drawn — see docs/blocked.md. Sentence case: the name is never set in caps. */
   color: var(--ink);
-  height: 30px;
-}
-.wordmark svg {
-  height: 100%;
-  width: auto;
-  display: block;
+  font-family: var(--rounded);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  line-height: 1;
 }
 .wordmark-sm {
-  height: 19px;
+  font-size: 17px;
 }
 
 .signin-eyebrow {

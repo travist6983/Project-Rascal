@@ -15,8 +15,8 @@ own byte path is untouched.
 
 **Why a re-encode and never a stream copy.** Two reasons, and the second is the one that bites:
 
-1. Nothing publishes VP9-in-WebM. Instagram, and every other surface a Vellum post reaches,
-   want H.264 in MP4. The codec has to change, so bytes have to move.
+1. Nothing publishes VP9-in-WebM. Instagram, and every other surface a Pocket Chronicle
+   post reaches, want H.264 in MP4. The codec has to change, so bytes have to move.
 2. **`MediaRecorder` writes an unknown duration into the WebM header.** The spec permits it and
    Chrome does it: the Segment's duration element is absent or a placeholder, so `ffprobe` on
    the recording reports `N/A` and anything that trusts it gets nothing. The re-encode

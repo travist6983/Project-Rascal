@@ -648,7 +648,7 @@ manifest.js              manifest.json's bytes as `window.RASCAL_MANIFEST = …;
   read as a gap in the download, not a gap in the childhood. `scope` is absent from every
   archive exported before this existed, and **absent means whole**: a reader must not infer
   partial from a missing key.
-- A scoped download is named for its range — `vellum-<child>-20260101-20261231.zip`, with
+- A scoped download is named for its range — `pocket-chronicle-<child>-20260101-20261231.zip`, with
   `start` or `end` standing in for an open bound — so two exports taken the same afternoon do
   not collide. The complete export's name is unchanged.
 
