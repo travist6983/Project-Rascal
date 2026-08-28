@@ -987,8 +987,12 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   `docs/api-contract.md:651` documents the scoped form and was changed in the same commit — a
   second coupling the brief's file list did not name.
 - **Four things were deliberately left alone.** The `getvellumapp.com` domain and the
-  `@getvellum.app` handle (`config.py:418` — it was `:408` until this run's own CORS comment added
-  lines above it) are a domain and a social account, not display copy,
+  `@getvellum.app` handle (in `config.py`, in the header comment of the
+  **"Instagram publishing (phase 104)"** section — **cited by section rather than by line,
+  deliberately**: this run moved it three times by editing the
+  `marketing_origins` comment above it, and corrected the citation twice, each correction stale
+  before it was committed. `main.py` already carries the rule — *"a line number in this file points
+  at whatever the next reshuffle leaves behind"*) are a domain and a social account, not display copy,
   and the brief says to ask rather than invent. The admin console's `localStorage` keys
   (`vellum.admin.token` / `.refresh`) are identifiers no user sees, and moving them would sign
   every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
@@ -1015,7 +1019,8 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   var overrides this default silently. **Check `flyctl secrets list -a rascal-api` and the app's
   env before assuming this shipped.** Filed here rather than fixed because this lane cannot read
   Fly's secret values.
-- **`@getvellum.app` at `config.py:418` was left alone.** It is an Instagram handle, not a URL, and
+- **`@getvellum.app` in `config.py` was left alone**, cited by symbol rather than line for the
+  reason the entry above gives. It is an Instagram handle, not a URL, and
   the brief is explicit that a new handle is not something an agent invents. The comment around it
   is a dated record of a two-publisher decision and stays as written.
 - **`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to

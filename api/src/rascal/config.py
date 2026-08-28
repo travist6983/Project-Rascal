@@ -255,8 +255,12 @@ class Settings(DatabaseSettings):
 
     # Browser origins allowed to call the subscribe route. **A list from the first commit**,
     # because a scalar is a thing a second origin has to migrate off — and the marketing site
-    # will have a custom domain beside its github.io one. Never `*`, and applied to that route
-    # alone rather than globally: this is the first browser client this API has ever had.
+    # will have a custom domain beside its github.io one. Never `*`. ~~and applied to that route
+    # alone rather than globally~~ — **struck Aug 28, 2026: that scoping does not exist.** The
+    # middleware is added app-wide; what keeps authenticated routes out of reach is
+    # `allow_headers=["Content-Type"]`, which refuses a preflight carrying `Authorization`.
+    # `main.py` carries the full note and is the single place the scoping is described — do not
+    # restate it here. This is the first browser client this API has ever had.
     # **`https://pocketchronicle.app` added Aug 27, 2026 (phase 131).** The custom domain this
     # comment anticipated now exists and serves the marketing site, so a browser calling
     # `POST /v1/subscribe` from it sends that Origin. Without it here the subscribe form is
