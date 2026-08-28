@@ -455,6 +455,11 @@ struct MembershipTests {
         let files = [
             "Subscription/PaywallSheet.swift",
             "Subscription/SubscriptionSection.swift",
+            // **Added by phase 126, and it was a real gap rather than tidying.** The two sentences a
+            // restore leaves behind — the not-found notice and `restoreFound` — are authored here,
+            // render on the Membership card, and were in no file this list named. A guard that
+            // covers the views and not the model that supplies their words covers half the surface.
+            "Subscription/SubscriptionModel.swift",
             "Today/LockedPromptCard.swift",
             "Today/TodayBoardView.swift",
             "Onboarding/TrialWelcomeScreen.swift",

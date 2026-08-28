@@ -115,11 +115,20 @@ time.
 - `Video, and photographs without a limit`
 - `His other parent, on the same archive`
 
-**What stays free, always** — a quieter block beneath it, `inkMuted`:
+~~**What stays free, always**~~ **Yours either way** — a quieter block beneath it, `inkMuted`.
+**Revised Aug 26, 2026 by phase 125; all four strings owner-authored, approved Aug 26, 2026.**
+The struck header and the three fragments below it are kept as the record of what shipped from
+phase 108 until then, because `design-conformance-110.md` F12 and `reports/phase-124-preflight.md`
+(at its line 38) quote them — **one report file, not two**.
 
-- `A question every day, forever`
-- `Everything you've already written or captured`
-- `Search, and a full export of the whole archive`
+- ~~`A question every day, forever`~~ → `A new question every day, with no limit and no countdown.`
+- ~~`Everything you've already written or captured`~~ → `Everything you've already written and captured stays yours.`
+- ~~`Search, and a full export of the whole archive`~~ → `Search the whole archive, and export all of it whenever you want.`
+
+**The terminal full stops are deliberate.** The originals were fragments; the replacements are
+sentences. **The header is sentence case here and stays that way in Swift** — the surface renders
+it uppercased by text style rather than by content, so an uppercased literal would be a second
+place for the casing to be decided.
 
 **Price row:** annual preselected.
 - Annual: `{{PRICE_YEAR}} a year` · caption `Two months free`
@@ -129,7 +138,12 @@ time.
 **Secondary:** `Not now` — plain text, `inkMuted`, never smaller than the primary's label size and
 never greyed to near-invisibility.
 
-**Footnote:** `One membership covers the whole family — every child, both parents.`
+**Footnote:** ~~`One membership covers the whole family — every child, both parents.`~~ →
+`One price covers everyone in the house — every parent, every child.`
+**Replaced Aug 26, 2026 by the owner's call**, reusing §7's row-3 sentence rather than authoring a
+sibling for it. Same reason: *"both parents"* presumes a two-parent household. **It was not in
+phase 125's list** and was left alone under that phase's match rule until the owner asked for it,
+which is why it is recorded here separately from the eight.
 
 **If StoreKit products cannot be fetched:** the price row is replaced by one `Notice` row —
 `Membership isn't open yet. The daily question is, and everything you write is yours either way.`
@@ -282,8 +296,9 @@ vocabulary is not violated by either — nobody is being told to upgrade.
 
 Phase 112 was asked to put the archive reassurance on the membership card **in every state**. This
 file has no one-line form of it, and the file forbids an agent writing one. Rather than propose a
-sentence, the phase renders §2's approved **"What stays free, always"** block — the label and its
-three lines, verbatim and in order — on the Settings card as well as in the sheet. Nothing was
+sentence, the phase renders §2's approved free block — **"What stays free, always"** then, **"Yours
+either way"** since phase 125 revised all four strings on Aug 26, 2026 — the label and its three
+lines, verbatim and in order, on the Settings card as well as in the sheet. Nothing was
 authored, and the two surfaces now say the same three things in the same words.
 
 **It renders for a subscribed household too**, which is deliberate: rule 3 is a promise to
@@ -327,6 +342,47 @@ telling the server who transacted. See `blocked.md` §21.
 ---
 
 ---
+
+**7 · The Settings membership card — four owner-authored strings, revised Aug 26, 2026 by phase
+125.** Recorded here rather than only in Swift, because this file is the source of truth for these
+strings and a Swift change without one is a divergence the next phase inherits as a mystery.
+**All four were authored by the owner and approved Aug 26, 2026.** The struck values are what
+shipped from **phase 37b** (`b7a45e3`, Aug 20, 2026) until then — not phase 112, which added the
+*status row's* four answers and changed none of these four. `git log -S` against
+`SubscriptionSection.swift` for each of the three checkable literals returns that one commit.
+
+| # | Where | From | To |
+|---|---|---|---|
+| 1 | Status row **label** | ~~`Household`~~ | `Your household` |
+| 2 | Membership action row, title | ~~`See the subscription`~~ | `See what membership includes` |
+| 3 | Membership action row, subtitle | ~~`One price for the whole household — both parents, every child.`~~ | `One price covers everyone in the house — every parent, every child.` |
+| 4 | Restore row, subtitle | ~~`Rarely needed — your subscription follows the household, not the phone.`~~ | `If you've paid before and this phone doesn't know it yet.` |
+
+**Row 3's reason is not style.** *"both parents"* presumes a two-parent household; the replacement
+does not. **The status *value* did not change** — `Everything open` and every other output of
+`MembershipPresentation.settingsStatus(for:)` is §4 above and out of scope here. **The restore row's
+*title* did not change either**: App Review 3.1.2(c) wants that control present and recognisable,
+and renaming it is a rejection risk for no gain.
+
+**A fifth string, added by phase 126 on Aug 26, 2026 and chosen by the owner from three
+candidates.** A restore from Settings does not dismiss anything — the parent stays on the card they
+were reading — so a row that spins and then stops is indistinguishable from one that failed. The
+surface needed a sentence for a restore that *succeeded*, and there was none in this file. **The
+rule was raised rather than quietly broken**: the phase wrote a placeholder, said so, and the owner
+picked the wording.
+
+| # | Where | String |
+|---|---|---|
+| 5 | Membership card, under the card, after a restore that found a membership | `Found it. Your membership is active.` |
+
+It is `SubscriptionModel.restoreFound`, and it renders through the same coalesced line as the
+not-found notice so the two can never appear together. **It is deliberately not `notice`**:
+`SubscriptionTests.aSuccessfulRestoreIsNotSilent` asserts `notice == nil` on the found path, because
+`notice` means *something went not-quite-right*.
+
+**The same revision changed the free block in §2 above**, which the sheet and the card both render —
+so those four strings moved on two surfaces at once. That is the intended consequence of §5's
+decision to render one approved block in two places rather than write a second one.
 
 ## Conflicts
 

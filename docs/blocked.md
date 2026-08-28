@@ -1359,6 +1359,34 @@ day with no evidence it does anything.
 
 ## §19 — The paywall has no Terms and no Privacy link, and it is **two lines in a gitignored file** (Aug 22, 2026)
 
+> **Status, Aug 26, 2026 (phase 124): done on one machine, and that is not the same as done.** Both
+> keys are now in `ios/Rascal/Config.xcconfig` on the primary checkout with the `$()` split intact,
+> so both links render here and `SubmissionComplianceTests.theLegalURLsResolveInThisBuild` **resolves
+> them at runtime rather than grepping for them** — the one assertion in that suite that reads
+> `Bundle.main` instead of source text, added because every other test in it passes happily on a
+> machine with neither key set. **The file is gitignored
+> and machine-local, so this does not travel**: whatever machine cuts the TestFlight archive needs
+> the same two lines, and a fresh clone still has neither. **CI was never the gap** — `ios.yml`
+> copies `Config.xcconfig.example`, which has carried both values correctly since **phase 37b**
+> (`b7a45e3`, Aug 20, 2026; the file's own section header reads *"-- Legal links on the paywall
+> (phase 37b) --"*, and `git log -S TERMS_URL` on it returns that one commit).
+> **Left open deliberately** until the archiving machine is confirmed, because the failure mode this
+> section exists for is a build that renders no links and looks perfectly fine.
+>
+> **The Terms URL was contested and is now settled, by reading the page rather than the brief.**
+> §19 prescribes `TERMS_URL = https://getvellumapp.com/terms`; phase 124's brief prescribes **Apple's
+> standard EULA** instead, on the stated ground that *"the current /terms page covers the marketing
+> site and waitlist only and explicitly states the app has no terms yet."* **That premise is stale.**
+> `https://getvellumapp.com/terms`, read in a browser on Aug 26, 2026, is a full app-and-subscription
+> agreement last updated **Aug 25, 2026**. It carries, in its own words, *"Membership, and what it
+> costs — $59.99 a year, or $5.99 a month. Both are auto-renewing subscriptions"*, a *Cancelling*
+> section naming the Apple Account path, the free tier, the export, and account closure.
+>
+> **So §19's value is right and the brief's recommendation is superseded.** The page answers
+> guideline 3.1.2 better than the standard EULA would, because it names the subscription, its term,
+> its price and its renewal in prose a reviewer can check against the paywall. `/privacy` is live and
+> current on the same date. **No change to make; recorded so the next reader does not re-open it.**
+
 **An errand, not an engineering problem — and the one entry here that is a Review rejection rather
 than a delay.** Found by phase 108 and independently confirmed by phase 110.
 
