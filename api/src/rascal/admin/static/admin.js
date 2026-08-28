@@ -1,4 +1,4 @@
-/* The Vellum admin console.
+/* The Pocket Chronicle admin console.
  *
  * Vanilla ES modules, no build step, no dependency. That is a deliberate constraint rather
  * than an aesthetic one: `CLAUDE.md` settles the stack and this lane has no npm, no bundler
@@ -2441,11 +2441,11 @@ async function markExported() {
 }
 
 const slug = () =>
-  ($("m-headline").value.trim() || "vellum")
+  ($("m-headline").value.trim() || "pocket-chronicle")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
-    .slice(0, 48) || "vellum";
+    .slice(0, 48) || "pocket-chronicle";
 
 async function downloadPng() {
   const blob = await cards.toPngBlob(composerSpec(), $("m-platform").value);
@@ -2904,7 +2904,7 @@ async function requestMagicLink(address) {
     // whether anything was sent.
     error.hidden = false;
     error.textContent =
-      `If ${address} can sign in to Vellum, a link is on its way. Open it, copy the whole ` +
+      `If ${address} can sign in to Pocket Chronicle, a link is on its way. Open it, copy the whole ` +
       "URL out of the address bar, and paste it below. The page it lands on will tell you to " +
       "use your iPhone — ignore that, it is for parents rather than for this.";
   } catch (err) {

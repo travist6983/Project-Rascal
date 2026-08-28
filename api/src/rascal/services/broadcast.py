@@ -158,7 +158,7 @@ def render(prompt: str, footer: str, site_url: str, kind: str, shape: str) -> tu
     **The prompt is drawn as the card it is everywhere else** — kind chip, body, completion
     line, tinted by kind with the hairline the palette names for that fill. It was a bare serif
     paragraph until phase 90, which read as a newsletter rather than as the product, and the card
-    is the one piece of Vellum's design a subscriber meets before installing anything.
+    is the one piece of Pocket Chronicle's design a subscriber meets before installing anything.
 
     **`kind` and `shape` come from the prompt, never from a constant.** An earlier draft of this
     phase hardcoded `Question`/`Wrote it`, which was true only while the send drew from the
@@ -174,7 +174,10 @@ def render(prompt: str, footer: str, site_url: str, kind: str, shape: str) -> tu
     shape_label = SHAPE_LABEL.get(shape, "")
 
     footer_html = (
-        footer.replace("[site]", f'<a href="{site_url}" style="color:{INK_MUTED}">Vellum</a>')
+        footer.replace(
+            "[site]",
+            f'<a href="{site_url}" style="color:{INK_MUTED}">Pocket Chronicle</a>',
+        )
         .replace(
             "[unsubscribe]",
             f'<a href="{UNSUBSCRIBE_TOKEN}" style="color:{INK_MUTED}">unsubscribe</a>',

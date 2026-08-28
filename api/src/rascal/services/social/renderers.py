@@ -6,8 +6,8 @@ an image with our Anthropic key" has to answer the question honestly, and there 
 answers rather than one:
 
 **The card renderer, which needs no vendor at all and works today.** Claude picks a template
-and writes the words; `admin/static/cards.js` draws them onto a canvas in the Vellum design
-system and hands back a PNG — or, animated over a scene graph and captured with
+and writes the words; `admin/static/cards.js` draws them onto a canvas in the Pocket
+Chronicle design system and hands back a PNG — or, animated over a scene graph and captured with
 `MediaRecorder`, a whole video. For a warm
 typographic brand whose posts are sentences, this is not a fallback — a diffusion model asked
 for "a cream card with a line of terracotta type" produces something worse and differently
@@ -90,7 +90,8 @@ def statuses(settings: Settings) -> list[RendererStatus]:
             configured=True,
             setup="Nothing to configure — it draws in the browser.",
             note="Claude writes the words and picks the template; the canvas draws it in the "
-            "Vellum palette at any size and exports a PNG, a JPEG for Instagram, or — since "
+            "Pocket Chronicle palette at any size and exports a PNG, a JPEG for Instagram, "
+            "or — since "
             "phase 120 — a whole video, by animating a scene graph and recording the canvas. "
             "No vendor, no key, no per-image cost, and it cannot drift off-brand because it "
             "cannot draw anything that is not in the design system.",

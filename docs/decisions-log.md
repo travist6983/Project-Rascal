@@ -920,3 +920,53 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   construction — a TestFlight build only ever sends Sandbox. The Production branch of this code has
   never run against real Apple traffic, and the first live subscriber is still the first time it
   does.
+
+## Aug 27, 2026 — Phase 128: Vellum becomes Pocket Chronicle, the API half
+
+- **The trigger was an attorney's trademark-conflict finding, not a preference.** `decisions.md`
+  open item 15 has said *"the Vellum trademark has never been cleared"* since Aug 17, 2026. It has
+  now been answered in the worst of the two available ways. The item is **not closed by this
+  phase** — closing it would record a risk as resolved when what actually happened is that the
+  name it names was retired, and Pocket Chronicle has had no clearance search either. A proposed
+  diff strikes 15 with its outcome and opens a successor for the new name.
+- **Three names, deliberately different, and only one of them is in this lane.** `Chronicle` is
+  `CFBundleDisplayName`, `Pocket Chronicle` is `CFBundleName` and the App Store name. The API lane
+  has no bundle at all, so **everything here is running prose and everything here is
+  `Pocket Chronicle`.** The split matters only on the phone and is phase 130's problem.
+- **Split into two phases and two PRs, on the owner's call, against the brief's "one PR".** The
+  brief asked for a single cross-lane PR and cited this log's own *"a half-applied rename is worse
+  than either end of it"* (Aug 17, above). That sentence is about **the site saying one name while
+  the sign-in email says another** — a marketing-site-versus-product split, not an `api/`-versus-
+  `ios/` one. `CLAUDE.md:16` forbids cross-lane edits outright, and the **Dogear → Vellum rename
+  was itself two phases**: 71 (API, PR #119) and 73 (iOS, PR #121), merged one minute apart. That
+  is the precedent and this follows it. Phase 130 is the iOS half; merge them together.
+- **The two files the brief protected are dormant; the live email copy was somewhere else.**
+  `docs/marketing/email-sequence.md` and `api/seeds/email_copy.yaml` are untouched, as instructed.
+  But their four occurrences are all in `welcome[].body`, and **the welcome sequence is not built**
+  (`services/broadcast.py:3-8` says so). What actually goes out daily carried the name in ordinary
+  code: the footer link's anchor text (`broadcast.py:177`) and the From line
+  (`config.py:175`, mirrored in `.env.example`). Both moved. Had the brief's model been followed
+  literally, a subscriber would have received a Pocket Chronicle body inside a Vellum-signed email
+  with a Vellum footer link — the exact half-applied state the Aug 17 entry names.
+- **The admin wordmark was geometry, not text, so neither grep nor sed could see it.** The console
+  header and every generated brand card drew the name as a six-glyph SVG path and a canvas
+  `Path2D` (`admin/static/index.html:24`, `:97`, `cards.js:100`). A text-only rename would have
+  flipped `aria-label` to the new name while the letterforms still read VELLUM — a screen-reader
+  label contradicting its own pixels, on every social asset. **Sixteen characters in two words do
+  not fit a lockup drawn for six**, so both now set the name as type at the display weight rather
+  than shipping stretched geometry. **This is a stopgap and is filed as needing real design work.**
+- **`manifest.format` stays `rascal-export` through a third rename.** The break-test at
+  `tests/test_export.py:359` already existed and already pinned the literal; its comment was
+  amended from *"two renames"* to *"three"* rather than substituted, because it is a true statement
+  about the past. Same for `README.md`'s naming-policy sentence.
+- **The export filename moved and the contract moved with it.** `vellum-<child>-<date>.zip` →
+  `pocket-chronicle-…`. The filename is decoration and has moved on both previous renames.
+  `docs/api-contract.md:651` documents the scoped form and was changed in the same commit — a
+  second coupling the brief's file list did not name.
+- **Four things were deliberately left alone.** The `getvellumapp.com` domain and the
+  `@getvellum.app` handle (`config.py:408`) are a domain and a social account, not display copy,
+  and the brief says to ask rather than invent. The admin console's `localStorage` keys
+  (`vellum.admin.token` / `.refresh`) are identifiers no user sees, and moving them would sign
+  every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
+  test trimming behaviour, and one of them records a real incident by quoting the literal that
+  caused it.

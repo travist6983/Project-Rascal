@@ -431,7 +431,7 @@ async def test_the_console_is_served_and_holds_no_credential(client: AsyncClient
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     body = response.text
-    assert "Vellum" in body
+    assert "Pocket Chronicle" in body
     settings = get_settings()
     assert settings.jwt_secret not in body
     assert settings.aws_secret_access_key not in body

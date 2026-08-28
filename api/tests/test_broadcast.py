@@ -404,7 +404,7 @@ def test_an_empty_footer_is_fatal(tmp_path) -> None:
 def test_the_prompt_is_drawn_as_the_card_it_is_everywhere_else() -> None:
     """Kind chip, body, completion line — the three pieces the site and the app both show.
 
-    **The card is the one piece of Vellum's design a subscriber meets before installing
+    **The card is the one piece of Pocket Chronicle's design a subscriber meets before installing
     anything**, so a bare serif paragraph read as a newsletter rather than as the product.
     """
     html, _ = broadcast.render("a prompt?", _copy().footer, SITE, "question", "text")

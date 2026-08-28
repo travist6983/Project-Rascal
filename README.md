@@ -6,7 +6,7 @@ Each day the app hands a parent two things: **a question** to answer about their
 **a mission** — take a photo, shoot a video, record their voice, or do a thing together.
 Completed items become entries on a searchable timeline. Years later, the kid gets the keys.
 
-This repository holds **both halves**: the backend in `api/` and the iOS client in `ios/`. ~~*The iOS client is a separate piece of work; `ios/` is empty.*~~ — **that was true when this file was written and stopped being true long before Aug 18, 2026**, when it was finally corrected: `ios/` is a full SwiftUI app of 241 Swift files, on TestFlight against the deployed API. The two are separate **lanes** rather than separate repositories — an agent working in `ios/` never edits `api/` and vice versa, CI is path-scoped, and `ios/CLAUDE.md` carries that lane's rules. **The product is called Vellum**; `RASCAL` is the repository and package name and deliberately stays put, the way `manifest.format` has stayed `rascal-export` across two renames.
+This repository holds **both halves**: the backend in `api/` and the iOS client in `ios/`. ~~*The iOS client is a separate piece of work; `ios/` is empty.*~~ — **that was true when this file was written and stopped being true long before Aug 18, 2026**, when it was finally corrected: `ios/` is a full SwiftUI app of 241 Swift files, on TestFlight against the deployed API. The two are separate **lanes** rather than separate repositories — an agent working in `ios/` never edits `api/` and vice versa, CI is path-scoped, and `ios/CLAUDE.md` carries that lane's rules. **The product is called Pocket Chronicle** — ~~*Vellum*~~, struck Aug 27, 2026 on an attorney's trademark-conflict finding, and Dogear before that; `RASCAL` is the repository and package name and deliberately stays put, the way `manifest.format` has stayed `rascal-export` across **three** renames.
 
 - **Specs live in `docs/` and are authoritative.** `data-model.md` is the schema,
   `api-contract.md` is the endpoints, `decisions.md` is settled and not up for relitigation,
@@ -202,7 +202,7 @@ panel uses) and the Studio tab will:
 
 - **talk to an art director** who knows the product, the voice and the rules,
 - **write post concepts** — angle, headline, caption, alt text, hashtags and an image brief,
-- **draw the card** on a canvas in the Vellum palette and export it as a **PNG** at any platform
+- **draw the card** on a canvas in the Pocket Chronicle palette and export it as a **PNG** at any platform
   size, or as a **WebM** of the card settling in,
 - **write a shot list** for a short vertical video, with a WebVTT caption track.
 

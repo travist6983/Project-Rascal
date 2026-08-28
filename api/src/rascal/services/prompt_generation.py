@@ -64,7 +64,8 @@ REFERENCE_SAMPLE = 60
 ALLOWED_COUNTS = (1, 5, 10, 25)
 
 
-SYSTEM = """You write prompts for Vellum, an app that archives a childhood one daily prompt \
+SYSTEM = """You write prompts for Pocket Chronicle, an app that archives a childhood one \
+daily prompt \
 at a time. A parent opens it once a day and answers one thing.
 
 The attached mission library is the style reference and the standard. Match it exactly: \

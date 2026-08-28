@@ -284,7 +284,7 @@ async def test_the_brand_brief_never_carries_the_library(client: AsyncClient, ad
     # formatting, not a change of meaning. Asserting on the raw string makes this test fail
     # the next time somebody re-wraps a paragraph, which teaches people to delete it.
     brief = " ".join(brand.system_prompt().split())
-    assert "Never invent a Vellum prompt" in brief
+    assert "Never invent a Pocket Chronicle prompt" in brief
     assert "it is not published" in brief
     # A body from the real library must not be reachable from the brief by any path.
     assert "What did {they} say" not in brief

@@ -504,10 +504,12 @@ def staging_path(child_id: uuid.UUID) -> Path:
 def filename_for(
     child: Child, now: dt.datetime | None = None, scope: ExportScope = COMPLETE
 ) -> str:
-    """`vellum-<child>-20260804.zip` — recognisable a decade from now in a Downloads folder.
+    """`pocket-chronicle-<child>-20260804.zip` — recognisable a decade from now in a
+    Downloads folder.
 
     A scoped export is named for its range instead of the day it was made —
-    `vellum-mia-20260101-20261231.zip` — because two downloads taken the same afternoon would
+    `pocket-chronicle-mia-20260101-20261231.zip` — because two downloads taken the same
+    afternoon would
     otherwise collide on the same name and the second would land as `(1)`. An open-ended
     bound reads `start` or `end` rather than being left blank, so the range is never ambiguous
     about which side is missing. The complete export's name is unchanged.
@@ -532,4 +534,4 @@ def filename_for(
         stamp = f"{first}-{last}"
     ascii_only = (ch if ch.isascii() and ch.isalnum() else "-" for ch in child.name.lower())
     slug = "".join(ascii_only).strip("-")
-    return f"vellum-{slug or 'child'}-{stamp}.zip"
+    return f"pocket-chronicle-{slug or 'child'}-{stamp}.zip"
