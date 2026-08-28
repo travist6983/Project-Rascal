@@ -880,3 +880,43 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   died on a spend limit, `agents_error: 6, agents_done: 0`. **Only the error count distinguishes
   the two**, and a loop whose stop condition is "a round comes back empty" will stop on the wrong
   one unless it checks.
+
+## Phase 129 — the App Store blocker corrections (Aug 28, 2026)
+
+- **A stale "still open" claim cost a live troubleshooting session, and the cause was a check that
+  was never re-run.** `blocked.md` §10a item 2 said `APP_STORE_APP_APPLE_ID` was confirmed absent
+  as of Aug 22, 2026. It was deployed by then. Nobody had re-read `flyctl secrets list -a
+  rascal-api` since the day the item was written, so the file kept asserting a blocker that had
+  already been cleared — and a TestFlight purchase that should have worked was debugged from the
+  wrong premise for an evening because of it.
+
+- **A secret being present is not the same claim as the thing it unblocks actually working, so
+  both were checked separately.** `flyctl secrets list` shows presence, not correctness. The
+  stronger check was constructing `AppStoreVerifier` directly on the production machine and reading
+  which environments it built verifiers for — `['PRODUCTION', 'SANDBOX']` — which is the specific
+  failure the missing secret was supposed to cause.
+
+- **A live Sandbox notification proved more than the manual check could, because it exercised the
+  whole path rather than one function call.** Reading the actual `app_store_transactions` row from
+  Aug 28: outer signature verified, nested transaction JWS verified and decoded,
+  `appAccountToken` correctly decoded to a real family id, `session.get(Family, …)` resolved it.
+  Every step this repository's own webhook code performs, proven against a payload Apple actually
+  signed — not simulated, not mocked.
+
+- **The correct behaviour was mistaken for a bug until the guard's own docstring was read.**
+  `entitlements.tier` was not written for that notification, and that is right:
+  `may_write_tier("Sandbox", "prod")` returns `False` by design, so a Sandbox tester's purchase can
+  never subscribe a production household. The docstring already argued why. Nothing here needed
+  fixing.
+
+- **What did need fixing is that the correct refusal is invisible.** No log a person would think to
+  check, no line in the admin console, no state in the app — only a row with `family_id = NULL`
+  that nobody without a database credential can see. Filed as `blocked.md` §25, in the same
+  category the file already uses for the deletion machine (§12): the failure is an absent signal,
+  not a fault in the code.
+
+- **What remains genuinely unverified, stated so the correction is not overread.** No Production
+  App Store Server Notification has ever reached this service. The evidence above is Sandbox, by
+  construction — a TestFlight build only ever sends Sandbox. The Production branch of this code has
+  never run against real Apple traffic, and the first live subscriber is still the first time it
+  does.
