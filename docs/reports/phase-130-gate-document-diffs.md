@@ -297,27 +297,38 @@ Its bundle sentence is also now false: all four plists read `CFBundleDisplayName
 
 ```diff
 -- **Rename to ~~`Dogear`~~ `Vellum` — code is done, ~~three things left~~ two, and both are yours.**
-+- **Rename to ~~`Dogear`~~ ~~`Vellum`~~ `Pocket Chronicle` — code is done, ~~three things left~~
-+  two, and both are yours.** **Restruck a third time on Aug 27, 2026**, on an attorney's
-+  trademark-conflict finding — the same shape as the Aug 18 correction this bullet already
-+  records, arriving for the same reason: a queue item that names a product outlives the name.
++- **Rename to ~~`Dogear`~~ ~~`Vellum`~~ `Pocket Chronicle` — code is done, ~~three things left~~ two, and both are yours.**
++  **A third name, struck Aug 27, 2026** on an attorney's trademark-conflict finding — the same
++  shape as the Aug 18 correction below, arriving for the same reason: a queue item that names a
++  product outlives the name.
 ```
 
 ```diff
--  All four bundles read `Vellum` in source today, and `project.pbxproj` sets no
+-  only as current as the thing it was run against, and this one outlived two renames.** All four
+-  bundles read `Vellum` in source today, and `project.pbxproj` sets no
+-  `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a stale
++  only as current as the thing it was run against, and this one outlived two renames — three now.**
 +  ~~All four bundles read `Vellum` in source today~~ — **struck Aug 27, 2026.** All four read
 +  `CFBundleDisplayName = Chronicle` and `CFBundleName = Pocket Chronicle`; the two keys hold
 +  different strings on purpose. `project.pbxproj` sets no
-   `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a
-   stale install rather than a source defect**
++  `INFOPLIST_KEY_CFBundleDisplayName` override, so **a device still showing the old name is a stale
+   install rather than a source defect** — a distinction that cost another session a retracted
 ```
 
 ```diff
--  **Left: the App Store Connect / TestFlight listing name**, and **the repo name plus `docs/` prose**
-+  **Left: the App Store Connect / TestFlight listing name — which must be `Pocket Chronicle`, not
-+  `Vellum`** (see open item 26: the new name has had no clearance search either, and the listing
-+  is the surface that makes that expensive) — and **the repo name plus `docs/` prose**
+-  so it was decidable before the name and would not have changed after it. **Left: the App Store
+-  Connect / TestFlight listing name**, and **the repo name plus `docs/` prose** — the last is
++  so it was decidable before the name and would not have changed after it. **Left: the App Store
++  Connect / TestFlight listing name — which must be `Pocket Chronicle`, not `Vellum`** (see open
++  item 26: the new name has had no clearance search either, and the listing is the surface that
++  makes that expensive) — and **the repo name plus `docs/` prose** — the last is
+   cosmetic and deliberately not swept, because it would bury a real diff under a few hundred
 ```
+
+**All three hunks were checked against the current text of `phase-queue.md` line by line.** An
+earlier draft of this addendum wrote them from the quoted excerpt above rather than from the file,
+and two of the three would not have applied — the line wrapping differs. Which is the same failure
+this addendum is about, one level down.
 
 **Why four rounds missed it.** Every completeness sweep grepped for `vellum` and read the hits.
 This bullet was *in* those results every time, and was classified as a gate document — correctly —
