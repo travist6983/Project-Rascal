@@ -970,3 +970,28 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   every operator out for cosmetics. The `#vellum` hashtag fixtures in `test_social_publishing.py`
   test trimming behaviour, and one of them records a real incident by quoting the literal that
   caused it.
+
+## Aug 27, 2026 — Phase 131: the marketing domain moves to `pocketchronicle.app`
+
+- **A domain is not display copy, which is why phases 128 and 130 deliberately did not touch it.**
+  The rename brief said to stop and ask rather than invent a domain, and both rename phases left
+  `getvellumapp.com` exactly where it was. The owner supplied the replacement afterwards, with the
+  legal pages already serving, so this is a separate one-line change rather than part of either.
+- **The pages were confirmed before anything was written.** `curl` answered **200** on
+  `https://pocketchronicle.app/`, `/terms/` and `/privacy/`.
+- **What actually moved:** `settings.marketing_site_url`, which is not decorative — it is the href
+  in the footer of every broadcast (`services/broadcast.py:177`) and the redirect target after a
+  subscription confirmation (`routers/subscribe.py`). Four assertions in `test_subscribe.py` and
+  one constant in `test_broadcast.py` pin it and moved with it.
+- ⚠️ **Changing the default does not change production if the environment sets it.**
+  `marketing_site_url` is a `pydantic-settings` field, so a `MARKETING_SITE_URL` Fly secret or env
+  var overrides this default silently. **Check `flyctl secrets list -a rascal-api` and the app's
+  env before assuming this shipped.** Filed here rather than fixed because this lane cannot read
+  Fly's secret values.
+- **`@getvellum.app` at `config.py:408` was left alone.** It is an Instagram handle, not a URL, and
+  the brief is explicit that a new handle is not something an agent invents. The comment around it
+  is a dated record of a two-publisher decision and stays as written.
+- **`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to
+  `mail.getvellumapp.com` at Resend, and the four broadcasts already sent from it are all outside
+  this repository. See the proposed `blocked.md` §13 amendment in
+  `docs/reports/phase-130-gate-document-diffs.md`.

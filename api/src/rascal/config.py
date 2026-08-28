@@ -211,7 +211,7 @@ class Settings(DatabaseSettings):
     # `services/broadcast.py` and went stale the day the custom domain landed — every prompt
     # email's footer would have pointed at a URL that now only redirects. A constant that names
     # somebody else's deployment target is a constant that rots silently.
-    marketing_site_url: str = "https://getvellumapp.com"
+    marketing_site_url: str = "https://pocketchronicle.app"
 
     # Where the confirmation link points. Its own setting rather than derived from anything,
     # for the reason `email_sign_in_link_base` is: the host that mail links to and the host the

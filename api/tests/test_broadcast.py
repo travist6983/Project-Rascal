@@ -42,7 +42,7 @@ async def library(session):
 
 #: The footer's site link. A literal here rather than the setting, so a test that asserts the
 #: rendered link would fail if the default ever moved silently.
-SITE = "https://getvellumapp.com"
+SITE = "https://pocketchronicle.app"
 
 
 def _copy(
