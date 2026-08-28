@@ -514,9 +514,10 @@ def filename_for(
     bound reads `start` or `end` rather than being left blank, so the range is never ambiguous
     about which side is missing. The complete export's name is unchanged.
 
-    Renamed from `rascal-` on Aug 12, 2026 with the product. **Nothing reads this string** — it is
-    a `Content-Disposition` suggestion, not an identifier — so archives downloaded under the old
-    prefix are unaffected and need no migration. The identifier that *must not* move is
+    Renamed with the product every time it has moved: `rascal-` → `dogear-` on Aug 12, 2026,
+    → `vellum-` on Aug 17, and → `pocket-chronicle-` on Aug 27. **Nothing reads this string** —
+    it is a `Content-Disposition` suggestion, not an identifier — so archives downloaded under
+    any older prefix are unaffected and need no migration. The identifier that *must not* move is
     `manifest.format`, which is still `rascal-export`: the viewer checks it, and changing it would
     make every previously exported archive fail to open in a newer viewer.
 
