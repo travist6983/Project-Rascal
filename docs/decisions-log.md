@@ -10,6 +10,78 @@ that file left open.
 > unedited by **phase 123 on Aug 25, 2026**. They were not summarised and nothing was dropped;
 > `grep -rn … docs/` still finds them. This file carries **Aug 17, 2026 onward**.
 
+## Aug 29, 2026 — phase 133, the App Store Connect submission session
+
+Docs lane only, reconciling `decisions.md`, `blocked.md`, `roadmap-status.md` and `phase-queue.md`
+against what the owner saw in a live App Store Connect session. No code or config changed.
+
+- **The App Store listing name is `PocketChronicle.App`, not `Pocket Chronicle`.** Apple rejected
+  `Pocket Chronicle` as already taken by another listing. This is a *second* naming event on top of
+  phases 128/130/131's rename from Vellum — those phases correctly set `CFBundleName` and the App
+  Store name to `Pocket Chronicle` and had no way to know Apple would refuse it weeks later. The
+  domain is unaffected: `pocketchronicle.app` is still the marketing site and still what
+  `MARKETING_ORIGINS` and `settings.marketing_site_url` point at (phase 131). **`getvellumapp.com`
+  is dead, with no redirect** — this closes the open question phase 131 left in its own entry below
+  (*"getvellumapp.com itself is not retired by this. Whether it redirects … [is] outside this
+  repository"*), now struck there. **What this does not change:** `CFBundleName`, `CFBundleDisplayName`
+  and every in-app, email and export string are unaffected — those all say `Pocket Chronicle` or
+  `Chronicle` per phase 130's three-names rule, and none of that is an App Store *listing* name.
+  **A cross-surface audit is owed and is not done here** — this phase is docs-only and an audit of
+  rendered surfaces is a read of built artifacts, not of `docs/`. Flagged as a new `phase-queue.md`
+  line: check the marketing site, the App Store Connect product page copy, any broadcast that quotes
+  the App Store listing name, and the app icon (the wordmark is drawn into pixels per `decisions-log.md`'s
+  Aug 18, 2026 icon entry) for a reference to `Pocket Chronicle` as *the listing name* specifically —
+  every other surface correctly keeps `Pocket Chronicle`/`Chronicle` and is not in scope for this audit.
+- **EU DSA: declared non-trader, Active, 27 countries.** A deliberate placeholder rather than a
+  considered position — the owner does not want to publish a home address on the App Store product
+  page, which is what trader status requires. **This is reversible, not settled**: once a PO Box
+  exists, trader status should be revisited. Recorded here rather than as a `decisions.md` Settled
+  row for that reason — a Settled row is for a decision the project stands behind, and this one is a
+  workaround for a missing PO Box, not an argument about what the app should declare.
+- **`blocked.md` §10 step 1 (Paid Applications Agreement, banking, tax forms) has been active since
+  Aug 24, 2026.** Struck there rather than marked done silently, since the errand's numbered steps
+  gate each other and step 1 gated everything after it.
+- **The subscription group App Store Connect actually created is named `Membership`, not
+  `Vellum Membership`.** D5a said `Vellum Membership` — chosen Aug 16, 2026, renamed from `Dogear
+  Membership` on Aug 17 — and named it as permanent on first save. What was actually saved is
+  shorter and carries no product-name reference at all, tokenised the naming risk away rather than
+  renaming it. No lingering `Vellum` reference anywhere in App Store Connect. **One cosmetic
+  inconsistency, low priority:** the two subscriptions' display names are ordered inconsistently —
+  "Membership Annual" for the yearly product, "Monthly Membership" for the monthly one. Left as a
+  cleanup item rather than fixed here; App Store Connect display names are not something this repo
+  can edit. `decisions.md`'s D5a row is corrected to match.
+- **App Encryption Documentation is resolved and needs no action.** TestFlight shows 20 builds;
+  builds 11–20 all read "Ready to Submit" rather than "Missing Compliance." `ITSAppUsesNonExemptEncryption`
+  is `<false/>` in both `ios/Rascal/Info.plist:86` and `ios/Rascal/Info-Debug.plist:52`, confirming
+  the flag was already set correctly and this was never actually outstanding.
+- **Small Business Program enrollment: unverified, not confirmed done.** The owner saw a blank
+  enrollment form during this session and believes enrollment is done from an earlier pass, but that
+  was not verified end to end this time. `blocked.md` §10 step 2 is corrected from "worth doing now"
+  framing to **needs-verification** rather than marked complete — the wrong direction to guess in,
+  since claiming it is done when it is not costs 15 percentage points of revenue for a fiscal month
+  with nobody looking.
+- **One owner-supplied claim did not hold up against `main` and is corrected rather than repeated.**
+  The stated gap was "no `delete_object` call exists anywhere in the service." `services/deletion.py:437`
+  calls `await s3.delete_objects(erasure.object_keys, settings)` inside `run_due_deletions`, which is
+  reached from `python -m rascal.jobs.delete`. **The code that deletes objects exists and is correct.**
+  What is actually true, and already tracked twice over — `blocked.md` §20 and a live line in
+  `phase-queue.md`'s "Follow-ups the Aug 17 sprint generated" — is that **no Fly machine invokes that
+  job**, so the code path has never run in production. Both are reconfirmed as still open rather than
+  duplicated with a new entry. The claim in `decisions.md` open item 14 that *"there is no `delete_object`
+  call anywhere in the service"* was accurate on Aug 17, 2026 when written, hours before phase 66 shipped
+  the call that same day — left as history there, since the item's own closing note already treats it
+  as superseded by phase 66.
+- **Submission snapshot, this session.** App Store Connect reads **"1.0 Ready for Review"** with
+  **build 20**, the `Membership` subscription group and both subscriptions attached and queued. The
+  Submit for Review button is live and has not been clicked — submission is a deliberate action still
+  pending on the owner, not yet taken. Nothing in this entry should be read as "submitted" or "under
+  review."
+- **Three pre-submit checks are not yet done and are not blockers**, logged as new `phase-queue.md`
+  lines rather than here: verify the App Review Notes' 4-step onboarding walkthrough against actual
+  build 20 behavior (the notes were written from docs, not from running the build); confirm the
+  "search" and "export" claims in the App Store description are genuinely present in build 20; run one
+  cold Sign in with Apple test before submitting.
+
 ## Aug 28, 2026 — phase 132, the beta auth flap
 
 - **A non-2xx from `/auth/refresh` no longer ends the session unless it says the credential is
@@ -951,8 +1023,9 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
 - **What did need fixing is that the correct refusal is invisible.** No log a person would think to
   check, no line in the admin console, no state in the app — only a row with `family_id = NULL`
   that nobody without a database credential can see. Filed as `blocked.md` §25, in the same
-  category the file already uses for the deletion machine (§12): the failure is an absent signal,
-  not a fault in the code.
+  category the file already uses for the deletion machine (~~§12~~ — **corrected Aug 29, 2026 by
+  phase 133: the deletion machine is `blocked.md` §20; this file has never had a §12**): the
+  failure is an absent signal, not a fault in the code.
 
 - **What remains genuinely unverified, stated so the correction is not overread.** No Production
   App Store Server Notification has ever reached this service. The evidence above is Sandbox, by
@@ -1062,14 +1135,22 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   reason the entry above gives. It is an Instagram handle, not a URL, and
   the brief is explicit that a new handle is not something an agent invents. The comment around it
   is a dated record of a two-publisher decision and stays as written.
-- **`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to
+- ~~**`getvellumapp.com` itself is not retired by this.** Whether it redirects, what happens to
   `mail.getvellumapp.com` at Resend, and the four broadcasts already sent from it are all outside
   this repository. See the proposed `blocked.md` §13 amendment in
-  `docs/reports/phase-130-gate-document-diffs.md`.
+  `docs/reports/phase-130-gate-document-diffs.md`.~~ — **answered Aug 29, 2026 by phase 133, from a
+  live App Store Connect / domain check: `getvellumapp.com` is dead, with no redirect.** Whatever
+  Resend mail routing the domain still carries is unaffected by this and is `blocked.md` §23's
+  question, not this one.
 ## Aug 27, 2026 — Phase 130: Vellum becomes Pocket Chronicle, on the phone
 
 - **Three names, and they are different on purpose.** `CFBundleDisplayName` is **`Chronicle`**,
-  `CFBundleName` is **`Pocket Chronicle`**, and the App Store name is **`Pocket Chronicle`**. The
+  `CFBundleName` is **`Pocket Chronicle`**, and ~~the App Store name is **`Pocket Chronicle`**~~ —
+  **that stopped being true two days later. Corrected Aug 29, 2026 by phase 133: Apple rejected
+  `Pocket Chronicle` as already taken, and the App Store listing name is `PocketChronicle.App`**
+  (`decisions.md` open item 18). `CFBundleName` and `CFBundleDisplayName` are unaffected — this
+  phase's actual point below, about a display name being a substring of the store name, still holds,
+  just against a longer store name than this entry could have known. The
   home-screen label truncates around eleven characters and the store name is sixteen. A display
   name that is a substring of the store name is ordinary — Chrome, Maps and Photos all do it.
   **This is not an inconsistency to fix**, and there are now assertions in `GoogleSignInTests` that

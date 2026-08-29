@@ -8,8 +8,15 @@ here blocks the backend from running: `cp .env.example .env && make up && make m
 make seed && make test` works today, and the acceptance test drives the whole daily loop end
 to end.
 
-Last reviewed: ~~**Aug 22, 2026.**~~ **Aug 25, 2026.** The Aug 11 pass is described below and its
+Last reviewed: ~~**Aug 25, 2026.**~~ **Aug 29, 2026.** The Aug 11 pass is described below and its
 findings stand; what Aug 16 changed is recorded in the paragraphs immediately after it.
+
+**Aug 29, 2026 — phase 133, a docs-only reconciliation against a live App Store Connect session.**
+No new `## §` section: §10 step 1 is struck as done, step 2 is corrected to needs-verification, a
+submission snapshot and two resolved items (App Encryption Documentation, the EU DSA declaration)
+are added under §10, and §20 gets a reconfirmation note. **The section count is unchanged at 15** —
+`grep -c '^## §' docs/blocked.md` still answers **15**, since nothing here added a new top-level
+section.
 
 **Aug 25, 2026 — phase 126's allocation added §23, and it is filed as a correction rather than as an errand.** The brief that prompted it said `getvellumapp.com` *"currently has no mail routing"*; the domain is on iCloud Custom Email Domain with both Apple exchangers, an SPF record, the `apple-domain=` verification TXT and a DMARC policy, all read off public DNS the same day and reproduced in the section. **What survives as genuinely yours is narrower and was not the thing named**: an MX record routes a domain and does not create an address, so whether `hello@` exists and whether a message to it arrives are the open questions, and both need an inbox this lane cannot reach. **Count the sections by running it rather than quoting this line**: `grep -c '^## §' docs/blocked.md` answers **13** as this is written. **Answers 15 as of Aug 28, 2026 by phase 129, which added §25** — a delta this line notes rather than reconciles, per its own rule two sentences later that a count corrected by somebody who did not re-derive the whole thing is the failure this file keeps recording. That is a different basis from the *thirteen* the phase 122 note below reports, which counted before §23 existed and over a wider set of headings; it is left alone rather than reconciled here, because a count corrected by somebody who did not re-derive it is the failure this file keeps recording.
 
@@ -587,10 +594,16 @@ even though the products are not.
 ### The product identifiers, chosen Aug 16 and permanent once created
 
 ```
-Subscription group:  Vellum Membership
+Subscription group:  ~~Vellum Membership~~ Membership — corrected Aug 29, 2026 by phase 133
 Annual:              com.travisterry.childarchive.subscription.annual
 Monthly:             com.travisterry.childarchive.subscription.monthly
 ```
+
+**The group actually created in App Store Connect is `Membership`, not `Vellum Membership`.** The
+name below was chosen at a desk on Aug 16, 2026 and renamed once on Aug 17; by the time it was
+created — the Aug 29, 2026 submission session — it was shortened again to carry no product-name
+reference at all, tokenising the naming risk away instead of renaming into it a third time. No
+lingering `Vellum` reference anywhere in the group or its products. See `decisions.md` D5a.
 
 **One group containing both durations**, so they are mutually exclusive and StoreKit treats
 monthly → annual as a *plan change* rather than two live subscriptions. The `.subscription.`
@@ -600,17 +613,25 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
 
 ### The errand, in order. Each step gates the next.
 
-1. **App Store Connect → Agreements, Tax, and Banking.** The Paid Applications agreement must be
+1. ~~**App Store Connect → Agreements, Tax, and Banking.** The Paid Applications agreement must be
    **active**: complete the banking details and the tax forms. Nothing else on this list is
-   possible until it shows active.
-2. **Enrol in the App Store Small Business Program.** Requires step 1. Note the fiscal-month lag
-   above — this is the one worth doing now.
-3. **Create the subscription group** `Vellum Membership`. **Renamed from `Dogear Membership` on
+   possible until it shows active.~~ — **done. Active since Aug 24, 2026**, confirmed in the Aug 29,
+   2026 App Store Connect submission session (phase 133).
+2. **Enrol in the App Store Small Business Program.** Requires step 1, which is now done. Note the
+   fiscal-month lag above — this is the one worth doing now. ⚠️ **Status corrected Aug 29, 2026 by
+   phase 133: needs-verification, not done.** The owner saw a blank enrollment form during the Aug
+   29 session and believes enrollment happened in an earlier pass, but that was not confirmed end to
+   end this time. Do not mark this done on the strength of that belief — re-check the enrollment
+   status directly in App Store Connect before relying on the 15% year-one rate.
+3. ~~**Create the subscription group** `Vellum Membership`. **Renamed from `Dogear Membership` on
    Aug 17, 2026 with the product, and this line was the urgent half of that rename**: a
    subscription group name is **permanent on first save**, so working this runbook before it was
    corrected would have carried the dead name for the life of the listing. Nothing has been
-   created yet, which is the only reason this edit was still possible.
+   created yet, which is the only reason this edit was still possible.~~ — **done, and the name
+   changed again before creation. Corrected Aug 29, 2026 by phase 133**: the group actually created
+   is `Membership`, not `Vellum Membership` — see the note above and `decisions.md` D5a.
 4. **Create the two products** with the identifiers above, at **$5.99/month** and **$59.99/year**.
+   **Done. Confirmed created in App Store Connect Aug 29, 2026** — see the submission snapshot below.
 5. **Set the annual as the preselected option**, and create both products with **no introductory
    offer at all.** ~~configure the **14-day free trial** as an introductory offer, per D1.~~ —
    **corrected Aug 22, 2026 by the owner's call. This step would have given away twenty-eight free
@@ -630,6 +651,30 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
    offer is visible to every purchaser from the moment the product goes live.
 6. **Record the App Store Server Notifications V2 endpoint URL.** D5 holds that the server writes
    the entitlement and every gate reads the server, so this URL is what phase 37 is built against.
+
+### Submission snapshot, Aug 29, 2026 (phase 133), read from a live App Store Connect session
+
+**App Store Connect reads "1.0 Ready for Review," build 20, with the `Membership` subscription
+group and both its products attached and queued.** The Submit for Review button is live and has
+**not been clicked** — submission is a deliberate action still pending on the owner, not yet taken.
+Nothing in this file should be read as "submitted" or "under review" until that changes.
+
+**App Encryption Documentation is resolved and needs no further action.** TestFlight shows 20
+builds; builds 11–20 all read "Ready to Submit" rather than "Missing Compliance," confirming
+`ITSAppUsesNonExemptEncryption` is already correctly set — `<false/>` in both
+`ios/Rascal/Info.plist:86` and `ios/Rascal/Info-Debug.plist:52`.
+
+**EU Digital Services Act: declared non-trader, Active, 27 countries.** A deliberate placeholder,
+not a considered position — publishing a home address on the App Store product page is what trader
+status would require, and the owner does not want to do that yet. **Reversible, not permanent**:
+revisit trader status once a PO Box exists. Not blocked on anything; recorded here because it is
+App Store Connect state nothing else in this repository tracks.
+
+**Three pre-submit checks are outstanding and are not blockers**, carried as `phase-queue.md` lines
+rather than duplicated here: the App Review Notes' 4-step onboarding walkthrough has not been
+verified against actual build 20 behaviour (the notes were written from docs, not from running the
+build); the "search" and "export" claims in the App Store description have not been confirmed
+present in build 20; and one cold Sign in with Apple test has not been run before submitting.
 
 **`ios/Rascal/RascalTests/Vellum.storekit` is now inconsistent with step 5, and it is iOS-lane
 work.** The local StoreKit configuration phase 37b was written against carries two
@@ -1420,7 +1465,14 @@ day with no evidence it does anything.
 > **So §19's value is right and the brief's recommendation is superseded.** The page answers
 > guideline 3.1.2 better than the standard EULA would, because it names the subscription, its term,
 > its price and its renewal in prose a reviewer can check against the paywall. `/privacy` is live and
-> current on the same date. **No change to make; recorded so the next reader does not re-open it.**
+> current on the same date. ~~**No change to make; recorded so the next reader does not re-open it.**~~
+> — **wrong the day after it was written. The domain moved.** Phase 131 (Aug 27, 2026) moved the
+> marketing site to `pocketchronicle.app` and `ios/Rascal/Config.xcconfig.example` was updated the
+> same day (phase 130) to match — `docs/design/design-conformance-110.md:412` records it. **The
+> right host as of Aug 29, 2026 (phase 133) is `pocketchronicle.app`, not `getvellumapp.com`**, and
+> `getvellumapp.com` is confirmed dead with no redirect (`decisions-log.md`, Aug 29, 2026) — a
+> developer who copies the URLs below verbatim from this quoted status would ship a paywall link to
+> a dead domain. The code block further down is corrected to match.
 
 **An errand, not an engineering problem — and the one entry here that is a Review rejection rather
 than a delay.** Found by phase 108 and independently confirmed by phase 110.
@@ -1448,9 +1500,13 @@ is rejected.
 **What is needed, and it is yours because the file is gitignored and machine-local:**
 
 ```
-TERMS_URL = https:$()/$()/getvellumapp.com/terms
-PRIVACY_URL = https:$()/$()/getvellumapp.com/privacy
+TERMS_URL = https:$()/$()/pocketchronicle.app/terms
+PRIVACY_URL = https:$()/$()/pocketchronicle.app/privacy
 ```
+
+**Corrected Aug 29, 2026 by phase 133** — this block originally read `getvellumapp.com`, which
+phase 131 (Aug 27, 2026) retired; `getvellumapp.com` is now dead with no redirect. If the archiving
+machine was set up between Aug 22 and Aug 27 using the original values, re-check it.
 
 **The `$()` split is not decoration** — `//` starts a comment in xcconfig, so a literal `https://`
 written inline is silently truncated. `Config.xcconfig.example:93-94` already carries both keys with
@@ -1464,6 +1520,16 @@ explicitly scoped out of.
 ---
 
 ## §20 — The deletion job has no machine, so nobody who asks to be forgotten is (Aug 22, 2026)
+
+**Reconfirmed unchanged Aug 29, 2026, by phase 133, from an unrelated App Store Connect session
+that surfaced this gap independently.** The claim reaching that session was imprecise — "no
+`delete_object` call exists anywhere in the service" — and is corrected rather than repeated:
+`services/deletion.py:437` calls `await s3.delete_objects(erasure.object_keys, settings)` inside
+`run_due_deletions`, so the object-storage delete code is written and correct, exactly as this
+section already says below. **What is still true, unchanged since Aug 22, is narrower and is this
+section's actual subject: no Fly machine invokes it.** `flyctl machines list -a rascal-api` was not
+re-run this session; the fix is unchanged from below, and is also a live line in `phase-queue.md`'s
+"Follow-ups the Aug 17 sprint generated."
 
 **Blocked on nobody.** No credential, no vendor account, no decision. It is one `fly machine run`
 that has not been typed, and it is filed here because it is the only entry on this page where the
