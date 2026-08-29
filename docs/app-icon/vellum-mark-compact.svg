@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-112.26 -188.764 224.521 175.874" width="224.521" height="175.874" role="img" aria-label="Vellum">
-  <defs><mask id="mc-k0" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800"><rect x="-400" y="-400" width="800" height="800" fill="#fff"/><g transform="rotate(21) translate(0 -108)"><rect x="-57" y="-82" width="114" height="164" rx="29" fill="#000"/></g><g transform="rotate(0) translate(0 -108)"><rect x="-57" y="-82" width="114" height="164" rx="29" fill="#000"/></g></mask><mask id="mc-k1" maskUnits="userSpaceOnUse" x="-400" y="-400" width="800" height="800"><rect x="-400" y="-400" width="800" height="800" fill="#fff"/><g transform="rotate(0) translate(0 -108)"><rect x="-57" y="-82" width="114" height="164" rx="29" fill="#000"/></g></mask></defs>
-    <g mask="url(#mc-k0)"><g transform="rotate(-21) translate(0 -108)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F"/></g></g>
-    <g mask="url(#mc-k1)"><g transform="rotate(21) translate(0 -108)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#DA9D7F"/></g></g>
-    <g transform="rotate(0) translate(0 -108)"><rect x="-50" y="-75" width="100" height="150" rx="22" fill="#C05A2B"/></g>
-</svg>

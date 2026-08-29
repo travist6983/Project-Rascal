@@ -2,7 +2,7 @@
 //
 //   node docs/app-icon/render-appicon.mjs
 //
-// `rascal-icon-fan.svg` is the source of truth and the PNG is a build product — never edit
+// `pocket-chronicle-icon-fan.svg` is the source of truth and the PNG is a build product — never edit
 // `AppIcon-1024.png` by hand, re-run this instead. What the App Store requires of that file is
 // 1024x1024, **no alpha channel**, and sRGB; all three are asserted below rather than assumed,
 // because an icon with alpha is rejected at upload time and nothing before that says so.
@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..');
 
-const SVG = join(HERE, 'rascal-icon-fan.svg');
+const SVG = join(HERE, 'pocket-chronicle-icon-fan.svg');
 const DEST = join(REPO, 'ios/Rascal/Rascal/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png');
 
 const SIZE = 1024;
