@@ -47,6 +47,30 @@ nonisolated struct BackfillSelection: Equatable {
         }
     }
 
+    /// Keep only what is still on the grid **and still on this selection's own day**.
+    ///
+    /// **The day is the point, and passing month-wide ids here was a hole in the one-day rule.**
+    /// Two things can move a selected photo out from under a selection while the picker is open. A
+    /// grant that narrows removes it outright — revoking a shared photo in Settings, or dropping
+    /// from full access to a selection — and without this the Use pill counts photos that are no
+    /// longer on the grid. But Photos' *Adjust Date & Time* moves a photo to a **different day in
+    /// the same month**, and against a month-wide set that photo is still "available": it stays
+    /// selected while the grid regroups it under another header, and `use()` then hands
+    /// `BackfillDateRule` two days' worth of dates and files the entry under the earlier one.
+    ///
+    /// That is exactly the spread this type exists to prevent — *"a selection spread across three
+    /// weeks produces a date that is defensible and not accurate"* — so the caller passes the ids
+    /// on `day`, not the ids in the month.
+    mutating func retain(_ available: Set<String>) {
+        let kept = assetIds.intersection(available)
+        guard kept != assetIds else { return }
+        assetIds = kept
+        if assetIds.isEmpty {
+            day = nil
+            blockedDay = nil
+        }
+    }
+
     /// "Start here" — abandon what is picked and begin on the day just reached for.
     ///
     /// Deliberately clears rather than moves. The photos picked on the old day are not the same

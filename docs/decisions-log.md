@@ -10,6 +10,40 @@ that file left open.
 > unedited by **phase 123 on Aug 25, 2026**. They were not summarised and nothing was dropped;
 > `grep -rn … docs/` still finds them. This file carries **Aug 17, 2026 onward**.
 
+## Aug 30, 2026 — phase 135, the photo authorization that was already there
+
+iOS lane. The brief asked for photo-library authorization to be *built* for the camera-roll
+browser; phase 18 built it on Aug 10–11, 2026 and it shipped in build 20. Gate 1 stopped the phase,
+the owner then asked for the six defects the diagnosis turned up, and those are what this phase is.
+
+- **`.readWrite` stays, and this is not a decision because there is no choice to make.** The brief
+  asked for `PHAccessLevel.read`. `PHPhotoLibrary.h:29-32` has exactly `addOnly = 1` and
+  `readWrite = 2`; `.read` does not exist and `.addOnly` grants no read at all. Recorded here
+  rather than in `decisions.md` for that reason — a decision entry implies an option that was
+  weighed, and there was none.
+- **`VideoPipeline`'s `.addOnly` is deliberately not folded into the browser's authority.** The
+  brief asked for one caller of `requestAuthorization`; there are two, and consolidating them
+  would make saving a recorded video ask for read access to the whole library. Different grants,
+  different Settings rows, and the narrower one is the correct ask for a write.
+- **The caption probe reads the grant and never requests it.** `CaptionProbe` walked the camera
+  roll with no authorization branch at all and shipped that way. It could have been given the
+  prompt; it must not be. iOS asks once, `BackfillPermissionScreen` earns that ask with an
+  explainer, and a diagnostic three taps into Settings must not be what spends it.
+- **An absent grant in a cached scan is rejected, not trusted — the opposite of what the `months`
+  field chose.** Both are optional-for-decode; the costs of guessing differ. A missing browse list
+  is filled in by the next scan. A missing grant means possibly serving whole-library counts under
+  limited copy, which looks entirely normal. One extra scan after an update is the cheaper mistake.
+- **A grant that widened keeps the parent where they are; only a narrowing pops the month.** The
+  first version popped on any change, which threw away a half-made one-day selection to tell
+  somebody there was now *more* to see.
+- **The `scenePhase` gate was lifted out of the view because it was wrong there and untestable
+  there.** It read `previous == .background, current == .active` — a transition iOS never delivers,
+  since `.inactive` sits between the two — so the reconcile behind it was unreachable and 1281
+  green tests said nothing about it. `TodayScreen.swift:286-288` already wrote the platform fact
+  down and the other eight observers already matched `.active` alone. It is now
+  `BackfillGrantChange`, with a suite. **The lesson is not "check scenePhase" — it is that a
+  one-line comparison inside a view body is a place defects go to hide from this test suite.**
+
 ## Aug 29, 2026 — phase 133, the App Store Connect submission session
 
 Docs lane only, reconciling `decisions.md`, `blocked.md`, `roadmap-status.md` and `phase-queue.md`

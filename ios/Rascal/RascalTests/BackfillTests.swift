@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import Rascal
@@ -199,14 +200,22 @@ struct BackfillPlanTests {
 /// Records how far the scan got, so cancellation can be asserted rather than eyeballed.
 private final class StubAssetSource: BackfillAssetSource, @unchecked Sendable {
     private let lock = NSLock()
-    private let auth: BackfillAuthorization
+    /// **Mutable, because a grant changes under the app's feet.** A parent can narrow or revoke
+    /// access in Settings while the flow is open, and the scan's behaviour across that change is
+    /// the thing worth asserting — a fixed status can only ever test one side of it.
+    private var _auth: BackfillAuthorization
     private let dates: [Date]
     private let cloud: [Date]
     private let delay: Bool
-    private let monthAssets: [String: [BackfillAsset]]
+    /// **Mutable, because the library changes under the app.** A `.limited` parent editing their
+    /// shared selection in Settings is exactly the case `revalidate()` exists for, and a fixed
+    /// dictionary can only ever test the half where nothing moved.
+    private var _monthAssets: [String: [BackfillAsset]]
     private var _started = false
     private var _fetchedMonths: [String] = []
     private var _didRequestAuthorization = false
+    private var _authorizationRequests = 0
+    private var _duringAssetFetch: (@Sendable () async -> Void)?
 
     init(
         auth: BackfillAuthorization = .authorized,
@@ -215,11 +224,11 @@ private final class StubAssetSource: BackfillAssetSource, @unchecked Sendable {
         delay: Bool = false,
         monthAssets: [String: [BackfillAsset]] = [:]
     ) {
-        self.auth = auth
+        self._auth = auth
         self.dates = dates
         self.cloud = cloud
         self.delay = delay
-        self.monthAssets = monthAssets
+        self._monthAssets = monthAssets
     }
 
     var started: Bool { lock.lock(); defer { lock.unlock() }; return _started }
@@ -232,9 +241,21 @@ private final class StubAssetSource: BackfillAssetSource, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }; return _didRequestAuthorization
     }
 
+    /// What Settings now says. Assigning it is a parent changing the grant while the app is open.
+    var auth: BackfillAuthorization {
+        get { lock.lock(); defer { lock.unlock() }; return _auth }
+        set { lock.lock(); defer { lock.unlock() }; _auth = newValue }
+    }
+
+    /// How many times the one-shot system prompt was fired. **A count rather than a flag**: the
+    /// failure worth catching is asking twice, and a `Bool` cannot see it.
+    var authorizationRequests: Int {
+        lock.lock(); defer { lock.unlock() }; return _authorizationRequests
+    }
+
     func authorization() async -> BackfillAuthorization { auth }
     func requestAuthorization() async -> BackfillAuthorization {
-        record { $0._didRequestAuthorization = true }
+        record { $0._didRequestAuthorization = true; $0._authorizationRequests += 1 }
         return auth
     }
     func libraryToken() async -> String? { nil }
@@ -253,8 +274,19 @@ private final class StubAssetSource: BackfillAssetSource, @unchecked Sendable {
         return (dates, cloud)
     }
 
+    /// Runs inside `assets(in:)`, after the fetch is recorded and before it returns.
+    ///
+    /// **The seam for changing the library while a fetch is genuinely in flight.** Racing
+    /// `Task.yield()` against a detached fetch is not deterministic and would make the test it
+    /// serves a flake; this puts the interleaving exactly where the assertion needs it.
+    var duringAssetFetch: (@Sendable () async -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return _duringAssetFetch }
+        set { lock.lock(); defer { lock.unlock() }; _duringAssetFetch = newValue }
+    }
+
     func assets(in month: BackfillMonth) async throws -> [BackfillAsset] {
         record { $0._fetchedMonths.append(month.key) }
+        if let hook = duringAssetFetch { await hook() }
         try Task.checkCancellation()
         return monthAssets[month.key] ?? []
     }
@@ -273,6 +305,11 @@ private final class StubAssetSource: BackfillAssetSource, @unchecked Sendable {
         }
         guard asset.isOnDevice else { throw BackfillAssetError.notOnDevice }
         return Data([0x02])
+    }
+
+    var monthAssets: [String: [BackfillAsset]] {
+        get { lock.lock(); defer { lock.unlock() }; return _monthAssets }
+        set { lock.lock(); defer { lock.unlock() }; _monthAssets = newValue }
     }
 
     private var allAssets: [BackfillAsset] { monthAssets.values.flatMap { $0 } }
@@ -813,7 +850,8 @@ struct BackfillMonthIndexTests {
                 )
             ],
             at: Date(timeIntervalSince1970: 761_000_000),
-            token: nil
+            token: nil,
+            grant: .authorized
         )
 
         let round = try JSONDecoder().decode(
@@ -823,6 +861,533 @@ struct BackfillMonthIndexTests {
         #expect(round.asMonths.count == 1)
         #expect(round.asMonths[0].entryCount == 12)
         #expect(round.asClusters[0].cloudOnlyCount == 4)
+    }
+}
+
+// MARK: - Authorization
+
+/// Phase 135 — the grant, and what the app does when it moves.
+///
+/// **The property these assert was the one thing in this feature with no coverage at all.**
+/// `didRequestAuthorization` was instrumented on the stub from the beginning and asserted by
+/// nothing, and no test ever constructed a `.notDetermined` source — so "the prompt is reachable,
+/// and fires exactly once, from behind the explainer" was the load-bearing claim nobody checked.
+@MainActor
+@Suite("Backfill — authorization")
+struct BackfillAuthorizationTests {
+
+    private func scanner(
+        _ source: StubAssetSource,
+        cache: BackfillScanCaching = InMemoryBackfillScanCache()
+    ) -> BackfillScanner {
+        BackfillScanner(
+            source: source,
+            childId: UUID(),
+            dismissals: InMemoryBackfillDismissalStore(),
+            cache: cache
+        )
+    }
+
+    @Test("An undecided library asks, once, and only when asked to")
+    func undecidedAsksOnce() async {
+        let source = StubAssetSource(auth: .notDetermined, dates: [date(2019, 10, 3)])
+        let model = scanner(source)
+
+        // A scan is not an ask. This is the whole shape of the feature: the explainer earns the
+        // one-shot prompt, and everything else reads the status.
+        await model.scanAndWait(entryDates: [])
+        #expect(model.state == .unavailable)
+        #expect(source.authorizationRequests == 0)
+        #expect(model.authorization == .notDetermined)
+
+        source.auth = .authorized
+        let granted = await model.requestAccess()
+
+        #expect(granted == .authorized)
+        #expect(source.authorizationRequests == 1)
+        #expect(model.authorization == .authorized)
+    }
+
+    @Test("A refusal is recorded as a refusal, and asking again does not re-prompt twice over")
+    func refusalIsRecorded() async {
+        let source = StubAssetSource(auth: .denied)
+        let model = scanner(source)
+
+        let first = await model.requestAccess()
+        #expect(first == .denied)
+        #expect(model.state == .unavailable)
+        // `.denied` is a *known* refusal, not an absence — the + sheet says something different
+        // for "said no" than for "never asked".
+        #expect(model.authorization == .denied)
+        #expect(source.authorizationRequests == 1)
+
+        // **Asked again, because the name of this test is a claim about the second ask.** iOS shows
+        // nothing the second time, so the count rising is not a visible bug — it is the shape a
+        // retry funnel would have, and `docs/decisions.md` settles that this app builds none.
+        let second = await model.requestAccess()
+        #expect(second == .denied)
+        #expect(model.state == .unavailable)
+        #expect(model.authorization == .denied)
+    }
+
+    @Test("Granting selected-photos access is a working scan and is flagged as partial")
+    func limitedGrantScans() async {
+        // Three, because `BackfillPlan.clusters` takes `minimumAssets: 3` — a month holding one or
+        // two stray pictures is not a month anybody failed to write up. The point of this test is
+        // that a *selection* clears that bar the same way a library does, so it has to clear it.
+        let source = StubAssetSource(
+            auth: .limited,
+            dates: [date(2019, 10, 3), date(2019, 10, 4), date(2019, 10, 5)]
+        )
+        let model = scanner(source)
+
+        let granted = await model.requestAccess()
+        #expect(granted == .limited)
+        #expect(model.isLimitedLibrary)
+
+        await model.scanAndWait(entryDates: [])
+
+        // **Not `state != .unavailable`**, which a scan that walked the library and found nothing
+        // satisfies just as well as one that worked. The claim is that a selection scans like a
+        // library does, so the assertion is the photos.
+        guard case .ready(let clusters) = model.state else {
+            Issue.record("expected a ready state under limited access, got \(model.state)")
+            return
+        }
+        #expect(clusters.count == 1)
+        #expect(model.months.reduce(0) { $0 + $1.assetCount } == 3)
+    }
+
+    /// **The defect this closes is silent and survives a force-quit.** A cache written under full
+    /// access carries whole-library counts. Narrow the grant in Settings and every screen switches
+    /// to "out of the photos you've shared" copy — over the same numbers, which are now counts of
+    /// photos the app cannot see. No timer catches it, because narrowing a grant does not age a
+    /// cache.
+    @Test("A scan cached under full access is not served once access has narrowed")
+    func cacheIsKeyedToTheGrant() async {
+        let cache = InMemoryBackfillScanCache()
+        let full = StubAssetSource(
+            auth: .authorized,
+            dates: [date(2019, 10, 3), date(2019, 10, 4), date(2019, 10, 5)]
+        )
+        let first = scanner(full, cache: cache)
+        await first.scanAndWait(entryDates: [])
+        let wholeLibrary = first.months.reduce(0) { $0 + $1.assetCount }
+        #expect(wholeLibrary == 3)
+
+        // Same cache, same clock — only the grant moved, and only one photo is shared.
+        let narrowed = StubAssetSource(auth: .limited, dates: [date(2019, 10, 3)])
+        let second = scanner(narrowed, cache: cache)
+        await second.scanAndWait(entryDates: [])
+
+        #expect(second.isLimitedLibrary)
+        #expect(second.months.reduce(0) { $0 + $1.assetCount } == 1)
+        #expect(narrowed.started, "the cache should have been rejected and the library re-read")
+    }
+
+    @Test("A cache written under the same grant is still served")
+    func cacheStillServesWithinTheSameGrant() async {
+        let cache = InMemoryBackfillScanCache()
+        let first = StubAssetSource(auth: .authorized, dates: [date(2019, 10, 3)])
+        await scanner(first, cache: cache).scanAndWait(entryDates: [])
+
+        let second = StubAssetSource(auth: .authorized, dates: [date(2019, 10, 3)])
+        await scanner(second, cache: cache).scanAndWait(entryDates: [])
+
+        #expect(second.started == false, "an unchanged grant should not force a re-read")
+    }
+
+    /// **The scanner is shared by `RootView` and the flow**, and `scan` is cancel-and-replace. So a
+    /// caller awaiting its own task gets control back the moment somebody else starts a scan — with
+    /// `state` still holding whatever it held before. `route` read that as its answer and settled
+    /// the screen on "You've written about every month that has photos" over a full camera roll,
+    /// permanently, because nothing re-derives the stage when the replacement lands.
+    @Test("A scan replaced mid-flight is awaited to its real end, not to its cancellation")
+    func scanAndWaitFollowsTheReplacement() async {
+        let source = StubAssetSource(
+            dates: [date(2019, 10, 3), date(2019, 10, 4), date(2019, 10, 5)],
+            delay: true
+        )
+        let model = scanner(source)
+
+        // A second caller — the root's foreground sweep — lands while the first is still walking.
+        let interloper = Task { @MainActor in
+            await Task.yield()
+            model.scan(entryDates: [], force: true)
+        }
+        await model.scanAndWait(entryDates: [], force: true)
+        _ = await interloper.value
+
+        // The caller must not be handed control while the library is still being read.
+        guard case .ready(let clusters) = model.state else {
+            Issue.record("scanAndWait returned on a cancelled scan; state was \(model.state)")
+            return
+        }
+        #expect(clusters.count == 1)
+    }
+
+    @Test("Freshness rejects a cache from another grant before it considers the clock")
+    func freshnessChecksTheGrantFirst() {
+        let now = Date(timeIntervalSince1970: 761_000_000)
+        let result = BackfillScanResult.from(
+            [BackfillCluster(month: BackfillMonth(year: 2025, month: 10), assetCount: 62, cloudOnlyCount: 0)],
+            at: now,
+            token: nil,
+            grant: .authorized
+        )
+
+        // Written one second ago — as fresh as a cache can be, and still wrong for this grant.
+        #expect(result.isFresh(now: now.addingTimeInterval(1), token: nil, grant: .authorized))
+        #expect(!result.isFresh(now: now.addingTimeInterval(1), token: nil, grant: .limited))
+    }
+
+    /// The opposite choice from `months`, and deliberately so — see `BackfillScanResult`.
+    @Test("A cache from a build that recorded no grant is rejected rather than trusted")
+    func olderCacheWithoutAGrantIsRejected() throws {
+        let legacy = """
+        {"clusters":[{"year":2025,"month":10,"assetCount":62,"cloudOnlyCount":0}],
+         "scannedAt":761000000,"libraryToken":null}
+        """
+        let decoded = try JSONDecoder().decode(BackfillScanResult.self, from: Data(legacy.utf8))
+
+        // It still decodes — that part has not changed.
+        #expect(decoded.asClusters.count == 1)
+        #expect(decoded.authorization == nil)
+        #expect(!decoded.isFresh(
+            now: Date(timeIntervalSince1970: 761_000_001), token: nil, grant: .authorized
+        ))
+    }
+}
+
+/// The loader's memo, and the affordance that could not get past it.
+@MainActor
+@Suite("Backfill — widening a selection")
+struct BackfillWideningTests {
+
+    private func asset(
+        _ id: String,
+        onDevice: Bool = true,
+        on day: Int = 3
+    ) -> BackfillAsset {
+        BackfillAsset(id: id, creationDate: date(2019, 10, day), isOnDevice: onDevice)
+    }
+
+    /// **This is the break-test the shipped build fails.** The memo had exactly three references
+    /// in the whole tree — declare, read, write — and no invalidation path, so "Share more photos"
+    /// updated the month total while the photographs under it stayed as they were.
+    @Test("Forgetting assets re-reads the library rather than replaying the memo")
+    func forgettingAssetsRefetches() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a")]])
+        let loader = BackfillThumbnailLoader(source: source)
+
+        _ = try await loader.assets(in: month)
+        _ = try await loader.assets(in: month)
+        #expect(source.fetchedMonths.count == 1, "the memo should serve the second read")
+
+        loader.forgetAssets()
+        _ = try await loader.assets(in: month)
+
+        #expect(source.fetchedMonths.count == 2)
+    }
+
+    /// The observable half. Clearing the dictionary alone changes nothing on screen: every reader
+    /// is already sitting on a `.task(id:)` keyed on a month key that never changes.
+    @Test("Forgetting assets moves the generation the grids key their reload on")
+    func forgettingAssetsMovesTheGeneration() {
+        let loader = BackfillThumbnailLoader(source: StubAssetSource())
+        let before = loader.generation
+
+        loader.forgetAssets()
+
+        #expect(loader.generation != before)
+    }
+
+    /// **The stale-write branch, which nothing else reaches.** A fetch already in flight when the
+    /// grant changes resolves with the pre-change list; writing it back would repopulate the memo
+    /// `forgetAssets()` had just emptied, under the new generation, where nothing would clear it
+    /// again. The caller still gets what it asked for — only the memo refuses it.
+    @Test("A fetch that lands after the library changed does not repopulate the memo")
+    func staleFetchDoesNotRepopulateTheMemo() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a")]])
+        let loader = BackfillThumbnailLoader(source: source)
+        // The library changes strictly between the generation stamp and the memo write.
+        source.duringAssetFetch = { await MainActor.run { loader.forgetAssets() } }
+
+        let returned = try await loader.assets(in: month)
+
+        // The caller is still answered — it is only the memo that refuses the stale result.
+        #expect(returned.count == 1)
+
+        source.duringAssetFetch = nil
+        _ = try await loader.assets(in: month)
+        #expect(source.fetchedMonths.count == 2, "the stale write should not have been memoised")
+    }
+
+    /// **The count comparison this replaced could not see a swap.** A `BackfillMonthSummary` is
+    /// three integers, so a `.limited` parent exchanging one October photo for another produced an
+    /// identical index — and the grid went on drawing a photograph the app could no longer read
+    /// while never showing the one just shared. Nothing on screen looked wrong, which is the
+    /// failure `reconcileAuthorization`'s own comment calls worse than a dead end.
+    @Test("A same-size swap in a month is caught, because identity is compared and not counts")
+    func revalidateCatchesASameSizeSwap() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a"), asset("b")]])
+        let loader = BackfillThumbnailLoader(source: source)
+        _ = try await loader.assets(in: month)
+        let generationBefore = loader.generation
+
+        // One photo out, one in — the count is unchanged, which is the whole point.
+        source.monthAssets = [month.key: [asset("a"), asset("c")]]
+        let moved = await loader.revalidate()
+
+        #expect(moved)
+        #expect(loader.generation != generationBefore)
+        #expect(try await loader.assets(in: month).map(\.id) == ["a", "c"])
+    }
+
+    /// **An id list is not the asset.** `isOnDevice` flips the moment a parent downloads a photo
+    /// that Optimize Storage had evicted — which is the exact remedy the iCloud badge invites them
+    /// to perform — and comparing ids alone called that no change, so the tile stayed badged and
+    /// refused taps for a photograph now sitting on the phone.
+    @Test("A photo that came down from iCloud is a change, even though its id did not move")
+    func revalidateCatchesAnAvailabilityFlip() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a", onDevice: false)]])
+        let loader = BackfillThumbnailLoader(source: source)
+        _ = try await loader.assets(in: month)
+
+        source.monthAssets = [month.key: [asset("a", onDevice: true)]]
+
+        #expect(await loader.revalidate())
+        #expect(try await loader.assets(in: month).first?.isOnDevice == true)
+    }
+
+    /// The sharper half of the same gap: a date edit reaches `occurred_at`, which is the one error
+    /// this whole feature exists to prevent.
+    @Test("A photo whose date was edited is a change, because that date becomes the entry's")
+    func revalidateCatchesADateEdit() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a", on: 3)]])
+        let loader = BackfillThumbnailLoader(source: source)
+        _ = try await loader.assets(in: month)
+
+        // Photos' "Adjust Date & Time", still inside October.
+        source.monthAssets = [month.key: [asset("a", on: 19)]]
+
+        #expect(await loader.revalidate())
+        #expect(try await loader.assets(in: month).first?.creationDate == date(2019, 10, 19))
+    }
+
+    @Test("A library that has not moved is left alone, spinner and all")
+    func revalidateLeavesAnUnchangedLibraryAlone() async throws {
+        let month = BackfillMonth(year: 2019, month: 10)
+        let source = StubAssetSource(monthAssets: [month.key: [asset("a"), asset("b")]])
+        let loader = BackfillThumbnailLoader(source: source)
+        _ = try await loader.assets(in: month)
+        let generationBefore = loader.generation
+
+        let moved = await loader.revalidate()
+
+        #expect(!moved)
+        #expect(loader.generation == generationBefore, "an unchanged library must not tear the grid down")
+    }
+
+    /// The common path: a parent who has not opened a month pays nothing on every foreground.
+    @Test("Revalidating with nothing loaded asks the library nothing at all")
+    func revalidateWithNothingLoadedIsFree() async {
+        let source = StubAssetSource()
+        let loader = BackfillThumbnailLoader(source: source)
+
+        let moved = await loader.revalidate()
+
+        #expect(!moved)
+        #expect(source.fetchedMonths.isEmpty)
+    }
+
+    /// **The one-day rule is a date guarantee, and a reload is where it could quietly break.**
+    /// A photo whose date was edited in Photos is still in the month, so a month-wide `retain` kept
+    /// it selected while the grid regrouped it under another day — and `use()` filters by id across
+    /// every day, so the entry would have been built from two days' dates and filed under the
+    /// earlier one. The caller now passes the ids on the selection's own day.
+    @Test("A photo whose date moved to another day leaves the selection it was picked in")
+    func selectionDropsAPhotoThatChangedDay() {
+        let dayThree = date(2019, 10, 3)
+        var selection = BackfillSelection()
+        selection.tap(asset("a"), on: dayThree)
+        selection.tap(asset("b"), on: dayThree)
+        #expect(selection.count == 2)
+
+        // "a" has moved to the 19th, so the ids still on the 3rd are just "b".
+        selection.retain(["b"])
+
+        #expect(selection.assetIds == ["b"])
+        #expect(selection.day == dayThree, "the selection keeps its day; only the mover leaves")
+    }
+
+    @Test("A selection survives photos being added and drops photos that have gone")
+    func selectionRetainsWhatIsStillThere() {
+        let day = date(2019, 10, 3)
+        var selection = BackfillSelection()
+        selection.tap(asset("a"), on: day)
+        selection.tap(asset("b"), on: day)
+        #expect(selection.count == 2)
+
+        // Widening only ever adds, so the selection is untouched.
+        selection.retain(["a", "b", "c"])
+        #expect(selection.count == 2)
+        #expect(selection.day == day)
+
+        // Narrowing takes one away. What is left is still a one-day selection.
+        selection.retain(["a"])
+        #expect(selection.count == 1)
+        #expect(selection.day == day)
+
+        // And when nothing is left, the day goes with it rather than stranding an empty one.
+        selection.retain([])
+        #expect(selection.isEmpty)
+        #expect(selection.day == nil)
+    }
+}
+
+/// The caption probe reads the same library, and shipped with no authorization branch at all.
+@Suite("Captions — the probe's grant")
+struct CaptionProbeAuthorizationTests {
+
+    /// **An unauthorized `PHAsset.fetchAssets` does not fail, it returns nothing.** So the probe
+    /// reported "0 read, not measured" as though it had looked — and this screen exists to produce
+    /// one number that decides whether a whole phase gets built.
+    @Test("A closed library is refused rather than counted as a zero result")
+    func closedLibraryThrows() async {
+        await #expect(throws: CaptionProbe.ProbeError.notAuthorized(.denied)) {
+            try await CaptionProbe.run(authorization: { .denied })
+        }
+    }
+
+    @Test("An undecided library is refused too, and the probe never fires the one-shot prompt")
+    func undecidedLibraryThrows() async {
+        await #expect(throws: CaptionProbe.ProbeError.notAuthorized(.notDetermined)) {
+            try await CaptionProbe.run(authorization: { .notDetermined })
+        }
+    }
+
+    /// **The positive path, which is what stops the guard being silently inverted.** `canScan` is
+    /// true for exactly two of the four grants, and a test that only ever asserts the throwing side
+    /// would pass just as happily against `guard !granted.canScan`.
+    ///
+    /// The walk itself finds nothing here — a simulator has no camera roll and this suite has no
+    /// business acquiring one — so the assertion is that it *ran*, and that a selection is reported
+    /// as a selection rather than as a library.
+    @Test("An open library is not refused, and a selection reports itself as one")
+    func openLibraryRuns() async throws {
+        let whole = try await CaptionProbe.run(ceiling: 1, authorization: { .authorized })
+        #expect(whole.limitedLibrary == false)
+
+        let selection = try await CaptionProbe.run(ceiling: 1, authorization: { .limited })
+        #expect(selection.limitedLibrary)
+    }
+
+    /// The two refusals are not one refusal. `AddToArchiveModel.cameraRollSubtitle` has always
+    /// drawn this line; the probe's screen now draws it too, and pointing a parent who already
+    /// said no back at the browser would be a retry funnel in all but name.
+    @MainActor
+    @Test("A refusal and a question that was never asked get different sentences")
+    func refusedAndUnaskedReadDifferently() {
+        let denied = CaptionProbeScreen.unauthorizedExplanation(for: .denied)
+        let undecided = CaptionProbeScreen.unauthorizedExplanation(for: .notDetermined)
+
+        #expect(denied != undecided)
+        // The browser cannot ask again after a refusal, so it must not be named as though it could.
+        #expect(!denied.contains("camera roll"))
+        #expect(undecided.contains("camera roll"))
+    }
+}
+
+/// The gate that decides whether the Settings round-trip is noticed at all.
+///
+/// **This suite exists because the first version of that gate was inert.** It read
+/// `previous == .background, current == .active`, a transition iOS never delivers in one step, so
+/// the reconcile behind it could never run — a fix that compiled, shipped, and did nothing, on a
+/// path no model-level test could reach. The comparison now lives somewhere it can be asserted.
+@Suite("Backfill — noticing a grant change")
+struct BackfillGrantChangeTests {
+
+    @Test("Only the active phase re-reads, because iOS interposes inactive on the way back in")
+    func onlyActiveRereads() {
+        #expect(BackfillGrantChange.shouldReread(.active))
+        // The two halves of a real foreground, neither of which is the moment to act.
+        #expect(!BackfillGrantChange.shouldReread(.inactive))
+        #expect(!BackfillGrantChange.shouldReread(.background))
+    }
+
+    @Test("Nothing drawn yet is nothing to reconcile — the flow's own task owns the first routing")
+    func nothingDrawnYet() {
+        #expect(BackfillGrantChange.effect(was: nil, now: .authorized) == .none)
+        #expect(BackfillGrantChange.effect(was: nil, now: .denied) == .none)
+    }
+
+    /// A grant that cannot see photos has nothing to re-read.
+    @Test("An ordinary foreground on a grant that reads nothing costs nothing")
+    func unreadableGrantIsFree() {
+        #expect(BackfillGrantChange.effect(was: .denied, now: .denied) == .none)
+        #expect(BackfillGrantChange.effect(was: .notDetermined, now: .notDetermined) == .none)
+    }
+
+    /// **Every readable grant, not only `.limited`.** The first version scoped this to selected
+    /// photos and reasoned about selection edits, which was the case in front of it rather than
+    /// the general one: a date corrected in Photos and an original pulled down from iCloud happen
+    /// under full access too, and the first of them decides an entry's `occurred_at`. Scoping it
+    /// narrowly left the most common grant with no invalidation at all.
+    @Test("A readable grant re-reads on every foreground, full access included")
+    func anyReadableGrantRescans() {
+        #expect(BackfillGrantChange.effect(was: .authorized, now: .authorized) == .rescan)
+        #expect(BackfillGrantChange.effect(was: .limited, now: .limited) == .rescan)
+    }
+
+    /// The selection can be edited in Settings without the grant level moving at all, and the
+    /// `.limited` screen's own Settings link is an invitation to do exactly that.
+    ///
+    /// **`.rescan`, emphatically not `.reroute`.** The first version of this returned the same
+    /// effect as a widening, and a re-route re-derives the stage from the grant alone — which
+    /// marched a `.limited` parent back to the interstitial they had dismissed with "Continue with
+    /// these", flashing the scanning screen on the way, on every single foreground. Same kind of
+    /// access, different photographs behind it: the data is stale, the screen is not.
+    @Test("An unchanged limited grant re-reads the library and moves nobody")
+    func unchangedLimitedRescansOnly() {
+        #expect(BackfillGrantChange.effect(was: .limited, now: .limited) == .rescan)
+    }
+
+    @Test("A grant that widened re-decides the screen but keeps the month")
+    func wideningKeepsTheMonth() {
+        #expect(BackfillGrantChange.effect(was: .denied, now: .authorized) == .reroute)
+        #expect(BackfillGrantChange.effect(was: .denied, now: .limited) == .reroute)
+        #expect(BackfillGrantChange.effect(was: .limited, now: .authorized) == .reroute)
+        #expect(BackfillGrantChange.effect(was: .notDetermined, now: .authorized) == .reroute)
+    }
+
+    /// The distinction the interstitial regression turned on, asserted as a property rather than
+    /// as four more pairs: **only a change of *kind* may move the parent.**
+    @Test("Only a grant that actually changed kind is allowed to re-route")
+    func onlyAKindChangeReroutes() {
+        let grants: [BackfillAuthorization] = [.authorized, .limited, .denied, .notDetermined]
+        for was in grants {
+            for now in grants where was == now {
+                let effect = BackfillGrantChange.effect(was: was, now: now)
+                #expect(effect == .rescan || effect == .none)
+                #expect(effect != .reroute)
+                #expect(effect != .rebuild)
+            }
+        }
+    }
+
+    /// A grid of photographs the app can no longer read is worse than a dead end, because nothing
+    /// on it looks wrong.
+    @Test("A grant that narrowed leaves the month as well as re-reading")
+    func narrowingLeavesTheMonth() {
+        #expect(BackfillGrantChange.effect(was: .authorized, now: .limited) == .rebuild)
+        #expect(BackfillGrantChange.effect(was: .authorized, now: .denied) == .rebuild)
+        #expect(BackfillGrantChange.effect(was: .limited, now: .denied) == .rebuild)
     }
 }
 

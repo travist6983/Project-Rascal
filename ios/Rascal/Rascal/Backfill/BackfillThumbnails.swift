@@ -63,7 +63,17 @@ final class BackfillThumbnailLoader {
     ///
     /// The card strip and the picker both want the same month, and a parent moving between them is
     /// the normal path — fetching twice would walk the library twice for the same answer.
-    private var monthAssets: [String: [BackfillAsset]] = [:]
+    /// Keyed by `BackfillMonth.key`, and the month itself is kept beside the assets so
+    /// `revalidate()` can ask the library about it again without reconstructing one from a string.
+    private var monthAssets: [String: (month: BackfillMonth, assets: [BackfillAsset])] = [:]
+
+    /// Bumped whenever what the library will show us changes. **Screens key their `.task(id:)` on
+    /// it**, because a month's key is invariant and a task keyed on that alone cannot re-run.
+    ///
+    /// This is the observable half of `forgetAssets()`: clearing the dictionary is necessary and
+    /// on its own achieves nothing visible, since every reader is already sitting on a task that
+    /// will not fire again for the month it is showing.
+    private(set) var generation = 0
 
     init(source: any BackfillAssetSource, maxPixel: Int = 320, limit: Int = 240) {
         self.source = source
@@ -72,10 +82,76 @@ final class BackfillThumbnailLoader {
     }
 
     func assets(in month: BackfillMonth) async throws -> [BackfillAsset] {
-        if let hit = monthAssets[month.key] { return hit }
+        if let hit = monthAssets[month.key] { return hit.assets }
+        // **Stamped before the await and checked after it.** A fetch already in flight when the
+        // grant changes — or when "Share more photos" lands — resolves with the pre-change list,
+        // and writing that back would repopulate the memo `forgetAssets()` just emptied, under the
+        // new generation, where nothing would ever clear it again. The caller still gets what it
+        // asked for; it is only the memo that refuses the stale answer, and the re-keyed `.task`
+        // is already on its way with a fresh one.
+        let asked = generation
         let fetched = try await source.assets(in: month)
-        monthAssets[month.key] = fetched
+        if generation == asked { monthAssets[month.key] = (month, fetched) }
         return fetched
+    }
+
+    /// Ask the library whether the months already on screen still hold the same photographs, and
+    /// drop everything if they do not.
+    ///
+    /// **This replaced a comparison of `scanner.months`, which could not answer the question.** A
+    /// `BackfillMonthSummary` is `(month, assetCount, entryCount)` and nothing else, so a parent
+    /// who edits a Selected Photos grant to swap one October picture for another produces an
+    /// identical index — the invalidation never fired, the grid kept drawing a photo the app can
+    /// no longer read, and the one just shared never appeared. It was also wrong in the other
+    /// direction: `entryCount` moves when the *archive* gains an entry, which has nothing to do
+    /// with the camera roll, and tore the grid down for it.
+    ///
+    /// Only months already in the memo are asked about. That is the set whose staleness anybody
+    /// can see, it is a handful under `.limited`, and it is empty on the common path — a parent
+    /// who has not opened a month pays nothing.
+    ///
+    /// Returns whether anything moved, so a caller can tell a foreground that changed something
+    /// from one that did not.
+    @discardableResult
+    func revalidate() async -> Bool {
+        guard !monthAssets.isEmpty else { return false }
+        for (_, known) in monthAssets {
+            guard let fresh = try? await source.assets(in: known.month) else { continue }
+            // **The whole asset, not just its id.** `BackfillAsset` is `Equatable` over all three
+            // of its fields and the fetch is already paid for, so comparing ids alone threw away
+            // the two that every screen actually decides from. `isOnDevice` flips when a parent
+            // downloads an Optimize-Storage original — the exact remedy the iCloud badge invites —
+            // and an id-only check called that no change, leaving the tile badged and unselectable
+            // for a photograph now sitting on the phone; offloading flips it the other way, into a
+            // blank tile that is still selectable. And `creationDate` moves when somebody uses
+            // Photos' *Adjust Date & Time*, which would leave the picker grouping the photo under
+            // a stale day and handing that stale day to `BackfillEntryPlan` as the entry's
+            // `occurred_at` — the one error this whole feature exists to prevent.
+            if fresh != known.assets {
+                forgetAssets()
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Drop everything read out of the library, because what the library will show us has changed.
+    ///
+    /// **The memo above had no invalidation path at all, and that made the one affordance a
+    /// `.limited` parent is offered unable to change what is on screen.** "Share more photos"
+    /// widened the selection and forced a rescan, so a month card's *total* updated — while its
+    /// thumbnails, and the grid behind it, were the pre-widen fetch. The card then printed a new
+    /// number over old pictures, and opening that month showed a smaller count directly under the
+    /// larger one it was tapped from. Only dismissing the whole flow could clear it.
+    ///
+    /// The thumbnail bytes and the unavailable set go too. A narrowed grant can make a photo that
+    /// was readable a moment ago unreadable, and a cached tile would keep drawing it.
+    func forgetAssets() {
+        monthAssets.removeAll()
+        cache.removeAll()
+        order.removeAll()
+        unavailable.removeAll()
+        generation &+= 1
     }
 
     func thumbnail(for assetId: String, pixelSize: Int? = nil) async -> Data? {
@@ -201,8 +277,21 @@ struct BackfillThumbnail: View {
             // same layout pass, so the pixel size can change once on the first frame; keyed on the
             // asset alone the tile would keep whatever it asked for against the seeded width and
             // render soft on any phone that is not 393 wide.
-            .task(id: "\(asset.id)@\(pixelSize ?? 0)") {
-                guard asset.isOnDevice else { return }
+            // **The generation is in the key, like every other reload in this feature.** An
+            // asset's id does not move when its availability does, so a tile keyed on the id alone
+            // survived the very invalidation `revalidate()` exists to trigger: the parent
+            // downloads an offloaded original — the remedy the iCloud badge invites — the loader
+            // correctly tears the memo down and rebuilds the day groups, and this task never
+            // re-runs. The tile then draws neither the photograph nor the badge, and is selectable.
+            .task(id: "\(asset.id)@\(pixelSize ?? 0)#\(loader.generation)") {
+                // Cleared rather than left standing: this tile is reused for the same asset in a
+                // new generation, and a picture fetched under the old one may no longer be readable.
+                guard asset.isOnDevice else {
+                    #if canImport(UIKit)
+                    image = nil
+                    #endif
+                    return
+                }
                 let data = await loader.thumbnail(for: asset.id, pixelSize: pixelSize)
                 #if canImport(UIKit)
                 guard !Task.isCancelled, let data else { return }

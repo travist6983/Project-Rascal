@@ -37,6 +37,14 @@ nonisolated enum CaptionProbe {
         var hits = 0
         /// A few of the captions themselves, so the number can be judged rather than just read.
         var samples: [String] = []
+        /// The sample came from a selection rather than the library.
+        ///
+        /// **The number this probe exists to produce is a rate over a real camera roll**, and a
+        /// rate measured over a handful of deliberately shared photos is not that — it is a
+        /// different, much smaller question wearing the same percentage sign. Recorded so the
+        /// report can say which one it answered, per the same rule `AddToArchiveSheet` states for
+        /// month totals.
+        var limitedLibrary = false
 
         /// Hits as a share of what was actually read. Nil when nothing was read, because a rate
         /// with a zero denominator is not zero — it is unmeasured, and the two must not render
@@ -68,7 +76,19 @@ nonisolated enum CaptionProbe {
     /// locally instead of pulling a gigabyte over cellular for a diagnostic nobody asked to pay
     /// for. They are reported separately rather than folded into the denominator, because
     /// "we could not look" and "we looked and found nothing" are different answers.
-    static func run(ceiling: Int = sampleCeiling) async throws -> Report {
+    static func run(
+        ceiling: Int = sampleCeiling,
+        authorization: @Sendable () async -> BackfillAuthorization = { await currentAuthorization() }
+    ) async throws -> Report {
+        // **The one thing in this file that is not a diagnostic detail.** `PHAsset.fetchAssets`
+        // against an unauthorized library does not fail — it returns an empty result — so without
+        // this the screen reported "0 photos read, not measured" as though it had looked, which is
+        // the wrong answer to the only question the probe exists to ask, and it would have been
+        // written down as a real one.
+        let granted = await authorization()
+        guard granted.canScan else { throw ProbeError.notAuthorized(granted) }
+        let limited = granted == .limited
+
         // Detached with an explicit cancellation handler, for the reason `BackfillScanner`
         // documents: a detached task inherits nothing from its creator, cancellation included,
         // and awaiting `.value` does not forward it either. Without this the Cancel button
@@ -80,6 +100,7 @@ nonisolated enum CaptionProbe {
             let assets = PHAsset.fetchAssets(with: .image, options: options)
 
             var report = Report()
+            report.limitedLibrary = limited
             var candidates: [PHAsset] = []
 
             assets.enumerateObjects { asset, _, stop in
@@ -113,6 +134,27 @@ nonisolated enum CaptionProbe {
         } onCancel: {
             work.cancel()
         }
+    }
+
+    /// Why a run produced nothing.
+    nonisolated enum ProbeError: Error, Equatable {
+        /// The library has not been opened to this app. **Not something this screen may fix**: see
+        /// `currentAuthorization`.
+        ///
+        /// It carries the grant, because *"never asked"* and *"said no"* are different answers and
+        /// the screen owes the parent the right sentence for the one they are in.
+        case notAuthorized(BackfillAuthorization)
+    }
+
+    /// What the library will let this probe see.
+    ///
+    /// **Read through the app's one photo-authorization authority, and read only — never
+    /// requested.** iOS shows its prompt once and a denial is close to permanent, so the app has
+    /// exactly one screen allowed to spend it, `BackfillPermissionScreen`, which earns it with an
+    /// explainer first. A diagnostic buried three taps into Settings must not be the thing that
+    /// burns that single ask on a parent who was looking for something else entirely.
+    static func currentAuthorization() async -> BackfillAuthorization {
+        await PhotoLibraryBackfillSource().authorization()
     }
 
     /// The caption already embedded in a file, or nil.

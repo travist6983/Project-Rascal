@@ -20,6 +20,14 @@ struct CaptionProbeScreen: View {
         case idle
         case running
         case done(CaptionProbe.Report)
+        /// The library is closed to the app. **A state of its own, not a `failed` string** — the
+        /// check did not break, there is simply nothing to look at.
+        ///
+        /// It carries the grant because *"never asked"* and *"said no"* need different sentences,
+        /// which is a distinction the rest of the app already treats as load-bearing: see
+        /// `AddToArchiveModel.cameraRollSubtitle`, where `.notDetermined` is an invitation and
+        /// `.denied` is one honest line with no funnel behind it.
+        case unauthorized(BackfillAuthorization)
         case failed(String)
     }
 
@@ -29,6 +37,7 @@ struct CaptionProbeScreen: View {
                 explanation
                 SettingsCard { control }
                 if case .done(let report) = state { results(report) }
+                if case .unauthorized(let grant) = state { unauthorized(grant) }
                 if case .failed(let message) = state { failure(message) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -63,8 +72,52 @@ struct CaptionProbeScreen: View {
             SettingsRow(label: "Stop") { task?.cancel() }
         case .idle:
             SettingsRow(label: "Run the check") { start() }
-        case .done, .failed:
+        case .done, .failed, .unauthorized:
             SettingsRow(label: "Run it again") { start() }
+        }
+    }
+
+    /// **No prompt from here, and no retry funnel.** The probe reads the authorization status and
+    /// never requests it — `CaptionProbe.currentAuthorization` says why — so the only honest thing
+    /// this screen can offer is the place the answer actually lives.
+    private func unauthorized(_ grant: BackfillAuthorization) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("The check needs access to your photos")
+                .typeRole(.cardTitle)
+                .foregroundStyle(Color.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(Self.unauthorizedExplanation(for: grant))
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            // **Only where Settings can actually change the answer.** The sentence above
+            // deliberately makes no Settings promise to a parent who has never been asked, because
+            // iOS creates no photo row for an app until it has requested authorization — and a
+            // button doing what the copy just declined to do is the louder of the two.
+            if grant == .denied {
+                SettingsLinkText()
+                    .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardSurface()
+    }
+
+    /// **Two sentences, because the two states have different true answers.**
+    ///
+    /// Pointing a parent who has already refused back at the camera roll browser would be sending
+    /// them to a screen that cannot ask again — iOS shows its prompt once — and reads as a retry
+    /// funnel, which `docs/decisions.md` settles this app does not build. Settings is the only
+    /// place that answer can change, so after a refusal Settings is the only thing named.
+    static func unauthorizedExplanation(for grant: BackfillAuthorization) -> String {
+        switch grant {
+        case .denied:
+            return "Photo access is off, so there's nothing to count. It can be turned back on in Settings."
+        default:
+            // **No Settings promise here.** iOS creates no photo row on an app's Settings page
+            // until the app has actually asked, so telling a parent who has never been asked to
+            // go and change it there sends them to look for something that is not on the screen.
+            return "There's nothing to count until the app has some. Photo access is asked for the first time you browse your camera roll."
         }
     }
 
@@ -91,10 +144,23 @@ struct CaptionProbeScreen: View {
             }
         }
 
+        // **The rate this screen exists to produce is a rate over a real camera roll.** Measured
+        // over a shared selection it is a different question, and a percentage that does not say
+        // which one it answered is exactly the kind of number that gets written down as fact.
+        if report.limitedLibrary {
+            Text("Measured over the photos shared with Pocket Chronicle, not the whole library — so this share answers a smaller question than the one the check is for.")
+                .typeRole(.metadata)
+                .foregroundStyle(Color.inkMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
         if report.samples.isEmpty {
-            Text(report.hits == 0
-                 ? "No photo on this phone carries one. That is the answer the check is for — write it down."
-                 : "Found some, but none could be shown.")
+            // **The zero verdict is a claim about the phone, so it may only be made about the
+            // phone.** Under a shared selection the honest version says what was actually looked
+            // at — printing "no photo on this phone carries one" over a handful of shared pictures
+            // would answer this screen's whole question wrongly, and it is the kind of sentence
+            // that gets written down as a fact.
+            Text(Self.emptyVerdict(hits: report.hits, limited: report.limitedLibrary))
                 .typeRole(.metadata)
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -114,6 +180,14 @@ struct CaptionProbeScreen: View {
         }
     }
 
+    /// What to say when no caption could be shown.
+    static func emptyVerdict(hits: Int, limited: Bool) -> String {
+        guard hits == 0 else { return "Found some, but none could be shown." }
+        return limited
+            ? "None of the photos shared with Pocket Chronicle carries one. Share the whole library to answer this properly."
+            : "No photo on this phone carries one. That is the answer the check is for — write it down."
+    }
+
     private func failure(_ message: String) -> some View {
         Text(message)
             .typeRole(.metadata)
@@ -129,6 +203,8 @@ struct CaptionProbeScreen: View {
                 let report = try await CaptionProbe.run()
                 if Task.isCancelled { return }
                 state = .done(report)
+            } catch CaptionProbe.ProbeError.notAuthorized(let grant) {
+                state = .unauthorized(grant)
             } catch is CancellationError {
                 state = .idle
             } catch {
