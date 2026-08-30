@@ -47,9 +47,36 @@ struct BackfillFlowView: View {
     /// stroke of midnight on the 1st would resort the screen under the parent's thumb. Read once,
     /// held, and left alone for the life of the flow.
     @State private var thisMonth: BackfillMonth?
+    /// The grant every screen in this flow was last drawn under.
+    ///
+    /// **Held here rather than read off the scanner**, which is the same question asked of the
+    /// wrong object: `scanner.authorization` is written by a *scan*, and the two stages that never
+    /// scan — `.permission` and `.denied` — leave it at `.notDetermined` for as long as they are on
+    /// screen. A reconcile comparing against that would think the grant had moved on every single
+    /// foreground from the denied screen, which is the one screen a parent foregrounds onto after
+    /// visiting Settings.
+    @State private var routedGrant: BackfillAuthorization?
+    /// True while a user-driven decision already owns the flow's routing.
+    ///
+    /// **The system permission alert takes the scene inactive and back to active**, and the gate
+    /// above now matches `.active` — as it must — so a foreground can land in the middle of
+    /// `grantAndScan` or `widenSelection`. Two forced scans cancel one another in
+    /// `BackfillScanner.scan`, and whichever loses reads an `.idle` scanner and settles the flow on
+    /// a false `.empty`. The parent's own tap is authoritative; a foreground arriving during it has
+    /// nothing to add and must wait.
+    @State private var isRouting = false
+    /// A foreground reconcile that arrived while `isRouting` was held.
+    ///
+    /// **Owed, not dropped.** The guard exists so a foreground cannot fight the parent's own tap,
+    /// but a *dropped* reconcile is a grant change nobody ever notices: the widen picker can be up
+    /// across an app switch, and the next foreground compares against a `routedGrant` that by then
+    /// matches, so the change is invisible until something else happens to re-route.
+    @State private var reconcileOwed = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    /// **The only way this flow finds out that Settings happened.** See `reconcileAuthorization`.
+    @Environment(\.scenePhase) private var scenePhase
 
     init(
         childId: UUID,
@@ -99,6 +126,9 @@ struct BackfillFlowView: View {
                         // Carried in so the month total does not read as a fact about the month
                         // when it is a fact about the selection.
                         isLimited: scanner.isLimitedLibrary,
+                        onWidenSelection: scanner.isLimitedLibrary
+                            ? { Task { await widenSelection() } }
+                            : nil,
                         onUse: { plan, drafts, day in
                             // Recorded, **not** marked written. See `confirmWritten`.
                             pendingDay = day
@@ -113,6 +143,22 @@ struct BackfillFlowView: View {
         }
         .background(Color.canvas)
         .task { await decideStage() }
+        // **A `.task` does not re-run on a foreground, and this flow had no other lifecycle hook.**
+        // Both dead-end screens offer a button that leaves the app for Settings, so without this
+        // the one remedy the design deliberately provides returns the parent to a screen still
+        // saying access is off. See `reconcileAuthorization`.
+        //
+        // **`.active` alone, and never `previous == .background`.** iOS interposes `.inactive` on
+        // the way back in — `TodayScreen.swift:286-288` writes down the same platform fact for the
+        // opposite reason — so SwiftUI publishes `.background → .inactive` and then
+        // `.inactive → .active` as two separate changes, and a guard wanting both halves at once
+        // is never satisfied. Every other `scenePhase` observer in this app matches `.active`
+        // alone; this one is not the exception it briefly was. `BackfillGrantChange.shouldReread`
+        // holds the comparison so it is asserted rather than eyeballed.
+        .onChange(of: scenePhase) { _, phase in
+            guard BackfillGrantChange.shouldReread(phase) else { return }
+            Task { await reconcileAuthorization() }
+        }
         .environment(loader)
         .overlay(alignment: .bottom) {
             if let toast {
@@ -184,6 +230,7 @@ struct BackfillFlowView: View {
             BackfillLimitedAccessScreen(
                 visibleCount: scanner.months.reduce(0) { $0 + $1.assetCount },
                 onContinue: { stage = .suggestions },
+                onWiden: { Task { await widenSelection() } },
                 onClose: { dismiss() }
             )
         case .denied:
@@ -242,8 +289,34 @@ struct BackfillFlowView: View {
     /// The rescan is `force`, because the selection changing is exactly the case a cached result
     /// is wrong about — and it is the whole reason the parent tapped.
     private func widenSelection() async {
-        await LimitedLibraryPicker.present()
-        await scanner.scanAndWait(entryDates: entryDates(), force: true)
+        await asRouting {
+            await LimitedLibraryPicker.present()
+            // **Before the rescan, and this line is the whole fix.** The forced rescan refreshes
+            // the month totals; the photos those totals count are read through the loader, whose
+            // per-month memo had no invalidation path at all. Without this the card's number grew
+            // while its thumbnails stayed pre-widen, and opening the month showed the old grid
+            // under the new count — the affordance appearing to do nothing, in the one state it
+            // exists for.
+            loader.forgetAssets()
+            await scanner.scanAndWait(entryDates: entryDates(), force: true)
+        }
+    }
+
+    /// Hold the flow's routing for the length of one user-driven decision, then honour any
+    /// foreground reconcile that arrived while it was held.
+    ///
+    /// **The draining half is the point.** Guarding alone stops a foreground fighting the parent's
+    /// own tap, and then silently loses the one foreground that mattered — the widen picker can be
+    /// up across an app switch, and by the next foreground `routedGrant` matches again, so the
+    /// change is invisible until something else happens to re-route.
+    private func asRouting(_ body: () async -> Void) async {
+        isRouting = true
+        await body()
+        isRouting = false
+        if reconcileOwed {
+            reconcileOwed = false
+            await reconcileAuthorization()
+        }
     }
 
     private var readyClusters: [BackfillCluster] {
@@ -263,8 +336,87 @@ struct BackfillFlowView: View {
         // device in Auckland and a family timezone of Los Angeles disagree about what month it is
         // for up to a day, and on the 1st that disagreement is a whole month of cards.
         thisMonth = BackfillCalendar.month(containing: Date(), in: familyTimezone)
+        await asRouting { await route(force: false) }
+    }
 
-        switch await source.authorization() {
+    /// The grant may have changed while the parent was in Settings.
+    ///
+    /// **Scoped to a status that actually moved**, rather than re-deciding on every foreground: a
+    /// parent who switched apps to answer a message comes back to the month they were in with
+    /// their selection intact, which is the ordinary case and must stay cheap. Only a grant that
+    /// is different from the one every screen was drawn under earns a rebuild.
+    ///
+    /// It handles both directions, and the second is the one that is easy to forget. Granting in
+    /// Settings unfreezes the dead end. **Revoking or narrowing in Settings leaves a grid of
+    /// photographs the app can no longer read**, which is worse than a dead end because nothing on
+    /// screen looks wrong.
+    ///
+    /// `thisMonth` is deliberately not re-read. It is the month in the child's zone, held for the
+    /// life of the presentation so the screen cannot resort itself under the parent's thumb at
+    /// midnight on the 1st — a foreground is not a reason to break that.
+    private func reconcileAuthorization() async {
+        guard !isRouting else { reconcileOwed = true; return }
+        let current = await source.authorization()
+        let effect = BackfillGrantChange.effect(was: routedGrant, now: current)
+        guard effect != .none else { return }
+        // **`.rescan` never touches `stage` or `path`, and that is the whole distinction.** The
+        // grant has not changed *kind* — only which photos may be behind it — so every screen the
+        // parent is standing on is still the right screen. Routing here would re-derive `stage`
+        // from the grant alone and march a `.limited` parent back to the interstitial they
+        // dismissed with "Continue with these", flashing the scanning screen on the way, on every
+        // single foreground.
+        //
+        // **And the grid is only torn down if the photographs actually moved.** `forgetAssets()`
+        // bumps the generation both grids key their `.task` on, so calling it unconditionally here
+        // would blank an open month to a spinner and dump every decoded thumbnail — every time a
+        // notification banner, Control Center, the app switcher or an incoming call took the scene
+        // through `.inactive`. That is the same "ejected on every foreground" defect this branch
+        // exists to prevent, moved from `stage` into the loader.
+        //
+        // **`loader.revalidate()` asks the library, and that is the point.** Comparing
+        // `scanner.months` across the rescan looked like the cheap answer and was the wrong
+        // question twice over: a month summary is three integers, so a selection edit that swaps
+        // one October photo for another is invisible to it, and `entryCount` moves when the
+        // archive gains an entry, which is not a camera-roll change at all.
+        guard effect != .rescan else {
+            // **The month *index* is re-counted only under `.limited`.** There, the counts on
+            // every screen are counts of a selection the parent may have just edited in Settings,
+            // and they are small. Under full access the same forced rescan is a walk of forty
+            // thousand assets on every return to the app, which is the cost this feature has
+            // avoided everywhere else; its 24-hour cache already governs that index.
+            if current == .limited {
+                await scanner.scanAndWait(entryDates: entryDates(), force: true)
+            }
+            // **This runs under every readable grant.** It only touches months already on screen,
+            // and returns immediately when none is — a parent who has not opened a month pays
+            // nothing for it.
+            await loader.revalidate()
+            return
+        }
+
+        // Everything on screen was read under a grant that no longer applies, and the loader's
+        // per-month memo has no other invalidation point.
+        loader.forgetAssets()
+
+        // The grant changed kind, so the screen chosen for the old one is the wrong screen.
+        // **Only a narrowing also pops the month.** Widening is the case where there is now *more*
+        // to see in the month the parent is standing in, and throwing away a half-made one-day
+        // selection to tell them so would be the app taking the decision away.
+        if effect == .rebuild { path.removeAll() }
+        await route(force: true)
+    }
+
+    /// Which screen the current authorization calls for.
+    ///
+    /// `force` is what separates arriving here from returning here. On arrival the cache is
+    /// allowed to do its job; after a grant change it must not, because the cached index describes
+    /// a library the app no longer has the same view of.
+    private func route(force: Bool) async {
+        // Read once and remembered, so `reconcileAuthorization` compares against what was actually
+        // drawn rather than asking the library a second question it has already answered.
+        let granted = await source.authorization()
+        routedGrant = granted
+        switch granted {
         case .notDetermined:
             stage = .permission
         case .denied:
@@ -273,10 +425,10 @@ struct BackfillFlowView: View {
             // Scan **then** settle the stage. Setting `.limited` first and scanning afterwards
             // left the screen on `.scanning` forever, because `rescanIfNeeded` sets that stage and
             // has no terminal one to return to.
-            await rescanIfNeeded()
+            await rescanIfNeeded(force: force)
             stage = .limited
         case .authorized:
-            await rescanIfNeeded()
+            await rescanIfNeeded(force: force)
             stage = readyClusters.isEmpty ? .empty : .suggestions
         }
     }
@@ -284,14 +436,25 @@ struct BackfillFlowView: View {
     /// The offer on the **+** sheet came from a scan that has already run, so this is usually a
     /// no-op. It matters on the path where the parent has just granted access and there is
     /// nothing yet.
-    private func rescanIfNeeded() async {
-        if case .ready = scanner.state { return }
+    /// `force` skips the early return as well as the cache. A grant that has just changed is
+    /// exactly the case where `.ready` holds an answer about a library the app no longer sees the
+    /// same way, so "already ready" is not a reason to keep it.
+    private func rescanIfNeeded(force: Bool = false) async {
+        if !force, case .ready = scanner.state { return }
         stage = .scanning
-        await scanner.scanAndWait(entryDates: entryDates())
+        await scanner.scanAndWait(entryDates: entryDates(), force: force)
     }
 
     private func grantAndScan() async {
+        await asRouting { await performGrantAndScan() }
+    }
+
+    private func performGrantAndScan() async {
         let granted = await scanner.requestAccess()
+        // The explainer's grant is a routing decision like any other, and the reconcile compares
+        // against this. Without it a parent who grants here, backgrounds, and returns is told the
+        // grant moved when nothing did.
+        routedGrant = granted
         guard granted.canScan else {
             stage = .denied
             return
@@ -564,6 +727,13 @@ struct BackfillScanningScreen: View {
 struct BackfillLimitedAccessScreen: View {
     let visibleCount: Int
     let onContinue: () -> Void
+    /// Widen the selection, in the app.
+    ///
+    /// **This is the first screen a `.limited` parent lands on and it had no way to share more
+    /// photos** — only "Continue with these" and a button that leaves for Settings, which is the
+    /// slower route to a narrower outcome: Settings can grant full access, but the in-app picker
+    /// is the thing that actually adds photos, and it can be opened any number of times.
+    var onWiden: (() -> Void)?
     let onClose: () -> Void
 
     // Scrolls with the actions pinned, for the reason `BackfillPermissionScreen` documents.
@@ -607,7 +777,19 @@ struct BackfillLimitedAccessScreen: View {
             VStack(spacing: 10) {
                 Button("Continue with these", action: onContinue)
                     .buttonStyle(PrimaryButtonStyle())
-                SettingsLinkButton()
+                // Settings drops to inline text here rather than keeping the bordered button, so
+                // the in-app picker is the visibly easier of the two. Both stay reachable: the
+                // picker widens a selection, and Settings is the only place full access lives.
+                HStack(spacing: 16) {
+                    if let onWiden {
+                        Button("Share more photos", action: onWiden)
+                            .typeRole(.cardTitle)
+                            .foregroundStyle(Color.terracotta)
+                    }
+                    SettingsLinkText()
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
             }
             .padding(.horizontal, Layout.screenMargin)
             // Enough room for the backdrop's fade to actually fade. At 12 the gradient had no
@@ -737,5 +919,78 @@ struct BackfillCloseButton: View {
         }
         .buttonStyle(TapScaleButtonStyle())
         .accessibilityLabel("Back")
+    }
+}
+
+// MARK: - Reconciling a grant
+
+/// Whether a foreground changes what the camera-roll flow may show, and what to do about it.
+///
+/// **Lifted out of the view because the mistake it prevents is invisible and the code is one
+/// comparison.** The first version of this gate read `previous == .background, current == .active`,
+/// which is a transition the UIScene lifecycle never delivers in one step, so the reconcile it
+/// guarded was dead on arrival — a fix that compiled, shipped, and did nothing. Nothing on screen
+/// would have said so, and no model-level test could reach it. Here it is arithmetic, and asserted.
+nonisolated enum BackfillGrantChange {
+
+    /// Whether this scene phase is the moment to re-read the grant.
+    ///
+    /// `.active` alone. iOS delivers `.inactive` between `.background` and `.active`, and also on
+    /// its own for a pulled-down notification, Control Center, the app switcher, a screenshot and
+    /// an incoming call — so `.active` is the only phase that reliably means "the parent is looking
+    /// at this again", and it is what every other observer in the app matches.
+    static func shouldReread(_ phase: ScenePhase) -> Bool { phase == .active }
+
+    /// What a grant moving from `was` to `now` means for what is already on screen.
+    ///
+    /// **Three outcomes, not two, and the split between the first two is the one that matters.**
+    /// "The library changed" and "the kind of access changed" call for different things: the first
+    /// is new data under a screen that is still correct, the second is a screen that has stopped
+    /// being the right screen. Collapsing them re-routes on a data change and ejects the parent
+    /// from wherever they had got to.
+    enum Effect: Equatable {
+        /// Nothing the parent can see has changed. The ordinary foreground, and the common case.
+        case none
+        /// Re-read the library and **change nothing else**. Same kind of access, possibly different
+        /// photographs behind it; every screen the parent is on is still the right one.
+        case rescan
+        /// The grant widened. Re-decide which screen this flow belongs on — the one showing was
+        /// chosen for a grant that no longer applies — but keep the month they had pushed.
+        case reroute
+        /// The grant narrowed. Re-decide, and leave the month as well: the photographs behind it
+        /// may be gone, and a grid of pictures the app can no longer read is worse than a dead
+        /// end, because nothing about it looks wrong.
+        case rebuild
+    }
+
+    static func effect(was: BackfillAuthorization?, now: BackfillAuthorization) -> Effect {
+        // Nothing has been drawn yet, so there is nothing to reconcile against. The flow's `.task`
+        // owns the first routing decision and this must not race it.
+        guard let was else { return .none }
+        if was == now {
+            // **A library moves under any grant that can read it, not only a selected one.** The
+            // first version of this said `.limited` and reasoned about *selection* edits — which
+            // was the case in front of it and not the general one. A date corrected in Photos'
+            // Adjust Date & Time and an original pulled down from iCloud are grant-independent,
+            // and the first of those reaches `occurred_at`, the single error this whole feature
+            // exists to prevent. Scoping the re-read to `.limited` left the most common grant,
+            // full access, with no invalidation at all for the life of the flow.
+            //
+            // It stays a re-read and never a re-route: nothing about the parent's place on screen
+            // has stopped being true.
+            return now.canScan ? .rescan : .none
+        }
+        return visibility(now) < visibility(was) ? .rebuild : .reroute
+    }
+
+    /// How much of the library a grant lets the app see. Ordering only — the numbers mean nothing
+    /// beyond "fewer photos than".
+    private static func visibility(_ grant: BackfillAuthorization) -> Int {
+        switch grant {
+        case .authorized: 3
+        case .limited: 2
+        case .notDetermined: 1
+        case .denied: 0
+        }
     }
 }

@@ -164,7 +164,22 @@ final class BackfillScanner {
     /// on a large library is exactly the case this feature has to stay cheap for.
     func scanAndWait(entryDates: [Date], now: Date = Date(), force: Bool = false) async {
         scan(entryDates: entryDates, now: now, force: force)
-        await task?.value
+        // **Follow the replacement, rather than awaiting only the task this call started.**
+        //
+        // `scan` is cancel-and-replace, and one scanner is shared by `RootView` and the flow — the
+        // root sweeps it on foreground and after a composer closes. So another caller landing
+        // mid-await cancels this task; `run` then returns having written nothing, leaving `state`
+        // at whatever it was, and a caller that took that as *its* answer settled the screen from
+        // a scan that never finished. `route` does exactly that, and the visible result was
+        // "You've written about every month that has photos" over a camera roll full of them —
+        // permanent, because nothing re-derives the stage when the replacement lands.
+        //
+        // Terminates as soon as no further scan starts: each pass awaits a whole task rather than
+        // polling, and `cancel()` nils the task out.
+        while let current = task {
+            await current.value
+            if task == current { break }
+        }
     }
 
     /// **Cancellable mid-run, leaving no partial state.** The published `state` is only ever
@@ -188,7 +203,7 @@ final class BackfillScanner {
         isLimitedLibrary = granted == .limited
 
         let token = await source.libraryToken()
-        if !force, let cached = cache.load(), cached.isFresh(now: now, token: token) {
+        if !force, let cached = cache.load(), cached.isFresh(now: now, token: token, grant: granted) {
             months = cached.asMonths
             state = .ready(filtered(cached.asClusters))
             return
@@ -223,7 +238,9 @@ final class BackfillScanner {
             state = .idle
             return
         }
-        cache.save(BackfillScanResult.from(clusters, months: index, at: now, token: token))
+        cache.save(
+            BackfillScanResult.from(clusters, months: index, at: now, token: token, grant: granted)
+        )
         months = index
         state = .ready(clusters)
     }

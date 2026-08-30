@@ -345,7 +345,10 @@ struct BackfillMonthThumbnailStrip: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
-        .task(id: month.key) {
+        // **Keyed on the loader's generation as well as the month.** A month's key never changes,
+        // so a task keyed on it alone runs once and never again — which is why widening a limited
+        // selection used to leave these four tiles frozen under a total that had just grown.
+        .task(id: "\(month.key)#\(loader.generation)") {
             assets = (try? await loader.assets(in: month)) ?? []
         }
     }

@@ -276,6 +276,15 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
     /// of the library on the next launch after an update, for every user, silently. Absent here
     /// means "written by an older build", and the next scan fills it in.
     var months: [StoredMonth]?
+    /// The grant this scan was computed under, as `BackfillAuthorization.rawValue`.
+    ///
+    /// **Optional to decode an older cache, and an absent one is rejected rather than accepted —
+    /// the opposite of what `months` above chose, deliberately.** `months` accepts absence because
+    /// the cost of being wrong is a browse list the next scan fills in. The cost here is a
+    /// whole-library index served under `.limited`, which states counts for photos the app can no
+    /// longer see and looks entirely normal doing it. One extra scan on the first launch after an
+    /// update is much the cheaper of the two mistakes.
+    var authorization: String?
 
     nonisolated struct StoredCluster: Codable, Equatable, Sendable {
         let year: Int
@@ -315,7 +324,8 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
         _ clusters: [BackfillCluster],
         months: [BackfillMonthSummary] = [],
         at date: Date,
-        token: String?
+        token: String?,
+        grant: BackfillAuthorization
     ) -> BackfillScanResult {
         BackfillScanResult(
             clusters: clusters.map {
@@ -335,11 +345,27 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
                     assetCount: $0.assetCount,
                     entryCount: $0.entryCount
                 )
-            }
+            },
+            authorization: grant.rawValue
         )
     }
 
-    func isFresh(now: Date, token: String?, maximumAge: TimeInterval = 60 * 60 * 24) -> Bool {
+    /// Whether this cache may be served.
+    ///
+    /// **The grant is checked before the clock, and a mismatch is not a staleness question.** A
+    /// parent who scanned under full access and then narrowed to Selected Photos in Settings has
+    /// a cache describing photos the app can no longer read: `isLimitedLibrary` flips, every
+    /// screen switches to the "out of the photos you've shared" copy, and the numbers beside that
+    /// copy are still whole-library totals. That is `AddToArchiveSheet`'s own rule — *a count is
+    /// only ever stated when it is a complete one* — failing in the single state it was written
+    /// for, and no timer can catch it because narrowing a grant does not age a cache.
+    func isFresh(
+        now: Date,
+        token: String?,
+        grant: BackfillAuthorization,
+        maximumAge: TimeInterval = 60 * 60 * 24
+    ) -> Bool {
+        guard authorization == grant.rawValue else { return false }
         if let libraryToken, let token { return libraryToken == token }
         return now.timeIntervalSince(scannedAt) < maximumAge
     }
@@ -352,7 +378,10 @@ nonisolated struct BackfillScanResult: Codable, Equatable, Sendable {
 /// iOS lets someone grant access to selected photos only. Treating that as a failure would put an
 /// error on screen for a parent who made a deliberate, reasonable choice — so the scan runs over
 /// what it can see and the UI says that is what it is doing.
-nonisolated enum BackfillAuthorization: Equatable, Sendable {
+/// **`String`-backed so a cached scan can record which grant produced it.** See
+/// `BackfillScanResult.authorization`: an index computed under full access is not merely stale
+/// under `.limited`, it is a count of photos the app can no longer see.
+nonisolated enum BackfillAuthorization: String, Codable, Equatable, Sendable {
     case authorized
     case limited
     case denied

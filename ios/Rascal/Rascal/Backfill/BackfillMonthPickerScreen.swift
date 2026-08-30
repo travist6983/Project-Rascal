@@ -29,6 +29,12 @@ struct BackfillMonthPickerScreen: View {
     /// which. The grid below is self-describing (the photos are right there); a total above it is
     /// not, and reads as a fact about the month.
     var isLimited: Bool = false
+    /// Widen the selection, from the screen where a missing photo is most visible.
+    ///
+    /// **This grid is where a parent notices photos are absent** — the suggestions screen shows
+    /// four tiles and a total, this one shows the month — and it was the one screen in the flow
+    /// with no way to act on that. Nil where there is nothing to widen.
+    var onWidenSelection: (() -> Void)?
     let onUse: (BackfillEntryPlan, [MediaDraft], Date) -> Void
 
     @Environment(BackfillThumbnailLoader.self) private var loader
@@ -75,6 +81,13 @@ struct BackfillMonthPickerScreen: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 header
+                if isLimited {
+                    // The same notice the suggestions screen carries, deliberately not a second
+                    // wording of it: one moment, one sentence, wherever the parent meets it.
+                    LimitedLibraryNotice(onWiden: onWidenSelection)
+                        .padding(.horizontal, Layout.screenMargin)
+                        .padding(.top, 16)
+                }
                 if loading {
                     ProgressView()
                         .tint(Color.terracotta)
@@ -111,7 +124,10 @@ struct BackfillMonthPickerScreen: View {
         .safeAreaInset(edge: .bottom) {
             if !selection.isEmpty { useButton }
         }
-        .task(id: month.key) { await load() }
+        // The generation is in the key for the reason `BackfillMonthThumbnailStrip` documents: a
+        // month's key is invariant, so widening the selection while this grid is open could not
+        // otherwise reach it.
+        .task(id: "\(month.key)#\(loader.generation)") { await load() }
         // A caching manager still holding a month's photos keeps them decoded for the life of the
         // process, and the parent has left the picker.
         .onDisappear { loader.stopCachingEverything() }
@@ -418,9 +434,26 @@ struct BackfillMonthPickerScreen: View {
     // MARK: Loading
 
     private func load() async {
-        loading = true
-        defer { loading = false }
+        // **Only the first load shows a spinner.** A reload provoked by the loader's generation
+        // moving — a widened selection, a grant that changed — would otherwise replace a populated
+        // grid with a `ProgressView`, collapsing the scroll content and throwing the parent back to
+        // the top of the month. Keeping the photographs on screen while the new ones are fetched is
+        // both calmer and more honest: what is there is what the app could see a moment ago.
+        if days.isEmpty { loading = true }
+        // **Not an unconditional `loading = false`.** A cancelled load is always replaced by a
+        // successor that has already set this true, so clearing it here writes over the live task
+        // and the screen renders "Nothing in this month is on the phone to add." — the empty state —
+        // over a month that has photos, for as long as the replacement takes. On a genuine teardown
+        // nobody is left to read the flag.
+        defer { if !Task.isCancelled { loading = false } }
         let assets = (try? await loader.assets(in: month)) ?? []
+        // **A cancelled reload is not an empty month, and this guard is what keeps the two apart.**
+        // `try?` swallows `CancellationError` into `[]`, and writing that through would blank the
+        // grid and then hand `retain` an empty set — silently throwing away the photos the parent
+        // had picked and the day they belong to. Re-keying this task on `loader.generation` is what
+        // made cancellation an ordinary event here rather than a rare one, so the fix ships beside
+        // the thing that caused it.
+        if Task.isCancelled { return }
         // The family zone's calendar, the same one `use()` hands to `BackfillEntryPlan` — a day cut
         // in one zone and resolved in another is how a photo ends up an archive day away from the
         // header it was sitting under.
@@ -436,6 +469,17 @@ struct BackfillMonthPickerScreen: View {
         days = grouped.keys.sorted().map { day in
             DayGroup(day: day, assets: (grouped[day] ?? []).map(\.1))
         }
+        // This runs again now that a reload can be provoked by the library changing rather than
+        // only by arriving on the screen. A selection pointing at photos that are no longer here
+        // would put a count on the Use pill that staging cannot honour.
+        //
+        // **Scoped to the selection's own day, not to the month.** A photo whose date was edited
+        // in Photos is still somewhere in this month, so a month-wide set keeps it selected while
+        // the grid regroups it under a different header — and `use()` filters by id across every
+        // day, so the entry would be built from two days' dates and filed under the earlier one.
+        // The one-day rule is a date guarantee; this is where a reload could quietly break it.
+        let onSelectedDay = days.first { $0.day == selection.day }?.assets.map(\.id) ?? []
+        selection.retain(Set(onSelectedDay))
     }
 
     /// **The headers are read in the zone the days were cut in, not the device's.**
