@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); cmd=$(jq -r '.tool_input.command // empty' <<<\"$input\"); if grep -Eq 'rm -rf|git clean -[a-z]*f|git checkout -- |git config --global' <<<\"$cmd\"; then jq -n '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:\"Blocked by CLAUDE.md Destructive Operations rule: list exactly what will be deleted and get confirmation first.\"}}'; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); f=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty' <<<\"$input\"); case \"$f\" in */api/*.py) (cd api && uv run ruff check --fix \"$f\") 2>/dev/null || true ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}

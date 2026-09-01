@@ -10,6 +10,33 @@ If the code and `docs/data-model.md` disagree, the code is wrong.
 
 ## DO NOT COMMIT ANYTHING WITHOUT ASKING FOR PERMISSIONS 
 
+**One narrow exception:** finishing a merge or rebase you started as part of already-authorized
+work (a worktree branch, a phase in flight) — if it hits a conflict, resolve it and complete the
+merge/rebase yourself rather than stopping to ask, then report exactly what you chose and why.
+This covers only the commit that completes an in-flight merge/rebase; it does not extend to any
+other commit, and it is not a reason to skip asking before opening a PR.
+
+## Review Budget
+
+Match review effort to diff size. For diffs under ~1000 lines, do at most TWO self-review
+rounds with a single reviewer pass — never spawn multi-agent review fleets. Only escalate to
+parallel agents when the diff spans >5 files AND >1500 lines, and state the estimated cost
+before launching. Never launch more than 5 subagents without asking first.
+
+## Response Style
+
+When asked a yes/no question (e.g. "is this merge-ready?"), lead with the one-word answer,
+then at most 3 bullets of evidence. No status narratives, no recaps of what you did. Save
+detail for when it's requested.
+
+## Destructive Operations
+
+Never run `rm -rf`, directory-clearing render scripts, `git checkout <file>`, or `git clean`
+on paths containing committed artifacts without first listing exactly what will be deleted and
+getting confirmation. Render/build scripts must write to a temp dir and swap, never wipe the
+output dir in place. Never change global git config (including `pull.rebase`) — repo-local
+only.
+
 ## Two lanes
 
 `api/` and `ios/` are separate lanes that share a repo, not a codebase. An agent working in
@@ -63,32 +90,16 @@ scoped by path so a commit in one lane never runs or deploys the other.
 - `dev-login` and every `/debug/*` route are registered only when `ENVIRONMENT == "local"`.
 - Prompts are seeded from `api/seeds/prompts.yaml`. `docs/mission-library.md` is the
   authoring surface; runtime never parses markdown.
-- **The seeded library is tokenised.** ~~All **133** bodies carry the pronoun tokens~~ — **struck
-  Aug 25, 2026 by phase 122.** **119** of the **133** carry a `{token}`, and the other fourteen
-  correctly carry none, because they never refer to the child in the third person: *"What song
-  is stuck in the house right now?"*, *"Take a photo of the two of you. You're in almost none of
-  them."* Run it rather than quoting it: `grep -c '^  body: ' api/seeds/prompts.yaml` prints
-  **133**, `grep '^  body: ' api/seeds/prompts.yaml | grep -c '{'` prints **119**, and
-  the **Prompt library** row of `docs/roadmap-status.md`'s facts table has carried the measured
-  form since Aug 18, 2026 — *"119 of the 133 carry a `{token}`"*. 113 were
-  tokenised in phase 24 and phase 25 added twenty more already tokenised, so *"113"* has been the
-  wrong **total** since Aug 14, 2026 — but *how many bodies there are* and *how many carry a token*
-  are two different numbers, and this line ran them together while narrating the first one's
-  history. **The loader does not require a token; it rejects an unrecognised one.**
-  `constants.PROMPT_TOKENS` is the list and the seed loader rejects a body containing anything
-  else (`api/src/rascal/services/seeding.py:109-114`) — which is why a body with no braces at all
-  passes untouched, and why **the fourteen are not a backlog: do not go inserting tokens into
-  them.** Never write copy that assumes a child's gender — client-side strings are neutral too and
-  stay that way. Edit `docs/mission-library.md` and regenerate; never touch `prompts.yaml` by
-  hand. Re-seeding keys idempotency on `sha256(kind, cadence, body)`, so **an edited body is a
-  new prompt, not an update** — `seed_prompts` deactivates the seeded rows the file no longer
-  contains, which is what keeps the old and new copies from both serving.
+- **The seeded library is tokenised.** See `.claude/rules/prompt-library.md` for the exact
+  counts, the loader's token-rejection contract, and re-seeding idempotency — it loads
+  automatically when you touch `prompts.yaml`, `mission-library.md`, or `seeding.py`. Never
+  write copy that assumes a child's gender — client-side strings are neutral too and stay that
+  way.
 
-## Stack (settled — do not substitute)
+## Stack
 
-Python 3.12 · FastAPI · SQLAlchemy 2.0 (`Mapped`/`mapped_column`) · Alembic · Pydantic v2 +
-pydantic-settings · Postgres (Neon in prod, Docker locally) · boto3 · uv · pytest +
-pytest-asyncio + httpx · ruff · Fly.io.
+Pinned in `api/pyproject.toml`, `docker-compose.yml`, and `api/fly.toml` — settled, do not
+substitute.
 
 ## Out of scope for the API lane — stop if you find yourself designing one
 
@@ -187,6 +198,50 @@ closed. See `decisions.md` open item 12(1).
 *client* for the archive and there is not going to be one soon — but the marketing site is a
 browser calling this API, so CORS, `MARKETING_ORIGINS` and `POST /v1/subscribe` are all API-lane
 concerns now. What stays out of scope is serving HTML for the product itself, per D7.
+
+## Testing
+
+Only one pytest run may touch the test database at a time. Never let a subagent run the suite
+concurrently with the main session — serialize suite runs or give each runner an isolated
+database.
+
+Before claiming a UI or web change works, verify it in the actual rendering surface — drive
+the browser for web/HTML, reinstall the simulator build for iOS. Do not trust source-level
+inspection alone; stale installs and cached assets have caused false "already correct"
+conclusions. Show the evidence, don't just assert the check happened: a screenshot plus the
+console output, not a summary of what you looked at.
+
+## Bug Reports
+
+When the user reports a bug, follow this loop and say which step you're on:
+
+1. **Reproduce before theorizing.** Write a failing test — or a browser-driven repro via the
+   Chrome tools for UI/auth state — that shows the exact reported symptom, before reading
+   source for suspects. If it can't be reproduced, say so plainly and ask for the missing
+   ground truth rather than guessing.
+2. **Verify the failure reason.** Confirm the test fails for the reported mechanism, not an
+   unrelated setup error. State the actual mechanism in one sentence.
+3. **Challenge the brief.** Check environment and data state before blaming source — a stale
+   simulator install, a manually seeded row, or a misconfigured domain has been the real cause
+   here before, not a code defect.
+4. **Minimal fix.** Change only the smallest surface that turns the test green. No opportunistic
+   refactors, no adjacent cleanup.
+5. **Regression sweep.** Run the full suite. If the fix broke something else, that's a new bug —
+   restart at step 1 for it, don't patch forward on top of it.
+6. **Report:** root cause (one sentence), files changed, test added, suite status. Nothing else
+   unless asked.
+
+## Preflight Gates
+
+Preflight checks may warn but must never halt work. If the tree is dirty, a phase number is
+missing, or entry points are ambiguous, pick the most reasonable option, state the assumption
+in one line, and proceed. Never deliver docs-only output when implementation was requested.
+
+Cut every new branch from a freshly-fetched `origin/main` — `git fetch origin && git worktree
+add -b <branch> origin/main` — never from local `main`, which can be stale relative to what's
+already merged. Run git mechanics (fetch, worktree, branch, conflict resolution) yourself
+rather than asking to have them run for you; a merge conflict gets resolved and reported, not
+escalated as a question, per the exception noted under the commit rule above.
 
 ## Working here
 
