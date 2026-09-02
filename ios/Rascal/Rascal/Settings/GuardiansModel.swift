@@ -97,12 +97,16 @@ final class GuardiansModel {
         notice = nil
         defer { isWorking = false }
 
-        let address = email?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let wanted = (address?.isEmpty == false) ? address : nil
+        // A blank field is no address rather than an empty one, so "Send" on an untouched field
+        // takes the link route instead of asking the server to mail "".
+        let trimmed = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let wanted: String? = trimmed.isEmpty ? nil : trimmed
 
         do {
             let created = try await api.createInvite(email: wanted)
-            if created.wasEmailed, let sentTo = created.email ?? wanted {
+            // The server's normalised copy where it sent one, the typed address otherwise.
+            let confirmed: String? = created.email ?? wanted
+            if created.wasEmailed, let sentTo = confirmed {
                 // **"On its way", never "delivered".** The server queues the send after its own
                 // response, so it does not know either, and a client that claimed more would be
                 // inventing a fact — and the parent would stop looking for the real reason a

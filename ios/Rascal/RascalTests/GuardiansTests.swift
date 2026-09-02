@@ -112,15 +112,16 @@ struct GuardiansTests {
          "created_at": "2026-08-17T11:00:00Z", "token": "tok"}
         """
 
-        let decode = { (json: String) in
-            try APIClient.decoder.decode(CreatedInvite.self, from: Data(json.utf8))
-        }
+        let decoder = APIClient.decoder
+        let queued = try decoder.decode(CreatedInvite.self, from: Data(sent.utf8))
+        let bareLink = try decoder.decode(CreatedInvite.self, from: Data(linkOnly.utf8))
+        let older = try decoder.decode(CreatedInvite.self, from: Data(olderServer.utf8))
 
-        #expect(try decode(sent).wasEmailed)
-        #expect(try !decode(linkOnly).wasEmailed)
+        #expect(queued.wasEmailed)
+        #expect(!bareLink.wasEmailed)
         // An address recorded by a server that cannot send is still not a send.
-        #expect(try decode(olderServer).emailQueued == nil)
-        #expect(try !decode(olderServer).wasEmailed)
+        #expect(older.emailQueued == nil)
+        #expect(!older.wasEmailed)
     }
 
     @Test("rate_limited round-trips, because the emailed invite can now hit it")
