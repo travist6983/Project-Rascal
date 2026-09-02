@@ -95,6 +95,26 @@ final class SubscriptionModel {
     private let confirmationSchedule: [Duration]
     private let confirmationSleep: @Sendable (Duration) async throws -> Void
 
+    /// How long the whole confirmation window gets before the sheet stops spinning and says
+    /// something true.
+    ///
+    /// **Two minutes, against a schedule that sums to 63 seconds.** The gap is deliberate: it is
+    /// the read budget the schedule never had. Ten reads on a slow-but-working connection can
+    /// legitimately cost twenty or thirty seconds between them, and cutting a confirmation off at
+    /// 63s flat would turn "slow" into "late" for parents whose purchase was about to land. Two
+    /// minutes is generous to that case and still bounded, which the current behaviour is not.
+    private let confirmationDeadline: Duration
+
+    /// **Its own sleeper, deliberately not `confirmationSleep` — the same trap `offerSleep`
+    /// documents below, and it is the same one twice.**
+    ///
+    /// The suite stubs `confirmationSleep` to `{ _ in }` so a test is not waiting a minute for the
+    /// schedule. A deadline routed through that clock resolves *instantly*, wins every race
+    /// against the read, and settles every confirmation in the suite to `.late` — which is exactly
+    /// what reusing that parameter for the offer timeout did, and why there are three clocks here
+    /// rather than one.
+    private let confirmationDeadlineSleep: @Sendable (Duration) async throws -> Void
+
     /// How long `Product.products(for:)` gets before the sheet says there is nothing to offer.
     ///
     /// Ten seconds: long enough that a slow-but-working App Store call still lands, short enough
@@ -144,6 +164,10 @@ final class SubscriptionModel {
         confirmationSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         },
+        confirmationDeadline: Duration = .seconds(120),
+        confirmationDeadlineSleep: @escaping @Sendable (Duration) async throws -> Void = {
+            try await Task.sleep(for: $0)
+        },
         offerTimeout: Duration = .seconds(10),
         offerSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
@@ -153,6 +177,8 @@ final class SubscriptionModel {
         self.store = store
         self.confirmationSchedule = confirmationSchedule
         self.confirmationSleep = confirmationSleep
+        self.confirmationDeadline = confirmationDeadline
+        self.confirmationDeadlineSleep = confirmationDeadlineSleep
         self.offerTimeout = offerTimeout
         self.offerSleep = offerSleep
     }
@@ -488,6 +514,31 @@ final class SubscriptionModel {
         // which one won would decide whether the parent saw "subscribed" or "being confirmed".
         guard purchase != .confirming else { return }
         purchase = .confirming
+
+        // **The spinner's terminal state, and it is a deadline on the *screen* rather than a bound
+        // on the poll — the same shape as `load()`'s, for the same reason.**
+        //
+        // `EntitlementConfirmation.poll` describes itself as *"63 seconds across ten reads"* and
+        // *"Only the schedule ends it."* That is true of its **sleeps** and false of its **reads**:
+        // the loop awaits `read()` with no bound of its own, so the honest worst case is 63s plus
+        // ten household reads at whatever `URLSession` allows — around eleven minutes with the
+        // default request timeout, and unbounded if a read never answers at all. Every repair in
+        // this model is downstream of a poll that has not returned, so none of them can reach a
+        // `purchase` stuck on `.confirming`, and the parent sits under "Finishing up" indefinitely.
+        //
+        // This does not try to cancel the read. `load()` measured that approach and recorded the
+        // result: `withTaskGroup` does not return until every child finishes, `cancelAll()` only
+        // *requests*, and a read parked inside a non-cancellable continuation ignores both. So this
+        // does the one thing the requirement actually asks for — **it moves `purchase` off
+        // `.confirming` on a deadline**, and leaves the read to finish or not. If the server does
+        // answer late, the `switch` below is still ahead of it and `.subscribed` still wins.
+        let deadline = Task { [weak self, confirmationDeadline, confirmationDeadlineSleep] in
+            try? await confirmationDeadlineSleep(confirmationDeadline)
+            guard let self, self.purchase == .confirming else { return }
+            self.purchase = .late
+        }
+        defer { deadline.cancel() }
+
         let read = self.readHousehold
         let outcome = await EntitlementConfirmation.poll(
             schedule: confirmationSchedule,
@@ -514,7 +565,14 @@ final class SubscriptionModel {
         case .late:
             // **Deliberately terminal.** A spinner that never ends is worse than a sentence, and
             // re-running the purchase to fix a display problem would double-charge a parent.
-            purchase = .late
+            //
+            // **Guarded on `.confirming` now that a deadline can settle this first.** The window
+            // closing is not news if something already published a subscribed household — a
+            // foreground `refreshHousehold()`, a `load()`, or the deadline above followed by a late
+            // `.subscribed`. Writing `.late` unconditionally would take the parent from
+            // "You're subscribed" back to "being confirmed", which is the inversion every other
+            // writer in this model is guarded against.
+            if purchase == .confirming { purchase = .late }
         }
     }
 

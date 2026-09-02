@@ -51,7 +51,17 @@ nonisolated enum EntitlementConfirmation {
     ///
     /// **A failed read is not a failed confirmation.** A dropped connection in the middle of this
     /// window says nothing about whether Apple told the server, so a throwing read costs one
-    /// attempt and the loop carries on. Only the schedule ends it.
+    /// attempt and the loop carries on.
+    ///
+    /// ~~Only the schedule ends it.~~ — **struck: that was never true, and it is the sentence that
+    /// hid the defect.** The schedule bounds the **sleeps**; nothing here bounds a **read**. A
+    /// `read` that answers slowly stretches this window by however long it takes, and one that
+    /// never answers suspends it forever — so the honest worst case is the schedule *plus* ten
+    /// reads, not the 63 seconds stated above. This is left as a property of `poll` rather than
+    /// fixed here, because the caller is where the remedy belongs: `SubscriptionModel.confirm()`
+    /// runs a deadline that moves the **screen** off `.confirming`, which is the thing a parent is
+    /// actually stuck on, and leaves the read to finish or not. Bounding the read inside this loop
+    /// instead would mean cancelling work that may be about to succeed.
     static func poll(
         schedule: [Duration] = Self.schedule,
         sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) },

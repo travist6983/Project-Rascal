@@ -1386,3 +1386,144 @@ struct SubscriptionPriceTests {
         return files
     }
 }
+
+// MARK: - The confirmation window, when the read is the slow part
+
+/// **The reported symptom: "Finishing up" that never goes away.**
+///
+/// `EntitlementConfirmation.poll` bounds its sleeps and not its reads, so `purchase` can sit on
+/// `.confirming` for as long as a household read takes to answer — around eleven minutes with
+/// `URLSession`'s default request timeout, and forever if it never answers. Every other repair in
+/// the model (`load()`'s reconcile, `refreshHousehold()`, `settleFailure`) is downstream of a poll
+/// that has not returned, so none of them can reach it.
+///
+/// **These tests use a real clock deliberately.** The deadline under test is the one thing in this
+/// model that must *not* be collapsed by the suite's stubbed `confirmationSleep` — that is the
+/// whole reason it has a separate sleeper — so a fake clock here would assert nothing. The delays
+/// are kept in the low hundreds of milliseconds so the cost is a fraction of a second.
+@Suite("The confirmation window is bounded by more than its sleeps")
+struct ConfirmationDeadlineTests {
+
+    /// Polls `condition` on the main actor until it holds or the budget runs out.
+    ///
+    /// Deliberately **not** `withTaskGroup`: `load()`'s own comment records that a task group does
+    /// not return until every child finishes and that `cancelAll()` only *requests*, so racing a
+    /// deadline against a parked read inside one wedges the test rather than failing it. Observing
+    /// published state from the outside has neither problem.
+    @MainActor
+    private func eventually(
+        within budget: Duration = .milliseconds(3000),
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let step = Duration.milliseconds(25)
+        var waited = Duration.zero
+        while waited < budget {
+            if condition() { return true }
+            try? await Task.sleep(for: step)
+            waited += step
+        }
+        return condition()
+    }
+
+    /// A model whose schedule is collapsed the way the rest of the suite collapses it, but whose
+    /// **deadline is real and short** — the one clock a test of this must not fake.
+    @MainActor
+    private func model(
+        deadline: Duration,
+        store: any SubscriptionPurchasing,
+        read: @escaping @Sendable () async throws -> FamilySummary
+    ) -> SubscriptionModel {
+        SubscriptionModel(
+            readHousehold: read,
+            store: store,
+            confirmationSchedule: Array(repeating: .zero, count: 10),
+            confirmationSleep: { _ in },
+            confirmationDeadline: deadline,
+            confirmationDeadlineSleep: { try await Task.sleep(for: $0) }
+        )
+    }
+
+    @Test("A household read slower than the window must not leave the parent on \"Finishing up\"")
+    @MainActor
+    func aSlowReadStillMovesTheScreen() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        // `load()` needs one answering read to reach `.ready`; every read after it takes far longer
+        // than the deadline. Finite rather than parked, so nothing outlives the test.
+        let model = model(deadline: .milliseconds(200), store: store) {
+            if await calls.bump() > 1 { try? await Task.sleep(for: .seconds(10)) }
+            return await household("free", id: familyID)
+        }
+
+        await model.load()
+        #expect(model.canBuy, "the harness has to reach a buyable state or this proves nothing")
+
+        let buying = Task { await model.buy() }
+        defer { buying.cancel() }
+
+        let moved = await eventually { model.purchase == .late }
+        #expect(
+            moved,
+            """
+            purchase never left .confirming. The poll is suspended inside a household read, so the \
+            sheet shows "Finishing up" for as long as that read takes — the schedule cannot end a \
+            window that is parked in a read.
+            """
+        )
+    }
+
+    @Test("The deadline never fires on a confirmation that actually lands")
+    @MainActor
+    func aPromptConfirmationBeatsTheDeadline() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+        // A deadline long enough that only a genuinely stuck window would reach it, against reads
+        // that answer immediately — the ordinary purchase, which must be untouched by this change.
+        //
+        // **`free` on the first read and `subscribed` after**, because a household the server
+        // already calls subscribed is not offered a purchase at all: `buy()` returns at its own
+        // `guard canBuy` and `purchase` never leaves `.idle`. Answering `subscribed` to `load()`
+        // tests that rule over again instead of testing this one.
+        let model = model(deadline: .seconds(30), store: store) {
+            let n = await calls.bump()
+            return await household(n == 1 ? "free" : "subscribed", id: familyID)
+        }
+
+        await model.load()
+        await model.buy()
+
+        #expect(model.purchase == .subscribed)
+        #expect(model.household?.isSubscribed == true)
+    }
+
+    @Test("A late confirmation that arrives after the deadline still wins")
+    @MainActor
+    func theServerGetsTheLastWord() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        // Free while the deadline runs, subscribed shortly after it fires. The parent must end on
+        // "You're subscribed", not on the deadline's sentence — the server is the authority (D5)
+        // and arriving late does not change that.
+        let model = model(deadline: .milliseconds(150), store: store) {
+            let n = await calls.bump()
+            if n == 1 { return await household("free", id: familyID) }
+            try? await Task.sleep(for: .milliseconds(300))
+            return await household("subscribed", id: familyID)
+        }
+
+        await model.load()
+        let buying = Task { await model.buy() }
+        defer { buying.cancel() }
+
+        // It passes through the deadline's answer first...
+        _ = await eventually { model.purchase == .late }
+        // ...and then the read lands and overrides it.
+        let settled = await eventually { model.purchase == .subscribed }
+        #expect(settled, "a subscribed household that arrives late must still be published")
+    }
+}
