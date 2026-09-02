@@ -894,7 +894,18 @@ recurrence five days before it happened. What 138 fixes is the *client* defect t
 exposed underneath: `EntitlementConfirmation.poll` bounds its sleeps and not its reads, so
 `purchase` could sit on `.confirming` far longer than the 63 seconds it documents.
 
-**The highest number used is 138. A genuinely new phase takes 139.**
+**139 is App Review buying in Sandbox** (API lane): the paragraph above is wrong in its second
+sentence, and 138's ledger row is wrong in the same place. Build 20 was rejected on Sep 2, 2026
+under guideline 2.1(b) — *"the app loaded indefinitely after we purchased a subscription"* — and
+the production ledger shows the reviewer's Sandbox `SUBSCRIBED` recorded with `family_id = NULL`
+ten minutes after their household was created. **Reviewers buy in Sandbox against production**,
+so a guard that refuses Sandbox outright refuses the one purchase that decides whether the app
+ships. Guard 3 is now *Production wins, and Sandbox only ever promotes*; `api-contract.md` has the
+rule and `blocked.md` §25 the third occurrence. **A phase that concluded "the guard is correct" by
+reading the guard's own docstring** is how this took three occurrences: the premise — *anybody can
+create a sandbox tester account* — was never checked against who actually holds one.
+
+**The highest number used is 139. A genuinely new phase takes 140.**
 
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 

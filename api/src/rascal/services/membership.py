@@ -90,6 +90,12 @@ async def membership_signals(
     # between two calls that see the same rows — a household holding two transactions signed
     # in the same second is a plan change, and picking a different one each read would flap
     # the plan on somebody's Settings screen.
+    #
+    # `environment` sorts first, and `"Production"` sorts before `"Sandbox"`. Since phase 139
+    # a Sandbox row can be attributed to a household that later pays for real, and a sandbox
+    # subscription renews on an accelerated clock, so by signed date alone the tester's row
+    # would keep outranking the paying one — and a sandbox account can simulate a billing
+    # failure, which would put `billing_retry: true` on a paying household's Settings screen.
     row = (
         await session.execute(
             select(
@@ -99,6 +105,7 @@ async def membership_signals(
             )
             .where(AppStoreTransaction.family_id == family_id)
             .order_by(
+                AppStoreTransaction.environment.asc(),
                 AppStoreTransaction.latest_signed_date.desc(),
                 AppStoreTransaction.original_transaction_id.desc(),
             )

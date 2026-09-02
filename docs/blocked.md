@@ -1873,3 +1873,40 @@ app side. Second, **the paywall's own bound was wrong in a way that made the sym
 than it was** — see phase 138: the confirmation window is not the 63 seconds it documents, so
 "never resolves" and "resolves in eleven minutes" were indistinguishable from the device. That
 defect is fixed; **this one is not, and is still not filed as blocking anything.**
+
+### The third occurrence was App Review's, and it reversed Guard 3 (phase 139, Sep 2, 2026)
+
+**"Not a defect in Guard 3" was wrong, and this section's own first line is where it went wrong.**
+Build 20 was rejected under guideline 2.1(b) on Sep 2, 2026 (submission
+`b9f8afd4-66f9-4b42-a1ee-ee4410bc2d35`, iPad Pro 11" M4, iPadOS 26.6): *"the app loaded
+indefinitely after we purchased a subscription."* The production ledger shows exactly what the two
+evenings above show — a household created at 18:47:20 UTC, a Sandbox `SUBSCRIBED` / `INITIAL_BUY`
+at 18:57:02 UTC (11:57 AM Cupertino; the screenshot is stamped 11:59) carrying that household's
+`appAccountToken`, recorded with `family_id = NULL`, tier still `free`. **App Review buys in
+Sandbox.** It always has: reviewers, TestFlight testers and Xcode builds all transact against the
+same sandbox, and their notifications arrive at the production URL. So the guard this section
+called correct was a guard against the one purchase that decides whether the app ships, and the
+"remedy" this section asked for — making the refusal visible — would have made the rejection
+easier to read, not avoid.
+
+**Phase 139 replaced the rule** (`api-contract.md`, *Production wins, and Sandbox only ever
+promotes*): a Sandbox notification now writes `tier` and attribution for a household Production
+has never spoken about, never writes where it has, and never demotes. With it deployed, build 20
+completes the purchase on its own — the reviewer's household reads `tier: subscribed` on the next
+poll and the paywall says *"You're subscribed. Thank you."* — so no new build is required for the
+resubmission, though one carrying phase 138's deadline is still worth uploading.
+
+**What the deploy does to the three rows already in production.** Nothing, by itself: the rule runs
+when a notification arrives. The reviewer's subscription (`2000001230589526`) renews on the sandbox
+clock — its recorded `expires_date` is Sep 3, 18:56 UTC — and the `DID_RENEW` that follows carries
+the same token, so the reviewer's household is promoted by the next renewal without anyone's hand
+on it, provided phase 139 is deployed before Apple stops renewing (six renewals, so around Sep 8).
+To do it sooner, §7a's statement against that household is the same tool it always was. The two
+earlier rows (Aug 27–28 and Sep 1) are the owner's own TestFlight purchases and can be left alone.
+
+**The invisible state inverts, and the console remedy this section asked for should be written
+against the new one.** The question is no longer *"how many Sandbox transactions were refused"*; it
+is *"which `subscribed` households are held open by a Sandbox row and nothing else"* — the console's
+subscribed count and `entitlement_source: receipt` cannot tell a sandbox receipt from a paid one.
+Still a one-line count, still not filed as blocking anything, and now it is the count that keeps
+revenue and the subscribed number from disagreeing without a story.

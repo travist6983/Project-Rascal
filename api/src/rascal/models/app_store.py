@@ -2,7 +2,7 @@
 
 `entitlements` holds one row per family and answers "what may this household do". This table
 answers "what did Apple tell us, and when", and it is the substrate three separate guards in
-`services/app_store.py` stand on:
+`services/app_store_events.py` stand on:
 
 * **Idempotency.** Apple retries until it gets a 2xx, so the same notification arrives more
   than once as a matter of course. `original_transaction_id` is the natural key, so a repeat

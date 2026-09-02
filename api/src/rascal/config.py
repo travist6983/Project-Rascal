@@ -703,7 +703,13 @@ class Settings(DatabaseSettings):
 
     @property
     def is_local(self) -> bool:
-        """Gates dev-login and the /debug routes. Nothing else may branch on environment."""
+        """Gates dev-login and the /debug routes.
+
+        Nothing else may branch on environment, with one named exception:
+        `services.app_store_events.is_sandbox_in_production`, which decides whether a StoreKit
+        Sandbox notification may write a production entitlement. Every other environment
+        comparison is a bug.
+        """
         return self.environment == "local"
 
 
