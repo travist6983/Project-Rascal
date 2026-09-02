@@ -54,6 +54,20 @@ nonisolated struct CreatedInvite: Decodable, Equatable, Sendable {
     let expiresAt: Date
     let createdAt: Date
     let token: String
+
+    /// **Whether the server queued an invite email — not whether one arrived.** Added by the
+    /// API's phase 136; the send runs after that response, so delivery is not something the
+    /// `201` could honestly claim.
+    ///
+    /// **Optional, because a server that predates the field sends no key at all** and Swift's
+    /// synthesized `Decodable` does not fall back to a property default for a missing key — a
+    /// non-optional `Bool` here would fail the whole decode against every server now running and
+    /// take the invite flow down with it. Read it through `wasEmailed`.
+    let emailQueued: Bool?
+
+    /// `emailQueued` with absent and `false` collapsed, which is every state that exists. Absent
+    /// means an older server, which never mails, so `false` is the correct reading of both.
+    var wasEmailed: Bool { emailQueued ?? false }
 }
 
 nonisolated struct FamilySummary: Decodable, Equatable, Sendable {
@@ -196,8 +210,16 @@ extension APIClient {
     /// * `.conflict` (409) — the household already has two parents.
     /// * `.validationFailed` (422) — a role other than `parent`; `viewer` is phase 30 and iced.
     ///
-    /// `email` is optional and is only recorded — **nothing sends it**. The client delivers the
-    /// link, which is why the caller presents a share sheet rather than a confirmation.
+    /// ~~*`email` is optional and is only recorded — **nothing sends it**. The client delivers the
+    /// link, which is why the caller presents a share sheet rather than a confirmation.*~~ —
+    /// **struck Sep 2, 2026: the API's phase 136 mails it.** Give it an address and the server
+    /// sends the invite; omit it and nothing is sent, which is still the in-person case. The raw
+    /// token comes back either way, so the share sheet remains the fallback rather than the only
+    /// route — and `emailQueued` on the response is what says which of the two just happened.
+    ///
+    /// A fourth refusal comes with the send: `.rateLimited` (429), reachable **only** when an
+    /// address is given. The server mails a stranger's inbox on this route, so it is limited the
+    /// way the sign-in link is.
     func createInvite(email: String? = nil) async throws -> CreatedInvite {
         try await send(
             .post, "v1/families/me/invites",

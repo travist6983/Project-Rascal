@@ -180,11 +180,17 @@ intent rather than from the tree. Check `api/` before adding a line here.
 required for any route that can reach somebody else.** A signed-in parent hammering their own
 archive is a support conversation, not an attack.
 
-Two routes qualify, and the second is why this is not simply "unauthenticated endpoints".
+~~*Two routes qualify*~~ — **three, since phase 136 on Sep 2, 2026**, and the second is why this
+is not simply "unauthenticated endpoints".
 `POST /auth/email/start` is unauthenticated and mails an address a stranger chose.
 `POST /me/credentials/email` is *authenticated* and mails an address the account does not own
 and has not proved anything about — so without a limit, anyone who can create a free account
 can use it, and our sending reputation, to mail a stranger repeatedly.
+**`POST /families/me/invites` is the third, and it qualified the day it started sending.** It
+took an `email` from phase 36 onward and only ever wrote it to a column, so the rule did not
+reach it; phase 136 made it mail the invite, and the same limit went on in the same commit.
+**A route does not qualify because of who may call it — it qualifies the moment it can put a
+message in a stranger's inbox**, which is a property that changes under you.
 
 The limit lives in the app rather than at the edge because an edge limiter cannot see the
 address: it is inside the request body. It is Postgres-backed because there is more than one

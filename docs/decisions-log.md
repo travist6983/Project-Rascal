@@ -1307,3 +1307,36 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   unedited"*, and fourteen occurrences there are a true record of what the product was called.
   Same reasoning for the dated reports under `docs/reports/` and the briefs under
   `docs/phase-briefs/`.
+
+## Sep 2, 2026 — Phase 136: the household invite is actually mailed
+
+- **The defect was a sentence that was true.** `POST /families/me/invites` had accepted an
+  `email` since phase 36 and only ever written it to a column. `api-contract.md` said *"nothing
+  in this phase sends it"*, `FamiliesAPI.swift` said *"nothing sends it"*, and the Settings row
+  told a parent *"You'll get a link to send"* — three accurate statements that together made a
+  field which reads as a delivery mechanism and is not one. Nothing was broken; the feature was
+  never finished, and the docs recorded that rather than flagged it.
+- **Nothing new talks to Resend, and that was the point of `services/mail.py` being its own
+  phase.** The invite is one more `Message` through the existing port: `MAIL_PROVIDER` picks the
+  adapter, `console` is still the default so a local run cannot mail a real parent, and
+  `MAIL_API_KEY` is the one Resend credential this service has.
+- **Queued, not awaited.** Awaiting the provider inside the handler would hold the request's
+  database transaction across somebody else's network call and hand a parent up to twenty seconds
+  of provider latency on a tap. The cost is that the `201` cannot claim delivery — so it reports
+  `email_queued`, which is a claim it can make, and the raw token still comes back so the parent
+  keeps the share sheet as a fallback. Same shape as `POST /auth/email/start` and
+  `POST /me/credentials/email`.
+- **Rate limited, and `CLAUDE.md`'s paragraph on that rule was corrected in the same commit.**
+  The rule requires a limit on any route that can reach somebody else; this route did not qualify
+  while it sent nothing and qualified the moment it did. Keyed on the *user*, because the address
+  is the sender's choice and a per-address bucket is sidestepped by varying it. Checked before the
+  invite is minted, so a refusal never leaves a spent invite behind.
+- **The subject line never names a child; the body does.** A subject shows on a lock screen. The
+  body discloses first names — no more than `GET /invites/{token}` already discloses to whoever
+  holds the link that is *in* the email — so the disclosure is unchanged and the surface is not.
+- **`INVITE_LINK_BASE` is its own setting** rather than derived from `EMAIL_SIGN_IN_LINK_BASE` or
+  from the API's own origin, for the reason the magic link's base is its own: the host mail links
+  to and the host this API answers on are the same today and are not the same thing.
+- **The client half is the same commit's other lane.** A server that mails an address it is never
+  given is the same defect wearing the other hat, so `GuardiansSection` now asks for the address —
+  and still offers the link, because the in-person case is real.

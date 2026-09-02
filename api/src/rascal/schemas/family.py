@@ -208,8 +208,11 @@ class EntitlementOut(ApiModel):
 
 
 class InviteCreate(ApiModel):
-    #: Optional. An invite may be a bare link handed over in person; when present it is only
-    #: recorded, because nothing in this phase sends the email.
+    #: Optional. An invite may be a bare link handed over in person — omit this and nothing is
+    #: mailed. ~~*"when present it is only recorded, because nothing in this phase sends the
+    #: email"*~~ — **struck by phase 136: an address given here is now mailed the invite**,
+    #: through `services.mail` and therefore through Resend. The column is still written either
+    #: way, and the raw token still comes back so the link can also be handed over by hand.
     email: str | None = Field(default=None, max_length=320)
     #: Only `parent` is issuable. `viewer` is phase 30 and iceboxed.
     role: GuardianRole = "parent"
@@ -231,6 +234,11 @@ class InviteCreated(InviteOut):
     """
 
     token: str
+    #: **Whether an invite email was queued — not whether it arrived.** The send runs after this
+    #: response, so nothing here can honestly claim delivery; a client says "on its way" and
+    #: keeps `token` as the fallback. False whenever no address was given, which is the
+    #: in-person case rather than a failure.
+    email_queued: bool = False
 
 
 class InvitePreview(ApiModel):

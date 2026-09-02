@@ -75,20 +75,44 @@ final class GuardiansModel {
         }
     }
 
-    /// Mint an invite and hand back a shareable URL, **once**.
+    /// Mint an invite, and either **have the server email it** or hand back a shareable URL.
+    ///
+    /// **Both routes exist and neither is a fallback for the other.** Give it an address and the
+    /// server sends the invite — that is the API's phase 136, and the reason this method changed
+    /// at all: the address had been travelling to a column and stopping there since phase 36,
+    /// while this screen told a parent they would "get a link to send". Give it nothing and it
+    /// behaves exactly as it always has, because an invite handed over across a kitchen table is
+    /// a real case rather than a degraded one.
     ///
     /// The server stores only the token's SHA-256, so if the share sheet is dismissed the link
     /// is genuinely gone and a new invite has to be created. The UI says that in one line rather
     /// than offering a "copy again" that cannot work.
-    func invite() async {
+    ///
+    /// **The share sheet is deliberately not presented after an emailed invite.** Two deliveries
+    /// of a link that works once reads as a bug the first time the second one 404s, and the
+    /// pending-invite row already gives the parent a way to withdraw and re-issue.
+    func invite(email: String? = nil) async {
         guard !isWorking else { return }
         isWorking = true
         notice = nil
         defer { isWorking = false }
 
+        // A blank field is no address rather than an empty one, so "Send" on an untouched field
+        // takes the link route instead of asking the server to mail "".
+        let trimmed = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let wanted: String? = trimmed.isEmpty ? nil : trimmed
+
         do {
-            let created = try await api.createInvite()
-            if let url = Self.shareURL(token: created.token, base: inviteBaseURL) {
+            let created = try await api.createInvite(email: wanted)
+            // The server's normalised copy where it sent one, the typed address otherwise.
+            let confirmed: String? = created.email ?? wanted
+            if created.wasEmailed, let sentTo = confirmed {
+                // **"On its way", never "delivered".** The server queues the send after its own
+                // response, so it does not know either, and a client that claimed more would be
+                // inventing a fact — and the parent would stop looking for the real reason a
+                // mistyped address never arrived.
+                notice = "The invitation is on its way to \(sentTo)."
+            } else if let url = Self.shareURL(token: created.token, base: inviteBaseURL) {
                 pendingShareURL = url
             } else {
                 // No configured host, so there is no link to hand over. Saying so beats
@@ -105,6 +129,8 @@ final class GuardiansModel {
                 notice = error.userMessage
                 await load()
             default:
+                // `.rateLimited` lands here and reads as the server's own sentence — reachable
+                // only on the emailed route, because minting a bare link sends nothing.
                 notice = error.userMessage
             }
         } catch {

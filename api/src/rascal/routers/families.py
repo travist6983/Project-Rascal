@@ -14,10 +14,10 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 from sqlalchemy import select
 
-from rascal.deps import CurrentUser, SessionDep, family_access
+from rascal.deps import CurrentUser, SessionDep, SettingsDep, family_access
 from rascal.errors import not_found
 from rascal.models import Guardian, GuardianInvite, User
 from rascal.schemas.family import (
@@ -30,6 +30,7 @@ from rascal.schemas.family import (
     InviteOut,
     InvitePreview,
 )
+from rascal.services import invite_email
 from rascal.services.grants import active_grant_for
 from rascal.services.guardians import (
     accept_invite,
@@ -46,6 +47,7 @@ from rascal.services.guardians import (
     revoke_invite,
 )
 from rascal.services.membership import membership_signals
+from rascal.services.rate_limit import check_and_record
 
 router = APIRouter(prefix="/families", tags=["families"])
 invites_router = APIRouter(prefix="/invites", tags=["families"])
@@ -206,14 +208,62 @@ async def read_entitlement(
 
 @router.post("/me/invites", response_model=InviteCreated, status_code=status.HTTP_201_CREATED)
 async def create_invite(
-    body: InviteCreate, session: SessionDep, user: CurrentUser
+    body: InviteCreate,
+    session: SessionDep,
+    user: CurrentUser,
+    settings: SettingsDep,
+    background: BackgroundTasks,
 ) -> InviteCreated:
     """Mint an invite link. **402 on the free tier** — the second parent is what a
     subscription is sold on, per D4.
 
     The raw token is in this response and nowhere else, ever.
+
+    **Give it an address and it mails the invite** — phase 136. Until then `email` was recorded
+    and nothing sent it, so a parent who typed their partner's address got a column write and a
+    share sheet. The send goes through `services.mail`, which is where Resend already is; this
+    route knows nothing about a provider.
+
+    **The link still comes back either way.** Mail is queued rather than awaited, so this
+    response cannot report whether it arrived — which is survivable precisely because `token` is
+    here, and a parent whose partner never got the email can hand over the link themselves.
+    Omit `email` and nothing is sent, which is the in-person case and stays a first-class one.
     """
+    if body.email:
+        # **`CLAUDE.md`'s rate-limit rule names this exact shape**: an authenticated route that
+        # mails an address the account does not own and has not proved anything about. It was
+        # out of scope while nothing sent; the moment it sends, anyone who can hold a
+        # subscription can point our sending reputation at a stranger's inbox, repeatedly.
+        #
+        # Keyed on the *user*, because the address is the sender's choice and a per-address
+        # bucket is sidestepped by varying it. Checked **before** the invite is minted, so a
+        # refusal does not leave a spent invite behind. The 402 and the two-parent 409 are
+        # checked inside `issue_invite` and therefore land after this — deliberately: the limit
+        # is on the mail, and a household that cannot invite at all never reaches the mailer.
+        await check_and_record(
+            session,
+            f"invite-email:{user.id}",
+            limit=settings.email_sign_in_per_email_limit,
+            window=dt.timedelta(seconds=settings.email_sign_in_window_seconds),
+        )
+
     invite, raw = await issue_invite(session, user, email=body.email, role=body.role)
+
+    queued = False
+    if invite.email:
+        # Read here rather than in the background task: the task runs after the session is
+        # closed, so it takes strings, never ORM rows attached to a dead session.
+        children = [child.name for child in await invited_children(session, user.id)]
+        background.add_task(
+            invite_email.deliver,
+            settings,
+            to=invite.email,
+            inviter=user.display_name,
+            children=children,
+            raw_token=raw,
+        )
+        queued = True
+
     return InviteCreated(
         id=invite.id,
         email=invite.email,
@@ -221,6 +271,10 @@ async def create_invite(
         expires_at=invite.expires_at,
         created_at=invite.created_at,
         token=raw,
+        # **What was queued, not what was delivered.** Nothing here waits for the provider, so
+        # claiming a send would be a claim this handler cannot make. A client says "it is on
+        # its way" and keeps the link as the fallback.
+        email_queued=queued,
     )
 
 
