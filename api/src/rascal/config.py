@@ -147,6 +147,17 @@ class Settings(DatabaseSettings):
     # the association file, pulls the token out, and posts it to the real endpoint itself.
     email_sign_in_link_base: str = "https://rascal-api.fly.dev/signin"
 
+    # --- The household invite link ---------------------------------------------------------
+    #
+    # **Where an emailed invite points**, and its own setting for exactly the reason
+    # `email_sign_in_link_base` is one: the host a mail links to and the host this API answers
+    # on are the same today and are not the same thing. The token is appended as a path
+    # segment, because that is the shape `/invite/{token}` is claimed in the association file
+    # and the shape the client already builds (`GuardiansModel.shareURL`).
+    #
+    # No trailing slash — `invite_link` joins it with one.
+    invite_link_base: str = "https://rascal-api.fly.dev/invite"
+
     # Half of the `appID` in the association file — `<team>.<bundle>`. Not a secret: it is
     # printed in every provisioning profile and is served publicly at `/.well-known/` by
     # design. A default rather than a required value, because a wrong one here breaks

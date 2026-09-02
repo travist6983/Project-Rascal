@@ -774,24 +774,49 @@ one shape the Settings screen reads is what makes it structurally impossible for
 render a deletion date by accident.
 
 **`POST /families/me/invites`** → `201`
-Body: `{ "email": str | null, "role": "parent" }`. `email` is optional and is only recorded;
-**nothing in this phase sends it.** The client delivers the link however it likes.
+Body: `{ "email": str | null, "role": "parent" }`. ~~*`email` is optional and is only recorded;
+**nothing in this phase sends it.** The client delivers the link however it likes.*~~ — **struck
+Sep 2, 2026 by phase 136, which is the phase that made it send.** `email` is still optional and
+omitting it still sends nothing — a link handed over in person is a first-class case — but an
+address given here is **mailed the invite**, through `services/mail.py` and therefore through
+Resend, the same port the sign-in link and the address-verification link already use. The
+sentence above had been true since phase 36 and was the whole of the defect: the column was
+written, the client's own doc comment said *"nothing sends it"*, and the Settings row promised a
+parent a link to send while their partner's inbox stayed empty.
 
 ```json
 { "id": "…", "email": "anna@example.com", "role": "parent",
-  "expires_at": "…", "created_at": "…", "token": "2jtAKk90R8tJ…" }
+  "expires_at": "…", "created_at": "…", "token": "2jtAKk90R8tJ…",
+  "email_queued": true }
 ```
 
 **`token` is returned once and is never recoverable.** Only its SHA-256 is stored, so a lost
-link is re-issued rather than looked up.
+link is re-issued rather than looked up. **It comes back whether or not an email was sent**, and
+that is what makes the queued send survivable: a client always holds the fallback.
 
-Three refusals:
+**`email_queued` says what was queued, never what arrived.** The send runs after the response —
+awaiting a mail provider inside the handler would hold this request's database transaction across
+somebody else's network call and hand the caller their latency — so nothing here can honestly
+claim delivery. `false` whenever no address was given. Additive, so a client that predates it
+reads the field as absent and behaves exactly as it did.
+
+The emailed link is `INVITE_LINK_BASE` + `/{token}` — the path form the association file claims
+and the client already builds, never a query parameter.
+
+**Rate limited, and only when an address is given.** Five an hour per user, the same window
+`POST /auth/email/start` uses, `429 rate_limited` over it. This is the second route to meet
+`CLAUDE.md`'s rule that an *authenticated* route which can mail somebody else needs a limit: the
+address is a stranger's and the account has proved nothing about it. Minting a link with no
+address is not limited — nothing leaves the building.
+
+Four refusals:
 
 | | |
 |---|---|
 | `402` `subscription_required` | ~~The household is on the free tier.~~ — **struck Aug 25, 2026 by phase 122: phase 121 moved this gate off `entitlement.is_subscribed` and onto `Access.is_member` (`services/guardians.py:452`), which is `source in ("receipt", "grant")` (`constants.py:94`).** Nobody in the household is a member — no live receipt and no active grant. **A trial does not pass this gate and a complimentary grant does**: a household reading `tier: "free"` with a grant behind it mints an invite, and one inside its fourteen days does not. **Per D4 the second guardian is what the subscription is sold on**, so the invite surface is the upgrade surface. The message names what subscribing unlocks — it is a door, not a wall |
 | `409` `conflict` | The household already has two parents. Two adults is the household; a third is a different product, not a bigger bill |
 | `422` `validation_failed`, `field: "role"` | `viewer` was requested. Phase 30 is iceboxed; the column can hold the value, nothing may issue one |
+| `429` `rate_limited` | Too many invite emails from this account inside the window. **Only reachable with an `email` in the body**, and the limit is checked before the invite is minted, so a refusal never leaves a spent invite behind |
 
 **`DELETE /families/me/invites/{invite_id}`** → `204`. Idempotent. An invite belonging to
 another household is `404`, not `403` — the caller has no business knowing it exists.

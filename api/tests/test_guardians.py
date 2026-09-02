@@ -80,7 +80,7 @@ async def test_a_subscribed_household_can_invite(
 
     assert response.status_code == 201
     assert response.json()["token"]
-    # Recorded lowercased; nothing in this phase sends to it.
+    # Recorded lowercased, and since phase 136 mailed — `test_invite_email.py` owns that half.
     assert response.json()["email"] == "anna@example.com"
 
 

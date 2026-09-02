@@ -856,6 +856,13 @@ reports; these are only the things somebody has to *do*.
 - **Run one cold Sign in with Apple test before clicking Submit for Review.** *New Aug 29, 2026.*
   Not yet done.
 
+## Allocation
+
+**The highest number used is 136. A genuinely new phase takes 137.** 136 is the household invite
+email (Sep 2, 2026), and it is the first row in this file's history written by a session working
+**both lanes on one branch** rather than a worktree per lane — see its `roadmap-status.md` row for
+why, and treat it as the exception it is rather than the new shape.
+
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 
 - **Port the drawn Pocket Chronicle wordmark into `Wordmark.swift`'s `Shape`.** iOS lane. The path
