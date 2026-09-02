@@ -1845,3 +1845,31 @@ produces something a person can see without a database credential.
 observability gap, not a bug, and it is the kind of gap this repository is worst at catching —
 nothing goes red while it is missing, per the pattern §12 above already named for the deletion
 machine.
+
+### It happened again on Sep 1–2, 2026, five days later, and cost a second evening (phase 138)
+
+**The prediction in this section was correct and nothing had been built to act on it.** A second
+TestFlight purchase, a second Sandbox notification correctly discarded, and the same invisible
+state — except this time the symptom was not the Settings card reading *Free*. It was the
+**paywall**, stuck on *"Finishing up"* with a spinner that never resolved, which is a worse place
+for it: the parent has just been charged and the screen is the one that should say so.
+
+**The state, read out of production on Sep 1, 2026:** `app_store_transactions` holds **two rows,
+both `Sandbox`**, latest `2026-09-02 00:58:56 GMT`; `entitlements` reads **`free` × 5**. Apple is
+delivering, the service is verifying and recording, and Guard 3 is discarding — all correct, all
+invisible.
+
+**Recorded here because the second occurrence is the argument the first one could not make.** §25
+above closes by saying this gap is *"the kind of gap this repository is worst at catching — nothing
+goes red while it is missing."* Five days of nothing going red, and then the same evening spent
+again from a different starting symptom. **The remedy has not changed and is still the one line on
+the admin console named above**; what has changed is that the cost is now measured twice rather
+than once, and that a *client* symptom is on the list of things it explains.
+
+**Two things that would have shortened this and are worth stating separately from the remedy.**
+First, **`GET /families/{id}` cannot distinguish "not subscribed" from "subscribed, but your
+notification was discarded"**, and no client can, so no amount of client work fixes this from the
+app side. Second, **the paywall's own bound was wrong in a way that made the symptom look worse
+than it was** — see phase 138: the confirmation window is not the 63 seconds it documents, so
+"never resolves" and "resolves in eleven minutes" were indistinguishable from the device. That
+defect is fixed; **this one is not, and is still not filed as blocking anything.**

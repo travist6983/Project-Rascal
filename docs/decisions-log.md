@@ -1340,3 +1340,60 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
 - **The client half is the same commit's other lane.** A server that mails an address it is never
   given is the same defect wearing the other hat, so `GuardiansSection` now asks for the address —
   and still offers the link, because the in-person case is real.
+- **Sep 1, 2026 (phase 137).** **The consent-screen rename was allowed to publish four values nobody
+  had reviewed as copy, because Google will not save the name without them.** The App name in
+  `rascal-505719` could not go `rascal` → `Pocket Chronicle` on its own: the two *App domain* fields
+  are required and were empty, and filling them raises `Missing domain: pocketchronicle.app` until
+  the domain is authorized. So a one-field rename cost a home page, a privacy link, a terms link and
+  an authorized domain — and the consent screen now shows a parent a legal line it did not show
+  before. **The values were taken from `ios/Rascal/Config.xcconfig:86-87` rather than composed**,
+  which is the whole of why this was judged safe to do in one pass: they are the URLs the app already
+  ships to App Review under the same names, each verified 200, so the screen says what the app says.
+  The alternative — leave the name reading `rascal` until somebody reviews consent-screen copy — was
+  rejected because the defect being fixed is a parent being asked to trust a name that appears nowhere
+  else in the product, and the new links are the correct ones for that product either way.
+- **Sep 1, 2026 (phase 137).** **The Google Cloud project stays `rascal-505719`, and the OAuth client
+  id stays with it.** Renaming a project would rotate nothing a parent sees and would invalidate
+  `GOOGLE_CLIENT_ID` in `Config.xcconfig`, `GOOGLE_CLIENT_IDS` on the API, and the reversed-client-id
+  URL scheme in all four plists — the same trade `Info.plist` records for the Xcode target name since
+  the first rename: it costs real work to move and nobody outside the build ever reads it.
+- **Sep 1, 2026 (phase 137).** **A defect that cannot be fixed inside this repository still needs a
+  number or a `blocked.md` entry, and phase 114 gave it neither.** It found this exact problem on
+  Aug 23, described it accurately, and parked it as a ⚠️ inside its own row — which then merged. A
+  merged row is not read again, its marker cannot go stale visibly, none of the four prescribed
+  phase-number commands can see it, and `blocked.md` never received it. The sentence was true for
+  nine days and false for nine more with nothing in the tree able to tell the difference. **This is
+  filed as a decision rather than a process instruction** because `phase-queue.md` already carries
+  twenty-four strikes' worth of those; the operative remedy is that the fix took a number.
+
+- **Sep 1, 2026 (phase 138).** **The confirmation window gets a deadline on the *screen*, not a
+  bound on the poll — and it does not try to cancel the read.** `EntitlementConfirmation.poll`
+  claims *"Only the schedule ends it"*; that is true of its sleeps and false of its reads, so
+  `purchase` can sit on `.confirming` for ten reads' worth of `URLSession` timeout — about eleven
+  minutes — or forever if one never answers. **Bounding the read inside the loop was rejected**
+  because a read that is about to succeed is exactly the one a timeout would kill, and because
+  `load()` already measured the alternative and wrote down the result: `withTaskGroup` does not
+  return until every child finishes and `cancelAll()` only *requests*, so a parked read ignores
+  both. So this does what `load()` does — moves the state a parent is stuck on, leaves the request
+  alone, and lets a late `.subscribed` still win, because D5 makes the server the authority and
+  arriving late does not change that.
+- **Sep 1, 2026 (phase 138).** **The deadline gets its own clock, which is the third in this model,
+  and the same trap caught twice.** `offerSleep` exists because routing the offer timeout through
+  `confirmationSleep` *"was a real bug and it broke five existing tests"* — the suite stubs that
+  sleeper to `{ _ in }`, so any timeout expressed through it fires instantly and wins every race. A
+  confirmation deadline on that same parameter would have settled every confirmation in the suite
+  to `.late`. **Two clocks through one parameter is a mistake this file now records twice**, which
+  is the argument for the third one rather than against it.
+- **Sep 1, 2026 (phase 138).** **`restore()` has the identical unbounded read and is deliberately
+  left alone.** It polls the same function on the 15-second restore schedule, so a hung read parks
+  `isRestoring` and spins the Settings row indefinitely — the same defect, one surface over. It was
+  not reported, the bug-report loop's step 4 says to change only the smallest surface that turns
+  the test green, and "while I am in here" is how a one-file fix becomes a refactor. **Recorded in
+  the phase 138 row and here rather than fixed quietly or dropped silently.**
+- **Sep 1, 2026 (phase 138).** **A TestFlight purchase cannot confirm against production, and the
+  guard that makes that true is correct and stays.** `may_write_tier` refuses a Sandbox
+  notification in `prod`, because a sandbox tester account is free to create and honouring one
+  would let anybody subscribe by buying nothing. The paywall symptom this produces — *"Finishing
+  up"* forever — is therefore **not a client bug**, and no client change can fix it: `GET
+  /families/{id}` cannot distinguish *not subscribed* from *subscribed, notification discarded*.
+  **The second occurrence is recorded in `blocked.md` §25**, whose first occurrence predicted it.
