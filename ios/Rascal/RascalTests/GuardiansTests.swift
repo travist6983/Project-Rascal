@@ -90,6 +90,50 @@ struct GuardiansTests {
         #expect(created.email == "anna@example.com")
     }
 
+    @Test("email_queued decodes, and an older server's silence reads as not sent")
+    func emailQueuedDecodes() throws {
+        // **The absent case is the one that matters and it is not hypothetical**: every server
+        // now running predates the field. Swift does not fall back to a property default for a
+        // missing key, so a non-optional `Bool` here would fail the whole decode and take the
+        // invite flow down against production.
+        let sent = """
+        {"id": "3F2504E0-4F89-11D3-9A0C-0305E82C3304", "email": "anna@example.com",
+         "role": "parent", "expires_at": "2026-08-24T11:00:00Z",
+         "created_at": "2026-08-17T11:00:00Z", "token": "tok", "email_queued": true}
+        """
+        let linkOnly = """
+        {"id": "3F2504E0-4F89-11D3-9A0C-0305E82C3304", "email": null,
+         "role": "parent", "expires_at": "2026-08-24T11:00:00Z",
+         "created_at": "2026-08-17T11:00:00Z", "token": "tok", "email_queued": false}
+        """
+        let olderServer = """
+        {"id": "3F2504E0-4F89-11D3-9A0C-0305E82C3304", "email": "anna@example.com",
+         "role": "parent", "expires_at": "2026-08-24T11:00:00Z",
+         "created_at": "2026-08-17T11:00:00Z", "token": "tok"}
+        """
+
+        let decode = { (json: String) in
+            try APIClient.decoder.decode(CreatedInvite.self, from: Data(json.utf8))
+        }
+
+        #expect(try decode(sent).wasEmailed)
+        #expect(try !decode(linkOnly).wasEmailed)
+        // An address recorded by a server that cannot send is still not a send.
+        #expect(try decode(olderServer).emailQueued == nil)
+        #expect(try !decode(olderServer).wasEmailed)
+    }
+
+    @Test("rate_limited round-trips, because the emailed invite can now hit it")
+    func rateLimitedRoundTrips() {
+        // Reachable on `POST /families/me/invites` only when an address is given — the server
+        // mails a stranger's inbox on that path. A code that decoded as `.unknown` would still
+        // show a sentence, but never one this screen could reason about.
+        if case .unknown = APIErrorCode(rawValue: "rate_limited") {
+            Issue.record("rate_limited decoded as .unknown")
+        }
+        #expect(APIErrorCode(rawValue: "rate_limited") == .rateLimited)
+    }
+
     @Test("the preview carries first names and nothing that identifies anybody")
     func previewDecodes() throws {
         let json = """

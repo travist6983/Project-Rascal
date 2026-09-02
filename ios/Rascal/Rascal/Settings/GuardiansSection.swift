@@ -12,6 +12,12 @@ struct GuardiansSection: View {
     /// opinions about which plan is selected.
     @Bindable var subscription: SubscriptionModel
 
+    /// The address the invite is emailed to. Held here rather than in the model because it is
+    /// keystrokes in a field, not household state — it is gone the moment either button is
+    /// pressed, and nothing outside this view has any business reading a half-typed address.
+    @State private var address = ""
+    @State private var isAsking = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             SettingsSectionHeader("Who shares this")
@@ -48,6 +54,33 @@ struct GuardiansSection: View {
             if let url = model.pendingShareURL {
                 ShareLinkSheet(url: url)
             }
+        }
+        // **The same `.alert`-with-a-field shape `CredentialsSheet` already uses for adding an
+        // address**, rather than a new sheet: one thing is being asked for, and a sheet for one
+        // text field is furniture. Two ways out besides Cancel, because both are real — email
+        // it, or take the link and hand it over yourself. Sending with the field left empty
+        // takes the link route rather than refusing: the model treats a blank address as no
+        // address, and a parent who meant the other button gets what they meant.
+        .alert("Invite the other parent", isPresented: $isAsking) {
+            TextField("them@example.com", text: $address)
+                .textInputAutocapitalization(.never)
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+            Button("Cancel", role: .cancel) { address = "" }
+            Button("Send the invitation") {
+                let typed = address
+                address = ""
+                Task { await model.invite(email: typed) }
+            }
+            Button("Get a link instead") {
+                address = ""
+                Task { await model.invite() }
+            }
+        } message: {
+            Text(
+                "We'll email them a link that adds them to this household. "
+                + "Or take the link and send it yourself."
+            )
         }
         .sheet(
             isPresented: Binding(
@@ -140,11 +173,13 @@ struct GuardiansSection: View {
             SettingsDivider()
             SettingsActionRow(
                 label: "Invite the other parent",
-                detail: "You'll get a link to send. It works once, so if you lose it just make another.",
+                detail: "We'll email them a link, or you can send one yourself. "
+                    + "It works once, so if it goes astray just make another.",
                 isBusy: model.isWorking,
                 isEnabled: !model.isWorking
             ) {
-                Task { await model.invite() }
+                address = ""
+                isAsking = true
             }
         }
     }
