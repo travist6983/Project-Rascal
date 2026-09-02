@@ -2243,8 +2243,12 @@ entitlement.
 
 Body: `{ "signedPayload": "<JWS>" }` → `202`, `{ "status": "..." }`. The status names what the hook
 did — `tier:subscribed`, `ignored:out-of-order`, `recorded:unattributed`,
-`recorded:demotion-refused`, `recorded:promotion-refused`, `recorded:no-tier-change` — because the
-only other way to find out is to read the logs of a machine you may not be able to reach.
+`recorded:demotion-refused`, `recorded:promotion-refused`, `recorded:sandbox-blocked`,
+`recorded:no-tier-change` — because the only other way to find out is to read the logs of a
+machine you may not be able to reach. **`recorded:sandbox-blocked` is phase 139's** (Sep 2, 2026):
+a Sandbox notification about a household Production has already spoken about, recorded and
+unattributed — named, because `blocked.md` §25 is two evenings spent discovering that a refused
+Sandbox write was folded into `no-tier-change`.
 
 **`recorded:promotion-refused` means the household has no members left** (phase 127). Account
 deletion hard-deletes `users` and leaves `families` standing, and Apple keeps renewing a
@@ -2282,11 +2286,14 @@ a screen that does not know the household, rather than being started with a subs
 tests pin it: one behavioural, that the id reaching the boundary is the one `GET /v1/families/me`
 returned, and one that reads the source and fails if the argument is ever anything but `familyID`.
 
-**What is still unproven, and it is the assumption this whole design rests on:** no sandbox purchase
+~~**What is still unproven, and it is the assumption this whole design rests on:** no sandbox purchase
 has ever been made, because no product exists in App Store Connect (`docs/blocked.md` §10). **The
 round trip — token attached here, echoed by Apple, read by this webhook — has never been observed
 end to end.** Both halves are built against the same field name and nothing has ever carried a value
-between them.
+between them.~~ — **Observed, three times, by Sep 2, 2026** (`blocked.md` §25): the token attached
+by build 20 came back in Apple's Sandbox `SUBSCRIBED` and resolved to the right household every
+time, including App Review's. What the observation showed was the *next* sentence's rule discarding
+it — see *Production wins* below.
 
 Apple's notification does not know what a family is. `appAccountToken` — a UUID the client attaches
 at purchase time and Apple echoes back in `transactionInfo` — is the **only** channel by which one
@@ -2353,9 +2360,38 @@ whose `signedDate` is older than or equal to the stored `latest_signed_date` for
 `originalTransactionId` is recorded as ignored and writes nothing. Redelivery of the same
 notification is caught by the same comparison, so idempotency needs no separate mechanism.
 
-**Sandbox may never write a Production entitlement.** A sandbox tester account is free to create.
+~~**Sandbox may never write a Production entitlement.** A sandbox tester account is free to create.
 Under `ENVIRONMENT=prod` a Sandbox notification is recorded and touches neither `tier` nor the
-row's family attribution.
+row's family attribution.~~ — **reversed Sep 2, 2026 by phase 139. Production wins, and Sandbox only
+ever promotes.** App Review buys in Sandbox — the same sandbox TestFlight and Xcode builds use —
+against this production server, and under the struck rule the reviewer's `SUBSCRIBED` became an
+unattributed row while the paywall waited for `tier: subscribed` until phase 138's deadline said
+*"it'll appear here shortly"*: rejected under guideline 2.1(b), submission
+`b9f8afd4-66f9-4b42-a1ee-ee4410bc2d35`. Under `ENVIRONMENT=prod`:
+
+* **A Sandbox notification writes `tier` and attribution only for a household with no
+  `Production` row in `app_store_transactions`.** Once Production has spoken about a household,
+  every Sandbox notification about it — promoting or demoting — is recorded and touches nothing
+  (`recorded:sandbox-blocked`), so nothing Sandbox says can promote, demote, or resurrect a paying
+  household, and a `lapsed_at` that a Production `EXPIRED` started is not reset by buying nothing.
+  A blocked notification gains no attribution; a Sandbox row attributed *before* Production spoke
+  keeps the attribution it has, which is display-only and is why `membership_signals` reads
+  `Production` rows first.
+* **A Sandbox notification never demotes.** Sandbox subscriptions expire on an accelerated clock
+  and nobody acts on the `EXPIRED`. For a household Sandbox itself promoted, or §7a's, it is
+  recorded through the refused-demotion path (`recorded:demotion-refused`) and `tier` stays. This
+  is what keeps §7a's hand-written household safe the day after a TestFlight purchase test — that
+  `EXPIRED` would be *linked*, so the rule below would honour it.
+
+The struck sentence's premise was overstated: the verifier pins `bundleId`, so a Sandbox payload for
+this app can only come from a build StoreKit will sell this app's products to, and sandbox Apple
+Accounts are minted in App Store Connect by this team. Every TestFlight tester is in that
+population, though, so the rules above do not lean on it being small. **The accepted cost** is the
+direction the contract already fails in: a TestFlight tester who bought in beta holds `subscribed`
+until somebody reconciles it by hand (§7a's reverse statement), and the client offers no purchase
+to a household the server calls subscribed. `membership_signals` reads a `Production` row ahead of
+any Sandbox row for the same household, so a tester's simulated billing failure never reaches a
+paying household's Settings screen.
 
 **A family with no transaction record is never demoted.** `runbook-deploy.md` §7a wrote the owner's
 household `subscribed` by hand and there is no Apple transaction behind it. A demotion is refused

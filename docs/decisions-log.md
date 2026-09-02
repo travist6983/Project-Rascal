@@ -1397,3 +1397,14 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   up"* forever — is therefore **not a client bug**, and no client change can fix it: `GET
   /families/{id}` cannot distinguish *not subscribed* from *subscribed, notification discarded*.
   **The second occurrence is recorded in `blocked.md` §25**, whose first occurrence predicted it.
+- **Sep 2, 2026 (phase 139).** **Reverses the line above and the Aug 20 (37a) line that says a
+  Sandbox notification under `ENVIRONMENT=prod` records no attribution.** App Review buys in
+  Sandbox, against production, and build 20 was rejected under 2.1(b) because Guard 3 discarded the
+  reviewer's `SUBSCRIBED`. The rule is now *Production wins, and Sandbox only ever promotes*: a
+  Sandbox notification writes `tier` and attribution only for a household with no `Production`
+  ledger row, never writes where one exists, and never demotes. The "free to create" premise was
+  overstated — the verifier pins `bundleId`, and sandbox accounts are minted by this team — but the
+  population that can produce a Sandbox payload is every TestFlight tester, so the rule does not
+  lean on it. Accepted cost: a tester who bought in beta holds `subscribed` until §7a's reverse
+  statement is run by hand. `membership_signals` reads `Production` rows ahead of `Sandbox` ones so
+  a tester's simulated billing failure never shows on a paying household's Settings screen.

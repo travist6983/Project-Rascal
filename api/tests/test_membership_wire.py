@@ -22,11 +22,13 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
+from sqlalchemy import select
+
 import app_store_stub as stub
 from factories import make_family, make_user
 from helpers import auth_headers
 from rascal.constants import PRODUCT_PLANS
-from rascal.models import Entitlement
+from rascal.models import AppStoreTransaction, Entitlement
 from rascal.schemas.family import FamilyOut
 
 # The same fixed past instant `test_app_store.py` uses, for the same reason: a `signedDate` is
@@ -392,6 +394,60 @@ async def test_a_free_household_is_never_reported_as_retrying(client, session):
     body = await _me(client, user)
     assert body["billing_retry"] is False
     assert body["plan"] is None
+
+
+async def test_a_production_row_outranks_a_newer_sandbox_row(
+    app_store_client, client, session, app_store_chain
+):
+    """Phase 139 lets a Sandbox row be attributed to a household that later pays for real. A
+    sandbox subscription renews on an accelerated clock and can simulate a billing failure, so
+    by signed date alone the tester's row would be the one this screen reads — and a paying
+    household would see `billing_retry: true` and the wrong plan."""
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    production = await _post(
+        app_store_client,
+        app_store_chain,
+        signed_date=SIGNED_AT,
+        environment="Production",
+        original_transaction_id="2000000000000001",
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+    )
+    sandbox = await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="DID_FAIL_TO_RENEW",
+        subtype="GRACE_PERIOD",
+        signed_date=LATER,
+        environment="Sandbox",
+        original_transaction_id="2000000000000002",
+        app_account_token=family.id,
+        product_id=stub.MONTHLY_PRODUCT_ID,
+    )
+    assert production.status_code == sandbox.status_code == 202
+    # The precondition, pinned: both rows are this household's, so signed date alone would
+    # pick the Sandbox one. (`ENVIRONMENT=local` in the suite, where Sandbox is attributed.)
+    attributed = (
+        (
+            await session.execute(
+                select(AppStoreTransaction.family_id).where(
+                    AppStoreTransaction.original_transaction_id.in_(
+                        ["2000000000000001", "2000000000000002"]
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert attributed == [family.id, family.id]
+
+    body = await _me(client, user)
+    assert body["plan"] == "annual"
+    assert body["billing_retry"] is False
 
 
 # --- Task 4 · `is_payer`: three values, and the third is the point -----------------------------

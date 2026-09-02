@@ -1,11 +1,13 @@
 """Phase 37a. App Store Server Notifications V2, the tier writer, and the entitlement read.
 
-**Nothing in this file has ever spoken to Apple.** No subscription product exists in App Store
+**Nothing in this file has ever spoken to Apple.** ~~No subscription product exists in App Store
 Connect (`docs/blocked.md` §10), no sandbox transaction has ever been made, and no real Apple
-notification has ever reached this endpoint. Every payload here is minted locally by
-`app_store_stub`, signed by a locally-minted chain, and verified by Apple's own library against
-a locally-minted root. That makes the *verification* real — the library is the shipping one and
-it enforces Apple's chain rules and marker OIDs — and it makes the *Apple side* untested.
+notification has ever reached this endpoint.~~ — **Three had, by Sep 2, 2026, all Sandbox, and the
+third was App Review's** (`blocked.md` §25; phase 139's section below). Every payload here is
+still minted locally by `app_store_stub`, signed by a locally-minted chain, and verified by
+Apple's own library against a locally-minted root. That makes the *verification* real — the
+library is the shipping one and it enforces Apple's chain rules and marker OIDs — and it makes
+the *Apple side* untested here; what production has seen is in `blocked.md`.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from rascal.services.app_store import (
     AppStoreVerifier,
     NotificationUnverifiable,
 )
-from rascal.services.app_store_events import tier_effect
+from rascal.services.app_store_events import may_demote_tier, may_write_tier, tier_effect
 from rascal.services.guardians import eligible_at
 
 # Firmly in the past, and everything else in this file is derived from it by arithmetic.
@@ -473,50 +475,300 @@ async def test_the_same_notification_twice_leaves_identical_state(
     assert count is not None
 
 
-# --- Guard 2: sandbox isolation -------------------------------------------------------------
+# --- Guard 3: Production wins, and Sandbox only ever promotes (phase 139) ------------------
+#
+# Until Sep 2, 2026 this section held one test, "a sandbox notification in production records
+# and writes no tier", and its docstring began *"Anybody can create a sandbox tester account."*
+# App Review is one of those anybodies: reviewers buy in Sandbox against this production
+# server, so that guard turned the reviewer's `SUBSCRIBED` into an unattributed row and the
+# paywall waited for a `tier` that never came — rejected under guideline 2.1(b), with the row
+# sitting in the production ledger with `family_id = NULL`.
 
 
-async def test_a_sandbox_notification_in_production_records_and_writes_no_tier(
-    app, session, app_store_settings, app_store_chain
-):
-    """**Anybody can create a sandbox tester account.** If a Sandbox notification could write
-    a Production entitlement, anybody could subscribe a production household for free."""
+@pytest.fixture
+async def production_client(app, app_store_settings):
+    """The webhook as deployed: `ENVIRONMENT = "prod"`, so Sandbox is not simply honoured."""
     from httpx import ASGITransport, AsyncClient
 
     from rascal.deps import get_app_store_verifier
 
-    family = await _household(session)
-    await session.commit()
-
     prod_settings = app_store_settings.model_copy(update={"environment": "prod"})
     app.dependency_overrides[get_app_store_verifier] = lambda: AppStoreVerifier(prod_settings)
-    # The service, not the verifier, is what the sandbox gate reads.
-    from rascal.config import get_settings
-
+    # The service, not the verifier, is what the environment rules read.
     app.dependency_overrides[get_settings] = lambda: prod_settings
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+@pytest.mark.parametrize(
+    ("payload_environment", "service_environment", "has_production_row", "may_write", "may_demote"),
+    [
+        ("Production", "prod", False, True, True),
+        ("Production", "prod", True, True, True),
+        # App Review, TestFlight, and a dev build: honoured while Production has not spoken.
+        ("Sandbox", "prod", False, True, False),
+        # ...and never once it has. Never a demotion either way.
+        ("Sandbox", "prod", True, False, False),
+        # Locally there is nothing to protect and Sandbox is the only kind that exists.
+        ("Sandbox", "local", False, True, True),
+        ("Sandbox", "local", True, True, True),
+        ("Production", "local", True, True, True),
+    ],
+)
+def test_the_environment_table(
+    payload_environment, service_environment, has_production_row, may_write, may_demote
+):
+    assert (
+        may_write_tier(
+            payload_environment,
+            service_environment,
+            family_has_production_row=has_production_row,
+        )
+        is may_write
+    )
+    assert may_demote_tier(payload_environment, service_environment) is may_demote
+
+
+async def test_app_review_buys_in_sandbox_and_production_honours_it(
+    production_client, session, app_store_chain
+):
+    """The rejection, replayed: a household ten minutes old, one Sandbox `SUBSCRIBED` carrying
+    its `appAccountToken`, and a client polling `GET /families/me` for `tier: subscribed`."""
+    family = await make_family(session)
+    reviewer = await make_user(session, family=family)
+    await session.commit()
+
+    response = await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            environment="Sandbox",
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "tier:subscribed"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.payer_user_id == reviewer.id
+    row = await _transaction(session, "2000000000000001")
+    assert row.environment == "Sandbox"
+    assert row.family_id == family.id, "the row must be attributed, not left for §25 to find"
+
+
+async def test_a_sandbox_notification_never_writes_where_production_has_spoken(
+    production_client, session, app_store_chain
+):
+    """A TestFlight tester with a patched client and a paying household's family id gets a row
+    in the ledger and nothing else: not the tier, not the attribution, not the payer."""
+    family = await _household(session)
+    await session.commit()
+
+    await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=EARLIER,
+            environment="Production",
+            original_transaction_id="2000000000000001",
+            app_account_token=family.id,
+        ),
+    )
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+    # Blocked before the demotion rule gets a look: Production has spoken, so the answer is
+    # the same in both directions.
+    for notification_type, subtype, signed_date in (
+        ("SUBSCRIBED", "INITIAL_BUY", SIGNED_AT),
+        ("EXPIRED", None, LATER),
+    ):
         response = await _post(
-            client,
+            production_client,
             stub.sign_notification(
                 app_store_chain,
-                notification_type="SUBSCRIBED",
-                subtype="INITIAL_BUY",
-                signed_date=SIGNED_AT,
+                notification_type=notification_type,
+                subtype=subtype,
+                signed_date=signed_date,
                 environment="Sandbox",
+                original_transaction_id="2000000000000002",
                 app_account_token=family.id,
             ),
         )
+        assert response.status_code == 202
+        assert response.json()["status"] == "recorded:sandbox-blocked"
+
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+    sandbox_row = await _transaction(session, "2000000000000002")
+    assert sandbox_row is not None, "still recorded: the ledger is the audit trail"
+    assert sandbox_row.family_id is None, "an attribution this service declined to act on"
+    assert (await _transaction(session, "2000000000000001")).family_id == family.id
+
+
+async def test_a_sandbox_purchase_does_not_resurrect_a_lapsed_production_household(
+    production_client, session, app_store_chain
+):
+    """`lapsed_at` is D3's media-deletion clock. A household that stopped paying for real does
+    not get it cleared by a sandbox purchase — Production has spoken, and it said `EXPIRED`."""
+    family = await _household(session)
+    await session.commit()
+
+    for notification_type, subtype, signed_date in (
+        ("SUBSCRIBED", "INITIAL_BUY", EARLIER),
+        ("EXPIRED", None, SIGNED_AT),
+    ):
+        await _post(
+            production_client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type=notification_type,
+                subtype=subtype,
+                signed_date=signed_date,
+                environment="Production",
+                app_account_token=family.id,
+            ),
+        )
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT
+
+    response = await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=LATER,
+            environment="Sandbox",
+            original_transaction_id="2000000000000002",
+            app_account_token=family.id,
+        ),
+    )
+
+    assert response.json()["status"] == "recorded:sandbox-blocked"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT, "the deletion clock was reset by buying nothing"
+
+
+async def test_a_household_that_tested_in_sandbox_and_then_paid_is_governed_by_production(
+    production_client, session, app_store_chain
+):
+    """The TestFlight-then-buy sequence. The Sandbox row was attributed while it was the only
+    thing known about the household; once Production speaks it keeps that attribution — display
+    only — and loses every other say, in both directions."""
+    family = await _household(session)
+    await session.commit()
+
+    async def post(notification_type, subtype, signed_date, environment, original_transaction_id):
+        response = await _post(
+            production_client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type=notification_type,
+                subtype=subtype,
+                signed_date=signed_date,
+                environment=environment,
+                original_transaction_id=original_transaction_id,
+                app_account_token=family.id,
+            ),
+        )
+        assert response.status_code == 202
+        return response.json()["status"]
+
+    sandbox, production = "2000000000000002", "2000000000000001"
+    day = dt.timedelta(days=1)
+
+    assert await post("SUBSCRIBED", "INITIAL_BUY", EARLIER, "Sandbox", sandbox) == "tier:subscribed"
+    assert (await _transaction(session, sandbox)).family_id == family.id
+
+    assert await post("SUBSCRIBED", "INITIAL_BUY", SIGNED_AT, "Production", production) == (
+        "tier:subscribed"
+    )
+    # A sandbox renewal after the real purchase: recorded, and its attribution survives, but
+    # it is not what the household's membership reads from — see `membership_signals`.
+    assert await post("DID_RENEW", None, SIGNED_AT + day, "Sandbox", sandbox) == (
+        "recorded:sandbox-blocked"
+    )
+    assert (await _transaction(session, sandbox)).family_id == family.id
+    assert (await _transaction(session, sandbox)).latest_signed_date == SIGNED_AT + day
+
+    assert await post("EXPIRED", None, LATER, "Production", production) == "tier:free"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == LATER
+
+    # The sandbox subscription is still renewing on its own clock. It does not bring the
+    # household back, and it does not touch the deletion clock Production started.
+    assert await post("DID_RENEW", None, LATER + day, "Sandbox", sandbox) == (
+        "recorded:sandbox-blocked"
+    )
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == LATER
+
+
+@pytest.mark.parametrize(
+    "starting_tier",
+    [
+        # The owner's own household, written by hand per `runbook-deploy.md` §7a: no rows, and
+        # one TestFlight purchase test away from a linked Sandbox `EXPIRED` that guard 4 alone
+        # would honour.
+        "subscribed",
+        # A household Sandbox itself promoted — App Review's, or any TestFlight tester's.
+        "free",
+    ],
+)
+async def test_a_sandbox_expiry_never_demotes_in_production(
+    production_client, session, app_store_chain, starting_tier
+):
+    family = await _household(session, tier=starting_tier)
+    await session.commit()
+
+    await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            environment="Sandbox",
+            app_account_token=family.id,
+        ),
+    )
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+    assert (await _transaction(session, "2000000000000001")).family_id == family.id
+
+    # Sandbox subscriptions expire on an accelerated clock, and nobody acts on this.
+    response = await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            signed_date=LATER,
+            environment="Sandbox",
+            app_account_token=family.id,
+        ),
+    )
 
     assert response.status_code == 202
-    assert (await _entitlement(session, family.id)).tier == "free"
+    assert response.json()["status"] == "recorded:demotion-refused"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None
     row = await _transaction(session, "2000000000000001")
-    assert row is not None, "the notification must still be recorded"
-    assert row.environment == "Sandbox"
+    assert row.latest_notification_type == "EXPIRED", "still recorded"
+    assert row.latest_signed_date == LATER
 
 
-# --- Guard 3: never demote a family with no transaction record -------------------------------
+# --- Guard 4: never demote a family with no transaction record -------------------------------
 
 
 async def test_a_demotion_for_a_family_with_no_transaction_record_does_not_write(
@@ -1125,7 +1377,9 @@ async def test_a_demotion_still_lands_when_apple_omits_the_app_account_token(
 async def test_a_sandbox_notification_never_advances_a_production_rows_clock(
     app, session, app_store_settings, app_store_chain
 ):
-    """**Denial of entitlement, not just a wrong row.**
+    """**Denial of entitlement, not just a wrong row.** Guard 2, and untouched by phase 139:
+    whatever Sandbox may now write for a household, it may never write it *through a
+    Production row*.
 
     `latest_signed_date` is the ordering guard's high-water mark. If a Sandbox notification
     could push it forward on a Production subscription's row, every *legitimate* Production

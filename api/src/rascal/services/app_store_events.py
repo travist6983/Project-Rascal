@@ -25,9 +25,32 @@ let a Sandbox payload advance `latest_signed_date` on a Production subscription,
 guard 1 makes every legitimate Production notification look stale and the household's tier
 freezes wherever it happened to be, with nothing in any log to say why.
 
-**3. Sandbox may never write a Production entitlement.** Anyone with a sandbox tester account
-can produce real, correctly-signed Sandbox notifications. In production those are recorded and
-touch nothing. Gated on the same `ENVIRONMENT` setting that compiles out `dev-login`.
+**3. Production wins, and Sandbox only ever promotes.** ~~Sandbox may never write a Production
+entitlement.~~ — **reversed Sep 2, 2026 by phase 139, because App Review buys in Sandbox.** Apple's
+reviewers purchase through the same sandbox TestFlight uses, against this production server, and
+under the old rule the reviewer's household stayed `free` while the paywall waited for a
+confirmation that could never arrive — rejected under guideline 2.1(b), with the Sandbox
+`SUBSCRIBED` sitting in `app_store_transactions` with `family_id = NULL` the whole time. A rule
+that keeps the app out of the App Store is not a security property. What replaces it is two
+narrower rules, both gated on the same `ENVIRONMENT` setting that compiles out `dev-login`:
+
+* **A Sandbox notification writes `tier` and attribution only for a household with no Production
+  row in the ledger.** Once a household has paid for real, nothing Sandbox says about it is
+  acted on — recorded, unattributed, touching nothing — so a sandbox tester cannot promote,
+  demote, or resurrect a paying household, and the deletion clock a Production `EXPIRED` started
+  cannot be reset by buying nothing.
+* **A Sandbox notification never demotes.** Sandbox subscriptions expire on an accelerated clock
+  and nobody acts on the `EXPIRED`; letting it write `free` would demote the owner's own
+  hand-written household (§7a, no rows) the day after any TestFlight purchase test, which is the
+  exact failure guard 4 was written against. The accepted cost is the direction the contract
+  already fails in: an owner-invited tester can hold a free membership until somebody reconciles
+  it by hand.
+
+The old docstring said *"a sandbox tester account is free to create"*. Overstated: the verifier
+pins `bundleId`, so a Sandbox payload for this app can only come from a build StoreKit will sell
+this app's products to — Xcode, TestFlight, App Review — and sandbox Apple Accounts are minted in
+App Store Connect by this team, not by the public. But every TestFlight tester is in that
+population, so the rules above do not rest on the population being small.
 
 **4. Never demote a family with no transaction record.** `runbook-deploy.md` §7a wrote the
 owner's own household `subscribed` by hand and there is no App Store transaction behind it,
@@ -63,6 +86,7 @@ from __future__ import annotations
 import logging
 import uuid
 
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import (
@@ -103,17 +127,47 @@ def tier_effect(notification_type: str, subtype: str | None) -> Tier | None:
     return None
 
 
-def may_write_tier(payload_environment: str, service_environment: str) -> bool:
+def is_sandbox_in_production(payload_environment: str, service_environment: str) -> bool:
+    """The one comparison, other than `Settings.is_local`, that branches on the environment.
+
+    Locally everything is honoured, because a local database is the place you exercise this
+    and a Sandbox notification is the only kind that will ever exist there. The two rules
+    below both read this and nothing else reads `service_environment`, so the one exception
+    `Settings.is_local`'s docstring names stays at one site.
+    """
+    return service_environment == "prod" and payload_environment == "Sandbox"
+
+
+def may_write_tier(
+    payload_environment: str,
+    service_environment: str,
+    *,
+    family_has_production_row: bool,
+) -> bool:
     """Whether a notification from *payload_environment* may write in *service_environment*.
 
-    Production only ever honours Production. A sandbox tester account is free to create, so
-    treating its notifications as real would let anybody subscribe a production household by
-    buying nothing. Locally both are honoured, because a local database is the place you
-    exercise this and a Sandbox notification is the only kind that will ever exist there.
+    Production honours Production unconditionally, and honours Sandbox **only for a household
+    Production has never spoken about** — App Review and TestFlight both buy in Sandbox against
+    this server, so refusing Sandbox outright is a rejection under guideline 2.1(b), which is
+    what happened on Sep 2, 2026.
+
+    Pure, so the whole table is one parametrized test. Whether a Sandbox notification may
+    *demote* is `may_demote_tier`, and the answer there is never.
     """
-    if service_environment == "prod":
-        return payload_environment == "Production"
-    return True
+    if not is_sandbox_in_production(payload_environment, service_environment):
+        return True
+    return not family_has_production_row
+
+
+def may_demote_tier(payload_environment: str, service_environment: str) -> bool:
+    """Whether a notification from *payload_environment* may write `free` in *service_environment*.
+
+    Sandbox subscriptions expire on an accelerated clock and nobody acts on the `EXPIRED`, so
+    a Sandbox demotion in production is never evidence that a household stopped paying — and
+    honouring one would demote the owner's own hand-written household (§7a, no rows) the day
+    after any TestFlight purchase test, which is exactly the failure guard 4 exists to refuse.
+    """
+    return not is_sandbox_in_production(payload_environment, service_environment)
 
 
 async def apply_notification(
@@ -214,25 +268,58 @@ async def apply_notification(
         )
         return "ignored:environment-mismatch"
 
-    # --- Guard 3: sandbox may never write a Production entitlement ---------------------------
-    sandbox_blocked = not may_write_tier(note.environment, service_environment)
-    if effect is not None and sandbox_blocked:
+    # --- Guard 3: Production wins, and Sandbox only ever promotes ---------------------------
+    #
+    # The ledger query runs only for a Sandbox payload in production that resolved to a
+    # household, so the path every real subscriber takes issues no extra read. `EXISTS` on
+    # `ix_app_store_transactions_family_id`.
+    sandbox_blocked = False
+    if family_id is not None and is_sandbox_in_production(note.environment, service_environment):
+        sandbox_blocked = not may_write_tier(
+            note.environment,
+            service_environment,
+            family_has_production_row=await _has_production_transaction(session, family_id),
+        )
+    if sandbox_blocked:
         log.warning(
-            "sandbox notification recorded without touching tier",
+            "sandbox notification recorded without touching a household production has "
+            "spoken about",
             extra={
                 "type": note.notification_type,
                 "environment": note.environment,
-                "family_id": str(family_id) if family_id else None,
+                "family_id": str(family_id),
             },
         )
         effect = None
+
+    # **And Sandbox never demotes.** Where Production has spoken the block above already took
+    # the effect, so this reaches only a household Sandbox itself promoted, or §7a's. The row
+    # is still recorded — the sandbox `EXPIRED` is the audit trail of a subscription that ended
+    # — but through guard 4's refused-demotion path, so it neither writes `free` nor attributes
+    # itself. An orphan receipt is left to the `family_id is None` exit below, where it was
+    # already going.
+    demotion_refused = False
+    if (
+        effect == "free"
+        and family_id is not None
+        and not may_demote_tier(note.environment, service_environment)
+    ):
+        log.warning(
+            "sandbox notification may not demote a production household",
+            extra={
+                "type": note.notification_type,
+                "original_transaction_id": note.original_transaction_id,
+                "family_id": str(family_id),
+            },
+        )
+        effect = None
+        demotion_refused = True
 
     # --- Guard 4: never demote a family with no transaction record --------------------------
     #
     # Evaluated against `existing` — the row as it was *before* this notification — because
     # the row this notification is about to write is not evidence of anything.
     linked = existing is not None and family_id is not None and existing.family_id == family_id
-    demotion_refused = False
     if effect == "free" and family_id is not None and not linked:
         log.warning(
             "refusing to demote a family with no transaction record",
@@ -274,8 +361,8 @@ async def apply_notification(
     # the same argument: an attribution this service has just declined to act on must not
     # become the transaction record that lets a *later* notification act. A refused demotion
     # would otherwise be a one-notification delay rather than a guard, and a Sandbox
-    # notification in production — which anyone with a free tester account can cause — would
-    # get to nominate which production household a transaction belongs to.
+    # notification about a household Production has spoken about would otherwise become the
+    # row `membership_signals` reads a plan from.
     await _record(
         session,
         note,
@@ -285,7 +372,7 @@ async def apply_notification(
 
     if effect is None or family_id is None:
         await session.flush()
-        return _outcome(effect, family_id, demotion_refused, promotion_refused)
+        return _outcome(effect, family_id, demotion_refused, promotion_refused, sandbox_blocked)
 
     await _write_tier(session, family_id, effect, note)
     await session.flush()
@@ -297,9 +384,14 @@ def _outcome(
     family_id: uuid.UUID | None,
     demotion_refused: bool,
     promotion_refused: bool,
+    sandbox_blocked: bool,
 ) -> str:
     if demotion_refused:
         return "recorded:demotion-refused"
+    # Named rather than folded into `no-tier-change`, because `blocked.md` §25 is two evenings
+    # spent discovering that a correctly-refused Sandbox write is invisible everywhere.
+    if sandbox_blocked:
+        return "recorded:sandbox-blocked"
     # Before the `family_id is None` branch, like the demotion above it: a refused promotion is
     # attributed — we know exactly which household it was for — and calling it `unattributed`
     # would lose the one fact that makes it findable.
@@ -308,6 +400,20 @@ def _outcome(
     if family_id is None:
         return "recorded:unattributed"
     return "recorded:no-tier-change"
+
+
+async def _has_production_transaction(session: AsyncSession, family_id: uuid.UUID) -> bool:
+    """Whether Production has ever spoken about this household — the thing that outranks Sandbox."""
+    return bool(
+        await session.scalar(
+            select(
+                exists().where(
+                    AppStoreTransaction.family_id == family_id,
+                    AppStoreTransaction.environment == "Production",
+                )
+            )
+        )
+    )
 
 
 async def _resolve_family(session: AsyncSession, note: VerifiedNotification) -> uuid.UUID | None:
