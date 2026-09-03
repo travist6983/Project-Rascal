@@ -1432,3 +1432,28 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   are reproduced from `PaywallSheet` into `PurchaseCopy`, not authored, and are logged under the copy
   file's Proposed additions §8; *Not now* on a refused purchase clears `.failed` so the failure does
   not follow the parent into Settings, while a swipe leaves it standing as the unread case.
+- **Sep 3, 2026 (phase 141, iOS lane).** **Reverses the Sep 1 (phase 138) line that left `restore()`
+  alone.** That line named the restore window *"the same defect, one surface over"* and deferred it
+  under the bug-report loop's minimal-fix rule; the pre-resubmission review found no phase had
+  picked it up, and App Review is required to press restore. `restore()` now has the screen
+  deadline `confirm()` has — 45 s on `confirmationDeadlineSleep`, shorter than a purchase's because
+  nobody was charged, longer than the 15 s restore schedule because that schedule never bounded its
+  reads — and the deadline's sentence is the `.late` branch's own, reproduced into
+  `restoreNothingYet` rather than authored. **Implements the client side of the pairing D5b still asks the owner to settle** — the
+  question stays the owner's, and `phase-queue.md`'s D5b entry now names what a rejection would
+  also unwind on the device: a
+  household the server entitles by grant (`tier: free`, `access: subscribed`,
+  `entitlement_source: grant`) is a *member* for the purpose of selling — `isMember` keys the Settings
+  action, `canBuy` and the paywall's Done — and is **not** a subscriber for the purpose of a receipt:
+  `isSubscribed` still means `tier`, and Manage, the receipt submission and `settleFailure` still read
+  it. The Settings card shows a granted household no action row at all, for the reason the
+  explicit-non-payer case already does: there is no approved copy for a complimentary membership.
+  And the sync pull now honours `has_more`: a cursor that stalls with it true grows the page to the
+  server's maximum and then reports `pagingStalled`, rather than persisting the cursor and calling a
+  hole a success.
+- **Sep 3, 2026 (phase 141, API lane).** `GET /v1/subscribe/confirm` publishes 303 in its OpenAPI
+  schema as well as returning it — the decorator said 307 since the route shipped, which no browser
+  ever saw and no test ever read. Three contract shapes corrected to what server and client had
+  agreed on all along (`/auth/refresh`, the `today[]` items, `/media/upload-url`). **Every `docs/`
+  edit for both lanes of 141 rides this branch**, including the iOS line above: two branches
+  appending to this file is the conflict 140's pair had to resolve at merge.
