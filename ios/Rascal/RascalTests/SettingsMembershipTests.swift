@@ -44,10 +44,21 @@ struct SettingsMembershipTests {
         try APIClient.decoder.decode(FamilySummary.self, from: Data(json.utf8))
     }
 
-    private func status(tier: String, access: String?) throws -> String {
-        let household = try family(Self.familyJSON(tier: tier, access: access))
-        return MembershipPresentation.settingsStatus(for: household)
+    /// The headline the card's header reports — `settingsStatus(for:)` until phase 144.
+    private func status(tier: String, access: String?, extraFields: String = "") throws -> String {
+        try header(tier: tier, access: access, extraFields: extraFields).headline
     }
+
+    private func header(
+        tier: String, access: String?, extraFields: String = ""
+    ) throws -> MembershipPresentation.MembershipHeader {
+        let household = try family(Self.familyJSON(tier: tier, access: access, extraFields: extraFields))
+        return MembershipPresentation.settingsHeader(for: household)
+    }
+
+    /// The server's instant for every dated fixture here, parsed rather than built — the same
+    /// rule the source scan below holds the surface to.
+    private static let serverDate = ISO8601Formatters.parse("2026-09-17T00:00:00Z")!
 
     /// `ios/Rascal/Rascal`, resolved from this file rather than from a working directory, so the
     /// source scans below survive being run from Xcode, from `xcodebuild`, and from CI.
@@ -69,32 +80,165 @@ struct SettingsMembershipTests {
     func trialNoLongerReadsFree() throws {
         let value = try status(tier: "free", access: "trial")
 
-        #expect(value == MembershipCopy.Status.everythingOpen)
+        #expect(value == MembershipCopy.Card.trial)
         #expect(
-            value != MembershipCopy.Status.free,
+            value != MembershipCopy.Card.free,
             "the row is asking `tier` again — a trial household is `tier: free` and must not say so"
         )
     }
 
-    @Test("a subscribed household reads Subscribed")
-    func subscribedReadsSubscribed() throws {
-        let value = try status(tier: "subscribed", access: "subscribed")
-        #expect(value == MembershipCopy.Status.subscribed)
+    /// **The owner's ask, phase 144**: the count and the date, both the server's. The count
+    /// renders only when the server sent one, the date only when it sent one, and neither is
+    /// arithmetic here — the fixture's instant comes back through the formatter and nothing else.
+    @Test("a trial's detail carries the server's day count and the server's date, and only those")
+    func trialDetailIsTheServersCountAndDate() throws {
+        let date = DayHeaderText.dayAndMonth(Self.serverDate)
+
+        let both = try header(
+            tier: "free", access: "trial",
+            extraFields: "\"trial_ends_at\": \"2026-09-17T00:00:00Z\", \"trial_days_left\": 13,"
+        )
+        #expect(both.detail == "13 days left, until \(date). No card, nothing to cancel.")
+
+        let lastDay = try header(
+            tier: "free", access: "trial",
+            extraFields: "\"trial_ends_at\": \"2026-09-17T00:00:00Z\", \"trial_days_left\": 1,"
+        )
+        #expect(lastDay.detail == "One day left, until \(date). No card, nothing to cancel.")
+
+        // An older server sends the date and no count: no number, no "days left".
+        let dateOnly = try header(
+            tier: "free", access: "trial", extraFields: "\"trial_ends_at\": \"2026-09-17T00:00:00Z\","
+        )
+        #expect(dateOnly.detail == "Until \(date). No card, nothing to cancel.")
+        #expect(dateOnly.detail?.contains("days left") == false)
+
+        // A count with no date to sit beside is not rendered: a bare number is the countdown.
+        let countOnly = try header(tier: "free", access: "trial", extraFields: "\"trial_days_left\": 13,")
+        #expect(countOnly.detail == MembershipCopy.Card.trialDetailNoDate)
+    }
+
+    /// **The pin that stops a later phase keying the header on the date.** A trial that ended
+    /// yesterday reads `access: free` from the server, and the header follows `access` — never
+    /// "Free trial" over a date that has passed.
+    @Test("a past trial end beside access free renders Free, never Free trial")
+    func aPastTrialIsFree() throws {
+        let value = try header(
+            tier: "free", access: "free",
+            extraFields: "\"trial_ends_at\": \"2026-08-01T00:00:00Z\", \"trial_days_left\": null,"
+        )
+        #expect(value.headline == MembershipCopy.Card.free)
+        #expect(value.detail == MembershipCopy.Card.freeDetail)
+    }
+
+    /// **The headline is the plan, since phase 144** — the owner's call: *"Annual Membership
+    /// please and if they are monthly it should say that."* No plan on the wire is the plain
+    /// noun, never a guess at cadence and never the old "Subscribed".
+    @Test("a subscribed household reads its plan, and the plain noun without one")
+    func subscribedReadsThePlan() throws {
+        #expect(try status(tier: "subscribed", access: "subscribed") == MembershipCopy.Card.membership)
+        #expect(
+            try status(tier: "subscribed", access: "subscribed", extraFields: "\"plan\": \"annual\",")
+                == MembershipCopy.Card.annual
+        )
+        #expect(
+            try status(tier: "subscribed", access: "subscribed", extraFields: "\"plan\": \"monthly\",")
+                == MembershipCopy.Card.monthly
+        )
+        #expect(
+            try status(tier: "subscribed", access: "subscribed", extraFields: "\"plan\": \"quarterly\",")
+                == MembershipCopy.Card.membership,
+            "a cadence this build has never heard of is a lookup miss, not a crash and not a guess"
+        )
+    }
+
+    /// *Renews* / *Expires* / *Paid through*, by Apple's word — and no date line at all from a
+    /// server that predates the field, which is production until the API half deploys.
+    @Test("a subscribed household's detail is the period end, in Apple's word for it")
+    func subscribedDetailIsThePeriodEnd() throws {
+        let date = DayHeaderText.dayAndMonth(Self.serverDate)
+        let period = "\"plan\": \"annual\", \"expires_at\": \"2026-09-17T00:00:00Z\","
+
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: period + "\"auto_renew\": true,").detail
+                == "Renews \(date)"
+        )
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: period + "\"auto_renew\": false,").detail
+                == "Expires \(date)"
+        )
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: period).detail
+                == "Paid through \(date). Whether it renews is set in the App Store."
+        )
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: "\"plan\": \"annual\",").detail
+                == nil,
+            "no period end on the wire is no date line, never an invented one"
+        )
+    }
+
+    /// The explicit non-payer: the date when there is one, then who manages it, and never the
+    /// pointer to an App Store this parent cannot reach.
+    @Test("a subscriber who is not the payer is told who manages it")
+    func notThePayerIsToldWhoManages() throws {
+        let date = DayHeaderText.dayAndMonth(Self.serverDate)
+        let paying = "\"plan\": \"annual\", \"is_payer\": false, \"expires_at\": \"2026-09-17T00:00:00Z\","
+
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: paying + "\"auto_renew\": true,").detail
+                == "Renews \(date). Managed by the other parent."
+        )
+        #expect(
+            try header(tier: "subscribed", access: "subscribed", extraFields: "\"is_payer\": false,").detail
+                == MembershipCopy.Card.otherParent
+        )
+        // Never the retry sentence: it is an offer to fix, and this parent cannot fix it.
+        #expect(
+            try header(
+                tier: "subscribed", access: "subscribed",
+                extraFields: "\"is_payer\": false, \"billing_retry\": true,"
+            ).detail == MembershipCopy.Card.otherParent
+        )
+    }
+
+    /// The complimentary household: the header is the whole card, and a dated grant says what
+    /// follows the date because there is no row beneath it to imply that nothing does.
+    @Test("a granted household reads Complimentary membership, dated when the grant is")
+    func grantedReadsComplimentary() throws {
+        let date = DayHeaderText.dayAndMonth(Self.serverDate)
+        let grant = "\"entitled\": true, \"entitlement_source\": \"grant\","
+
+        let perpetual = try header(tier: "free", access: "subscribed", extraFields: grant)
+        #expect(perpetual.headline == MembershipCopy.Card.complimentary)
+        #expect(perpetual.detail == MembershipCopy.Card.complimentaryDetail)
+
+        let dated = try header(
+            tier: "free", access: "subscribed",
+            extraFields: grant + "\"grant_expires_at\": \"2026-09-17T00:00:00Z\","
+        )
+        #expect(
+            dated.detail
+                == "Everything a member has, until \(date). After that the daily question keeps going, free."
+        )
     }
 
     @Test("a genuinely free household still reads Free")
     func freeReadsFree() throws {
-        let value = try status(tier: "free", access: "free")
-        #expect(value == MembershipCopy.Status.free)
+        let value = try header(tier: "free", access: "free")
+        #expect(value.headline == MembershipCopy.Card.free)
+        #expect(value.detail == MembershipCopy.Card.freeDetail)
     }
 
     // MARK: - The two ways of not knowing, which are not the same way
 
     /// **No household yet is not the same answer as `free`.** The row has never been allowed to say
     /// "Free" on the strength of never having looked, and this phase does not start.
-    @Test("no household yet claims nothing")
+    @Test("no household yet claims nothing, and says why")
     func noHouseholdClaimsNothing() {
-        #expect(MembershipPresentation.settingsStatus(for: nil) == MembershipCopy.Status.unknown)
+        let header = MembershipPresentation.settingsHeader(for: nil)
+        #expect(header.headline == MembershipCopy.Card.unknown)
+        #expect(header.detail == MembershipCopy.Card.noAnswerYet)
     }
 
     /// **A server predating phase 107 sends no `access` at all**, and on such a server `tier` is the
@@ -111,8 +255,8 @@ struct SettingsMembershipTests {
 
         let subscribed = try status(tier: "subscribed", access: nil)
         let free = try status(tier: "free", access: nil)
-        #expect(subscribed == MembershipCopy.Status.subscribed)
-        #expect(free == MembershipCopy.Status.free)
+        #expect(subscribed == MembershipCopy.Card.membership)
+        #expect(free == MembershipCopy.Card.free)
     }
 
     /// **A word this build does not know says nothing rather than guessing.**
@@ -125,7 +269,9 @@ struct SettingsMembershipTests {
     func unrecognisedAccessClaimsNothingAndStillEntitles() throws {
         let household = try family(Self.familyJSON(tier: "free", access: "founding_member"))
 
-        #expect(MembershipPresentation.settingsStatus(for: household) == MembershipCopy.Status.unknown)
+        let header = MembershipPresentation.settingsHeader(for: household)
+        #expect(header.headline == MembershipCopy.Card.unknown)
+        #expect(header.detail == MembershipCopy.Card.unreadable, "a dash on its own is not a word")
         #expect(
             household.access?.isEntitled == true,
             "D9 inverted — an unknown access must open the board, never paywall it"
@@ -156,7 +302,10 @@ struct SettingsMembershipTests {
             Self.familyJSON(tier: "subscribed", access: "subscribed", extraFields: extra)
         )
 
-        #expect(MembershipPresentation.settingsStatus(for: household) == MembershipCopy.Status.subscribed)
+        let header = MembershipPresentation.settingsHeader(for: household)
+        #expect(header.headline == MembershipCopy.Card.annual)
+        // An explicit non-payer in a retry is told who manages it, never the retry sentence.
+        #expect(header.detail == MembershipCopy.Card.otherParent)
         #expect(household.isSubscribed)
     }
 
@@ -167,30 +316,36 @@ struct SettingsMembershipTests {
         let household = try family(Self.familyJSON(tier: "free", access: nil))
 
         #expect(household.access == nil)
-        #expect(MembershipPresentation.settingsStatus(for: household) == MembershipCopy.Status.free)
+        #expect(MembershipPresentation.settingsHeader(for: household).headline == MembershipCopy.Card.free)
     }
 
     // MARK: - The rules the row is not allowed to break
 
-    /// **No countdown, no day counter, no date.** Rule 1 of the copy file bans counting outright,
-    /// and the cheapest way for it to come back is somebody rendering `trial_ends_at` into this row
-    /// as "9 days left". A digit in any of the four answers is the tell.
-    @Test("no status answer contains a number")
+    /// **No authored constant carries a digit.** Rule 1 of the copy file bans counting, and phase
+    /// 144 is the owner amending it for this one surface: a day count may render here **when the
+    /// server sent one**. So the rule this test now holds is the one that survives the amendment —
+    /// a number reaches this card only through `render`, from the wire, and never from a constant
+    /// or a clock. The dated templates carry exactly one `{date}`; exactly one carries `{days}`.
+    @Test("no authored constant contains a number, and the placeholders are where the wire lands")
     func noStatusAnswerCounts() {
-        for value in [
-            MembershipCopy.Status.subscribed,
-            MembershipCopy.Status.everythingOpen,
-            MembershipCopy.Status.free,
-            MembershipCopy.Status.unknown,
-        ] {
+        for value in MembershipCopy.Card.all {
             // Hoisted out of the macro: `contains(where:)` is `rethrows`, and `#expect` cannot
             // resolve that to non-throwing on its own.
             let carriesADigit = value.contains(where: \.isNumber)
             #expect(
                 !carriesADigit,
-                "\"\(value)\" carries a digit, which is the countdown rule 1 forbids"
+                "\"\(value)\" carries a digit — a count must come from the wire, never from a constant"
             )
         }
+        for template in MembershipCopy.Card.dated {
+            let dates = template.components(separatedBy: MembershipCopy.Card.datePlaceholder).count - 1
+            #expect(dates == 1, "\"\(template)\" should carry exactly one {date}")
+        }
+        let counting = MembershipCopy.Card.all.filter { $0.contains(MembershipCopy.Card.daysPlaceholder) }
+        #expect(counting == [MembershipCopy.Card.trialDetail], "only the trial's detail counts")
+
+        // And the render is the only door: the same template, the server's number in it.
+        #expect(MembershipCopy.render(MembershipCopy.Card.trialDetail, date: "x", days: 9) == "9 days left, until x. No card, nothing to cancel.")
     }
 
     /// **Nothing on this surface does date arithmetic**, which is the standing rule that the device
@@ -203,8 +358,12 @@ struct SettingsMembershipTests {
         // **`lapsedAt` is deliberately not here.** It was, briefly, and it fired on the
         // preview fixture that plumbs the field through — which is neither arithmetic nor a
         // read of the trial's end. Reading a lapse date is not the defect this guards.
+        // **`trialEndsAt` and `trial_ends_at` left this list with phase 144**, deliberately: the
+        // surface now *reads* the trial's end to format it, and the amendment is recorded in
+        // `free-tier-copy.md`. What stays banned is every way of computing from it. Fixture and
+        // preview dates in the two scanned files are built with `ISO8601Formatters.parse(...)`,
+        // which contains none of the kept tokens, so the constraint travels with the test.
         let banned = [
-            "trialEndsAt", "trial_ends_at",
             "timeIntervalSince", "Date()", "Date.now", "dateComponents", "Calendar",
         ]
 
@@ -212,6 +371,12 @@ struct SettingsMembershipTests {
             let file = Self.sourceRoot.appendingPathComponent(name)
             let source = try String(contentsOf: file, encoding: .utf8)
             #expect(!source.isEmpty, "\(name) moved and this test stopped looking")
+            if name.hasSuffix("MembershipPresentation.swift") {
+                #expect(
+                    source.contains("DayHeaderText.dayAndMonth("),
+                    "the surface may read and format a server date; the formatter is the one door"
+                )
+            }
 
             for (index, line) in source.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let code = line.trimmingCharacters(in: .whitespaces)
@@ -227,10 +392,12 @@ struct SettingsMembershipTests {
 
     // MARK: - The reassurance is the owner's, not an agent's
 
-    /// **The copy file forbids an agent writing strings into a view**, so the block this phase puts
-    /// on the card has to be the approved one, unchanged. Pinned by value rather than by reference
-    /// so that editing `MembershipCopy` to say something friendlier fails here instead of shipping.
-    @Test("the reassurance on the card is the owner's approved block, verbatim and in order")
+    /// **The copy file forbids an agent writing strings into a view**, so the block has to be the
+    /// approved one, unchanged. Pinned by value rather than by reference so that editing
+    /// `MembershipCopy` to say something friendlier fails here instead of shipping. **Since phase
+    /// 144 this pins the paywall's block, not the card's**: the owner had the block removed from
+    /// the Settings card on Sep 3, 2026, and `PaywallSheet` still renders it.
+    @Test("the reassurance is the owner's approved block, verbatim and in order")
     func theReassuranceIsTheApprovedBlock() {
         #expect(MembershipCopy.freeLabel == "Yours either way")
         #expect(
@@ -242,16 +409,11 @@ struct SettingsMembershipTests {
         )
     }
 
-    /// The four new strings go through the same banned-phrase guard as every other, rather than
-    /// being trusted because they are short.
-    @Test("no status answer contains a banned phrase")
+    /// Every card string goes through the same banned-phrase guard as every other, rather than
+    /// being trusted because it was approved.
+    @Test("no card string contains a banned phrase")
     func noStatusAnswerIsBanned() {
-        for value in [
-            MembershipCopy.Status.subscribed,
-            MembershipCopy.Status.everythingOpen,
-            MembershipCopy.Status.free,
-            MembershipCopy.Status.unknown,
-        ] {
+        for value in MembershipCopy.Card.all {
             #expect(MembershipCopy.allUserVisibleStrings.contains(value), "\"\(value)\" escaped the guard list")
 
             for banned in MembershipCopy.bannedPhrases where MembershipCopy.contains(banned, in: value) {
@@ -516,8 +678,9 @@ struct MembershipWireTests {
         #expect(household.lapsedAt != nil, "lapsed_at is what tells state 6 from state 5")
         #expect(household.plan == nil, "113's invariant: no plan on a household that is not subscribed")
         #expect(household.isInBillingRetry == false)
-        // Nothing renders the lapse yet — there is no approved copy for it.
-        #expect(MembershipPresentation.settingsStatus(for: household) == MembershipCopy.Status.free)
+        // Lapsed renders identically to never-subscribed, deliberately: the free tier is the same
+        // tier either way, and the copy file declined to write a lapse sentence.
+        #expect(MembershipPresentation.settingsHeader(for: household).headline == MembershipCopy.Card.free)
     }
 
     /// **A household in grace is fully entitled and reads as subscribed.** `billing_retry` moves no
@@ -532,8 +695,111 @@ struct MembershipWireTests {
         )
 
         #expect(household.isInBillingRetry)
-        #expect(MembershipPresentation.settingsStatus(for: household) == MembershipCopy.Status.subscribed)
+        let header = MembershipPresentation.settingsHeader(for: household)
+        #expect(header.headline == MembershipCopy.Card.membership, "no plan on this fixture")
+        #expect(header.detail == MembershipCopy.Card.billingRetry, "the fact and the reassurance")
         #expect(MembershipPresentation.settingsAction(for: household) == .manage)
+        #expect(MembershipPresentation.manageDetail(for: household) == MembershipCopy.Card.manageDetailRetry)
         #expect(household.access?.isEntitled == true)
+    }
+
+    // MARK: - Phase 144: the five fields the card reads, and the rows they move
+
+    /// The three phase 144 adds and the two it starts reading. All optional: a server that sends
+    /// none of them — production, until the API half deploys — still decodes.
+    @Test("the phase 144 fields decode when present and are nil when absent")
+    func phase144FieldsDecode() throws {
+        let absent = try family(Self.familyJSON(tier: "subscribed", access: "subscribed"))
+        #expect(absent.trialEndsAt == nil)
+        #expect(absent.trialDaysLeft == nil)
+        #expect(absent.grantExpiresAt == nil)
+        #expect(absent.expiresAt == nil)
+        #expect(absent.autoRenew == nil)
+
+        let present = try family(
+            Self.familyJSON(
+                tier: "subscribed", access: "subscribed",
+                extraFields: """
+                      "trial_ends_at": "2026-09-17T00:00:00Z",
+                      "trial_days_left": 13,
+                      "grant_expires_at": "2027-09-17T00:00:00Z",
+                      "expires_at": "2027-09-17T00:00:00Z",
+                      "auto_renew": false,
+                    """
+            )
+        )
+        #expect(present.trialEndsAt == ISO8601Formatters.parse("2026-09-17T00:00:00Z"))
+        #expect(present.trialDaysLeft == 13)
+        #expect(present.grantExpiresAt == ISO8601Formatters.parse("2027-09-17T00:00:00Z"))
+        #expect(present.expiresAt == ISO8601Formatters.parse("2027-09-17T00:00:00Z"))
+        #expect(present.autoRenew == false)
+    }
+
+    /// **Restore appears only where a restore could find something.** Hidden for every member
+    /// state whatever the purchase phase says; disabled while a purchase is mid-flight; enabled
+    /// again in `.late` and `.awaitingApproval`, where it is the one control that can nudge the
+    /// server.
+    @Test("the Restore row is offered to non-members, waits during a purchase, and hides for members")
+    func restoreRowMatrix() throws {
+        let trial = try family(Self.familyJSON(tier: "free", access: "trial"))
+        let free = try family(Self.familyJSON(tier: "free", access: "free"))
+        let lapsed = try family(
+            Self.familyJSON(tier: "free", access: "free", extraFields: "\"lapsed_at\": \"2026-08-01T12:00:00Z\",")
+        )
+        let unread = try family(Self.familyJSON(tier: "free", access: "founding_member"))
+        let payer = try family(Self.familyJSON(tier: "subscribed", access: "subscribed", extraFields: "\"is_payer\": true,"))
+        let unknownPayer = try family(Self.familyJSON(tier: "subscribed", access: "subscribed"))
+        let notPayer = try family(Self.familyJSON(tier: "subscribed", access: "subscribed", extraFields: "\"is_payer\": false,"))
+        let retry = try family(Self.familyJSON(tier: "subscribed", access: "subscribed", extraFields: "\"billing_retry\": true,"))
+        let granted = try family(
+            Self.familyJSON(tier: "free", access: "subscribed", extraFields: "\"entitled\": true, \"entitlement_source\": \"grant\",")
+        )
+
+        for household in [trial, free, lapsed, unread] {
+            #expect(MembershipPresentation.settingsRestore(for: household) == .offered)
+            #expect(MembershipPresentation.settingsRestore(for: household, purchase: .purchasing) == .waiting)
+            #expect(MembershipPresentation.settingsRestore(for: household, purchase: .confirming) == .waiting)
+            #expect(MembershipPresentation.settingsRestore(for: household, purchase: .late) == .offered)
+            #expect(MembershipPresentation.settingsRestore(for: household, purchase: .awaitingApproval) == .offered)
+            #expect(MembershipPresentation.settingsRestore(for: household, purchase: .failed("no")) == .offered)
+        }
+        #expect(MembershipPresentation.settingsRestore(for: nil) == .offered, "no household yet: the row that can ask")
+        #expect(MembershipPresentation.settingsRestore(for: nil, purchase: .confirming) == .waiting)
+
+        for member in [payer, unknownPayer, notPayer, retry, granted] {
+            for purchase in [SubscriptionModel.PurchasePhase.idle, .purchasing, .confirming, .late, .awaitingApproval] {
+                #expect(
+                    MembershipPresentation.settingsRestore(for: member, purchase: purchase) == .hidden,
+                    "a member's restore can only confirm the header; \(purchase) must not bring it back"
+                )
+            }
+        }
+    }
+
+    /// **The offer follows `isMember`, exactly as the sheet's buy button does** — never `access`.
+    /// Every non-member `access` value, including one this build cannot read, is offered the
+    /// membership; the trial is offered its own sentence.
+    @Test("the offer row follows isMember across every access value, and the trial gets its own detail")
+    func offerFollowsIsMember() throws {
+        for access in ["trial", "free", "founding_member"] {
+            let household = try family(Self.familyJSON(tier: "free", access: access))
+            #expect(MembershipPresentation.settingsAction(for: household) == .offer, "access \(access)")
+        }
+        // The key genuinely omitted — a pre-107 server — rather than sent as null.
+        let absent = try family("""
+            {"family_id": "44444444-4444-4444-4444-444444444444", "tier": "free",
+             "guardians": [], "pending_invites": []}
+            """)
+        #expect(MembershipPresentation.settingsAction(for: absent) == .offer)
+
+        let trial = try family(Self.familyJSON(tier: "free", access: "trial"))
+        #expect(MembershipPresentation.offerDetail(for: trial) == MembershipCopy.Card.offerDetailTrial)
+        #expect(MembershipPresentation.offerDetail(for: absent) == MembershipCopy.Card.offerDetail)
+        #expect(MembershipPresentation.offerDetail(for: nil) == MembershipCopy.Card.offerDetail)
+
+        // A subscriber's `access` being unreadable changes nothing: Manage keys on `tier`.
+        let paying = try family(Self.familyJSON(tier: "subscribed", access: "founding_member"))
+        #expect(MembershipPresentation.settingsAction(for: paying) == .manage)
+        #expect(MembershipPresentation.settingsHeader(for: paying).headline == MembershipCopy.Card.membership)
     }
 }

@@ -118,8 +118,68 @@ struct SubscriptionScreenshotTests {
         let awaitingApproval = SubscriptionModel(
             previewing: .loading, household: .sample(tier: "free"), purchase: .awaitingApproval
         )
+        // **Phase 144: the receipt.** The states the redesign added a sentence for, each drawn at
+        // every size because the header's detail is the longest text on the card and AX3 is
+        // where a two-sentence detail either wraps cleanly or does not.
+        let trialDays = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "free", access: .trial,
+                trialEndsAt: FamilySummary.sampleTrialEnd, trialDaysLeft: 13
+            )
+        )
+        let lapsed = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "free", lapsedAt: FamilySummary.sampleTrialEnd)
+        )
+        let annualRenews = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "subscribed", plan: "annual",
+                expiresAt: FamilySummary.sampleRenewal, autoRenew: true
+            )
+        )
+        let monthlyExpires = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "subscribed", plan: "monthly",
+                expiresAt: FamilySummary.sampleTrialEnd, autoRenew: false
+            )
+        )
+        let paidThrough = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "subscribed", plan: "annual", expiresAt: FamilySummary.sampleRenewal)
+        )
+        let billingRetry = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "subscribed", plan: "monthly", billingRetry: true)
+        )
+        let granted = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "free", access: .subscribed, entitlementSource: "grant")
+        )
+        let grantedUntil = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "free", access: .subscribed, entitlementSource: "grant",
+                grantExpiresAt: FamilySummary.sampleRenewal
+            )
+        )
+        let noHousehold = SubscriptionModel(previewing: .loading, household: nil)
 
         for (label, size) in Self.sizes {
+            for (name, model) in [
+                ("trial-days", trialDays), ("lapsed", lapsed), ("annual-renews", annualRenews),
+                ("monthly-expires", monthlyExpires), ("paid-through", paidThrough),
+                ("billing-retry", billingRetry), ("granted", granted),
+                ("granted-until", grantedUntil), ("no-household", noHousehold),
+            ] {
+                try render(
+                    SubscriptionSection(model: model).padding(Layout.screenMargin),
+                    named: "membership-\(name)-\(label)",
+                    at: size
+                )
+            }
             try render(
                 SubscriptionSection(model: confirming).padding(Layout.screenMargin),
                 named: "membership-confirming-\(label)",
@@ -330,8 +390,44 @@ struct SubscriptionScreenshotTests {
         let confirming = SubscriptionModel(
             previewing: .loading, household: .sample(tier: "free"), purchase: .confirming
         )
+        try renderHosted(SubscriptionSection(model: confirming), named: "membership-confirming-hosted")
+    }
+
+    /// **Phase 144: the receipt, on the real surface.** The same `UIWindow` path as the busy row,
+    /// for the three states the redesign is judged on — the trial with the server's count and
+    /// date, a paying household with its renewal, and a billing retry — so the PNGs are what UIKit
+    /// draws for a parent rather than `ImageRenderer`'s approximation of it.
+    @Test("the membership card renders hosted in its three headline states")
+    @MainActor
+    func theReceiptRendersHosted() throws {
+        let trial = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "free", access: .trial,
+                trialEndsAt: FamilySummary.sampleTrialEnd, trialDaysLeft: 13
+            )
+        )
+        let annual = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(
+                tier: "subscribed", plan: "annual",
+                expiresAt: FamilySummary.sampleRenewal, autoRenew: true
+            )
+        )
+        let retry = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "subscribed", plan: "monthly", billingRetry: true)
+        )
+        try renderHosted(SubscriptionSection(model: trial), named: "membership-trial-days-hosted")
+        try renderHosted(SubscriptionSection(model: annual), named: "membership-annual-renews-hosted")
+        try renderHosted(SubscriptionSection(model: retry), named: "membership-billing-retry-hosted")
+    }
+
+    /// A render through a `UIWindow` and `drawHierarchy`, at the default text size.
+    @MainActor
+    private func renderHosted(_ view: some View, named name: String) throws {
         let host = UIHostingController(
-            rootView: SubscriptionSection(model: confirming)
+            rootView: view
                 .padding(Layout.screenMargin)
                 .frame(width: 393)
                 .background(Color.canvas)
@@ -373,7 +469,7 @@ struct SubscriptionScreenshotTests {
         try FileManager.default.createDirectory(
             at: Self.outputDirectory, withIntermediateDirectories: true
         )
-        let url = Self.outputDirectory.appendingPathComponent("membership-confirming-hosted.png")
+        let url = Self.outputDirectory.appendingPathComponent("\(name).png")
         try data.write(to: url)
         print("RASCAL_SCREENSHOT \(url.path) \(Int(image.size.width))x\(Int(image.size.height)) hosted")
         #expect(image.size.height >= 100)
@@ -478,20 +574,29 @@ extension FamilySummary {
     static func sample(
         tier: String,
         access: Access? = nil,
-        isPayer: Bool? = nil
+        isPayer: Bool? = nil,
+        plan: String? = nil,
+        billingRetry: Bool? = nil,
+        lapsedAt: Date? = nil,
+        entitlementSource: String? = nil,
+        trialEndsAt: Date? = nil,
+        trialDaysLeft: Int? = nil,
+        grantExpiresAt: Date? = nil,
+        expiresAt: Date? = nil,
+        autoRenew: Bool? = nil
     ) -> FamilySummary {
-        FamilySummary(
+        var household = FamilySummary(
             familyId: UUID(),
             tier: tier,
             access: access ?? (tier == "subscribed" ? .subscribed : .free),
-            lapsedAt: nil,
-            plan: nil,
-            billingRetry: nil,
+            lapsedAt: lapsedAt,
+            plan: plan,
+            billingRetry: billingRetry,
             // Defaults to unset, so every existing render keeps the Manage control it had: unknown
             // is not `false`, and `mayManageSubscription` is `isPayer != false`.
             isPayer: isPayer,
             entitled: nil,
-            entitlementSource: nil,
+            entitlementSource: entitlementSource,
             guardians: [
                 GuardianSummary(
                     userId: UUID(), displayName: "Travis", role: "parent",
@@ -500,5 +605,17 @@ extension FamilySummary {
             ],
             pendingInvites: []
         )
+        // Phase 144's five, read by the card's header. Parsed literals rather than a clock, so
+        // the rendered date is the same in every run.
+        household.trialEndsAt = trialEndsAt
+        household.trialDaysLeft = trialDaysLeft
+        household.grantExpiresAt = grantExpiresAt
+        household.expiresAt = expiresAt
+        household.autoRenew = autoRenew
+        return household
     }
+
+    /// The server's instants for every dated render here.
+    static let sampleTrialEnd = ISO8601Formatters.parse("2026-09-17T00:00:00Z")!
+    static let sampleRenewal = ISO8601Formatters.parse("2027-09-17T00:00:00Z")!
 }

@@ -161,6 +161,12 @@ nonisolated enum MembershipPresentation {
         /// household something shows instead what is happening to the thing they just bought.
         /// Carries its own label so the view renders it without consulting `purchase` again.
         case finishing(String)
+        /// **A purchase Apple has taken and the server has not confirmed** (phase 144): `.late`
+        /// and `.awaitingApproval`. The sentence sits in the CTA's slot as a plain row and *Become
+        /// a member* is gone, because a parent who has just paid must not be invited, in the
+        /// card's loudest colour, to do it again and meet Apple's "You're currently subscribed"
+        /// dialog. Until phase 144 these kept the offer row and said the sentence under the card.
+        case reported(String)
         /// **Neither, and no row at all.** Two households reach it: a subscribed one whose caller
         /// is explicitly *not* the payer, and (since phase 141) one entitled by an admin grant.
         /// There is no approved copy naming the other parent, and none for a complimentary
@@ -198,12 +204,15 @@ nonisolated enum MembershipPresentation {
         switch purchase {
         case .purchasing: return .finishing(PurchaseCopy.talkingToAppStore)
         case .confirming: return .finishing(PurchaseCopy.finishingUp)
-        // `.late` and `.awaitingApproval` keep the offer row: the sheet behind it renders the
-        // same terminal sentence with Done, plus Terms and Privacy, which the card cannot.
-        // `.failed` keeps it for the retry that lives on the sheet.
-        case .idle, .late, .awaitingApproval, .failed, .subscribed:
+        // `.late` and `.awaitingApproval` displace the offer row with their sentence (phase
+        // 144), for a granted household too — a grant landing while a purchase is late must not
+        // hide what the purchase has to say. `.failed` keeps the offer for the retry that lives
+        // on the sheet, beside Terms and Privacy, which the card cannot carry.
+        case .late: return .reported(PurchaseCopy.late)
+        case .awaitingApproval: return .reported(PurchaseCopy.approval)
+        case .idle, .failed, .subscribed:
             // **A granted household is neither.** The status row above it already reads
-            // *Subscribed* (`settingsStatus` keys on `access`, and a grant reads `subscribed`
+            // *Subscribed* (`settingsHeader` keys on `tier` first, and a grant reads `subscribed`
             // there by the server's deliberate choice), there is no Apple subscription for Manage
             // to open, and offering to sell membership to a household that has all of it is the
             // contradiction phase 141 found: "Subscribed" with "See what membership includes"
@@ -233,17 +242,72 @@ nonisolated enum MembershipPresentation {
 
     /// The one line the Membership card says under itself about a purchase, if anything.
     ///
-    /// `.late` and `.awaitingApproval` are the two terminal states the sheet used to hold open;
-    /// with the sheet gone they are said here, in the same words. `.failed` carries the store's
-    /// own sentence — the sheet keeps its retry, but a parent who swiped it away unread should
-    /// still find the reason on the card. `.confirming` and `.purchasing` are the busy row, not a
-    /// line; `.subscribed` needs no sentence because the status row already reads *Subscribed*.
+    /// **Only `.failed`, since phase 144.** `.late` and `.awaitingApproval` moved into the card as
+    /// `MembershipAction.reported`, and a sentence rendered in the card must not also render under
+    /// it. `.failed` carries the store's own sentence — the sheet keeps its retry, but a parent who
+    /// swiped it away unread should still find the reason on the card. `.confirming` and
+    /// `.purchasing` are the busy row, not a line; `.subscribed` needs no sentence because the
+    /// header already names the membership.
     static func purchaseLine(for purchase: SubscriptionModel.PurchasePhase) -> String? {
         switch purchase {
-        case .late: return PurchaseCopy.late
-        case .awaitingApproval: return PurchaseCopy.approval
         case .failed(let message): return message
-        case .idle, .purchasing, .confirming, .subscribed: return nil
+        case .idle, .purchasing, .confirming, .late, .awaitingApproval, .subscribed: return nil
+        }
+    }
+
+    /// Which detail sits under *Become a member*.
+    ///
+    /// The trial's own sentence rather than §2's subtitle, because the header two lines up says
+    /// the household already has everything — *"Membership is what fills in the rest of the day"*
+    /// reads as false on a full board, or as "membership starts after the trial", and the second
+    /// reading is the dangerous one: Apple grants no introductory offer, so joining on day three
+    /// charges on day three. The row that sends a parent into that charge is the row that says so.
+    static func offerDetail(for household: FamilySummary?) -> String {
+        household?.access == .trial
+            ? MembershipCopy.Card.offerDetailTrial
+            : MembershipCopy.Card.offerDetail
+    }
+
+    /// Which detail sits under *Manage subscription*: the retry variant names where the payment
+    /// method lives, because a parent whose card is failing will tap the one action on the card
+    /// and Apple's manage-subscriptions sheet does not reach a payment field.
+    static func manageDetail(for household: FamilySummary?) -> String {
+        household?.isInBillingRetry == true
+            ? MembershipCopy.Card.manageDetailRetry
+            : MembershipCopy.Card.manageDetail
+    }
+
+    /// Whether the card offers *Restore a purchase*, and in what state.
+    nonisolated enum RestoreRow: Equatable {
+        /// Tappable.
+        case offered
+        /// Present and disabled: a purchase is mid-flight, and two StoreKit operations must not
+        /// overlap — nor should the card reflow the moment the sheet dismisses itself.
+        case waiting
+        /// Not on the card at all.
+        case hidden
+    }
+
+    /// **Restore appears only where a restore could find something** (phase 144).
+    ///
+    /// For a household the server already calls a member, `restore()` can only re-read the same
+    /// answer — a submission may only ever promote, and there is nothing to promote — so the row
+    /// would be furniture whose one outcome confirms the line above it. The Sep 2 incident the row
+    /// exists for (a receipt this phone held that the server could not see) reads as `free` or
+    /// `trial` in every version of the story, because the server not knowing about a purchase is
+    /// exactly what makes `access` not `subscribed`. So: hidden for every member state whatever
+    /// `purchase` says; disabled while a purchase is in flight; enabled again in `.late` and
+    /// `.awaitingApproval`, where it is the one control on the card that can nudge the server.
+    /// App Review's restore requirement is met by the paywall, which every non-member state reaches
+    /// through *Become a member*.
+    static func settingsRestore(
+        for household: FamilySummary?,
+        purchase: SubscriptionModel.PurchasePhase = .idle
+    ) -> RestoreRow {
+        if let household, household.isMember { return .hidden }
+        switch purchase {
+        case .purchasing, .confirming: return .waiting
+        case .idle, .late, .awaitingApproval, .failed, .subscribed: return .offered
         }
     }
 
@@ -289,44 +353,128 @@ nonisolated enum MembershipPresentation {
         return household?.isMember == true
     }
 
-    /// **What the Settings *Your household* row reports** — *Household* until phase 125 renamed the
-    /// label on Aug 26, 2026. A pure function, for the same reason the two
-    /// above are: the case that matters — a household three days into its trial — can then be
-    /// asserted without rendering a view or touching `UserDefaults`.
-    ///
-    /// **It reads `access`, never `tier`, and that is the defect phase 112 fixes.** `tier` is
-    /// constrained to `free | subscribed` and has no word for a trial, so from phase 37a until now
-    /// this row told a household inside its two weeks that it was **Free**.
-    ///
-    /// Four answers, and the two null cases are deliberately *different*:
-    ///
-    /// * **No household yet** — the server has not answered. `—`, because not knowing is a
-    ///   different answer from `free` and this row must not claim on the strength of never
-    ///   having looked.
-    /// * **`access` absent** — a server predating phase 107, where `tier` is the whole truth
-    ///   rather than a lossy half of it, because such a server has no trial to be wrong about.
-    ///   Falling back to it is the only correct answer available and keeps every pre-107 build
-    ///   behaving exactly as it did.
-    /// * **A word this build does not know** — `—`. Under D9 an unrecognised `access` still means
-    ///   *entitled*, and `Access.isEntitled` is untouched and still enforces that; but "entitled"
-    ///   is not the claim "Subscribed", and naming the wrong membership is worse than naming none.
-    ///
-    /// **Nothing here is arithmetic.** No `trial_ends_at`, no date, no StoreKit receipt — the
-    /// server said a word and this maps it. The device never decides entitlement.
-    static func settingsStatus(for household: FamilySummary?) -> String {
-        guard let household else { return MembershipCopy.Status.unknown }
+    /// The two lines at the head of the Membership card.
+    nonisolated struct MembershipHeader: Equatable {
+        /// What the household is on, in a noun. Never a claim the server did not make.
+        let headline: String
+        /// The one dated fact the server sent, formatted and never counted here — or the sentence
+        /// that says why there is none.
+        let detail: String?
+    }
 
-        guard let access = household.access else {
-            return household.isSubscribed
-                ? MembershipCopy.Status.subscribed
-                : MembershipCopy.Status.free
+    /// **What the Membership card's header reports** — a pure function of the household, for the
+    /// same reason the functions above are: every state can be asserted without rendering a view
+    /// or touching a clock.
+    ///
+    /// Phase 144 replaced `settingsStatus(for:)`, whose four one-word answers were the owner's
+    /// complaint: *"Everything open"* named neither the trial nor its end, and *"Subscribed"* said
+    /// nothing about which plan or until when. The headline now keys on the same fields in the
+    /// same order — `tier` (Apple's word) first, then a grant, then `access` — and the detail is
+    /// the design doc's presence table (`docs/design/membership-card-redesign.md` §3), read from
+    /// the wire and nowhere else.
+    ///
+    /// **Nothing here is arithmetic.** The dates are the server's instants through the formatter
+    /// Settings already uses for a dated commitment, and the day count is the server's
+    /// `trial_days_left`. `SettingsMembershipTests.theRowDoesNoArithmetic` scans this file for the
+    /// alternative.
+    static func settingsHeader(for household: FamilySummary?) -> MembershipHeader {
+        guard let household else {
+            return MembershipHeader(
+                headline: MembershipCopy.Card.unknown, detail: MembershipCopy.Card.noAnswerYet
+            )
         }
+        if household.isSubscribed {
+            return MembershipHeader(
+                headline: planHeadline(for: household), detail: subscribedDetail(for: household)
+            )
+        }
+        if household.isGranted {
+            let detail = household.grantExpiresAt.map {
+                MembershipCopy.render(
+                    MembershipCopy.Card.complimentaryUntil, date: DayHeaderText.dayAndMonth($0)
+                )
+            }
+            return MembershipHeader(
+                headline: MembershipCopy.Card.complimentary,
+                detail: detail ?? MembershipCopy.Card.complimentaryDetail
+            )
+        }
+        switch household.access {
+        case .trial:
+            return MembershipHeader(
+                headline: MembershipCopy.Card.trial, detail: trialDetail(for: household)
+            )
+        case .free, .notReported, nil:
+            // A server predating phase 107 sends no `access`, and on such a server `tier` is the
+            // whole truth — `isSubscribed` above already answered for it.
+            return MembershipHeader(
+                headline: MembershipCopy.Card.free, detail: MembershipCopy.Card.freeDetail
+            )
+        case .subscribed:
+            // `access` says subscribed, `tier` says free, and no `entitlement_source` says grant:
+            // a server predating phase 121 holding a grant. "Membership" claims neither a cadence
+            // nor Apple's word, and the offer row beneath it is today's answer, named rather than
+            // fixed.
+            return MembershipHeader(headline: MembershipCopy.Card.membership, detail: nil)
+        case .unrecognised:
+            // D9: entitled, never claimed. The board stays open; the card says why it cannot name
+            // the membership rather than naming the wrong one.
+            return MembershipHeader(
+                headline: MembershipCopy.Card.unknown, detail: MembershipCopy.Card.unreadable
+            )
+        }
+    }
 
-        switch access {
-        case .subscribed: return MembershipCopy.Status.subscribed
-        case .trial: return MembershipCopy.Status.everythingOpen
-        case .free: return MembershipCopy.Status.free
-        case .unrecognised, .notReported: return MembershipCopy.Status.unknown
+    /// `Annual membership` / `Monthly membership` / `Membership`. A lookup, never a substring
+    /// parse, and a cadence this build has never heard of is the plain noun.
+    private static func planHeadline(for household: FamilySummary) -> String {
+        switch household.plan {
+        case "annual": MembershipCopy.Card.annual
+        case "monthly": MembershipCopy.Card.monthly
+        default: MembershipCopy.Card.membership
+        }
+    }
+
+    /// *Renews* / *Expires* / *Paid through*, by Apple's word — or nothing, when the server sent
+    /// no period end (an older server, a receipt-less subscription, a billing retry).
+    private static func dateLine(for household: FamilySummary) -> String? {
+        guard let expiresAt = household.expiresAt else { return nil }
+        let date = DayHeaderText.dayAndMonth(expiresAt)
+        switch household.autoRenew {
+        case .some(true): return MembershipCopy.render(MembershipCopy.Card.renews, date: date)
+        case .some(false): return MembershipCopy.render(MembershipCopy.Card.expires, date: date)
+        case .none: return MembershipCopy.render(MembershipCopy.Card.paidThrough, date: date)
+        }
+    }
+
+    private static func subscribedDetail(for household: FamilySummary) -> String? {
+        if household.isPayer == false {
+            // The date line when there is one, then who manages it. Never the retry sentence: it
+            // is an offer to fix, and this parent cannot fix it. Never the pointer either — it is
+            // about an App Store this parent cannot reach.
+            let line = household.isInBillingRetry ? nil : dateLine(for: household)
+            return [line, MembershipCopy.Card.otherParent].compactMap { $0 }.joined(separator: ". ")
+        }
+        if household.isInBillingRetry { return MembershipCopy.Card.billingRetry }
+        guard let line = dateLine(for: household) else { return nil }
+        // "Paid through" leaves the question open; the pointer answers it, at the Manage row. A
+        // date line stands alone without a full stop and takes one when a sentence follows it.
+        return household.autoRenew == nil ? line + ". " + MembershipCopy.Card.paidThroughPointer : line
+    }
+
+    /// The count and the date, both the server's. **The count renders only beside the date**:
+    /// `trial_days_left` without `trial_ends_at` is a server this build has never met, and a
+    /// bare number is the countdown the copy rules ban.
+    private static func trialDetail(for household: FamilySummary) -> String {
+        guard let endsAt = household.trialEndsAt else { return MembershipCopy.Card.trialDetailNoDate }
+        let date = DayHeaderText.dayAndMonth(endsAt)
+        switch household.trialDaysLeft {
+        case .none:
+            return MembershipCopy.render(MembershipCopy.Card.trialDetailDateOnly, date: date)
+        case .some(let days) where days <= 1:
+            return MembershipCopy.render(MembershipCopy.Card.trialDetailLastDay, date: date)
+        case .some(let days):
+            return MembershipCopy.render(MembershipCopy.Card.trialDetail, date: date, days: days)
         }
     }
 

@@ -1492,3 +1492,27 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   null, and a pre-refund JWS would have walked a refunded subscription into a new household
   `subscribed`; the later of the two `lapsed_at`s is the one the ordering rule reads. Not done: writing `free` to the ghost, or deleting `families`/`entitlements` on erasure —
   the second is a real question about `ON DELETE SET NULL` on the ledger and is not this bug.
+
+- **Sep 3, 2026 (phase 144, both lanes).** **The Membership card in Settings becomes a receipt, on
+  the owner's call** (*"I hate it and it's super confusing"*), approved from twelve rendered
+  mockups: a `SettingsCardHeader` naming the state — *Free trial*, *Free*, *Annual membership*,
+  *Monthly membership*, *Complimentary membership* — with the one dated fact under it, then only
+  the rows that can change it. Four decisions ride with it. **(1) The trial line counts, and the
+  count is the server's.** Copy rule 1's *"no countdown on the trial"* is amended for this one
+  surface by the owner (*"I like the date count but both is good idea"*); `trial_days_left` is
+  computed in `access_for` beside the one trial comparison, so the phone still does no date
+  arithmetic and the cadence tripwire still finds exactly one comparison. Not done: computing it
+  on the device, which would be off by one at the day boundary for a parent in a different zone
+  from the child. **(2) The offer follows `isMember`, never `access`** — the same predicate the
+  sheet's buy button uses — so a trial, a free household, and an `access` this build cannot read
+  are all offered *Become a member*, and a grant or a receipt never is. **(3) Restore appears only
+  where a restore could find something**: hidden for every member state, because for a member
+  `restore()` can only re-read the answer already on the card; disabled while a purchase is
+  mid-flight; enabled again in `.late` and `.awaitingApproval`. The paywall keeps its own Restore
+  for App Review. **(4) The late and Ask-to-Buy sentences displace the offer row** rather than
+  rendering under it, because a parent who has just paid must not be invited in the card's loudest
+  colour to do it again. The *Yours either way* block leaves the card (*"can go completely"*) and
+  stays on the sheet. API half: `expires_at`, `auto_renew` and `trial_days_left` on both household
+  shapes, additive and optional, `auto_renew` read as a JSONB path off the payload the webhook
+  already stores rather than inferred from the last notification type. `expires_at` is null during
+  a billing retry on purpose: the date on a row in retry is the day a renewal failed.

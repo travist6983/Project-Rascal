@@ -209,42 +209,127 @@ nonisolated enum MembershipCopy {
     static let postTrialOpen = "See what's included"
     static let postTrialDismiss = "Dismiss"
 
-    // MARK: - The Settings membership row (phase 112)
+    // MARK: - The Settings membership card (phase 144)
 
-    /// What the **Your household** row in Settings reports, and the four answers it can give.
-    /// (*Household* until phase 125 renamed the label on Aug 26, 2026; the four answers below are
-    /// unchanged and were deliberately out of that phase's scope.)
+    /// **Every string the Membership card in Settings can put in front of a parent**, approved by
+    /// the owner on Sep 3, 2026 from rendered mockups — `docs/design/membership-card-redesign.md`
+    /// §4 is the table, and `free-tier-copy.md` Proposed additions §9 is the record.
     ///
-    /// **These four are the only strings in this file the owner's copy does not contain.**
-    /// `free-tier-copy.md` covers the locked card, the membership sheet and the two weeks; it has
-    /// never described the Settings card, which has no approved design either. `Subscribed` and
-    /// `Free` are reproduced from the shipped row rather than authored here. `everythingOpen` is
-    /// the one genuinely new string, chosen by the owner on Aug 22, 2026 from three candidates and
-    /// derived from §3's approved title *"Two weeks, everything open."* — so it is the owner's
-    /// phrase moved to a second surface rather than an agent's sentence.
+    /// The card is a receipt: a `SettingsCardHeader` whose headline names what the household is
+    /// on and whose detail carries the one dated fact the server sent, then only the rows that can
+    /// change that answer. **The dated templates carry a literal `{date}`**, the trial's carries
+    /// `{days}` too, and `render(_:date:days:)` substitutes them — a template is a `String` so it
+    /// sits in `allUserVisibleStrings` and is scanned like every other, and no constant here holds
+    /// a digit.
     ///
-    /// All four are recorded under *Proposed additions* in `docs/design/free-tier-copy.md` and are
-    /// carried in `allUserVisibleStrings`, so the banned-phrase guard covers them like every other.
+    /// **The day count is the owner overruling rule 1 for this one surface** — *"I like the date
+    /// count but both is good idea"*, Sep 3, 2026 — and it is the server's number
+    /// (`trial_days_left`), never arithmetic on this device. The date beside it is the server's
+    /// instant formatted, never compared. `free-tier-copy.md` records the amendment.
     ///
-    /// **No countdown and no date.** The trial reads as a state, never as time remaining: a row
-    /// that said "9 days left" is the counting rule 1 forbids, and `trial_ends_at` is decoded by
-    /// nothing on purpose.
-    enum Status {
-        /// `tier == subscribed`. Somebody is paying.
-        static let subscribed = "Subscribed"
-
-        /// `access == trial`. **The state this phase exists to make visible** — it read `Free`
-        /// from phase 37a until now, because the row asked `tier`, which has no word for a trial.
-        static let everythingOpen = "Everything open"
-
-        /// `access == free`. Not a lapse and not a failure — the daily question, forever.
+    /// **Four of the phase-112 answers this replaces**: `Subscribed` (the headline is the plan
+    /// now), `Everything open` (the owner's own complaint — it named neither the trial nor its
+    /// end), and `Free` and `—`, which survive under the same names.
+    enum Card {
+        // The headline: what the household is on, in a noun.
+        static let trial = "Free trial"
         static let free = "Free"
-
-        /// **The server has not answered, or answered in a word this build does not know.**
-        ///
-        /// Not knowing is a different answer from `Free`, and under D9 the failure direction is
-        /// never a claim: this row says nothing rather than guessing at somebody's membership.
+        static let annual = "Annual membership"
+        static let monthly = "Monthly membership"
+        /// `plan` null or unrecognised, or `access: subscribed` with no receipt and no grant behind
+        /// it. Claims neither a cadence nor Apple's word.
+        static let membership = "Membership"
+        static let complimentary = "Complimentary membership"
+        /// The server has not answered, or answered in a word this build does not know. Not
+        /// knowing is a different answer from `Free`, and the detail under it says which.
         static let unknown = "—"
+
+        // The detail under the headline.
+        static let trialDetail = "{days} days left, until {date}. No card, nothing to cancel."
+        /// Spelled out rather than `1 day left`, so no template carries a digit and the singular
+        /// reads as a sentence rather than a counter reaching zero.
+        static let trialDetailLastDay = "One day left, until {date}. No card, nothing to cancel."
+        static let trialDetailDateOnly = "Until {date}. No card, nothing to cancel."
+        static let trialDetailNoDate = "No card, nothing to cancel."
+        /// §2's approved title, on a second surface.
+        static let freeDetail = "The daily question is always free."
+        static let renews = "Renews {date}"
+        static let expires = "Expires {date}"
+        /// `auto_renew` unknown — the neutral word, true whichever way renewal is set.
+        static let paidThrough = "Paid through {date}"
+        /// Appended to `paidThrough` when the Manage row is beneath to answer the question it
+        /// leaves open.
+        static let paidThroughPointer = "Whether it renews is set in the App Store."
+        static let otherParent = "Managed by the other parent."
+        static let billingRetry =
+            "The App Store couldn't take the last payment and will try again. "
+            + "Membership carries on in the meantime."
+        static let complimentaryDetail =
+            "Everything a member has, with nothing to pay and nothing to renew."
+        static let complimentaryUntil =
+            "Everything a member has, until {date}. After that the daily question keeps going, free."
+        /// True while the first read is running and after it has failed — the pure function cannot
+        /// tell those apart, so the sentence was written not to need to.
+        static let noAnswerYet =
+            "The app hasn't heard back from the server yet. It'll check again the next time you "
+            + "open it."
+        static let unreadable =
+            "This version of the app can't read your membership yet. Nothing is held back; an "
+            + "update will be able to show it."
+
+        // The rows.
+        /// §2's approved subtitle, under *Become a member* for every non-member but the trial.
+        static let offerDetail = "Membership is what fills in the rest of the day."
+        /// The trial's own, because the header two lines up says the household already has
+        /// everything — and because Apple grants no introductory offer, so joining on day three
+        /// charges on day three. The row that sends a parent into that charge says so.
+        static let offerDetailTrial =
+            "Keeps the missions going after the trial. You're charged when you join, not when it ends."
+        static let manage = "Manage subscription"
+        /// Names the Apple Account the sheet works from, for the invited parent whose sheet is
+        /// empty: `is_payer` is null in exactly the two-guardian case, so the words are what carry
+        /// it.
+        static let manageDetail =
+            "Change the plan or cancel in the App Store, from the Apple Account that pays for it."
+        /// Apple's manage-subscriptions sheet does not reach a payment field, so the row names
+        /// the second place rather than promising the sheet reaches it.
+        static let manageDetailRetry = manageDetail + " The payment method is in that account's settings."
+        static let restore = "Restore a purchase"
+        static let restoreDetail = "If you've paid before and this phone doesn't know it yet."
+
+        static let datePlaceholder = "{date}"
+        static let daysPlaceholder = "{days}"
+
+        /// Every constant above, for the guards.
+        static var all: [String] {
+            [
+                trial, free, annual, monthly, membership, complimentary, unknown,
+                trialDetail, trialDetailLastDay, trialDetailDateOnly, trialDetailNoDate, freeDetail,
+                renews, expires, paidThrough, paidThroughPointer, otherParent, billingRetry,
+                complimentaryDetail, complimentaryUntil, noAnswerYet, unreadable,
+                offerDetail, offerDetailTrial, manage, manageDetail, manageDetailRetry,
+                restore, restoreDetail,
+            ]
+        }
+
+        /// The templates that carry a `{date}`, so a test can pin that each carries exactly one.
+        static var dated: [String] {
+            [trialDetail, trialDetailLastDay, trialDetailDateOnly, renews, expires, paidThrough, complimentaryUntil]
+        }
+    }
+
+    /// `{date}` and `{days}` substituted. **The only place a rendered digit can enter this
+    /// surface**, and both values are the server's: the date is its instant formatted, the count
+    /// is its `trial_days_left`. Nothing here reads a clock.
+    static func render(_ template: String, date: String? = nil, days: Int? = nil) -> String {
+        var rendered = template
+        if let date {
+            rendered = rendered.replacingOccurrences(of: Card.datePlaceholder, with: date)
+        }
+        if let days {
+            rendered = rendered.replacingOccurrences(of: Card.daysPlaceholder, with: String(days))
+        }
+        return rendered
     }
 
     // MARK: - 4 · Strings that must not appear anywhere
@@ -303,8 +388,8 @@ nonisolated enum MembershipCopy {
             TrialWelcome.title, TrialWelcome.body, TrialWelcome.action,
             postTrialNotice, postTrialOpen, postTrialDismiss,
             membershipMissingAction,
-            Status.subscribed, Status.everythingOpen, Status.free, Status.unknown,
         ]
+        strings += Card.all
         strings += adds
         strings += stayFree
         for slot in [Slot.question, .mission, .missionB, .weekly, .monthly, .letter,

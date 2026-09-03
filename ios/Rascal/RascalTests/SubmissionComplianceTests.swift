@@ -283,19 +283,23 @@ struct SubmissionComplianceTests {
     ///
     /// Pinned by value because `free-tier-copy.md` forbids an agent authoring a string on this
     /// surface: editing one to read better fails here rather than shipping.
+    /// **Revised by phase 144 (Sep 3, 2026).** The owner retired *See what membership includes*
+    /// from this card (*"super confusing"*) and moved the footnote back to the sheet alone; the two
+    /// strings that survive — the eyebrow and the restore detail — now live in `MembershipCopy.Card`
+    /// and the view names them rather than carrying literals, so this pins the constants by value
+    /// and the view by reference.
     @Test("the Membership card carries the owner's strings, verbatim")
     func theMembershipCardStringsAreTheOwners() throws {
         let section = try source("Subscription/SubscriptionSection.swift")
-        #expect(section.contains("label: \"Your household\""))
-        #expect(section.contains("label: \"See what membership includes\""))
+        #expect(section.contains("eyebrow: \"Your household\""))
+        #expect(section.contains("MembershipCopy.Card.restoreDetail"))
         #expect(
-            section.contains(
-                "detail: \"One price covers everyone in the house — every parent, every child.\""
-            )
+            MembershipCopy.Card.restoreDetail == "If you've paid before and this phone doesn't know it yet."
         )
-        #expect(
-            section.contains("detail: \"If you've paid before and this phone doesn't know it yet.\"")
-        )
+        // Retired from the card by the owner on Sep 3, 2026; the sheet keeps the footnote.
+        #expect(!section.contains("See what membership includes"))
+        #expect(!section.contains("One price covers everyone in the house"))
+        #expect(MembershipCopy.footnote == "One price covers everyone in the house — every parent, every child.")
     }
 
     /// **Seen red.** The footnote had no assertion of any kind before this — `grep -rn "One
@@ -321,7 +325,8 @@ struct SubmissionComplianceTests {
     @Test("the restore row is still called Restore a purchase")
     func theRestoreTitleIsUnchanged() throws {
         let section = try source("Subscription/SubscriptionSection.swift")
-        #expect(section.contains("label: \"Restore a purchase\""))
+        #expect(MembershipCopy.Card.restore == "Restore a purchase")
+        #expect(section.contains("label: MembershipCopy.Card.restore"))
     }
 
     /// None of the eight replacements carries a pronoun token, and none of the strings they

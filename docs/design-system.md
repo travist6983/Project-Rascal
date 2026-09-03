@@ -537,7 +537,7 @@ The grouped-list vocabulary. Settings uses the app's own shapes rather than the 
 
 `SettingsSectionHeader` — a `SectionLabel` with a `border` rule running from it to the trailing edge. With nine blocks on one scroll a bare label reads as belonging to the card above it; a line closes the group it opens.
 
-`SettingsCardHeader` — the head of a card that reports before it lists. Label-role eyebrow, optional trailing counter, headline at card title, one `metadata` detail line.
+`SettingsCardHeader` — the head of a card that reports before it lists. Label-role eyebrow, optional trailing counter, headline at card title, one `metadata` detail line. **Its first call site is the Membership card (phase 144, Sep 3, 2026)**: eyebrow *Your household*, the state as the headline — *Free trial*, *Annual membership*, *Complimentary membership* — and the one dated fact the server sent as the detail. The detail is a sentence or two, never a paragraph; a state that wanted a third sentence moved it to the row beneath.
 
 `SettingsRow` — label `ink` at body, optional trailing value `inkMuted` at body on one line tail-truncated, and a 13pt semibold `inkMuted` chevron. **A row value is** `inkMuted`**, always**: a set value and an unset one differ in the words, never in the colour, and an unanswered optional shows no value at all rather than a claim.
 
