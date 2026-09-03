@@ -155,6 +155,31 @@ actor SubscriptionStore: SubscriptionPurchasing {
         }
     }
 
+    /// The JWS for whichever of this app's two products the Apple Account currently holds.
+    ///
+    /// **Phase 140, and the reason it exists is Sep 2, 2026.** A parent tapped Monthly on an
+    /// Apple Account that already held the annual; StoreKit reported success because it was a
+    /// plan change, Apple told the server `DID_CHANGE_RENEWAL_PREF` (no tier effect), and the app
+    /// polled for a `subscribed` nothing was going to write — while holding, right here, a
+    /// transaction Apple had signed that proved the household was paid up. This is how it hands
+    /// that over. `SubscriptionModel` submits it after a purchase and on a restore, and the
+    /// server decides; nothing on the device reads it as an entitlement.
+    ///
+    /// `Transaction.currentEntitlements` is the right source rather than the result of
+    /// `purchase()`: on a plan change the purchase's own transaction is the *pending* one, and the
+    /// entitlement that proves the household is the existing subscription. Only D5a's group is
+    /// considered — a transaction for a product this build does not sell is not evidence of
+    /// membership — and an unverified result is skipped for the reason `purchase` refuses one.
+    func currentEntitlement() async -> String? {
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            guard SubscriptionProducts.all.contains(transaction.productID) else { continue }
+            guard transaction.revocationDate == nil else { continue }
+            return result.jwsRepresentation
+        }
+        return nil
+    }
+
     // MARK: The listener
 
     /// Drain a stream of transaction updates, finishing each verified one and then asking the

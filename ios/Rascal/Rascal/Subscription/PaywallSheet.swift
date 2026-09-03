@@ -80,6 +80,20 @@ struct PaywallSheet: View {
                 guard phase == .active else { return }
                 Task { await model.refreshHousehold() }
             }
+            // **The sheet leaves the moment the purchase does** (phase 140). Apple has the money
+            // and the server is being told; there is nothing further to ask of the parent and a
+            // spinner on a screen about money is the worst place to make them wait for it. The
+            // Membership card in Settings reports what happens next — *Finishing up*, then the
+            // subscribed card, or the calm late line — and Today and the guardian card re-read
+            // themselves when the household turns over. The decision is a pure function so the
+            // transition table is asserted without rendering anything; the same `legalPage` guard
+            // as Restore, because dismissing tears down a Terms page a parent may be reading.
+            // The confirmation itself is unaffected: `buy()` runs in an unstructured `Task` on
+            // the app-level model, which outlives this view.
+            .onChange(of: model.purchase) { old, new in
+                guard legalPage == nil else { return }
+                if MembershipPresentation.dismissAfterPurchase(from: old, to: new) { onDismiss() }
+            }
             // **A sheet, not a `fullScreenCover`, and not a jump to Safari.**
             //
             // Not Safari: a `Link` hands the reader to another app, which for a reviewer checking
@@ -394,22 +408,21 @@ struct PaywallSheet: View {
                 .foregroundStyle(Color.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         case .purchasing:
-            busy("Talking to the App Store")
+            busy(PurchaseCopy.talkingToAppStore)
         case .confirming:
             // The purchase went through and the server has not been told yet. Named for what is
-            // happening rather than for the machinery.
-            busy("Finishing up")
+            // happening rather than for the machinery. **Rarely seen here since phase 140**: the
+            // sheet dismisses on the transition into this state and the Membership card reports
+            // it; this renders only while a legal page holds the sheet open.
+            busy(PurchaseCopy.finishingUp)
         case .subscribed:
-            terminal("You're subscribed. Thank you.", detail: "Everything is shared with the household now.")
+            terminal(PurchaseCopy.subscribedTitle, detail: PurchaseCopy.subscribedDetail)
         case .late:
             // **Not an error, and it does not read as one.** The purchase succeeded; the
             // confirmation is late. Nothing further is asked of the parent and nothing retries.
-            terminal(
-                "Your membership is being confirmed.",
-                detail: "There's nothing else you need to do — it'll appear here shortly."
-            )
+            terminal(PurchaseCopy.lateTitle, detail: PurchaseCopy.lateDetail)
         case .awaitingApproval:
-            terminal("This purchase needs approval.", detail: "Once it's approved, the app will notice on its own.")
+            terminal(PurchaseCopy.approvalTitle, detail: PurchaseCopy.approvalDetail)
         }
     }
 
@@ -443,8 +456,13 @@ struct PaywallSheet: View {
                 Button(MembershipCopy.primaryAction) { Task { await model.buy() } }
                     .buttonStyle(PrimaryButtonStyle())
             }
-            OnboardingSecondaryButton(title: MembershipCopy.notNow, action: onDismiss)
-                .accessibilityHint(MembershipCopy.notNowHint)
+            // A failure the parent has read and dismissed is not repeated under the Membership
+            // card. A swipe leaves `.failed` standing, which is exactly the unread case.
+            OnboardingSecondaryButton(title: MembershipCopy.notNow) {
+                model.dismissFailure()
+                onDismiss()
+            }
+            .accessibilityHint(MembershipCopy.notNowHint)
         case .idle, .subscribed, .late, .awaitingApproval:
             Button("Done", action: onDismiss)
                 .buttonStyle(PrimaryButtonStyle())

@@ -200,6 +200,24 @@ extension APIClient {
         try await send(.get, "v1/families/me")
     }
 
+    /// `POST /v1/families/me/transactions` — hand the server the transaction this device holds.
+    ///
+    /// Phase 140. The body is `Transaction.jwsRepresentation` verbatim; the server verifies it
+    /// with the same Apple verifier the webhook uses and, if it proves an active subscription for
+    /// *this* household, answers with the household already `subscribed`. **The answer is the
+    /// `GET /v1/families/me` document**, so a caller settles on it exactly as it would on a read,
+    /// and on nothing else (D5, D9). A `422` is a JWS Apple did not sign for this bundle; a `409`
+    /// is a purchase made under a different household's account; a `404` is a server that
+    /// predates the route. Every caller treats all three, and a dropped connection, the same way:
+    /// fall back to the poll that was already there.
+    func submitTransaction(_ signedTransaction: String) async throws -> FamilySummary {
+        let response: SubmittedTransactionResponse = try await send(
+            .post, "v1/families/me/transactions",
+            body: SubmitTransactionRequest(signedTransaction: signedTransaction)
+        )
+        return response.family
+    }
+
     /// `POST /v1/families/me/invites` — mint a link, and receive its raw token **once**.
     ///
     /// Three refusals worth telling apart at the call site, all by `APIError.code`:
@@ -301,4 +319,19 @@ extension APIClient {
     func cancelAccountDeletion() async throws {
         let _: EmptyResponse = try await send(.delete, "v1/me/deletion")
     }
+}
+
+// MARK: - Submitting a transaction (phase 140)
+
+nonisolated private struct SubmitTransactionRequest: Encodable {
+    let signedTransaction: String
+}
+
+/// `{ "status": "...", "family": { ... } }`. `status` is the server's own vocabulary
+/// (`tier:subscribed`, `ignored:not-active`, …) and is carried for the log line only — nothing
+/// here branches on it, because the household document is the only thing entitled to say
+/// `subscribed`.
+nonisolated struct SubmittedTransactionResponse: Decodable, Sendable {
+    let status: String
+    let family: FamilySummary
 }

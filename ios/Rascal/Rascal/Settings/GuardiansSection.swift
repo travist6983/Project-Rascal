@@ -82,6 +82,15 @@ struct GuardiansSection: View {
                 + "Or take the link and send it yourself."
             )
         }
+        // **The household turning over is what makes the invite row true again** (phase 140).
+        // The sheet now dismisses before the server has answered, so the closure below re-reads
+        // a household that still says `free`; this is the re-read that catches the `subscribed`
+        // when it lands. The same pure transition rule Today uses, for the same D5 reason.
+        .onChange(of: subscription.household?.isSubscribed) { old, new in
+            if MembershipPresentation.boardNeedsReload(wasSubscribed: old, isSubscribed: new) {
+                Task { await model.load() }
+            }
+        }
         .sheet(
             isPresented: Binding(
                 get: { model.showsUpgrade },

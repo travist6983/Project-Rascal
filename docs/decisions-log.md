@@ -1420,3 +1420,15 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   unverifiable JWS (the caller is authenticated; the document is wrong); `409` for another
   household's token, recording nothing; guard 5 skipped because the bearer token already proves a
   member; no rate limit because the route reaches only the caller's own household.
+- **Sep 3, 2026 (phase 140, iOS lane).** **The paywall leaves the moment the purchase does.** On the
+  transition into `.confirming` the sheet dismisses itself and the Settings Membership card reports
+  the rest — *Finishing up* in the offer row's slot, then the ordinary subscribed card, or the calm
+  late line under the card. Today and the guardian card re-read themselves when the household turns
+  over `free → true`, observing the server's document rather than the purchase machinery (D5). The
+  app now submits the transaction it holds to `POST /v1/families/me/transactions` after a purchase
+  and on Restore, before it polls, and settles only on the household the server answers with; every
+  failure falls through to the poll that was already there. Judgment calls: an Ask-to-Buy approval
+  landing while the sheet is open dismisses it too (one rule, not two); the purchase-state sentences
+  are reproduced from `PaywallSheet` into `PurchaseCopy`, not authored, and are logged under the copy
+  file's Proposed additions §8; *Not now* on a refused purchase clears `.failed` so the failure does
+  not follow the parent into Settings, while a swipe leaves it standing as the unread case.

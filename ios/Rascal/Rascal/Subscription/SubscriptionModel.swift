@@ -43,7 +43,10 @@ final class SubscriptionModel {
         case household(String)
     }
 
-    enum PurchasePhase: Equatable {
+    /// `nonisolated` since phase 140: `MembershipPresentation` compares two of these in a pure,
+    /// nonisolated function, and a main-actor-isolated `Equatable` is an error there in Swift 6.
+    /// Every payload is `Sendable` (a `String` at most), so nothing is lost.
+    nonisolated enum PurchasePhase: Equatable {
         case idle
         case purchasing
         /// Charged, and the server has not been told yet. See `EntitlementConfirmation`.
@@ -90,6 +93,13 @@ final class SubscriptionModel {
     /// is what every production call site uses, and it supplies `api.family()`: the same route,
     /// the same type, the same authority that phase 61 already reads.
     private let readHousehold: @Sendable () async throws -> FamilySummary
+    /// **`POST /v1/families/me/transactions`, and the second door onto a subscribed household**
+    /// (phase 140). Given the JWS the store holds for the current entitlement, the server verifies
+    /// it and answers with the household — the same document `readHousehold` returns, which is
+    /// the only thing that may settle `purchase` to `.subscribed`. A throw of any kind is not a
+    /// verdict: a server that predates the route, a dropped connection and a refused receipt all
+    /// leave the poll to do what it did before this existed.
+    private let submitTransaction: @Sendable (String) async throws -> FamilySummary
     private let store: any SubscriptionPurchasing
     /// Injected so the confirmation window can be exercised without waiting 63 seconds.
     private let confirmationSchedule: [Duration]
@@ -159,6 +169,9 @@ final class SubscriptionModel {
 
     init(
         readHousehold: @escaping @Sendable () async throws -> FamilySummary,
+        submitTransaction: @escaping @Sendable (String) async throws -> FamilySummary = { _ in
+            throw CancellationError()
+        },
         store: any SubscriptionPurchasing = SubscriptionStore(),
         confirmationSchedule: [Duration] = EntitlementConfirmation.schedule,
         confirmationSleep: @escaping @Sendable (Duration) async throws -> Void = {
@@ -174,6 +187,7 @@ final class SubscriptionModel {
         }
     ) {
         self.readHousehold = readHousehold
+        self.submitTransaction = submitTransaction
         self.store = store
         self.confirmationSchedule = confirmationSchedule
         self.confirmationSleep = confirmationSleep
@@ -184,7 +198,11 @@ final class SubscriptionModel {
     }
 
     convenience init(api: APIClient, store: any SubscriptionPurchasing = SubscriptionStore()) {
-        self.init(readHousehold: { try await api.family() }, store: store)
+        self.init(
+            readHousehold: { try await api.family() },
+            submitTransaction: { try await api.submitTransaction($0) },
+            store: store
+        )
     }
 
     #if DEBUG
@@ -539,6 +557,22 @@ final class SubscriptionModel {
         }
         defer { deadline.cancel() }
 
+        // **Tell the server first, then ask it** (phase 140). The device holds an Apple-signed
+        // transaction for what it just bought; the server can verify that in one round trip and
+        // answer with the household, which closes the gap the poll was written for in the common
+        // case and closes it *at all* in the case Sep 2, 2026 found — a plan change on an Apple
+        // Account already holding the group, which Apple announces as no tier change and which no
+        // amount of polling would ever have confirmed. Nothing here decides entitlement: the
+        // answer is the household document or it is nothing, and nothing falls through to the poll
+        // exactly as before. Still under the deadline above, because a hung request is a hung
+        // request whichever door it knocks on.
+        if let family = await submitCurrentEntitlement(), purchase == .confirming {
+            household = family
+            purchase = .subscribed
+            notice = nil
+            return
+        }
+
         let read = self.readHousehold
         let outcome = await EntitlementConfirmation.poll(
             schedule: confirmationSchedule,
@@ -576,6 +610,22 @@ final class SubscriptionModel {
         }
     }
 
+    /// Hand the server the transaction the store holds, and return the household **only if the
+    /// server now calls it subscribed**.
+    ///
+    /// Everything that is not that — no transaction on the device, a `404` from a server without
+    /// the route, a `409` for another household's receipt, a `422`, a dropped connection, or a
+    /// `200` whose household still reads `free` (an expired receipt, a Sandbox receipt Production
+    /// has outranked) — is `nil`, and `nil` means *carry on as before*. The route is an
+    /// accelerator and a repair, never a dependency.
+    private func submitCurrentEntitlement() async -> FamilySummary? {
+        guard let signed = await store.currentEntitlement() else { return nil }
+        guard let family = try? await submitTransaction(signed), family.isSubscribed else {
+            return nil
+        }
+        return family
+    }
+
     // MARK: Restore
 
     func restore() async {
@@ -605,6 +655,19 @@ final class SubscriptionModel {
         //
         // A shorter window than a purchase's, because nobody has just been charged and a Settings
         // row cannot spin for a minute.
+        //
+        // **What a restore actually restores, since phase 140.** `AppStore.sync()` brings the
+        // Apple Account's transactions to this device; handing the current one to the server is
+        // what brings the *household* back. Before this, a restore could only re-read a server
+        // that had never been told — which is why the sentence under the card said "nothing has
+        // arrived yet" to a parent holding a paid-up receipt.
+        if let family = await submitCurrentEntitlement() {
+            household = family
+            if purchase != .idle, purchase != .subscribed { purchase = .subscribed }
+            restoreConfirmation = Self.restoreFound
+            return
+        }
+
         let outcome = await EntitlementConfirmation.poll(
             schedule: confirmationSchedule.isEmpty
                 ? [] : EntitlementConfirmation.restoreSchedule,
@@ -658,5 +721,15 @@ final class SubscriptionModel {
     func noticeDismissed() {
         notice = nil
         restoreConfirmation = nil
+    }
+
+    /// A refused purchase the parent has read and closed the sheet on.
+    ///
+    /// `.failed` otherwise persists for the model's life — only a subscribed household clears it —
+    /// and since phase 140 the Membership card renders it, so a sentence about a failure the
+    /// parent already saw would follow them into Settings. Only `.failed` moves; every other
+    /// state has its own writer and its own reason to stay.
+    func dismissFailure() {
+        if case .failed = purchase { purchase = .idle }
     }
 }

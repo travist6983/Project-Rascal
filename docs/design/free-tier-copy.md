@@ -384,6 +384,31 @@ not-found notice so the two can never appear together. **It is deliberately not 
 so those four strings moved on two surfaces at once. That is the intended consequence of §5's
 decision to render one approved block in two places rather than write a second one.
 
+### 8 · The purchase, reported on the Membership card — phase 140, Sep 3, 2026
+
+**Reproduced, not authored, and recorded here so the owner can keep or reword them.** The sheet now
+dismisses itself the moment Apple takes the money (the owner's request of Sep 2: *"close that view
+and bring them back to the settings page and show the finishing"*), so the Membership card has to say
+what the sheet used to hold open. The five sentences below shipped in `PaywallSheet` with phase 37b
+on Aug 20, 2026 — two days before this file was reconstructed — and are in neither this file nor
+`MembershipCopy`. Phase 140 moved them verbatim into `Subscription/PurchaseCopy.swift` so both
+surfaces read one source; changing a word there changes it on both. The rule above is *"does not
+write it into a view"*; the spirit is *the owner decides the words*, and this entry is how that
+happens.
+
+| # | Where | String |
+|---|---|---|
+| 8a | Sheet, and the card's offer-row slot, while Apple's sheet is up | `Talking to the App Store` |
+| 8b | Sheet (rarely, behind a legal page), and the card's offer-row slot, while the server is told | `Finishing up` |
+| 8c | Sheet only, after the server says so | `You're subscribed. Thank you.` / `Everything is shared with the household now.` |
+| 8d | Sheet as two lines; under the card as one | `Your membership is being confirmed.` / `There's nothing else you need to do — it'll appear here shortly.` |
+| 8e | Sheet as two lines; under the card as one | `This purchase needs approval.` / `Once it's approved, the app will notice on its own.` |
+
+**The card says nothing extra on success.** Its status row already reads §4's `Subscribed` and the
+Manage row appears — "the normal you have subscription view", in the owner's words — so 8c stays on
+the sheet. A refused purchase renders the store's own sentence (`SubscriptionStoreError.userMessage`,
+already shipped) under the card only if the parent swiped the sheet away without reading it.
+
 ## Conflicts
 
 **1 · The design recommended treatment A; the owner chose C.** Artboard `1d` rendered four locked-card
