@@ -1457,3 +1457,14 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   agreed on all along (`/auth/refresh`, the `today[]` items, `/media/upload-url`). **Every `docs/`
   edit for both lanes of 141 rides this branch**, including the iOS line above: two branches
   appending to this file is the conflict 140's pair had to resolve at merge.
+- **Sep 3, 2026 (phase 142, API lane).** **The console may read a household's shape, and only its
+  shape.** `GET /admin/households/{family_id}` is the first admin route to answer with a whole
+  household rather than a count, and it draws the line where every other admin route draws it:
+  counts, kinds, dates, bytes and outcomes — never an entry, a caption, a transcript, an object key,
+  and **never a child's name** (a child is an age and a timezone). The leakage sweep covers it. Every
+  string setting is now stripped of surrounding whitespace at load (a trailing space in a pasted
+  key reached httpx as an illegal header). `overview()` counts each table in one pass; the
+  newest-accounts and library-usage reads are bounded to the rows they render; `costs()` commits the
+  auth transaction before its vendor fan-out; four B-tree indexes back the console's range and
+  lookup reads (`0026`). `social_assets.eyebrow` exists because the composer was publishing a line it
+  never stored.

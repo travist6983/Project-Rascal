@@ -1478,6 +1478,9 @@ in an archive and asserts none of them appears in any admin response.
 | `GET /admin/ops` | `{environment, flags, scheduler, jobs}` |
 | `GET /admin/costs?refresh=` | `{providers, total_known_cents, providers_without_pricing}` |
 | `GET /admin/households?q=` | Find a household by email, display name or family id. **Account metadata only** |
+| `GET /admin/households/{family_id}` | One household in full — members, children as ages, the archive's shape, prompts, reach, billing. **Metadata only, no child's name.** Phase 142 |
+| `GET /admin/subscriptions?days=` | What Apple has said: counts over the transaction ledger and `entitlements`, plus the most recent transactions with their household's label. Phase 142 |
+| `GET /admin/library/coverage` | Eligible active prompts per slot per age band, at the thinnest month of the band. Phase 142 |
 | `PUT /admin/families/{family_id}/trial` | Move or clear one household's trial. ~~**The only write in the console's API, and the only entitlement lever there is**~~ — **struck Aug 24, 2026 by phase 121, which added two more writes and a second lever.** It is still the only thing that writes `trial_ends_at`, and still cannot write `tier` |
 | `GET /admin/grants?family_id=` | The complimentary-entitlement ledger, newest first, including revoked and expired rows |
 | `POST /admin/grants` | Entitle a household by decision rather than by payment. `201` |
@@ -2014,6 +2017,46 @@ matches as text, so a UUID pasted from another screen finds its household and so
 eight-character prefix the console renders. **Nothing here reads a child, an entry, a caption, a
 transcript or an object key**, and `tests/test_admin.py` plants distinctive strings in all of those
 and greps this response for them.
+
+**`GET /admin/households/{family_id}`** — one household, in full and in metadata only (phase 142,
+Sep 3, 2026). The console's deepest read, and the line is the one every admin route keeps: **shape,
+never content**. `household` (label, `joined_at`, `last_sign_in_at`), `members` (display name,
+email, joined, last seen, `notify_enabled`, `is_admin`), `children` (a count and, per child, an
+`age` like `"4y 2m"`, `age_months`, the timezone and when it was added — **never a name**),
+`archive` (live entry count, the last 30 days, how many were backdated, `by_type`, first and last
+`occurred_at`, last `created_at`, twelve gap-filled `weeks` of entries written, media count, bytes,
+uploads never completed, `media_by_kind`), `prompts` (assignments by status over 30 days and the
+completion rate), `reach` (push registrations by environment, how many adults turned the reminder
+on, notification sends and deliveries over 14 days, open invites, a pending deletion's
+`execute_after`) and `billing` (tier, access, `entitlement_source`, `entitled`, trial end, lapse,
+grants live and ever, and the latest App Store transaction's product, environment, type, subtype,
+dates and whether the card is failing — never the raw payload). Sixteen statements for a household
+with a child and ten for one without, each bounded by the household. `404 not_found` when no account belongs to the id, which is what a deleted
+account leaves behind and what a mistyped id looks like.
+
+**`GET /admin/subscriptions?days=`** — the subscription ledger (phase 142). `summary` carries
+`subscribed_households` (by `entitlements.tier`, Apple's word), `on_trial`, `trials_ending_7d`,
+`lapsed`, `grants_live`, `transactions`, `unattributed` (a transaction whose `family_id` is null —
+the shape phase 139 turned on, counted and named rather than dropped), `billing_retry` (the
+`DID_FAIL_TO_RENEW` / `GRACE_PERIOD` pairing `services/membership.py` defines) and `expiring_7d`.
+`by_type` counts `latest_notification_type` over the last `days` (7–365, default 30);
+`by_environment` and `active_by_product` (distinct subscribed households whose receipt has not expired) are
+the current state; `recent` is the twenty newest transactions with the household's label, the last
+six characters of the original transaction id, product, environment, type, subtype and dates. Nine
+statements when any recent transaction is attributed — eight aggregates and one label lookup for
+the recent rows — and none per row. **The trial counts are `access_for`'s answer, not a restatement of it**:
+every household's entitlement row goes through the one authority with today's clock and with a
+clock a week ahead, and "ending within the week" is the difference — exactly one comparison against
+`trial_ends_at` exists in `src/` and `tests/test_entitlement_cadence.py` keeps it that way.
+
+**`GET /admin/library/coverage`** — where the library is thin (phase 142). For every slot in
+`services/scheduler.py`'s `SLOT_SPECS` and every age band (`0-1`, `1-2`, `2-3`, `3-5`, `5-8`,
+`8-12`, `12-18` years), the scheduler's own `_eligible` rule evaluated over the active library at
+**every month of the band for today's calendar month**: `eligible` is the thinnest month's count,
+`eligible_max` the widest, `days` how long a child in the band can be served at the slot's cadence
+before a prompt must repeat, and `thin` whether that is under the relaxed cooldown — the point at
+which the scheduler is already bending its rules to fill the slot. One statement; the rest is
+arithmetic imported from the scheduler so it cannot drift.
 
 **`GET /admin/grants?family_id=`** — the ledger, newest first, **including revoked and expired
 rows**: a ledger that hides what was withdrawn is not a ledger. Each row carries

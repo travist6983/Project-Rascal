@@ -163,6 +163,22 @@ const dayLabel = (iso) =>
     timeZone: "UTC",
   });
 
+/**
+ * `when`, until it stops being useful. "752d ago" is a number nobody converts in their head;
+ * past six weeks the date itself is the readable answer, with the year once it is not this one.
+ */
+function ago(iso) {
+  if (!iso) return "never";
+  const then = new Date(iso);
+  const days = (Date.now() - then.getTime()) / 86400000;
+  if (days < 45) return when(iso);
+  return then.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(then.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
 function when(iso) {
   if (!iso) return "never";
   const then = new Date(iso);
@@ -268,7 +284,11 @@ function barPath(x, y, width, height, radius = 4) {
  * Every day in the range gets a slot even when it is zero, because the server gap-fills and a
  * chart that closes its own gaps draws a straight line through an outage.
  */
-function columnChart(mount, points, { color = "var(--series-1)", format = num } = {}) {
+function columnChart(
+  mount,
+  points,
+  { color = "var(--series-1)", format = num, period = "day" } = {},
+) {
   mount.replaceChildren();
   if (!points.length) {
     mount.innerHTML = '<p class="chart-empty">Nothing yet.</p>';
@@ -284,7 +304,7 @@ function columnChart(mount, points, { color = "var(--series-1)", format = num } 
   const width = Math.min(24, Math.max(2, slot - 2)); // the 2px surface gap
 
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
-  svg.setAttribute("aria-label", `${points.length} days, peak ${format(peak)}`);
+  svg.setAttribute("aria-label", `${points.length} ${period}s, peak ${format(peak)}`);
 
   for (const frac of [0, 0.5, 1]) {
     const y = pad.top + plotH * (1 - frac);
@@ -328,7 +348,12 @@ function columnChart(mount, points, { color = "var(--series-1)", format = num } 
       fill: "transparent",
     });
     hit.addEventListener("mousemove", (event) =>
-      showTip(event, `${dayLabel(point.day)}<br /><b>${format(point.value)}</b> ${point.unit || ""}`),
+      showTip(
+        event,
+        `${period === "week" ? "week of " : ""}${dayLabel(point.day)}<br /><b>${format(
+          point.value,
+        )}</b> ${point.unit || ""}`,
+      ),
     );
     hit.addEventListener("mouseleave", hideTip);
     svg.append(hit);
@@ -534,7 +559,11 @@ function renderToday(data) {
     {
       label: "Kids on file",
       value: compact(o.children.total),
-      note: `${num(o.devices.active)} device${o.devices.active === 1 ? "" : "s"} registered`,
+      // Phones, not kids: the note used to read "0 devices registered" under a count of
+      // children, which read as a contradiction. It is the push registrations.
+      note: o.devices.active
+        ? `${num(o.devices.active)} phone${o.devices.active === 1 ? "" : "s"} registered for push`
+        : "no phone has registered for push yet",
     },
     {
       label: "Signed in this week",
@@ -567,14 +596,20 @@ function renderToday(data) {
       color: "var(--series-1)",
     },
     {
-      label: "Library",
+      label: "Library, active",
       value: compact(o.library.active),
+      // Both numbers, always: the Library tab counts every body and this counts the ones
+      // being served, and a reader who saw 133 here and 234 there had no way to tell which
+      // was wrong.
+      // "Inactive" rather than "retired": candidates waiting in the review queue are inactive
+      // and were never retired, and they are in this difference.
       note:
-        o.library.overrides > 0
-          ? `${num(o.library.overrides)} console override${
+        `${num(o.library.total)} bodies · ${num(o.library.total - o.library.active)} inactive` +
+        (o.library.overrides > 0
+          ? ` · ${num(o.library.overrides)} console override${
               o.library.overrides === 1 ? "" : "s"
-            } held against the seed file`
-          : `${num(o.library.total)} bodies, ${num(o.library.total - o.library.active)} retired`,
+            }`
+          : ""),
     },
   ];
 
@@ -2375,6 +2410,9 @@ function composerPayload() {
     angle: state.composing.angle || null,
     template: spec.template,
     palette: spec.palette,
+    // Stored since phase 142: it was drawn on the published card and then dropped here, so a
+    // reopened post rendered a different card from the one that went out.
+    eyebrow: spec.eyebrow || null,
     headline: spec.headline || null,
     subhead: spec.subhead || null,
     caption: $("m-caption").value.trim() || null,
@@ -2773,8 +2811,25 @@ async function load(tab = currentTab) {
       // its repaint. Awaited rather than fired and forgotten so `load()` still means "the
       // screen is painted" to everything that awaits it.
       await loadGrants();
+      renderSubscriptions(await api("/admin/subscriptions?days=30"));
+    } else if (tab === "households") {
+      await searchHouseholds($("h-search").value);
+      if (state.household) {
+        try {
+          await openHousehold(state.household.household.family_id, { quiet: true });
+        } catch (error) {
+          // The household went away — its account rows are gone after a deletion runs. Say so
+          // once and stop asking, rather than re-requesting a dead id on every refresh while
+          // the old card keeps painting somebody who no longer exists.
+          if (error.status !== 404) throw error;
+          state.household = null;
+          $("h-detail").hidden = true;
+          banner("That household no longer exists.");
+        }
+      }
     } else if (tab === "library") {
       await loadLibrary();
+      renderCoverage(await api("/admin/library/coverage"));
     } else if (tab === "studio") {
       await loadStudio();
     } else if (tab === "costs") {
@@ -2803,7 +2858,385 @@ function showTab(tab) {
   for (const panel of document.querySelectorAll(".panel")) {
     panel.hidden = panel.id !== `panel-${tab}`;
   }
-  load(tab);
+  // Returned so a caller that wants to act on the painted tab — the Households jumps — can
+  // wait for it rather than race the render.
+  return load(tab);
+}
+
+// --- Households --------------------------------------------------------------------------------
+
+let householdLookupToken = 0;
+
+/** The finder. One request per keystroke burst, and a stale answer never paints. */
+async function searchHouseholds(query) {
+  const q = (query || "").trim();
+  const token = ++householdLookupToken;
+  const result = await api(`/admin/households?q=${encodeURIComponent(q)}&limit=25`);
+  if (token !== householdLookupToken) return;
+  $("h-results").innerHTML = result.households.length
+    ? `<table><thead><tr>
+         <th>Household</th><th>Access</th><th>Tier</th><th>Why</th><th class="num">Grants</th>
+       </tr></thead><tbody>${result.households
+         .map(
+           (row) => `<tr class="is-clickable" data-family="${escape(row.family_id)}">
+             <td>${escape(row.label)}<br /><span class="tile-note">${escape(
+               row.family_id.slice(0, 8),
+             )}</span></td>
+             <td><span class="chip ${accessChip(row.access)}">${escape(row.access)}</span></td>
+             <td><span class="chip chip-plain">${escape(row.tier)}</span></td>
+             <td><span class="tile-note">${escape(row.entitlement_source)}</span></td>
+             <td class="num">${num(row.grants)}</td>
+           </tr>`,
+         )
+         .join("")}</tbody></table>`
+    : `<p class="chart-empty">${
+        q ? "No household matches that. Try an email, a name, or a family id." : "No households yet."
+      }</p>`;
+}
+
+async function openHousehold(familyId, { quiet = false } = {}) {
+  state.household = await api(`/admin/households/${familyId}`);
+  renderHousehold(state.household);
+  $("h-detail").hidden = false;
+  if (!quiet) $("h-detail").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+const shortProduct = (id) => (id ? id.replace(/^com\.[a-z0-9.]+\.childarchive\./, "") : "—");
+
+/** Why the archive is open, in a sentence rather than an enum value ("because of a none"). */
+const SOURCE_PHRASES = {
+  receipt: "Apple holds a live receipt",
+  grant: "a console grant is holding it open",
+  trial: "the trial is still running",
+  none: "nothing is holding it open",
+};
+
+function metricLine(label, value, detail) {
+  return (
+    `<li class="metric"><span class="metric-label">${escape(label)}</span>` +
+    `<span class="metric-value">${value}${
+      detail ? `<span class="metric-detail">${escape(detail)}</span>` : ""
+    }</span></li>`
+  );
+}
+
+function renderHousehold(data) {
+  const { household, members, children, archive, prompts, reach, billing } = data;
+
+  $("h-label").textContent = household.label;
+  $("h-chips").innerHTML =
+    `<span class="chip ${accessChip(billing.access)}">${escape(billing.access)}</span>` +
+    `<span class="chip chip-plain">${escape(billing.tier)}</span>` +
+    `<span class="chip chip-plain">${escape(billing.entitlement_source)}</span>` +
+    `<span class="chip chip-plain">${members.length} ${members.length === 1 ? "adult" : "adults"}</span>` +
+    (reach.deletion_execute_after
+      ? `<span class="chip chip-bad">deleting ${escape(deadline(reach.deletion_execute_after))}</span>`
+      : "");
+  $("h-sub").textContent =
+    `Joined ${ago(household.joined_at)} · last seen ${ago(household.last_sign_in_at)} · ` +
+    household.family_id;
+
+  columnChart(
+    $("h-chart-weeks"),
+    archive.weeks.map((w) => ({ day: w.week, value: w.entries, unit: "entries" })),
+    { period: "week" },
+  );
+
+  const rate = prompts.completion_rate_30d;
+  const tiles = [
+    {
+      label: "Moments kept",
+      value: compact(archive.entries),
+      note: archive.entries
+        ? `first ${ago(archive.first_moment_at)} · latest ${ago(archive.last_moment_at)}`
+        : "nothing written yet",
+    },
+    {
+      label: "Last 30 days",
+      value: compact(archive.entries_30d),
+      note: archive.backdated
+        ? `${num(archive.backdated)} backdated over all time`
+        : "nothing backdated",
+      spark: archive.weeks.map((w) => w.entries),
+      color: "var(--series-1)",
+    },
+    {
+      label: "Stored",
+      value: bytes(archive.bytes),
+      note:
+        archive.pending_upload > 0
+          ? `${num(archive.pending_upload)} upload${archive.pending_upload === 1 ? "" : "s"} never completed`
+          : `${num(archive.media)} file${archive.media === 1 ? "" : "s"}, all uploaded`,
+    },
+    {
+      label: "Prompts answered",
+      value: rate == null ? "—" : `${Math.round(rate * 100)}%`,
+      note:
+        rate == null
+          ? "nothing resolved in 30 days"
+          : `${num(prompts.resolved_30d)} resolved in 30 days`,
+    },
+    {
+      label: "Last wrote",
+      value: archive.last_written_at ? ago(archive.last_written_at) : "—",
+      note: archive.last_written_at ? "when they last opened the app to write" : "never",
+    },
+    {
+      label: "Children",
+      value: compact(children.total),
+      note: children.ages.length ? children.ages.map((c) => c.age).join(" · ") : "none on file",
+    },
+  ];
+  const mount = $("h-tiles");
+  mount.replaceChildren();
+  for (const tile of tiles) {
+    const node = document.createElement("div");
+    node.className = "tile";
+    node.innerHTML =
+      `<p class="label">${escape(tile.label)}</p>` +
+      `<p class="tile-value">${escape(tile.value)}</p>` +
+      `<p class="tile-note">${escape(tile.note)}</p>`;
+    if (tile.spark && tile.spark.some(Boolean)) {
+      const holder = document.createElement("div");
+      holder.className = "tile-spark";
+      holder.append(sparkline(tile.spark, tile.color));
+      node.append(holder);
+    }
+    mount.append(node);
+  }
+
+  barChart(
+    $("h-chart-types"),
+    Object.entries(archive.by_type).map(([label, value]) => ({ label, value })),
+  );
+  $("h-media").innerHTML = Object.entries(archive.media_by_kind).length
+    ? Object.entries(archive.media_by_kind)
+        .map(([kind, count]) => metricLine(`${kind} files`, num(count)))
+        .join("")
+    : metricLine("media", "none");
+
+  $("h-children").innerHTML = children.ages.length
+    ? children.ages
+        .map((c) => metricLine(c.age, escape(c.timezone), `added ${ago(c.added_at)}`))
+        .join("")
+    : '<li class="metric"><span class="metric-label">No child on file yet.</span></li>';
+
+  $("h-people").innerHTML = `<table><thead><tr>
+      <th>Adult</th><th>Joined</th><th>Last seen</th><th>Reminder</th>
+    </tr></thead><tbody>${members
+      .map(
+        (m) => `<tr>
+          <td>${escape(m.display_name || "—")}${
+            m.is_admin ? ' <span class="chip chip-peri">admin</span>' : ""
+          }<br /><span class="tile-note">${escape(m.email || "no email")}</span></td>
+          <td>${escape(ago(m.joined_at))}</td>
+          <td>${escape(ago(m.last_sign_in_at))}</td>
+          <td><span class="chip ${m.notify_enabled ? "chip-ok" : "chip-plain"}">${
+            m.notify_enabled ? "on" : "off"
+          }</span></td>
+        </tr>`,
+      )
+      .join("")}</tbody></table>`;
+
+  const receipt = billing.receipt;
+  $("h-billing").innerHTML =
+    metricLine(
+      "Access",
+      `<span class="chip ${accessChip(billing.access)}">${escape(billing.access)}</span>`,
+      SOURCE_PHRASES[billing.entitlement_source] || billing.entitlement_source,
+    ) +
+    metricLine("Tier, Apple's word", escape(billing.tier)) +
+    metricLine(
+      "Trial ends",
+      billing.trial_ends_at ? escape(deadline(billing.trial_ends_at)) : "no trial",
+    ) +
+    (billing.lapsed_at ? metricLine("Lapsed", escape(when(billing.lapsed_at))) : "") +
+    metricLine(
+      "Grants",
+      billing.grants_live ? `${num(billing.grants_live)} live` : "none live",
+      billing.grants_total
+        ? `${num(billing.grants_total)} ever` +
+            (billing.grant_expires_at ? ` · ends ${deadline(billing.grant_expires_at)}` : "")
+        : undefined,
+    ) +
+    (receipt
+      ? metricLine(
+          "Latest from Apple",
+          `${escape(receipt.type)}${receipt.subtype ? ` · ${escape(receipt.subtype)}` : ""}`,
+          `${shortProduct(receipt.product_id)} · ${receipt.environment} · ${when(receipt.signed_at)}` +
+            (receipt.expires_at ? ` · expires ${deadline(receipt.expires_at)}` : "") +
+            (receipt.billing_retry ? " · card failing, Apple retrying" : ""),
+        )
+      : metricLine("Latest from Apple", "nothing yet", "no transaction names this household"));
+
+  const envs = Object.entries(reach.devices_by_environment)
+    .map(([env, count]) => `${count} ${env}`)
+    .join(", ");
+  $("h-reach").innerHTML =
+    metricLine("Phones registered for push", num(reach.devices), envs || undefined) +
+    metricLine(
+      "Reminder turned on",
+      `${num(reach.notify_enabled)} of ${num(members.length)}`,
+      "per adult, in Settings",
+    ) +
+    metricLine(
+      "Notifications, 14 days",
+      `${num(reach.notification_delivered_14d)} delivered`,
+      `${num(reach.notification_sends_14d)} attempted` +
+        (reach.last_notification_on ? ` · last ${dayLabel(reach.last_notification_on)}` : ""),
+    ) +
+    metricLine("Invites open", num(reach.invites_pending)) +
+    (reach.deletion_execute_after
+      ? metricLine(
+          "Account deletion",
+          `<span class="chip chip-bad">scheduled</span>`,
+          `runs ${deadline(reach.deletion_execute_after)} unless they sign back in`,
+        )
+      : "");
+}
+
+/** Today's trial lever, with this household already picked. */
+async function jumpToTrial() {
+  const h = state.household?.household;
+  if (!h) return;
+  // Wait for Today to paint: `renderToday` rebuilds the picker and `loadGrants` resets the
+  // grant form, so anything set before they finish is overwritten.
+  await showTab("today");
+  const select = $("t-family");
+  if ([...select.options].some((o) => o.value === h.family_id)) {
+    select.value = h.family_id;
+    $("trial-state").textContent = `${h.label} is selected.`;
+  } else {
+    $("trial-state").textContent =
+      "This household is not among the newest twelve, which is all the trial picker lists. " +
+      "The grant form below can find any household.";
+  }
+  // Instant rather than smooth: Today keeps painting after this returns, and a smooth scroll
+  // that a later layout shift interrupts stops halfway to the form.
+  $("membership").scrollIntoView({ block: "start" });
+}
+
+/** Today's grant form, searched for this household and with it selected. */
+async function jumpToGrant() {
+  const h = state.household?.household;
+  if (!h) return;
+  await showTab("today");
+  $("g-search").value = h.family_id;
+  try {
+    await loadHouseholds(h.family_id);
+    $("g-family").value = h.family_id;
+    $("grant-state").textContent = `${h.label} is selected.`;
+    $("grants").scrollIntoView({ block: "start" });
+  } catch (error) {
+    banner(error.message);
+  }
+}
+
+// --- Subscriptions -------------------------------------------------------------------------------
+
+function renderSubscriptions(data) {
+  const s = data.summary;
+  const stat = (label, value, note, tone) =>
+    `<div class="subs-stat"><p class="label">${escape(label)}</p>` +
+    `<p class="tile-value${tone ? ` ${tone}` : ""}">${escape(String(value))}</p>` +
+    `<p class="tile-note">${escape(note || "")}</p></div>`;
+  $("subs-stats").innerHTML =
+    stat("Subscribed", num(s.subscribed_households), "households, by Apple's word") +
+    stat("On trial", num(s.on_trial), `${num(s.trials_ending_7d)} ending within 7 days`) +
+    stat("Granted", num(s.grants_live), "live grants") +
+    stat("Lapsed", num(s.lapsed), "households that once paid") +
+    stat("Card failing", num(s.billing_retry), "Apple retrying", s.billing_retry ? "is-warn" : "") +
+    stat("Expiring", num(s.expiring_7d), "receipts ending within 7 days") +
+    stat(
+      "Unattributed",
+      num(s.unattributed),
+      `of ${num(s.transactions)} transactions`,
+      s.unattributed ? "is-warn" : "",
+    );
+  $("subs-types-label").textContent = `Notifications, last ${data.days} days`;
+  barChart(
+    $("chart-subs-types"),
+    Object.entries(data.by_type).map(([label, value]) => ({ label, value })),
+  );
+  barChart(
+    $("chart-subs-products"),
+    Object.entries(data.active_by_product).map(([label, value]) => ({
+      label: shortProduct(label),
+      value,
+    })),
+    { color: "var(--series-3)" },
+  );
+  $("subs-environments").innerHTML = Object.entries(data.by_environment)
+    .map(
+      ([env, count]) =>
+        `<span class="chip ${env === "Production" ? "chip-ok" : "chip-warn"}">${escape(env)} · ${num(count)}</span>`,
+    )
+    .join("");
+  $("subs-recent").innerHTML = data.recent.length
+    ? `<table><thead><tr>
+         <th>Household</th><th>Product</th><th>What Apple said</th><th>When</th><th>Expires</th>
+       </tr></thead><tbody>${data.recent
+         .map(
+           (row) => `<tr${row.family_id ? ` class="is-clickable" data-family="${escape(row.family_id)}"` : ""}>
+             <td>${
+               row.household
+                 ? `${escape(row.household)}<br /><span class="tile-note">${escape(row.family_id.slice(0, 8))}</span>`
+                 : '<span class="chip chip-warn">unattributed</span>'
+             }</td>
+             <td>${escape(shortProduct(row.product_id))}<br /><span class="tile-note">${escape(
+               row.environment,
+             )} · ${escape(row.transaction)}</span></td>
+             <td>${escape(row.type)}${row.subtype ? `<br /><span class="tile-note">${escape(row.subtype)}</span>` : ""}</td>
+             <td>${escape(when(row.signed_at))}</td>
+             <td>${row.expires_at ? escape(deadline(row.expires_at)) : "—"}</td>
+           </tr>`,
+         )
+         .join("")}</tbody></table>`
+    : '<p class="chart-empty">Apple has not said anything yet.</p>';
+  for (const row of $("subs-recent").querySelectorAll("tr[data-family]")) {
+    row.addEventListener("click", () => {
+      // Drop the previously open household first, or `load("households")` reopens it and races
+      // the one just clicked; then wait for the tab so the click's detail paints last.
+      state.household = null;
+      showTab("households")
+        .then(() => openHousehold(row.dataset.family))
+        .catch((e) => banner(e.message));
+    });
+  }
+}
+
+// --- Library coverage ----------------------------------------------------------------------------
+
+const MONTHS =
+  "January February March April May June July August September October November December".split(" ");
+
+function renderCoverage(data) {
+  $("coverage-note").textContent =
+    `${num(data.active_prompts)} active prompts, as served in ${MONTHS[data.month - 1]}. ` +
+    `Each cell is the thinnest month in the band: how many prompts a child there can be ` +
+    `served, and how many days that lasts at the slot's cadence before one has to repeat. ` +
+    `Under ${data.relaxed_cooldown_days} days is thin — the scheduler is already relaxing its ` +
+    `${data.cooldown_days}-day cooldown to fill the slot.`;
+  $("coverage").innerHTML = `<table class="coverage-table"><thead><tr>
+      <th>Slot</th>${data.bands.map((b) => `<th class="num">${escape(b)} yrs</th>`).join("")}
+    </tr></thead><tbody>${data.slots
+      .map(
+        (slot) => `<tr>
+          <td>${escape(slot.slot)}<br /><span class="tile-note">${escape(slot.cadence)} · ${
+            slot.kinds ? escape(slot.kinds.join(", ")) : "any kind"
+          } · ${num(slot.pool)} in pool</span></td>
+          ${slot.cells
+            .map(
+              (cell) => `<td class="num cov-cell ${cell.thin ? "cov-thin" : "cov-ok"}" title="${escape(
+                `${slot.slot}, ${cell.band} years: ${cell.eligible} eligible in the thinnest month` +
+                  (cell.eligible_max !== cell.eligible ? ` (up to ${cell.eligible_max})` : "") +
+                  ` — ${cell.days} days before a repeat`,
+              )}">${num(cell.eligible)}<span class="cov-days">${num(cell.days)}d</span></td>`,
+            )
+            .join("")}
+        </tr>`,
+      )
+      .join("")}</tbody></table>`;
 }
 
 // --- Sign in / out --------------------------------------------------------------------------
@@ -2822,6 +3255,8 @@ function signedIn() {
 function signOut(message) {
   token = "";
   refreshToken = "";
+  state.household = null;
+  $("h-detail").hidden = true;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   body.dataset.view = "signin";
@@ -3009,6 +3444,20 @@ $("grant-form").addEventListener("submit", (event) => {
 $("g-search").addEventListener("input", () => {
   clearTimeout(grantSearchTimer);
   grantSearchTimer = setTimeout(() => loadHouseholds($("g-search").value), 250);
+});
+let householdLookupTimer = null;
+$("h-search").addEventListener("input", () => {
+  clearTimeout(householdLookupTimer);
+  householdLookupTimer = setTimeout(
+    () => searchHouseholds($("h-search").value).catch((e) => banner(e.message)),
+    250,
+  );
+});
+$("h-trial").addEventListener("click", () => jumpToTrial().catch((e) => banner(e.message)));
+$("h-grant").addEventListener("click", () => jumpToGrant().catch((e) => banner(e.message)));
+$("h-results").addEventListener("click", (event) => {
+  const row = event.target.closest("tr[data-family]");
+  if (row) openHousehold(row.dataset.family).catch((e) => banner(e.message));
 });
 
 // Delegated, because the ledger's rows are replaced wholesale on every repaint and a listener

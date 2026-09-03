@@ -254,6 +254,26 @@ dollar figure rather than one reading `$0.00`.
 
 ---
 
+## 2a. The Households tab, and what it will not show you
+
+Since phase 142 (Sep 3, 2026) the console has a **Households** tab: search by email, display name
+or family id, open a household, and read everything the service knows about it *as shape*. Members
+and when they were last seen; children as ages and a timezone; how many entries of which kinds,
+written in which of the last twelve weeks; bytes stored and uploads that never finished; how the
+household answers its prompts; whether the daily notification could arrive and whether it did; the
+entitlement and the latest thing Apple said about it. **Move the trial** and **Issue a grant** jump
+to the Today tab with the household already picked.
+
+**It will never show a child's name, an entry, a caption, a transcript or an object key.** That is
+the same rule every other admin route keeps and `tests/test_admin.py` plants strings to enforce
+it on this route too. If a support conversation needs the content, it needs the parent, not the
+console.
+
+The Today tab also carries **Subscriptions — what Apple has said** (the transaction ledger, with
+unattributed transactions counted rather than dropped) and the Library tab **Where the library is
+thin** (eligible prompts per slot per age band, at the thinnest month, for this calendar month).
+Both read the replica when `ADMIN_READ_DATABASE_URL` is set, like every other read here.
+
 ## 3. Reading production from your laptop
 
 ```bash

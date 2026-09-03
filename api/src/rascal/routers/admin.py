@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.config import Settings
 from rascal.deps import AdminReadSession, AdminUser, LocalWrites, SessionDep, SettingsDep
+from rascal.errors import not_found
 from rascal.models import EntitlementGrant, User
 from rascal.schemas.admin import (
     AdminCosts,
@@ -48,9 +49,12 @@ from rascal.schemas.admin import (
     AdminGrantList,
     AdminGrantOut,
     AdminHousehold,
+    AdminHouseholdDetail,
     AdminHouseholdList,
+    AdminLibraryCoverage,
     AdminOps,
     AdminSnapshot,
+    AdminSubscriptions,
     AdminTrialIn,
     AdminTrialOut,
 )
@@ -159,6 +163,73 @@ async def households(
 ) -> AdminHouseholdList:
     rows = await admin_metrics.find_households(session, q=q, limit=limit)
     return AdminHouseholdList(households=[AdminHousehold(**row) for row in rows])
+
+
+@router.get(
+    "/households/{family_id}",
+    response_model=AdminHouseholdDetail,
+    summary="One household, in full and in metadata only",
+    description=(
+        "The console's deepest read, and it still reads no archive content. Members and when "
+        "they were last seen; children as ages and a timezone, **never a name**; the shape of "
+        "the archive — how many entries of which kinds, written in which of the last twelve "
+        "weeks, how many bytes, whether uploads finished; how the household answers its "
+        "prompts; whether a notification reached a device; and the entitlement with the latest "
+        "App Store transaction behind it. Sixteen statements for a household with a child, ten "
+        "for one without, each bounded by the household.\n\n"
+        "`404 not_found` when no account belongs to the id — which is what a deleted account "
+        "leaves behind, and what a mistyped id looks like."
+    ),
+)
+async def household(
+    family_id: uuid.UUID,
+    session: AdminReadSession,
+    user: AdminUser,
+) -> AdminHouseholdDetail:
+    detail = await admin_metrics.household_detail(session, family_id)
+    if detail is None:
+        raise not_found("household")
+    return AdminHouseholdDetail(**detail)
+
+
+@router.get(
+    "/subscriptions",
+    response_model=AdminSubscriptions,
+    summary="What Apple has told this service, as a ledger",
+    description=(
+        "Counts over `app_store_transactions` and `entitlements`, and the most recent "
+        "transactions with their household's label. `days` bounds the by-type breakdown; the "
+        "summary is the current state. An unattributed transaction — one that arrived before "
+        "its household existed — is counted and named, because that is the shape phase 139 "
+        "turned on and a ledger that dropped it would hide the next one."
+    ),
+)
+async def subscriptions_ledger(
+    session: AdminReadSession,
+    user: AdminUser,
+    days: Annotated[int, Query(ge=7, le=365)] = 30,
+) -> AdminSubscriptions:
+    return AdminSubscriptions(**await admin_metrics.subscriptions(session, days=days))
+
+
+@router.get(
+    "/library/coverage",
+    response_model=AdminLibraryCoverage,
+    summary="Where the library is thin — eligible prompts per slot per age band",
+    description=(
+        "The scheduler's own eligibility rule evaluated over the active library at every month "
+        "of every age band, for today's calendar month. `eligible` is the thinnest month in the "
+        "band, `days` how long a child there can be served before a prompt must repeat, and "
+        "`thin` whether that is already inside the relaxed cooldown — the point at which the "
+        "scheduler is bending its own rules to fill the slot. One statement."
+    ),
+)
+async def library_coverage(
+    session: AdminReadSession,
+    user: AdminUser,
+) -> AdminLibraryCoverage:
+    as_of = dt.datetime.now(tz=dt.UTC).date()
+    return AdminLibraryCoverage(**await admin_metrics.library_coverage(session, as_of=as_of))
 
 
 @router.get(
@@ -369,7 +440,15 @@ async def ops(session: AdminReadSession, user: AdminUser, settings: SettingsDep)
         "knowable and names the providers outside it."
     ),
 )
-async def costs(user: AdminUser, settings: SettingsDep, refresh: bool = False) -> AdminCosts:
+async def costs(
+    user: AdminUser, session: SessionDep, settings: SettingsDep, refresh: bool = False
+) -> AdminCosts:
+    # **Give the connection back before talking to seven vendors** (phase 142). Authenticating
+    # the caller opened a transaction on the request session, and a `yield` dependency does
+    # not end it until the handler returns — so without this a pooled Neon connection sat idle
+    # in transaction for the whole fan-out, up to `billing_timeout_seconds` for the HTTP
+    # providers and longer for the bucket walk, to render a page that reads no rows.
+    await session.commit()
     if refresh:
         billing.clear_cache()
     reports = await billing.collect(settings)

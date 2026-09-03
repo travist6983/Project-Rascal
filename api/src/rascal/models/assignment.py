@@ -70,6 +70,10 @@ class Assignment(Base):
             name="prompt_or_custom_body",
         ),
         Index("ix_assignments_child_id_status_assigned_on", "child_id", "status", "assigned_on"),
+        # The console's Library tab counts served and done per prompt for the page it shows;
+        # this is what makes that a lookup rather than a scan of every assignment ever
+        # written (phase 142).
+        Index("ix_assignments_prompt_id", "prompt_id"),
     )
 
     id: Mapped[uuid_pk]

@@ -66,6 +66,11 @@ class Entry(Base):
         # the middle of the order, not at the end.
         Index("ix_entries_child_id_occurred_at", "child_id", text("occurred_at DESC")),
         Index("ix_entries_search_vector", "search_vector", postgresql_using="gin"),
+        # The console's growth chart range-filters `created_at`, and its newest-accounts table
+        # counts entries by author; without these both scanned the whole table to draw sixty
+        # days and twelve rows (phase 142).
+        Index("ix_entries_created_at", "created_at"),
+        Index("ix_entries_author_id", "author_id"),
         # ix_entries_child_month_day — the On This Day index — is functional and is created
         # as raw SQL in the migration. SQLAlchemy's Index() cannot express it the way
         # Postgres needs, so it deliberately does not appear here.
@@ -130,6 +135,8 @@ class Media(Base):
         one_of("upload_status", UPLOAD_STATUSES, name="upload_status"),
         Index("ix_media_entry_id", "entry_id"),
         Index("ix_media_search_vector", "search_vector", postgresql_using="gin"),
+        # The console's growth chart sums bytes by day (phase 142).
+        Index("ix_media_created_at", "created_at"),
     )
 
     id: Mapped[client_uuid_pk]

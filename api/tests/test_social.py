@@ -758,3 +758,25 @@ def test_settings_keep_the_two_anthropic_keys_apart() -> None:
     settings = get_settings()
     assert hasattr(settings, "anthropic_api_key")
     assert hasattr(settings, "anthropic_admin_key")
+
+
+async def test_the_eyebrow_is_stored_with_the_card_it_is_drawn_on(
+    client: AsyncClient, session: AsyncSession, admin
+) -> None:
+    """Phase 142. The composer drew it on every published card and kept it nowhere."""
+    created = await client.post(
+        "/v1/social/assets",
+        json={"headline": "A card", "eyebrow": "Also true"},
+        headers=auth_headers(admin),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["eyebrow"] == "Also true"
+
+    asset_id = created.json()["id"]
+    updated = await client.patch(
+        f"/v1/social/assets/{asset_id}",
+        json={"eyebrow": "Still true"},
+        headers=auth_headers(admin),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["eyebrow"] == "Still true"

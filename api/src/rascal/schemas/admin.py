@@ -255,6 +255,42 @@ class AdminSnapshot(ApiModel):
     signups: list[dict[str, Any]]
 
 
+class AdminHouseholdDetail(ApiModel):
+    """One household in full — and in metadata only. See `admin_metrics.household_detail`."""
+
+    household: dict[str, Any]
+    members: list[dict[str, Any]]
+    children: dict[str, Any]
+    archive: dict[str, Any]
+    prompts: dict[str, Any]
+    reach: dict[str, Any]
+    billing: dict[str, Any]
+
+
+class AdminSubscriptions(ApiModel):
+    """What Apple has told this service, as counts and a short ledger."""
+
+    as_of: str
+    days: int
+    summary: dict[str, Any]
+    by_type: dict[str, int]
+    by_environment: dict[str, int]
+    active_by_product: dict[str, int]
+    recent: list[dict[str, Any]]
+
+
+class AdminLibraryCoverage(ApiModel):
+    """How many active prompts each age band can draw on, per slot."""
+
+    as_of: str
+    month: int
+    active_prompts: int
+    cooldown_days: int
+    relaxed_cooldown_days: int
+    bands: list[str]
+    slots: list[dict[str, Any]]
+
+
 class AdminOps(ApiModel):
     environment: str
     database: dict[str, Any]

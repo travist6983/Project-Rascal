@@ -90,6 +90,7 @@
         </div>
         <nav class="tabs" role="tablist" aria-label="Sections">
           <button class="tab" role="tab" data-tab="today">Today</button>
+          <button class="tab" role="tab" data-tab="households">Households</button>
           <button class="tab" role="tab" data-tab="library">Library</button>
           <button class="tab" role="tab" data-tab="studio">Studio</button>
           <button class="tab" role="tab" data-tab="costs">Costs</button>
@@ -149,6 +150,33 @@
             Enough to start a support conversation, and nothing about anybody's archive.
           </p>
           <div id="signups" class="table-wrap"></div>
+        </article>
+
+        <article class="card" id="subscriptions">
+          <div class="chart-head">
+            <div>
+              <p class="label">Subscriptions — what Apple has said</p>
+              <p class="card-note">
+                Read from the ledger App Store Server Notifications and submitted receipts write,
+                never from a guess. A transaction that arrived before its household existed is
+                counted as <em>unattributed</em> rather than dropped — that is the shape phase 139
+                turned on.
+              </p>
+            </div>
+          </div>
+          <div id="subs-stats" class="subs-grid"></div>
+          <div class="grid-2 subs-charts">
+            <div>
+              <p class="label" id="subs-types-label">Notifications, last 30 days</p>
+              <div id="chart-subs-types" class="chart"></div>
+            </div>
+            <div>
+              <p class="label">Active subscriptions by product</p>
+              <div id="chart-subs-products" class="chart"></div>
+              <p id="subs-environments" class="chips"></p>
+            </div>
+          </div>
+          <div id="subs-recent" class="table-wrap"></div>
         </article>
 
         <article class="card" id="membership">
@@ -250,6 +278,86 @@
         </article>
       </section>
 
+      <!-- Households ----------------------------------------------------------------- -->
+      <section id="panel-households" class="panel" role="tabpanel" hidden>
+        <article class="card">
+          <div class="chart-head">
+            <div>
+              <p class="label">Find a household</p>
+              <p class="card-note">
+                An email, a display name, or a family id — the eight characters the rest of the
+                console shows are enough. Everything a household opens to is <strong>shape, never
+                content</strong>: how much, of what kind, when, and whether it worked. No entry,
+                no caption, no transcript, and no child's name.
+              </p>
+            </div>
+          </div>
+          <input
+            id="h-search"
+            class="search-wide"
+            type="search"
+            placeholder="email, name, or family id"
+            autocomplete="off"
+          />
+          <div id="h-results" class="table-wrap"></div>
+        </article>
+
+        <div id="h-detail" hidden>
+          <div class="hero household-hero">
+            <div class="hero-figure">
+              <p class="label">Household</p>
+              <p id="h-label" class="hero-title"></p>
+              <p id="h-chips" class="chips"></p>
+              <p id="h-sub" class="hero-sub"></p>
+              <div class="household-actions">
+                <button id="h-trial" class="btn btn-quiet" type="button">Move the trial</button>
+                <button id="h-grant" class="btn btn-quiet" type="button">Issue a grant</button>
+              </div>
+            </div>
+            <div class="hero-chart">
+              <div class="chart-head">
+                <p class="label">Entries written each week, last twelve</p>
+              </div>
+              <div id="h-chart-weeks" class="chart"></div>
+            </div>
+          </div>
+
+          <div id="h-tiles" class="tiles"></div>
+
+          <div class="grid-2">
+            <article class="card">
+              <p class="label">What this archive is made of</p>
+              <p class="card-note">Live entries by what they actually contain.</p>
+              <div id="h-chart-types" class="chart"></div>
+              <ul id="h-media" class="metric-list"></ul>
+            </article>
+            <article class="card">
+              <p class="label">Children</p>
+              <p class="card-note">Ages and timezones. The console never sees a name.</p>
+              <ul id="h-children" class="metric-list"></ul>
+              <p class="label people-label">People</p>
+              <div id="h-people" class="table-wrap"></div>
+            </article>
+          </div>
+
+          <div class="grid-2">
+            <article class="card">
+              <p class="label">Membership</p>
+              <p class="card-note">
+                The entitlement as the server computes it, and the latest thing Apple said about
+                this household.
+              </p>
+              <ul id="h-billing" class="metric-list"></ul>
+            </article>
+            <article class="card">
+              <p class="label">Reach</p>
+              <p class="card-note">Whether the daily notification can arrive, and whether it did.</p>
+              <ul id="h-reach" class="metric-list"></ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <!-- Library ------------------------------------------------------------------- -->
       <section id="panel-library" class="panel" role="tabpanel" hidden>
         <article class="card">
@@ -316,6 +424,16 @@
             <button id="g-queue-picked" class="btn btn-primary">Queue the picked ones</button>
             <p id="g-hint" class="card-note" hidden></p>
           </div>
+        </article>
+
+        <article class="card" id="coverage-card">
+          <div class="chart-head">
+            <div>
+              <p class="label">Where the library is thin</p>
+              <p id="coverage-note" class="card-note"></p>
+            </div>
+          </div>
+          <div id="coverage" class="table-wrap coverage"></div>
         </article>
 
         <article class="card">

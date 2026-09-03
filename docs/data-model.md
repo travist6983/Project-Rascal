@@ -351,6 +351,8 @@ CREATE UNIQUE INDEX uq_assignments_shared ON assignments (child_id, assigned_on,
 
 **Why two partial indexes rather than one wider one, and this is the part that would silently break if somebody later "simplified" it:** Postgres treats NULLs as distinct in a unique index. A single `UNIQUE (child_id, user_id, assigned_on, slot)` would let the scheduler write an unlimited number of shared-slot rows for one child on one day — every one of them has a NULL `user_id`, and NULL never equals NULL. Idempotency would fail **silently**, on exactly the slots (weekly, monthly) nobody checks daily. The shared index therefore does not mention `user_id` at all, which keeps the old guarantee intact for the rows that kept the old shape.
 
+**Two plain indexes beside them**: `ix_assignments_child_id_status_assigned_on` on `(child_id, status, assigned_on)`, and since phase 142 (migration `0026`) `ix_assignments_prompt_id` on `(prompt_id)`, which is what lets the admin console count served and done per prompt for one page without scanning every assignment ever written.
+
 **Anything using `ON CONFLICT` against either index must repeat its `WHERE` clause.** Postgres will not infer a partial unique index from the column list alone; without the predicate the insert raises *"there is no unique or exclusion constraint matching the ON CONFLICT specification"*. `services/scheduler.py` carries both predicates for this reason.
 
 **On `slot` values.** `mission` is **photo-only** as of migration `0008`, and `mission_b` takes the video, audio and activity kinds it used to share. The slot narrowed without being renamed, so **rows written before `0008` hold non-photo prompts in `mission` and are correct for the day they were served** — see `docs/decisions.md`. A slot name is an identifier for a position in the day, not a description of the kind that fills it.
@@ -475,7 +477,7 @@ which see below.
 | `updated_at` | timestamptz | sync cursor |
 | `search_vector` | tsvector | **stored generated** — `setweight(title, 'A') \|\| setweight(body, 'B')`, config `english` |
 
-Indexes: `(child_id, occurred_at desc)`, a functional index on `(child_id, extract(month from occurred_at), extract(day from occurred_at))` for On This Day, and a GIN index on `search_vector`.
+Indexes: `(child_id, occurred_at desc)`, a functional index on `(child_id, extract(month from occurred_at), extract(day from occurred_at))` for On This Day, and a GIN index on `search_vector`. Since phase 142 (migration `0026`): `ix_entries_created_at` on `(created_at)` for the admin console's growth chart, and `ix_entries_author_id` on `(author_id)` for its newest-accounts entry counts — both plain B-trees, both named.
 
 #### `entry_type` is derived, and this row is the one that has to say so
 
@@ -525,7 +527,7 @@ was left behind, and it is the authoritative one.
 | `created_at` / `updated_at` | timestamptz | |
 | `search_vector` | tsvector | **stored generated** — `setweight(transcript, 'B') \|\| setweight(caption, 'C')` |
 
-Indexes: `(entry_id)`, and a GIN index on `search_vector`.
+Indexes: `(entry_id)`, and a GIN index on `search_vector`. Since phase 142 (migration `0026`): `ix_media_created_at` on `(created_at)` for the admin console's bytes-per-day chart.
 
 Both `search_vector` columns are **generated, not trigger-maintained**. A generated column
 cannot drift: there is no window in which the row is written and the vector is not, and no
@@ -889,7 +891,7 @@ not user data.
 | `platform` | text | `instagram` \| `instagram_story` \| `x` \| `threads` \| `facebook` \| `linkedin` \| `generic`, `text` + named CHECK |
 | `status` | text | `draft` \| `approved` \| `exported` \| `published` \| `discarded` |
 | `format` | text | `card` \| `photo` \| `video` |
-| `angle`, `template`, `palette`, `headline`, `subhead` | text NULL | The card |
+| `angle`, `template`, `palette`, `eyebrow`, `headline`, `subhead` | text NULL | The card. `eyebrow` since phase 142 (Sep 3, 2026): it was drawn on every published card and stored nowhere, so a reopened post rendered a different card from the one that went out |
 | `caption`, `alt_text` | text NULL | The post. **`alt_text` is not the caption** |
 | `hashtags` | text[] | |
 | `image_prompt` | text NULL | A brief for a photographic renderer, written whether or not one is configured |

@@ -91,6 +91,10 @@ class SocialAsset(Base):
     #: JavaScript, and a constraint here would be a second list to keep in step.
     template: Mapped[str | None] = mapped_column(Text, nullable=True)
     palette: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The small line above the headline. Drawn on every card since the composer shipped and
+    #: stored since phase 142: before that it was published to a feed and then lost, so a
+    #: reopened post rendered a different card from the one that went out.
+    eyebrow: Mapped[str | None] = mapped_column(Text, nullable=True)
     headline: Mapped[str | None] = mapped_column(Text, nullable=True)
     subhead: Mapped[str | None] = mapped_column(Text, nullable=True)
 

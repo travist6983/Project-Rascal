@@ -41,6 +41,25 @@ class DatabaseSettings(BaseSettings):
         case_sensitive=False,
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_strings(cls, data: object) -> object:
+        """Every string setting loses its surrounding whitespace before validation.
+
+        **Found by the console's Anthropic card reading `Illegal header value b'sk-ant-admin… '`**
+        (phase 142). A trailing space in `.env` — or in a pasted Fly secret — survives every
+        check in this file and fails only where the value is finally used, as an HTTP header
+        httpx refuses, in a card that then says *error* instead of a figure. A key with a space
+        on the end is never a different key. Leading and trailing only: nothing here has
+        meaningful whitespace at its ends, and a PEM body's interior newlines are untouched.
+        """
+        if isinstance(data, dict):
+            return {
+                key: value.strip() if isinstance(value, str) else value
+                for key, value in data.items()
+            }
+        return data
+
     database_url: str
     # Optional second connection string, used only by Alembic. Neon's pooled endpoint is
     # PgBouncer in transaction mode, which does not support the session-level machinery a

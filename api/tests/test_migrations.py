@@ -58,6 +58,10 @@ EXPECTED_INDEXES = {
     "ix_entries_child_id_occurred_at",
     "ix_entries_child_month_day",
     "ix_media_entry_id",
+    "ix_media_created_at",
+    "ix_entries_created_at",
+    "ix_entries_author_id",
+    "ix_assignments_prompt_id",
     "ix_entry_tags_tag_id",
     "uq_tags_child_id_name",
     # The scheduler's candidate pool, and the seed loader's idempotency key.
