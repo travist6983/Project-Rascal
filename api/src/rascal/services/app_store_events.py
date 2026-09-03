@@ -90,6 +90,20 @@ Symmetrical with guard 4 by construction: that one refuses a demotion it cannot 
 one refuses a promotion there is nobody to give. Added by phase 127 alongside Sign in with Apple
 revocation, because both are the same question — what does this service still owe a person who
 has left — asked from two directions.
+
+**And a receipt whose household has nobody left in it follows the caller** — phase 143, Sep 3,
+2026, on the owner's instruction (*"Please fix this"*). The household guard 5 describes is also
+one a receipt can be stuck in: its only member erased their account, Apple goes on charging them,
+and the JWS on their phone goes on naming the household they left. Production answered that
+person `409` three times on Sep 3 — *"This purchase belongs to a different household"* — and put
+the paywall back in front of somebody Apple was charging. The `409` protects a household from a
+stranger's replay; a household with nobody in it has nothing to protect, and the person holding
+the Apple-signed receipt on their device is the one Apple is charging. So the submission
+proceeds under the caller when the token names a household that *exists* and is *empty*, moving
+the ledger row with it, and `apply_notification` thereafter follows the ledger past that token
+rather than routing Apple's later word about the subscription into the ghost.
+`services/guardians.household_is_empty` is the one definition of *empty*, counted in `users` —
+a member with no children yet is still a member. Every other refusal stands.
 """
 
 from __future__ import annotations
@@ -108,7 +122,7 @@ from rascal.constants import (
 )
 from rascal.models import AppStoreTransaction, Entitlement, Family, User
 from rascal.services.app_store import VerifiedNotification, VerifiedTransaction
-from rascal.services.guardians import active_parent_count, family_members
+from rascal.services.guardians import family_members, household_is_empty
 
 log = logging.getLogger("rascal.app_store.events")
 
@@ -242,18 +256,37 @@ async def apply_notification(
         and existing.family_id is not None
         and existing.family_id != token_family_id
     ):
-        # Apple does have an API for changing a subscription's `appAccountToken`, so this is
-        # reachable rather than impossible — but nothing in this service calls it, so seeing
-        # it means something changed that nobody here decided. The old household keeps
-        # whatever tier it had; sorting that out is a support conversation, not a guess.
-        log.warning(
-            "app store transaction reattributed to a different family",
-            extra={
-                "original_transaction_id": note.original_transaction_id,
-                "from_family_id": str(existing.family_id),
-                "to_family_id": str(token_family_id),
-            },
-        )
+        if await household_is_empty(session, token_family_id):
+            # **The token is stale, not wrong.** Apple stamps every notification with the token
+            # the subscription was bought under, and a receipt that followed its holder into a
+            # new household (`apply_submitted_transaction`, phase 143) goes on naming the one
+            # they erased. The ledger row is where the receipt lives now. Routed by the token,
+            # a `DID_RENEW` would reach the ghost and be refused by guard 5 while the live
+            # household got nothing, and an `EXPIRED` would demote nobody while the live
+            # household kept `subscribed` on a cancelled card — so the ledger outranks a token
+            # that names a household with no one in it, and only such a token.
+            log.warning(
+                "app store notification follows the ledger past an empty household",
+                extra={
+                    "original_transaction_id": note.original_transaction_id,
+                    "token_family_id": str(token_family_id),
+                    "family_id": str(existing.family_id),
+                },
+            )
+            family_id = existing.family_id
+        else:
+            # Apple does have an API for changing a subscription's `appAccountToken`, so this is
+            # reachable rather than impossible — but nothing in this service calls it, so seeing
+            # it means something changed that nobody here decided. The old household keeps
+            # whatever tier it had; sorting that out is a support conversation, not a guess.
+            log.warning(
+                "app store transaction reattributed to a different family",
+                extra={
+                    "original_transaction_id": note.original_transaction_id,
+                    "from_family_id": str(existing.family_id),
+                    "to_family_id": str(token_family_id),
+                },
+            )
 
     effect = tier_effect(note.notification_type, note.subtype)
 
@@ -356,7 +389,7 @@ async def apply_notification(
     if (
         effect == "subscribed"
         and family_id is not None
-        and await active_parent_count(session, family_id) == 0
+        and await household_is_empty(session, family_id)
     ):
         log.warning(
             "refusing to promote a household with no members left",
@@ -451,17 +484,58 @@ async def apply_submitted_transaction(
     places a lapse is recorded rather than against the row's high-water mark alone, because a
     neutral notification (a renewal-preference change) can land after the refund and become the
     row's latest without un-lapsing anything.
+
+    **One exception to the token rule, since phase 143 (Sep 3, 2026): a receipt whose household
+    has nobody left in it follows the caller.** Account deletion hard-deletes `users` and
+    `guardians` and leaves `families` and `entitlements` standing, so the household a receipt
+    was bought in can outlive its only member — still reading `tier=subscribed`, with no one to
+    read it. Apple goes on charging the person, the phone goes on holding a JWS whose token names
+    the erased household, and on Sep 3, 2026 production answered that person `409` three times
+    and put the paywall back in front of them. The `409` protects a household from a stranger's
+    replay; a household with nobody in it has nothing to protect, and the person holding the
+    Apple-signed receipt on their device is the one Apple is charging. So when the token names a
+    household that *exists* and is *empty*, the submission proceeds under the caller's household
+    and the ledger row moves with it — logged as a warning, because a moved receipt is the fact a
+    support conversation would need. Every other refusal stands exactly as it was: no token, a
+    household that still has a member, a household this server has no row for, and a ledger row
+    a *third* household holds.
+
+    **The ghost's entitlement is not touched.** It may go on reading `subscribed` with nobody in
+    it: writing `free` there would be this door demoting, which it may not do, and there is no
+    one in that household to be helped by the correction. What does change is where Apple's later
+    word about the subscription lands — `apply_notification` follows the ledger past a token that
+    names an empty household, so a `DID_RENEW` or an `EXPIRED` reaches the household that holds
+    the receipt now rather than the one that used to.
     """
-    if txn.app_account_token is None or txn.app_account_token != family_id:
+    if txn.app_account_token is None:
         log.warning(
             "submitted transaction refused: appAccountToken is not the caller's household",
             extra={
                 "original_transaction_id": txn.original_transaction_id,
                 "family_id": str(family_id),
-                "app_account_token": str(txn.app_account_token),
+                "app_account_token": None,
             },
         )
         raise TransactionBelongsElsewhere
+
+    # `moved_from` is the household the receipt is leaving, or `None` for the ordinary case where
+    # Apple's token and the bearer token agree. Set only when the token's household exists and
+    # nobody is left in it — `household_is_empty` does not check existence, and "no such
+    # household" is a receipt this server knows nothing about, not a degenerate empty one.
+    moved_from: uuid.UUID | None = None
+    if txn.app_account_token != family_id:
+        token_family = await session.get(Family, txn.app_account_token)
+        if token_family is None or not await household_is_empty(session, token_family.id):
+            log.warning(
+                "submitted transaction refused: appAccountToken is not the caller's household",
+                extra={
+                    "original_transaction_id": txn.original_transaction_id,
+                    "family_id": str(family_id),
+                    "app_account_token": str(txn.app_account_token),
+                },
+            )
+            raise TransactionBelongsElsewhere
+        moved_from = token_family.id
 
     if not txn.original_transaction_id:
         return "ignored:no-transaction-id"
@@ -494,8 +568,16 @@ async def apply_submitted_transaction(
     # signature says the caller, the ledger says somebody else, and a client cannot resolve
     # that: `apply_notification` logs the same disagreement and proceeds on Apple's word
     # because a notification is Apple speaking; here it is the caller speaking with Apple's
-    # signature in hand, and the conservative answer is to touch nothing.
-    if existing is not None and existing.family_id is not None and existing.family_id != family_id:
+    # signature in hand, and the conservative answer is to touch nothing. **The one row that
+    # may move is the one held by the empty household the token itself names** — the ledger and
+    # Apple agree about where the receipt was, and that place has nobody in it. A row a *third*
+    # household holds is a disagreement nobody here can settle, empty token household or not.
+    if (
+        existing is not None
+        and existing.family_id is not None
+        and existing.family_id != family_id
+        and existing.family_id != moved_from
+    ):
         log.warning(
             "submitted transaction refused: the ledger attributes it to a different family",
             extra={
@@ -524,6 +606,17 @@ async def apply_submitted_transaction(
     # for this transaction's row, a demoting notification that is the row's latest word.
     entitlement = await session.get(Entitlement, family_id)
     lapsed_at = entitlement.lapsed_at if entitlement is not None else None
+    if moved_from is not None:
+        # **A moving receipt's lapse was recorded against the household it is leaving.** The
+        # caller's household has never heard of this subscription, so its own `lapsed_at` says
+        # nothing about it — and a `REFUND` followed by a neutral notification leaves the row's
+        # latest word neutral, so the row-level check below would not catch a pre-refund JWS
+        # either. Read both households and take the later; found in review before this shipped.
+        departed = await session.get(Entitlement, moved_from)
+        if departed is not None and departed.lapsed_at is not None:
+            lapsed_at = (
+                departed.lapsed_at if lapsed_at is None else max(lapsed_at, departed.lapsed_at)
+            )
     if lapsed_at is not None and txn.signed_date <= lapsed_at:
         log.warning(
             "submitted transaction ignored: signed before the household's lapse",
@@ -569,9 +662,22 @@ async def apply_submitted_transaction(
         return "ignored:sandbox-blocked"
 
     # Guard 5 does not apply: the caller is a member of this household by construction, so
-    # `active_parent_count` is at least one, and asserting it would be asserting the bearer
-    # token. Guard 4 does not apply either: this door cannot demote.
+    # `household_is_empty` is false, and asserting it would be asserting the bearer token.
+    # Guard 4 does not apply either: this door cannot demote.
 
+    if moved_from is not None:
+        # Logged here rather than where the decision was made, so a refusal further up (not
+        # active, out of order, sandbox-blocked) never leaves a log line claiming a move that
+        # did not happen. A warning rather than info: a receipt changing households is the one
+        # fact a support conversation about either household will need.
+        log.warning(
+            "submitted transaction reattributed from empty household",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "from_family_id": str(moved_from),
+                "to_family_id": str(family_id),
+            },
+        )
     await _record_submission(session, txn, existing=existing, family_id=family_id)
     await _write_tier(
         session,
@@ -594,7 +700,8 @@ async def _record_submission(
     family_id: uuid.UUID,
 ) -> None:
     """The ledger's side of a submission: a row where there was none, attribution where it was
-    missing, and **nothing else**.
+    missing — or, since phase 143, where it named a household with nobody left in it — and
+    **nothing else**.
 
     A row a notification wrote keeps its `latest_signed_date`, its type and its payload. The
     date is guard 1's high-water mark and a submission's `signedDate` is whenever StoreKit last
@@ -618,7 +725,9 @@ async def _record_submission(
             )
         )
         return
-    if existing.family_id is None:
+    # Either null, or the empty household the caller's receipt is leaving: the guard in
+    # `apply_submitted_transaction` has already refused every other disagreement.
+    if existing.family_id != family_id:
         existing.family_id = family_id
 
 

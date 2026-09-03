@@ -16,6 +16,7 @@ subscribed on a cancelled card.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import uuid
 
 import pytest
@@ -23,11 +24,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 import app_store_stub as stub
-from factories import make_family, make_user
+from factories import make_child, make_family, make_user
 from helpers import auth_headers
 from rascal.config import get_settings
 from rascal.deps import get_app_store_verifier
-from rascal.models import AppStoreTransaction, Entitlement
+from rascal.models import AppStoreTransaction, Entitlement, Family, User
+from rascal.services import deletion
 from rascal.services.app_store import AppStoreVerifier
 
 ROUTE = "/v1/families/me/transactions"
@@ -877,6 +879,433 @@ async def test_the_owners_household_in_production_on_sep_3(
     row = await _transaction(session, "2000001226887447")
     assert row.latest_notification_type == "DID_CHANGE_RENEWAL_PREF"
     assert row.latest_signed_date == SIGNED_AT
+
+
+# --- The receipt whose household has nobody left in it (phase 143) --------------------------------
+#
+# Sep 3, 2026, 10:17Z, 10:51Z and 10:52Z in production: `POST /families/me/transactions` answered
+# `409` three times, for two live households, and the paywall came back. The receipt was the
+# owner's Sandbox annual, `2000001226887447`, whose `appAccountToken` names the household he bought
+# it in — and that household's only member had since run account deletion. `execute_deletion`
+# removes `users` and `guardians` and deliberately leaves `families` and `entitlements` standing,
+# so the ledger row was attributed to a household reading `tier=subscribed` with nobody in it, and
+# the `409` that protects a household from a stranger's replay was protecting an empty room.
+
+GHOST_TRANSACTION = "2000001226887447"
+
+
+async def _household_whose_only_member_left(session, client, chain) -> uuid.UUID:
+    """The production shape, arranged in production's order: a member buys, Apple's `SUBSCRIBED`
+    attributes the ledger row and promotes the household, and *then* the member erases their
+    account. Running the real deletion rather than omitting the user is the point — the guard is
+    about the state the erasure leaves behind, and `test_app_store.py`'s erased-household tests
+    make the same choice for the same reason."""
+    family = await make_family(session)
+    member = await make_user(session, family=family)
+    await make_child(session, parent=member)
+    await session.commit()
+
+    bought = await _notify(
+        client,
+        stub.sign_notification(
+            chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            environment="Sandbox",
+            original_transaction_id=GHOST_TRANSACTION,
+            app_account_token=family.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert bought.json()["status"] == "tier:subscribed"
+
+    await deletion.request_deletion(session, member)
+    await session.commit()
+    await deletion.run_due_deletions(
+        session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+    )
+    assert await session.get(User, member.id) is None
+    assert await session.get(Family, family.id) is not None
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+    assert (await _transaction(session, GHOST_TRANSACTION)).family_id == family.id
+    return family.id
+
+
+def _stale_receipt(chain, ghost_id: uuid.UUID, *, signed_at: dt.datetime) -> str:
+    """The JWS the phone still holds: Apple's signature over the household it was bought in."""
+    return stub.sign_transaction(
+        chain,
+        signed_date=signed_at,
+        environment="Sandbox",
+        original_transaction_id=GHOST_TRANSACTION,
+        app_account_token=ghost_id,
+        expires_date=EXPIRES,
+    )
+
+
+async def test_a_receipt_whose_household_has_nobody_left_follows_the_caller(
+    app_store_client, session, app_store_chain, caplog
+):
+    """**Case (a), the reported symptom.** The same person, in a new household, submits the
+    receipt Apple signed for the household they erased. Before phase 143: `409`, and a paywall in
+    the face of somebody Apple is charging. Now: the receipt follows the caller, the ledger row
+    moves with it, and the move is logged loudly enough to be found."""
+    ghost = await _household_whose_only_member_left(session, app_store_client, app_store_chain)
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    with caplog.at_level(logging.WARNING, logger="rascal.app_store.events"):
+        response = await _submit(
+            app_store_client,
+            me,
+            _stale_receipt(app_store_chain, ghost, signed_at=SIGNED_AT + dt.timedelta(days=1)),
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "tier:subscribed"
+    assert response.json()["family"]["family_id"] == str(mine.id)
+    assert response.json()["family"]["tier"] == "subscribed"
+
+    entitlement = await _entitlement(session, mine.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None
+    assert entitlement.payer_user_id == me.id
+
+    row = await _transaction(session, GHOST_TRANSACTION)
+    assert row.family_id == mine.id, "the ledger row did not follow the caller"
+    # The notification's ordering key is still the notification's: a move is not a rewrite.
+    assert row.latest_signed_date == SIGNED_AT
+    assert row.latest_notification_type == "SUBSCRIBED"
+
+    moved = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "submitted transaction reattributed from empty household"
+    ]
+    assert len(moved) == 1, caplog.text
+    assert moved[0].original_transaction_id == GHOST_TRANSACTION
+    assert moved[0].from_family_id == str(ghost)
+    assert moved[0].to_family_id == str(mine.id)
+
+
+async def test_the_empty_households_entitlement_is_left_exactly_as_it_was(
+    app_store_client, session, app_store_chain
+):
+    """**Case (f).** A submission may only promote (D5, as amended by phase 140), and that holds
+    for the household it is moving *away from* as much as the one it is moving to: the ghost keeps
+    its `subscribed`, because writing `free` to it would be this door demoting something — and
+    there is nobody left in it to be either helped or harmed by the correction."""
+    ghost = await _household_whose_only_member_left(session, app_store_client, app_store_chain)
+    before = await _entitlement(session, ghost)
+    assert before.tier == "subscribed"
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        _stale_receipt(app_store_chain, ghost, signed_at=SIGNED_AT + dt.timedelta(days=1)),
+    )
+    assert response.json()["status"] == "tier:subscribed"
+
+    after = await _entitlement(session, ghost)
+    assert after.tier == "subscribed"
+    assert after.lapsed_at is None
+    assert after.payer_user_id == before.payer_user_id
+    assert after.updated_at == before.updated_at
+
+
+async def test_a_household_that_still_has_a_member_keeps_its_receipt(
+    app_store_client, session, app_store_chain
+):
+    """**Case (b), unchanged.** The other household has a parent with a child: that is somebody's
+    archive, and a second account presenting its receipt is exactly the replay the `409` exists
+    for. Nothing moves, for either household."""
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    theirs = await make_family(session)
+    somebody = await make_user(session, family=theirs, display_name="Somebody")
+    await make_child(session, parent=somebody)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain,
+            signed_date=SIGNED_AT,
+            app_account_token=theirs.id,
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert (await _entitlement(session, theirs.id)).tier == "free"
+    assert await _rows(session) == 0
+
+
+async def test_a_member_with_no_children_yet_is_still_a_member(
+    app_store_client, session, app_store_chain
+):
+    """**The definition of "nobody left", pinned.** Emptiness is counted in `users`, not in
+    `guardians`: a parent who has signed up and not yet added a child has no `guardians` row and is
+    still in the household, still able to sign in, and still the person whose household the
+    receipt names. Counting guardian rows would call this household empty and hand its receipt to
+    whoever asked."""
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    theirs = await make_family(session)
+    await make_user(session, family=theirs, display_name="No kids yet")
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain,
+            signed_date=SIGNED_AT,
+            app_account_token=theirs.id,
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert response.status_code == 409
+    assert await _rows(session) == 0
+
+
+async def test_a_token_naming_no_household_at_all_is_still_a_409(
+    app_store_client, session, app_store_chain
+):
+    """**Case (d).** A household with nobody in it has a `families` row; a UUID nothing resolves
+    to does not. The second is a receipt this server has no record of at all, and it is refused
+    exactly as it was — "no household" is not a degenerate case of "empty household"."""
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain,
+            signed_date=SIGNED_AT,
+            app_account_token=uuid.uuid4(),
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert response.status_code == 409
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert await _rows(session) == 0
+
+
+async def test_a_ledger_row_held_by_a_third_household_does_not_move(
+    app_store_client, session, app_store_chain
+):
+    """The move is permitted in one case only: the ledger agrees with Apple's token about which
+    household the receipt was for, and that household is empty. Apple's token naming an empty
+    household while the ledger names a *third*, living one is a disagreement nobody here can
+    settle, and the answer stays what phase 140 made it — touch nothing."""
+    ghost = await _household_whose_only_member_left(session, app_store_client, app_store_chain)
+    third = await make_family(session)
+    await make_user(session, family=third, display_name="Third")
+    row = await _transaction(session, GHOST_TRANSACTION)
+    row.family_id = third.id
+    await session.commit()
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        _stale_receipt(app_store_chain, ghost, signed_at=SIGNED_AT + dt.timedelta(days=1)),
+    )
+
+    assert response.status_code == 409
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert (await _transaction(session, GHOST_TRANSACTION)).family_id == third.id
+
+
+async def test_a_pre_refund_receipt_cannot_leave_the_household_it_was_refunded_in(
+    app_store_client, session, app_store_chain
+):
+    """**Found in review before this shipped.** The lapse for a receipt is recorded against the
+    household it was bought in; the caller's new household has never heard of the subscription
+    and its `lapsed_at` is `None`. So a `REFUND`, then a neutral notification that becomes the
+    row's latest word, then the erasure, then the pre-refund JWS the phone still holds from a new
+    household: neither of phase 140's two lapse checks would fire on the caller's side alone, and
+    a refunded subscription would have walked into a new household `subscribed`. The moving
+    receipt's lapse is read from the household it is leaving as well."""
+    old = await make_family(session)
+    member = await make_user(session, family=old)
+    await make_child(session, parent=member)
+    await session.commit()
+    t0 = SIGNED_AT
+    bought = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=t0,
+            app_account_token=old.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert bought.json()["status"] == "tier:subscribed"
+    refunded = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="REFUND",
+            signed_date=t0 + dt.timedelta(days=1),
+            app_account_token=old.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert refunded.json()["status"] == "tier:free"
+    neutral = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_CHANGE_RENEWAL_STATUS",
+            subtype="AUTO_RENEW_DISABLED",
+            signed_date=t0 + dt.timedelta(days=2),
+            app_account_token=old.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert neutral.json()["status"] == "recorded:no-tier-change"
+    await deletion.request_deletion(session, member)
+    await session.commit()
+    await deletion.run_due_deletions(
+        session, get_settings(), now=dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=8)
+    )
+    assert (await _entitlement(session, old.id)).lapsed_at == t0 + dt.timedelta(days=1)
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain,
+            signed_date=t0 + dt.timedelta(hours=1),
+            app_account_token=old.id,
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored:out-of-order"
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert (await _transaction(session, "2000000000000001")).family_id == old.id
+
+
+async def test_after_the_move_apples_notifications_with_the_stale_token_follow_the_ledger(
+    app_store_client, session, app_store_chain
+):
+    """**Case (e).** Apple does not know the household moved: every later notification for this
+    subscription carries the token of the household it was bought in. Before phase 143 a
+    `DID_RENEW` would have reached the ghost (and been refused by guard 5), and an `EXPIRED` would
+    have demoted the ghost while the household actually holding the membership kept it on a
+    cancelled card. Both now follow the ledger to where the receipt lives."""
+    ghost = await _household_whose_only_member_left(session, app_store_client, app_store_chain)
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+    moved = await _submit(
+        app_store_client,
+        me,
+        _stale_receipt(app_store_chain, ghost, signed_at=SIGNED_AT + dt.timedelta(days=1)),
+    )
+    assert moved.json()["status"] == "tier:subscribed"
+
+    renewed = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT + dt.timedelta(days=30),
+            environment="Sandbox",
+            original_transaction_id=GHOST_TRANSACTION,
+            app_account_token=ghost,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert renewed.json()["status"] == "tier:subscribed", renewed.text
+    assert (await _transaction(session, GHOST_TRANSACTION)).family_id == mine.id
+    assert (await _entitlement(session, mine.id)).tier == "subscribed"
+
+    expired = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT + dt.timedelta(days=60),
+            environment="Sandbox",
+            original_transaction_id=GHOST_TRANSACTION,
+            app_account_token=ghost,
+            expires_date=SIGNED_AT + dt.timedelta(days=60),
+        ),
+    )
+    assert expired.json()["status"] == "tier:free", expired.text
+    live = await _entitlement(session, mine.id)
+    assert live.tier == "free"
+    assert live.lapsed_at == SIGNED_AT + dt.timedelta(days=60)
+    # The ghost is not the notification's household any more, and nothing here writes to it.
+    assert (await _entitlement(session, ghost)).tier == "subscribed"
+    assert (await _transaction(session, GHOST_TRANSACTION)).family_id == mine.id
+
+
+async def test_a_stale_token_naming_a_living_household_still_follows_the_token(
+    app_store_client, session, app_store_chain
+):
+    """The other branch of the same fork, unchanged: when the token's household still has members
+    and the ledger says somewhere else, Apple's word wins and the disagreement is logged — the
+    behaviour `apply_notification` has had since phase 37a. Phase 143 reroutes only when the
+    token's household is empty."""
+    mine = await make_family(session)
+    await make_user(session, family=mine)
+    theirs = await make_family(session)
+    await make_user(session, family=theirs, display_name="Somebody")
+    await session.commit()
+    first = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            app_account_token=mine.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert first.json()["status"] == "tier:subscribed"
+
+    renewed = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT + dt.timedelta(days=30),
+            app_account_token=theirs.id,
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert renewed.json()["status"] == "tier:subscribed"
+    assert (await _transaction(session, "2000000000000001")).family_id == theirs.id
+    assert (await _entitlement(session, theirs.id)).tier == "subscribed"
+    assert (await _entitlement(session, mine.id)).tier == "subscribed"
 
 
 # --- The verifier's own contract for a bare transaction ------------------------------------------

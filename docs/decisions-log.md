@@ -1468,3 +1468,27 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   auth transaction before its vendor fan-out; four B-tree indexes back the console's range and
   lookup reads (`0026`). `social_assets.eyebrow` exists because the composer was publishing a line it
   never stored.
+- **Sep 3, 2026 (phase 143, API lane).** **Amends D5 again, owner-authorised (*"Please fix this"*):
+  a receipt whose household has nobody left in it follows the caller.** `POST
+  /families/me/transactions` answered `409` three times that morning to a receipt whose
+  `appAccountToken` named a household whose only member had run account deletion — `families` and
+  `entitlements` survive an erasure by design, so the ghost read `subscribed` with nobody in it and
+  the guard against a stranger's replay was protecting an empty room. Judgment calls: **(1) *empty*
+  is counted in `users`, not `guardians` rows** — the brief said guardians, but a parent who has
+  signed up and not yet added a child has no `guardians` row and is still in the household, and
+  counting links would hand that household's receipt to whoever asked; `guardians.household_is_empty`
+  is the one definition and guard 5 reads it too. **(2) Existence and emptiness are different
+  answers**: a token naming no `families` row at all is still `409`, because "no household" is a
+  receipt this server knows nothing about, not a degenerate empty one. **(3) The move is permitted
+  for exactly one ledger row** — the one held by the empty household the token itself names; a row a
+  third, living household holds is still `409`. **(4) The ghost's entitlement is not written** — a
+  submission may only promote, and writing `free` there would be this door demoting; instead the
+  webhook follows the ledger past a token naming an empty household, so nothing Apple sends about
+  the subscription reaches the ghost again. **(5) The move is logged as a warning at the write, not
+  at the decision**, so a refusal further down never leaves a line claiming a move that did not
+  happen. **(6) A moving receipt's lapse is read from the household it is leaving as well as the
+  caller's** — found by the single review pass before this shipped: a `REFUND` then a neutral
+  notification leaves the row's latest word neutral, the caller's new household has `lapsed_at`
+  null, and a pre-refund JWS would have walked a refunded subscription into a new household
+  `subscribed`; the later of the two `lapsed_at`s is the one the ordering rule reads. Not done: writing `free` to the ghost, or deleting `families`/`entitlements` on erasure —
+  the second is a real question about `ON DELETE SET NULL` on the ledger and is not this bug.
