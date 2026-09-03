@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import DAILY_SLOTS
 from rascal.models import (
+    AppStoreTransaction,
     Assignment,
     Child,
     DeletionRequest,
@@ -34,14 +35,19 @@ from rascal.models import (
     EntitlementGrant,
     Entry,
     Family,
+    Guardian,
+    GuardianInvite,
     Media,
     NotificationSend,
     Prompt,
     PromptLibraryOverride,
     User,
 )
-from rascal.services.grants import has_active_grant, unexpired
+from rascal.services.dates import age_in_months
+from rascal.services.grants import active_grant_for, has_active_grant, unexpired
 from rascal.services.guardians import access_for
+from rascal.services.membership import BILLING_RETRY_NOTIFICATION, BILLING_RETRY_SUBTYPE
+from rascal.services.scheduler import COOLDOWN_DAYS, RELAXED_COOLDOWN_DAYS, SLOT_SPECS, _eligible
 
 
 def _utc_now() -> dt.datetime:
@@ -61,7 +67,15 @@ async def _counts_by(session: AsyncSession, column: Any, *where: Any) -> dict[st
 
 
 async def overview(session: AsyncSession) -> dict[str, Any]:
-    """One snapshot of the business. Roughly a dozen statements, none of them per-row."""
+    """One snapshot of the business. Eleven statements, none of them per-row.
+
+    **One pass per table, with `FILTER` doing the counting** (phase 142). This was twenty-six
+    separately awaited statements — six full scans of `entries` alone, four of `media` — on one
+    session, which is one connection, so none of them overlapped and every one paid the
+    replica's round trip, plus its cold start on the first open after Neon's idle timer. The
+    docstring above it said "roughly a dozen". A count that needs a table read once should read
+    it once; every number below is the same number it was, from one statement per table.
+    """
     now = _utc_now()
     week = now - dt.timedelta(days=7)
     month = now - dt.timedelta(days=30)
@@ -69,84 +83,88 @@ async def overview(session: AsyncSession) -> dict[str, Any]:
     live_entry = Entry.deleted_at.is_(None)
     live_media = Media.deleted_at.is_(None)
 
-    users_total = await _scalar(session, select(func.count()).select_from(User))
-    users_week = await _scalar(
-        session, select(func.count()).select_from(User).where(User.created_at >= week)
-    )
-    users_month = await _scalar(
-        session, select(func.count()).select_from(User).where(User.created_at >= month)
-    )
     # "Signed in recently" is the only retention number this schema can answer honestly:
     # `users.last_sign_in_at` is the column D3 computes deletion eligibility from, and it is
     # null for anyone who predates it. Null is reported as unknown rather than as "long ago"
     # — treating it as ancient would make the oldest accounts look like the coldest.
-    users_seen_week = await _scalar(
-        session,
-        select(func.count()).select_from(User).where(User.last_sign_in_at >= week),
-    )
-    users_never_seen = await _scalar(
-        session,
-        select(func.count()).select_from(User).where(User.last_sign_in_at.is_(None)),
-    )
+    users = (
+        await session.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(User.created_at >= week).label("week"),
+                func.count().filter(User.created_at >= month).label("month"),
+                func.count().filter(User.last_sign_in_at >= week).label("seen_week"),
+                func.count().filter(User.last_sign_in_at.is_(None)).label("never_seen"),
+            ).select_from(User)
+        )
+    ).one()
 
-    families_total = await _scalar(session, select(func.count()).select_from(Family))
-    tiers = await _counts_by(session, Entitlement.tier)
-
-    children_total = await _scalar(session, select(func.count()).select_from(Child))
-
-    entries_total = await _scalar(
-        session, select(func.count()).select_from(Entry).where(live_entry)
-    )
-    entries_week = await _scalar(
-        session,
-        select(func.count()).select_from(Entry).where(live_entry, Entry.created_at >= week),
-    )
-    entries_month = await _scalar(
-        session,
-        select(func.count()).select_from(Entry).where(live_entry, Entry.created_at >= month),
-    )
-    entries_deleted = await _scalar(
-        session, select(func.count()).select_from(Entry).where(Entry.deleted_at.is_not(None))
-    )
-    entry_types = await _counts_by(session, Entry.entry_type, live_entry)
-    # Backdating is a first-class flow, so how much of it happens is worth watching. A day of
-    # slack rather than a strict inequality: an entry written at 00:30 about this evening is
-    # not a backfill, and counting it as one would make the number meaningless.
-    entries_backdated = await _scalar(
-        session,
-        select(func.count())
-        .select_from(Entry)
-        .where(live_entry, Entry.occurred_at < Entry.created_at - dt.timedelta(days=1)),
-    )
-
-    media_total = await _scalar(session, select(func.count()).select_from(Media).where(live_media))
-    media_bytes = int(
-        await session.scalar(
-            select(func.coalesce(func.sum(Media.bytes), 0)).where(
-                live_media, Media.upload_status == "complete"
+    # Four tables whose only question is "how many rows": one round trip, four scalar
+    # subqueries, rather than four awaits for four integers.
+    small = (
+        await session.execute(
+            select(
+                select(func.count()).select_from(Family).scalar_subquery().label("families"),
+                select(func.count()).select_from(Child).scalar_subquery().label("children"),
+                select(func.count())
+                .select_from(PromptLibraryOverride)
+                .scalar_subquery()
+                .label("overrides"),
+                select(func.count())
+                .select_from(DeletionRequest)
+                .where(DeletionRequest.cancelled_at.is_(None))
+                .scalar_subquery()
+                .label("deletions"),
             )
         )
-        or 0
-    )
-    media_kinds = await _counts_by(session, Media.kind, live_media)
-    media_pending = await _scalar(
-        session,
-        select(func.count())
-        .select_from(Media)
-        .where(live_media, Media.upload_status != "complete"),
-    )
+    ).one()
+    tiers = await _counts_by(session, Entitlement.tier)
 
-    devices_active = await _scalar(
-        session, select(func.count()).select_from(Device).where(Device.revoked_at.is_(None))
-    )
+    # Backdating is a first-class flow, so how much of it happens is worth watching. A day of
+    # slack rather than a strict inequality: an entry written at 00:30 about this evening is
+    # not a backfill, and counting it as one would make the number meaningless. It compares two
+    # columns, so no index can serve it — which is exactly why it rides the one pass over
+    # `entries` that the other four counts already needed.
+    entries = (
+        await session.execute(
+            select(
+                func.count().filter(live_entry).label("total"),
+                func.count().filter(live_entry, Entry.created_at >= week).label("week"),
+                func.count().filter(live_entry, Entry.created_at >= month).label("month"),
+                func.count().filter(Entry.deleted_at.is_not(None)).label("deleted"),
+                func.count()
+                .filter(live_entry, Entry.occurred_at < Entry.created_at - dt.timedelta(days=1))
+                .label("backdated"),
+            ).select_from(Entry)
+        )
+    ).one()
+    entry_types = await _counts_by(session, Entry.entry_type, live_entry)
+
+    media = (
+        await session.execute(
+            select(
+                func.count().filter(live_media).label("total"),
+                func.coalesce(
+                    func.sum(Media.bytes).filter(live_media, Media.upload_status == "complete"),
+                    0,
+                ).label("bytes"),
+                func.count().filter(live_media, Media.upload_status != "complete").label("pending"),
+            ).select_from(Media)
+        )
+    ).one()
+    media_kinds = await _counts_by(session, Media.kind, live_media)
+
     device_envs = await _counts_by(session, Device.environment, Device.revoked_at.is_(None))
 
-    prompts_total = await _scalar(session, select(func.count()).select_from(Prompt))
-    prompts_active = await _scalar(
-        session, select(func.count()).select_from(Prompt).where(Prompt.active.is_(True))
-    )
+    prompts = (
+        await session.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(Prompt.active.is_(True)).label("active"),
+            ).select_from(Prompt)
+        )
+    ).one()
     prompt_kinds = await _counts_by(session, Prompt.kind, Prompt.active.is_(True))
-    overrides = await _scalar(session, select(func.count()).select_from(PromptLibraryOverride))
 
     # Completion rate is the product's own vital sign: a prompt served and never answered is
     # the failure the whole thing is judged on. Counted over 30 days of *expired-or-resolved*
@@ -157,51 +175,44 @@ async def overview(session: AsyncSession) -> dict[str, Any]:
     resolved = sum(assignment_states.get(k, 0) for k in ("done", "dismissed", "expired"))
     done = assignment_states.get("done", 0)
 
-    deletions_pending = await _scalar(
-        session,
-        select(func.count())
-        .select_from(DeletionRequest)
-        .where(DeletionRequest.cancelled_at.is_(None)),
-    )
-
     return {
         "as_of": now.isoformat(),
         "users": {
-            "total": users_total,
-            "new_7d": users_week,
-            "new_30d": users_month,
-            "signed_in_7d": users_seen_week,
-            "never_signed_in": users_never_seen,
+            "total": int(users.total),
+            "new_7d": int(users.week),
+            "new_30d": int(users.month),
+            "signed_in_7d": int(users.seen_week),
+            "never_signed_in": int(users.never_seen),
         },
-        "households": {"total": families_total, "by_tier": tiers},
-        "children": {"total": children_total},
+        "households": {"total": int(small.families), "by_tier": tiers},
+        "children": {"total": int(small.children)},
         "entries": {
-            "total": entries_total,
-            "new_7d": entries_week,
-            "new_30d": entries_month,
-            "deleted": entries_deleted,
-            "backdated": entries_backdated,
+            "total": int(entries.total),
+            "new_7d": int(entries.week),
+            "new_30d": int(entries.month),
+            "deleted": int(entries.deleted),
+            "backdated": int(entries.backdated),
             "by_type": entry_types,
         },
         "media": {
-            "total": media_total,
-            "bytes": media_bytes,
-            "pending_upload": media_pending,
+            "total": int(media.total),
+            "bytes": int(media.bytes),
+            "pending_upload": int(media.pending),
             "by_kind": media_kinds,
         },
-        "devices": {"active": devices_active, "by_environment": device_envs},
+        "devices": {"active": sum(device_envs.values()), "by_environment": device_envs},
         "library": {
-            "total": prompts_total,
-            "active": prompts_active,
+            "total": int(prompts.total),
+            "active": int(prompts.active),
             "by_kind": prompt_kinds,
-            "overrides": overrides,
+            "overrides": int(small.overrides),
         },
         "assignments": {
             "by_status_30d": assignment_states,
             "completion_rate_30d": round(done / resolved, 4) if resolved else None,
             "resolved_30d": resolved,
         },
-        "deletions": {"pending": deletions_pending},
+        "deletions": {"pending": int(small.deletions)},
     }
 
 
@@ -415,14 +426,21 @@ async def library_rows(
 
     total = await _scalar(session, select(func.count()).select_from(Prompt).where(*clauses))
 
-    served = (
-        select(Assignment.prompt_id, func.count().label("served"))
-        .group_by(Assignment.prompt_id)
-        .subquery()
-    )
-    completed = (
-        select(Assignment.prompt_id, func.count().label("completed"))
-        .where(Assignment.status == "done")
+    # **The page first, then the usage of exactly that page** (phase 142). This used to
+    # materialise two aggregates over the whole `assignments` table — one for served, one for
+    # done — on every Library open and again on every Studio open, unconstrained by the
+    # filters or the page, so the work grew with every row the scheduler ever wrote while the
+    # screen still showed two hundred prompts. One `FILTER` aggregate over the page's ids is an
+    # index lookup on `ix_assignments_prompt_id`, and it stays that size.
+    order = (Prompt.active.desc(), Prompt.kind, Prompt.body)
+    page = select(Prompt.id).where(*clauses).order_by(*order).limit(limit).offset(offset).subquery()
+    usage = (
+        select(
+            Assignment.prompt_id,
+            func.count().label("served"),
+            func.count().filter(Assignment.status == "done").label("completed"),
+        )
+        .where(Assignment.prompt_id.in_(select(page.c.id)))
         .group_by(Assignment.prompt_id)
         .subquery()
     )
@@ -431,21 +449,18 @@ async def library_rows(
         await session.execute(
             select(
                 Prompt,
-                func.coalesce(served.c.served, 0),
-                func.coalesce(completed.c.completed, 0),
+                func.coalesce(usage.c.served, 0),
+                func.coalesce(usage.c.completed, 0),
                 PromptLibraryOverride.active,
                 PromptLibraryOverride.note,
             )
-            .outerjoin(served, served.c.prompt_id == Prompt.id)
-            .outerjoin(completed, completed.c.prompt_id == Prompt.id)
+            .join(page, page.c.id == Prompt.id)
+            .outerjoin(usage, usage.c.prompt_id == Prompt.id)
             .outerjoin(
                 PromptLibraryOverride,
                 PromptLibraryOverride.content_hash == Prompt.content_hash,
             )
-            .where(*clauses)
-            .order_by(Prompt.active.desc(), Prompt.kind, Prompt.body)
-            .limit(limit)
-            .offset(offset)
+            .order_by(*order)
         )
     ).all()
 
@@ -536,6 +551,23 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
     # computation below it. Two `now()`s here would be two clocks, and a household whose grant
     # expires between them would read `granted` in one half and not the other.
     now = dt.datetime.now(tz=dt.UTC)
+    # **The twelve accounts first, then their entries** (phase 142). A `LIMIT` after a
+    # `GROUP BY` bounds the output, not the work: the previous shape outer-joined every live
+    # entry in the archive to every account and counted before it could take the top twelve,
+    # which at hundreds of households is a full scan and a hash join to draw a dozen rows.
+    # Bounding the accounts first turns the count into a lookup on `ix_entries_author_id`.
+    newest = (
+        select(User.id.label("user_id"))
+        .order_by(User.created_at.desc(), User.id.desc())
+        .limit(limit)
+        .subquery()
+    )
+    counts = (
+        select(Entry.author_id, func.count().label("entries"))
+        .where(Entry.author_id.in_(select(newest.c.user_id)), Entry.deleted_at.is_(None))
+        .group_by(Entry.author_id)
+        .subquery()
+    )
     rows = await session.execute(
         select(
             User.id,
@@ -546,16 +578,13 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
             User.family_id,
             Entitlement.tier,
             Entitlement.trial_ends_at,
-            # Phase 121. A correlated `EXISTS` rather than a join, so a household holding three
-            # grants is still one row here and the `count(distinct entries)` above is unharmed.
             has_active_grant(User.family_id, now).label("granted"),
-            func.count(func.distinct(Entry.id)).label("entries"),
+            func.coalesce(counts.c.entries, 0).label("entries"),
         )
+        .join(newest, newest.c.user_id == User.id)
         .outerjoin(Entitlement, Entitlement.family_id == User.family_id)
-        .outerjoin(Entry, and_(Entry.author_id == User.id, Entry.deleted_at.is_(None)))
-        .group_by(User.id, Entitlement.tier, Entitlement.trial_ends_at)
-        .order_by(User.created_at.desc())
-        .limit(limit)
+        .outerjoin(counts, counts.c.author_id == User.id)
+        .order_by(User.created_at.desc(), User.id.desc())
     )
     return [
         {
@@ -603,9 +632,10 @@ async def recent_signups(session: AsyncSession, limit: int = 12) -> list[dict[st
 # **Account metadata and nothing else, and that line is the whole design of this section.** A
 # grant is issued *to a household*, so the console has to be able to find one — which means a
 # search box over the only strings a person actually has: an email, a display name, a family id
-# off another screen. It does not mean opening the household. Nothing below reads `children`,
-# `entries`, `media`, `assignments` or `tags`, and `tests/test_admin.py` plants distinctive
-# strings in all of those and greps every admin response for them.
+# off another screen. It does not mean opening the household. Nothing in *this section* reads
+# `children`, `entries`, `media`, `assignments` or `tags`; `household_detail`, further down, reads
+# those tables as counts and dates and never as content, and `tests/test_admin.py` plants
+# distinctive strings in all of them and greps every admin response for them.
 
 
 def _like_escape(term: str) -> str:
@@ -738,3 +768,542 @@ async def find_households(
             }
         )
     return out
+
+
+# --- One household, in full and in metadata ----------------------------------------------------
+
+
+def _age_label(months: int) -> str:
+    years, rest = divmod(max(months, 0), 12)
+    return f"{years}y {rest}m"
+
+
+def _week_start(day: dt.date) -> dt.date:
+    """Monday, to match Postgres's `date_trunc('week', …)`."""
+    return day - dt.timedelta(days=day.weekday())
+
+
+async def household_detail(
+    session: AsyncSession, family_id: uuid.UUID, *, weeks: int = 12
+) -> dict[str, Any] | None:
+    """Everything the console may know about one household, and nothing it may not.
+
+    **The line is the same as the rest of this module's: shape, never content.** How many
+    entries, of which kinds, written in which weeks; how many bytes; whether the uploads
+    finished; how the household answers its prompts; whether a notification reached a device.
+    No entry title or body, no caption, no transcript, no object key — and **no child's name**:
+    a child is an age and a timezone here, because the support conversation this screen exists
+    for needs "a four-year-old" and never needs the name.
+
+    Sixteen statements for a household with a child and ten for one without, none per row, and
+    every one bounded by the household: this is the console's deepest read and it must stay
+    flat as archives grow.
+    `None` when no account belongs to the household, which is what a deleted account leaves
+    behind and what a mistyped id looks like; the route turns that into a 404.
+    """
+    now = _utc_now()
+    today = now.date()
+    month_ago = now - dt.timedelta(days=30)
+    fortnight_ago = today - dt.timedelta(days=14)
+
+    members = (
+        await session.execute(
+            select(
+                User.id,
+                User.display_name,
+                User.email,
+                User.created_at,
+                User.last_sign_in_at,
+                User.notify_enabled,
+                User.is_admin,
+            )
+            .where(User.family_id == family_id)
+            .order_by(User.created_at, User.id)
+        )
+    ).all()
+    if not members:
+        return None
+    member_ids = [row.id for row in members]
+
+    entitlement = await session.get(Entitlement, family_id)
+    grant = await active_grant_for(session, family_id, now=now)
+    access = access_for(entitlement, granted=grant is not None, now=now) if entitlement else None
+    grant_counts = (
+        await session.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(unexpired(now)).label("live"),
+            ).where(EntitlementGrant.family_id == family_id)
+        )
+    ).one()
+
+    children = (
+        await session.execute(
+            select(Child.id, Child.birthdate, Child.family_timezone, Child.created_at)
+            .join(Guardian, Guardian.child_id == Child.id)
+            .where(Guardian.user_id.in_(member_ids), Guardian.revoked_at.is_(None))
+            .distinct()
+            .order_by(Child.birthdate)
+        )
+    ).all()
+    child_ids = [row.id for row in children]
+
+    # Every archive statement below is bounded by the household's children. A household with
+    # no child has no archive, and asking the database about an empty `IN ()` is a wasted
+    # round trip — so the empty case is answered here.
+    if child_ids:
+        live_entry = and_(Entry.child_id.in_(child_ids), Entry.deleted_at.is_(None))
+        entries = (
+            await session.execute(
+                select(
+                    func.count().label("total"),
+                    func.count().filter(Entry.created_at >= month_ago).label("month"),
+                    func.count()
+                    .filter(Entry.occurred_at < Entry.created_at - dt.timedelta(days=1))
+                    .label("backdated"),
+                    func.min(Entry.occurred_at).label("first"),
+                    func.max(Entry.occurred_at).label("last"),
+                    func.max(Entry.created_at).label("last_written"),
+                ).where(live_entry)
+            )
+        ).one()
+        entry_types = await _counts_by(session, Entry.entry_type, live_entry)
+
+        window_start = _week_start(today) - dt.timedelta(weeks=weeks - 1)
+        bucket = cast(func.date_trunc("week", Entry.created_at), Date)
+        weekly = {
+            row[0]: int(row[1])
+            for row in (
+                await session.execute(
+                    select(bucket, func.count())
+                    .where(live_entry, Entry.created_at >= window_start)
+                    .group_by(bucket)
+                )
+            ).all()
+        }
+
+        live_media = and_(Media.deleted_at.is_(None), Entry.deleted_at.is_(None))
+        media = (
+            await session.execute(
+                select(
+                    func.count().label("total"),
+                    func.coalesce(
+                        func.sum(Media.bytes).filter(Media.upload_status == "complete"), 0
+                    ).label("bytes"),
+                    func.count().filter(Media.upload_status != "complete").label("pending"),
+                )
+                .select_from(Media)
+                .join(Entry, Entry.id == Media.entry_id)
+                .where(live_media, Entry.child_id.in_(child_ids))
+            )
+        ).one()
+        media_kinds = {
+            str(kind): int(count)
+            for kind, count in (
+                await session.execute(
+                    select(Media.kind, func.count())
+                    .select_from(Media)
+                    .join(Entry, Entry.id == Media.entry_id)
+                    .where(live_media, Entry.child_id.in_(child_ids))
+                    .group_by(Media.kind)
+                    .order_by(Media.kind)
+                )
+            ).all()
+        }
+        assignment_states = await _counts_by(
+            session,
+            Assignment.status,
+            Assignment.child_id.in_(child_ids),
+            Assignment.assigned_on >= month_ago.date(),
+        )
+    else:
+        entries = None
+        entry_types = {}
+        weekly = {}
+        media = None
+        media_kinds = {}
+        assignment_states = {}
+
+    device_envs = await _counts_by(
+        session, Device.environment, Device.user_id.in_(member_ids), Device.revoked_at.is_(None)
+    )
+    notifications = (
+        await session.execute(
+            select(
+                func.count().label("sends"),
+                func.count().filter(NotificationSend.delivered_count > 0).label("delivered"),
+                func.max(NotificationSend.notification_date).label("last"),
+            ).where(
+                NotificationSend.user_id.in_(member_ids),
+                NotificationSend.notification_date >= fortnight_ago,
+            )
+        )
+    ).one()
+    invites_pending = await _scalar(
+        session,
+        select(func.count())
+        .select_from(GuardianInvite)
+        .where(
+            GuardianInvite.family_id == family_id,
+            GuardianInvite.accepted_at.is_(None),
+            GuardianInvite.revoked_at.is_(None),
+            GuardianInvite.expires_at > now,
+        ),
+    )
+    deletion = (
+        await session.execute(
+            select(DeletionRequest.execute_after)
+            .where(
+                DeletionRequest.user_id.in_(member_ids),
+                DeletionRequest.cancelled_at.is_(None),
+            )
+            .order_by(DeletionRequest.execute_after)
+            .limit(1)
+        )
+    ).first()
+    receipt = (
+        await session.execute(
+            select(AppStoreTransaction)
+            .where(AppStoreTransaction.family_id == family_id)
+            .order_by(AppStoreTransaction.latest_signed_date.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    resolved = sum(assignment_states.get(k, 0) for k in ("done", "dismissed", "expired"))
+    done = assignment_states.get("done", 0)
+    span = [_week_start(today) - dt.timedelta(weeks=weeks - 1 - i) for i in range(weeks)]
+    seen = [row.last_sign_in_at for row in members if row.last_sign_in_at]
+
+    return {
+        "household": {
+            "family_id": str(family_id),
+            "label": _label([(row.display_name, row.email) for row in members]),
+            "joined_at": min(row.created_at for row in members).isoformat(),
+            "last_sign_in_at": max(seen).isoformat() if seen else None,
+        },
+        "members": [
+            {
+                "id": str(row.id),
+                "display_name": row.display_name,
+                "email": row.email,
+                "joined_at": row.created_at.isoformat(),
+                "last_sign_in_at": row.last_sign_in_at.isoformat() if row.last_sign_in_at else None,
+                "notify_enabled": bool(row.notify_enabled),
+                "is_admin": bool(row.is_admin),
+            }
+            for row in members
+        ],
+        "children": {
+            "total": len(children),
+            "ages": [
+                {
+                    "age": _age_label(age_in_months(row.birthdate, today)),
+                    "age_months": age_in_months(row.birthdate, today),
+                    "timezone": row.family_timezone,
+                    "added_at": row.created_at.isoformat(),
+                }
+                for row in children
+            ],
+        },
+        "archive": {
+            "entries": int(entries.total) if entries else 0,
+            "entries_30d": int(entries.month) if entries else 0,
+            "backdated": int(entries.backdated) if entries else 0,
+            "by_type": entry_types,
+            "first_moment_at": entries.first.isoformat() if entries and entries.first else None,
+            "last_moment_at": entries.last.isoformat() if entries and entries.last else None,
+            "last_written_at": entries.last_written.isoformat()
+            if entries and entries.last_written
+            else None,
+            "weeks": [{"week": day.isoformat(), "entries": weekly.get(day, 0)} for day in span],
+            "media": int(media.total) if media else 0,
+            "bytes": int(media.bytes) if media else 0,
+            "pending_upload": int(media.pending) if media else 0,
+            "media_by_kind": media_kinds,
+        },
+        "prompts": {
+            "by_status_30d": assignment_states,
+            "resolved_30d": resolved,
+            "completion_rate_30d": round(done / resolved, 4) if resolved else None,
+        },
+        "reach": {
+            "devices": sum(device_envs.values()),
+            "devices_by_environment": device_envs,
+            "notify_enabled": sum(1 for row in members if row.notify_enabled),
+            "notification_sends_14d": int(notifications.sends),
+            "notification_delivered_14d": int(notifications.delivered),
+            "last_notification_on": notifications.last.isoformat() if notifications.last else None,
+            "invites_pending": invites_pending,
+            "deletion_execute_after": deletion[0].isoformat() if deletion else None,
+        },
+        "billing": {
+            "tier": entitlement.tier if entitlement else "free",
+            "access": access.access if access else "free",
+            "entitlement_source": access.source if access else "none",
+            "entitled": bool(access.entitled) if access else False,
+            "trial_ends_at": access.trial_ends_at.isoformat()
+            if access and access.trial_ends_at
+            else None,
+            "lapsed_at": entitlement.lapsed_at.isoformat()
+            if entitlement and entitlement.lapsed_at
+            else None,
+            "grants_live": int(grant_counts.live),
+            "grants_total": int(grant_counts.total),
+            "grant_expires_at": grant.expires_at.isoformat()
+            if grant and grant.expires_at
+            else None,
+            "receipt": None
+            if receipt is None
+            else {
+                "product_id": receipt.product_id,
+                "environment": receipt.environment,
+                "type": receipt.latest_notification_type,
+                "subtype": receipt.latest_notification_subtype,
+                "signed_at": receipt.latest_signed_date.isoformat(),
+                "expires_at": receipt.expires_date.isoformat() if receipt.expires_date else None,
+                "billing_retry": receipt.latest_notification_type == BILLING_RETRY_NOTIFICATION
+                and receipt.latest_notification_subtype == BILLING_RETRY_SUBTYPE,
+            },
+        },
+    }
+
+
+# --- The subscription ledger ---------------------------------------------------------------------
+
+
+async def subscriptions(
+    session: AsyncSession, *, days: int = 30, limit: int = 20
+) -> dict[str, Any]:
+    """What Apple has told this service, as a ledger the owner can read at a glance.
+
+    `app_store_transactions` is written by one caller — the notification webhook, plus the
+    receipt a phone submits since phase 140 — and until phase 142 the console showed none of
+    it: the Membership card had a trial lever and a grants ledger and nothing about the
+    subscriptions the product is for. Nine statements when any recent transaction is attributed
+    — eight aggregates and one label lookup for the recent rows — and none per row. **The
+    ledger's household column is a label, never a receipt's raw payload**, and an unattributed
+    transaction — the shape the phase 139 story turned on — is named as such rather than dropped.
+
+    **The trial counts ask `access_for`, they do not restate it.** Exactly one comparison
+    against `trial_ends_at` may exist in `src/` and it is `services/guardians.access_for`
+    (`tests/test_entitlement_cadence.py` walks the AST to make sure). So every household's
+    entitlement row is read — one row per household, which is the number this dashboard is
+    about — and handed to the one authority twice: once with today's clock and once with a
+    clock a week ahead. A household on trial today and not on trial then is a trial ending
+    within the week, decided by the same formula the app is served by.
+    """
+    now = _utc_now()
+    since = now - dt.timedelta(days=days)
+    week_ahead = now + dt.timedelta(days=7)
+
+    by_type = await _counts_by(
+        session,
+        AppStoreTransaction.latest_notification_type,
+        AppStoreTransaction.latest_signed_date >= since,
+    )
+    by_environment = await _counts_by(session, AppStoreTransaction.environment)
+    active_by_product = {
+        str(product or "unknown"): int(count)
+        for product, count in (
+            await session.execute(
+                select(
+                    AppStoreTransaction.product_id,
+                    # Households, not rows: Guard 2 keeps one row per (household, environment),
+                    # so a household holding a Sandbox and a Production receipt for the same
+                    # product is one subscriber here, not two.
+                    func.count(func.distinct(AppStoreTransaction.family_id)),
+                )
+                .join(Entitlement, Entitlement.family_id == AppStoreTransaction.family_id)
+                .where(
+                    Entitlement.tier == "subscribed",
+                    or_(
+                        AppStoreTransaction.expires_date.is_(None),
+                        AppStoreTransaction.expires_date > now,
+                    ),
+                )
+                .group_by(AppStoreTransaction.product_id)
+                .order_by(AppStoreTransaction.product_id)
+            )
+        ).all()
+    }
+    ledger = (
+        await session.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(AppStoreTransaction.family_id.is_(None)).label("unattributed"),
+                func.count()
+                .filter(
+                    AppStoreTransaction.latest_notification_type == BILLING_RETRY_NOTIFICATION,
+                    AppStoreTransaction.latest_notification_subtype == BILLING_RETRY_SUBTYPE,
+                )
+                .label("billing_retry"),
+                func.count()
+                .filter(
+                    AppStoreTransaction.expires_date > now,
+                    AppStoreTransaction.expires_date <= week_ahead,
+                )
+                .label("expiring_7d"),
+            ).select_from(AppStoreTransaction)
+        )
+    ).one()
+    granted = set(
+        (
+            await session.execute(
+                select(EntitlementGrant.family_id).where(unexpired(now)).distinct()
+            )
+        ).scalars()
+    )
+    entitlements = list((await session.execute(select(Entitlement))).scalars())
+    today_access = {
+        row.family_id: access_for(row, granted=row.family_id in granted, now=now)
+        for row in entitlements
+    }
+    later_access = {
+        row.family_id: access_for(row, granted=row.family_id in granted, now=week_ahead)
+        for row in entitlements
+    }
+    on_trial = sum(1 for access in today_access.values() if access.access == "trial")
+    trials_ending_7d = sum(
+        1
+        for family_id, access in today_access.items()
+        if access.access == "trial" and later_access[family_id].access != "trial"
+    )
+    subscribed = sum(1 for row in entitlements if row.tier == "subscribed")
+    lapsed = sum(1 for row in entitlements if row.lapsed_at is not None)
+    grants_live = await _scalar(
+        session, select(func.count()).select_from(EntitlementGrant).where(unexpired(now))
+    )
+
+    recent = list(
+        (
+            await session.execute(
+                select(AppStoreTransaction)
+                .order_by(AppStoreTransaction.latest_signed_date.desc())
+                .limit(limit)
+            )
+        ).scalars()
+    )
+    labels = await household_labels(
+        session, list({row.family_id for row in recent if row.family_id is not None})
+    )
+
+    return {
+        "as_of": now.isoformat(),
+        "days": days,
+        "summary": {
+            "subscribed_households": subscribed,
+            "on_trial": on_trial,
+            "trials_ending_7d": trials_ending_7d,
+            "lapsed": lapsed,
+            "grants_live": grants_live,
+            "transactions": int(ledger.total),
+            "unattributed": int(ledger.unattributed),
+            "billing_retry": int(ledger.billing_retry),
+            "expiring_7d": int(ledger.expiring_7d),
+        },
+        "by_type": by_type,
+        "by_environment": by_environment,
+        "active_by_product": active_by_product,
+        "recent": [
+            {
+                "transaction": f"…{row.original_transaction_id[-6:]}",
+                "household": labels.get(row.family_id) if row.family_id else None,
+                "family_id": str(row.family_id) if row.family_id else None,
+                "product_id": row.product_id,
+                "environment": row.environment,
+                "type": row.latest_notification_type,
+                "subtype": row.latest_notification_subtype,
+                "signed_at": row.latest_signed_date.isoformat(),
+                "expires_at": row.expires_date.isoformat() if row.expires_date else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+# --- Where the library is thin --------------------------------------------------------------------
+
+
+#: Age bands a parent would recognise, in months. Wide where childhood is wide and narrow where
+#: a year changes everything: the first three years get a band each, the rest are grouped.
+AGE_BANDS: tuple[tuple[str, int, int], ...] = (
+    ("0-1", 0, 11),
+    ("1-2", 12, 23),
+    ("2-3", 24, 35),
+    ("3-5", 36, 59),
+    ("5-8", 60, 95),
+    ("8-12", 96, 143),
+    ("12-18", 144, 215),
+)
+
+#: How many days of serving one eligible prompt covers, by cadence. A daily slot spends a
+#: prompt a day; a weekly one a prompt a week. The cooldown then decides when a spent prompt
+#: may come back, so `eligible times days` is how long a child in that band can go before the
+#: scheduler has to relax something.
+_DAYS_PER_PROMPT: dict[str, int] = {"daily": 1, "weekly": 7, "monthly": 30}
+
+
+async def library_coverage(session: AsyncSession, *, as_of: dt.date) -> dict[str, Any]:
+    """For every slot and every age band: how many active prompts a child there could be served.
+
+    **The scheduler's own eligibility rule, evaluated at every month of the band**, so the
+    number reported is the *thinnest* month — a band whose three-year-olds have forty prompts
+    and whose four-year-olds have six is a six, because a child does not skip the thin month.
+    The calendar month is today's, because `month_tags` make December a different library from
+    July, and the console should show the library as it is being served rather than as it might
+    be in six months.
+
+    One statement: the active library, read once. Everything else is arithmetic over it, and
+    the arithmetic is `services/scheduler.py`'s, imported rather than restated, so this cannot
+    drift from what the scheduler actually does.
+
+    `days` is how long a child in that band can be served from the pool before a prompt has to
+    repeat, at the slot's cadence; `thin` is that number falling under the *relaxed* cooldown
+    — the point at which the scheduler is already bending its own rules to fill the slot.
+    """
+    prompts = list((await session.execute(select(Prompt).where(Prompt.active.is_(True)))).scalars())
+    month = as_of.month
+    slots: list[dict[str, Any]] = []
+    for slot, spec in SLOT_SPECS.items():
+        pool = [
+            prompt
+            for prompt in prompts
+            if prompt.cadence == spec.cadence and (spec.kinds is None or prompt.kind in spec.kinds)
+        ]
+        per_prompt = _DAYS_PER_PROMPT[spec.cadence]
+        cells = []
+        for band, low, high in AGE_BANDS:
+            counts = [
+                sum(1 for prompt in pool if _eligible(prompt, age, month))
+                for age in range(low, high + 1)
+            ]
+            thinnest = min(counts)
+            days = thinnest * per_prompt
+            cells.append(
+                {
+                    "band": band,
+                    "eligible": thinnest,
+                    "eligible_max": max(counts),
+                    "days": days,
+                    "thin": days < RELAXED_COOLDOWN_DAYS,
+                }
+            )
+        slots.append(
+            {
+                "slot": slot,
+                "cadence": spec.cadence,
+                "kinds": list(spec.kinds) if spec.kinds is not None else None,
+                "pool": len(pool),
+                "cells": cells,
+            }
+        )
+    return {
+        "as_of": as_of.isoformat(),
+        "month": month,
+        "active_prompts": len(prompts),
+        "cooldown_days": COOLDOWN_DAYS,
+        "relaxed_cooldown_days": RELAXED_COOLDOWN_DAYS,
+        "bands": [band for band, _, _ in AGE_BANDS],
+        "slots": slots,
+    }

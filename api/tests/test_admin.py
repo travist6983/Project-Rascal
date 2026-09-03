@@ -30,8 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from factories import make_assignment, make_child, make_prompt, make_user
 from helpers import auth_headers
-from rascal.config import get_settings
-from rascal.models import Entry, Media
+from rascal.config import Settings, get_settings
+from rascal.models import AppStoreTransaction, Entitlement, Entry, Media
 from rascal.services import billing, s3
 from rascal.services.grants import issue_grant
 
@@ -53,7 +53,24 @@ ADMIN_GETS = [
     # under more pressure on these two routes than on any that came before them.
     "/v1/admin/households",
     "/v1/admin/grants",
+    # Phase 142. The household read is the first admin route to take an id and answer with a
+    # whole household; the ledger renders receipts' households; coverage reads the library.
+    # All three are in the leakage sweep for the same reason the two above are.
+    "/v1/admin/households/{family_id}",
+    "/v1/admin/subscriptions",
+    "/v1/admin/library/coverage",
 ]
+
+
+def _concrete(path: str, family_id: uuid.UUID | None = None) -> str:
+    """A sweep path with its placeholder filled, so the auth checks reach the handler.
+
+    The list above is compared against the OpenAPI paths verbatim — that is what keeps it from
+    going stale — so the household route carries its `{family_id}` placeholder there and is
+    given a real id here. A refused request must be refused by the gate, not by a 422 that
+    never reached it.
+    """
+    return path.replace("{family_id}", str(family_id or uuid.uuid4()))
 
 
 @pytest.fixture(autouse=True)
@@ -145,14 +162,14 @@ async def test_a_signed_in_non_admin_is_refused(
 ) -> None:
     stranger = await make_user(session, display_name="Nobody")
     await session.commit()
-    response = await client.get(path, headers=auth_headers(stranger))
+    response = await client.get(_concrete(path), headers=auth_headers(stranger))
     assert response.status_code == 403, f"{path} is readable by a non-admin"
     assert response.json()["error"]["code"] == "not_authorized"
 
 
 @pytest.mark.parametrize("path", ADMIN_GETS)
 async def test_no_token_is_refused(client: AsyncClient, path: str, bucket) -> None:
-    response = await client.get(path)
+    response = await client.get(_concrete(path))
     assert response.status_code == 401, f"{path} is readable with no token at all"
 
 
@@ -198,7 +215,9 @@ async def test_no_admin_route_returns_archive_content(
 
     leaks = []
     for path in ADMIN_GETS:
-        response = await client.get(path, headers=auth_headers(admin))
+        response = await client.get(
+            _concrete(path, archive["parent"].family_id), headers=auth_headers(admin)
+        )
         assert response.status_code == 200, f"{path}: {response.text}"
         text = response.text
         for secret, what in (
@@ -472,3 +491,203 @@ async def test_the_console_never_runs_a_previous_deploys_javascript(client: Asyn
         assert response.headers["cache-control"] == "no-cache", path
         # The validator has to survive, or "no-cache" costs a full body on every request.
         assert response.headers.get("etag"), path
+
+
+# --- Phase 142: one household, the subscription ledger, and where the library is thin ---------
+
+
+async def test_a_household_is_read_in_full_and_in_metadata(
+    client: AsyncClient, admin, archive, bucket
+) -> None:
+    """The deepest read the console has, and it still reads no content and no child's name."""
+    family_id = archive["parent"].family_id
+    response = await client.get(f"/v1/admin/households/{family_id}", headers=auth_headers(admin))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    assert payload["household"]["family_id"] == str(family_id)
+    assert archive["parent"].email in payload["household"]["label"]
+    assert [m["email"] for m in payload["members"]] == [archive["parent"].email]
+    assert payload["children"]["total"] == 1
+    assert payload["children"]["ages"][0]["age"].endswith("m")
+    assert payload["children"]["ages"][0]["timezone"] == "America/Detroit"
+    assert payload["archive"]["entries"] == 1
+    assert payload["archive"]["entries_30d"] == 1
+    assert payload["archive"]["by_type"] == {"audio": 1}
+    assert payload["archive"]["media"] == 1
+    assert payload["archive"]["bytes"] == 2048
+    assert payload["archive"]["pending_upload"] == 0
+    assert len(payload["archive"]["weeks"]) == 12, "the series is not gap-filled"
+    assert sum(week["entries"] for week in payload["archive"]["weeks"]) == 1
+    assert payload["prompts"]["completion_rate_30d"] == 1.0
+    assert payload["reach"]["devices"] == 0
+    assert payload["reach"]["invites_pending"] == 0
+    assert payload["reach"]["deletion_execute_after"] is None
+    assert payload["billing"]["tier"] == "free"
+    assert payload["billing"]["access"] == "trial"
+    assert payload["billing"]["receipt"] is None
+
+    text = response.text
+    for secret in (SECRET_TITLE, SECRET_BODY, SECRET_TRANSCRIPT, SECRET_KEY, SECRET_CHILD):
+        assert secret not in text, "a household read must stay metadata"
+
+
+async def test_an_unknown_household_is_a_404_not_an_empty_card(
+    client: AsyncClient, admin, bucket
+) -> None:
+    response = await client.get(f"/v1/admin/households/{uuid.uuid4()}", headers=auth_headers(admin))
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+async def test_a_household_without_a_child_reads_as_an_empty_archive(
+    client: AsyncClient, session: AsyncSession, admin, bucket
+) -> None:
+    """No child means no archive statements at all, and zeros rather than an error."""
+    parent = await make_user(session, display_name="Childless")
+    await session.commit()
+    response = await client.get(
+        f"/v1/admin/households/{parent.family_id}", headers=auth_headers(admin)
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["children"]["total"] == 0
+    assert payload["archive"]["entries"] == 0
+    assert payload["archive"]["by_type"] == {}
+    assert payload["prompts"]["completion_rate_30d"] is None
+
+
+async def test_the_subscription_ledger_counts_what_apple_said(
+    client: AsyncClient, session: AsyncSession, admin, archive, bucket
+) -> None:
+    """One attributed transaction, one that arrived before its household existed."""
+    now = dt.datetime.now(tz=dt.UTC)
+    parent = archive["parent"]
+    session.add(
+        AppStoreTransaction(
+            original_transaction_id="2000000000000001",
+            family_id=parent.family_id,
+            product_id="com.travisterry.childarchive.annual",
+            environment="Sandbox",
+            latest_notification_type="SUBSCRIBED",
+            latest_notification_subtype="INITIAL_BUY",
+            latest_signed_date=now - dt.timedelta(days=1),
+            expires_date=now + dt.timedelta(days=3),
+            raw_payload={"signedPayload": SECRET_KEY},
+        )
+    )
+    session.add(
+        AppStoreTransaction(
+            original_transaction_id="2000000000000002",
+            family_id=None,
+            product_id="com.travisterry.childarchive.monthly",
+            environment="Sandbox",
+            latest_notification_type="DID_FAIL_TO_RENEW",
+            latest_notification_subtype="GRACE_PERIOD",
+            latest_signed_date=now - dt.timedelta(days=2),
+            expires_date=now + dt.timedelta(days=30),
+            raw_payload={"signedPayload": SECRET_BODY},
+        )
+    )
+    entitlement = await session.get(Entitlement, parent.family_id)
+    assert entitlement is not None
+    entitlement.tier = "subscribed"
+    await session.commit()
+
+    response = await client.get("/v1/admin/subscriptions?days=30", headers=auth_headers(admin))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    summary = payload["summary"]
+    assert summary["subscribed_households"] == 1
+    assert summary["transactions"] == 2
+    assert summary["unattributed"] == 1
+    assert summary["billing_retry"] == 1
+    assert summary["expiring_7d"] == 1
+    assert payload["by_type"] == {"DID_FAIL_TO_RENEW": 1, "SUBSCRIBED": 1}
+    assert payload["by_environment"] == {"Sandbox": 2}
+    assert payload["active_by_product"] == {"com.travisterry.childarchive.annual": 1}
+
+    recent = payload["recent"]
+    assert [row["transaction"] for row in recent] == ["…000001", "…000002"]
+    assert parent.email in recent[0]["household"]
+    assert recent[1]["household"] is None, "an unattributed transaction is named, not dropped"
+    assert SECRET_KEY not in response.text and SECRET_BODY not in response.text, (
+        "the raw payload never reaches the console"
+    )
+
+    # The one admin route that renders a receipt *per household*: the same planted payload, the
+    # explicit fields, and nothing else.
+    household = await client.get(
+        f"/v1/admin/households/{parent.family_id}", headers=auth_headers(admin)
+    )
+    assert household.status_code == 200, household.text
+    receipt = household.json()["billing"]["receipt"]
+    assert receipt["product_id"] == "com.travisterry.childarchive.annual"
+    assert receipt["environment"] == "Sandbox"
+    assert receipt["type"] == "SUBSCRIBED" and receipt["subtype"] == "INITIAL_BUY"
+    assert receipt["billing_retry"] is False
+    assert receipt["expires_at"] is not None
+    assert household.json()["billing"]["tier"] == "subscribed"
+    assert SECRET_KEY not in household.text, "the raw payload never reaches the household card"
+
+
+async def test_library_coverage_evaluates_every_band_at_its_thinnest_month(
+    client: AsyncClient, session: AsyncSession, admin, bucket
+) -> None:
+    """One daily question from 24 months: full for two-year-olds, empty for babies."""
+    await make_prompt(session, kind="question", cadence="daily", min_age_months=24)
+    await session.commit()
+
+    response = await client.get("/v1/admin/library/coverage", headers=auth_headers(admin))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+
+    assert payload["active_prompts"] == 1
+    assert payload["bands"][0] == "0-1"
+    assert {slot["slot"] for slot in payload["slots"]} == {
+        "question",
+        "mission",
+        "mission_b",
+        "weekly",
+        "monthly",
+        "letter",
+    }
+    question = next(slot for slot in payload["slots"] if slot["slot"] == "question")
+    assert question["pool"] == 1
+    cells = {cell["band"]: cell for cell in question["cells"]}
+    assert cells["0-1"]["eligible"] == 0 and cells["0-1"]["thin"] is True
+    assert cells["2-3"]["eligible"] == 1 and cells["2-3"]["days"] == 1
+    mission = next(slot for slot in payload["slots"] if slot["slot"] == "mission")
+    assert mission["pool"] == 0, "a question is not a mission"
+
+
+def test_settings_strip_the_whitespace_a_pasted_secret_carries() -> None:
+    """The console's Anthropic card read `Illegal header value b'sk-ant-admin… '`."""
+    settings = Settings(anthropic_admin_key=" sk-ant-admin-example \n")
+    assert settings.anthropic_admin_key == "sk-ant-admin-example"
+
+
+async def test_the_ledger_asks_the_one_authority_about_trials(
+    client: AsyncClient, session: AsyncSession, admin, bucket
+) -> None:
+    """`on_trial` and `trials_ending_7d` come from `access_for` at two clocks, never from SQL.
+
+    Three households: a trial ending in three days, one ending in three weeks, and the admin's
+    own, which the factory leaves on the default fortnight. Two are ending within the week only
+    if the factory default is inside it, so the assertion is on the two this test pins.
+    """
+    now = dt.datetime.now(tz=dt.UTC)
+    await make_user(session, display_name="Soon", trial_ends_at=now + dt.timedelta(days=3))
+    await make_user(session, display_name="Later", trial_ends_at=now + dt.timedelta(days=21))
+    await make_user(session, display_name="Over", trial_ends_at=now - dt.timedelta(days=1))
+    await session.commit()
+
+    response = await client.get("/v1/admin/subscriptions", headers=auth_headers(admin))
+    assert response.status_code == 200, response.text
+    summary = response.json()["summary"]
+
+    # Soon and Later are on trial; Over is not. The admin's fortnight adds one to both counts.
+    assert summary["on_trial"] == 3
+    assert summary["trials_ending_7d"] == 1, "only the trial ending in three days"
+    assert summary["subscribed_households"] == 0

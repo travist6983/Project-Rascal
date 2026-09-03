@@ -909,12 +909,22 @@ rule and `blocked.md` §25 the third occurrence. **A phase that concluded "the g
 reading the guard's own docstring** is how this took three occurrences: the premise — *anybody can
 create a sandbox tester account* — was never checked against who actually holds one.
 
+**142 is the admin console read in a browser** (API lane, `api/phase-142-console-households`): a
+`/rascal-review` of `/admin` driven in Chrome, the Households tab, the subscription ledger and the
+library coverage grid it produced, and the console's own performance findings fixed beside them.
+**The number was read from `roadmap-status.md`, where 141 was already the highest row** — both of
+141's pull requests had merged before the branch was cut, which is the check this header exists to
+force.
+
 ~~**The highest number used is 139. A genuinely new phase takes 140.**~~ — **struck Sep 3, 2026 by
 140 and 141 taking the two numbers in turn**; 140 is the transaction the app now hands the server and
 the paywall that leaves when the purchase does, 141 the fixes from the pre-resubmission review —
 both **two lanes, one number, one row**, which is the shape 140 set.
 
-**The highest number used is 141. A genuinely new phase takes 142.**
+~~**The highest number used is 141. A genuinely new phase takes 142.**~~ — **struck Sep 3, 2026 by
+142 taking the number this sentence offered.**
+
+**The highest number used is 142. A genuinely new phase takes 143.**
 
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 

@@ -183,6 +183,7 @@ class SocialAssetIn(ApiModel):
     angle: str | None = Field(default=None, max_length=500)
     template: CardTemplate | None = None
     palette: CardPalette | None = None
+    eyebrow: str | None = Field(default=None, max_length=brand.EYEBROW_MAX)
     headline: str | None = Field(default=None, max_length=400)
     subhead: str | None = Field(default=None, max_length=600)
     caption: str | None = Field(default=None, max_length=4000)
@@ -212,6 +213,7 @@ class SocialAssetUpdate(ApiModel):
     angle: str | None = Field(default=None, max_length=500)
     template: CardTemplate | None = None
     palette: CardPalette | None = None
+    eyebrow: str | None = Field(default=None, max_length=brand.EYEBROW_MAX)
     headline: str | None = Field(default=None, max_length=400)
     subhead: str | None = Field(default=None, max_length=600)
     caption: str | None = Field(default=None, max_length=4000)
