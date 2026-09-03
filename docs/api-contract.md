@@ -2309,7 +2309,11 @@ the attribution, because none exists.
 
 #### What each notification does to `tier`
 
-**This is the only path that may set `entitlements.tier`.** A test asserts it stays the only one.
+~~**This is the only path that may set `entitlements.tier`.**~~ **The only path *Apple* takes,
+since phase 140 (Sep 3, 2026); the app has one too, and it is one door narrower.** `POST
+/families/me/transactions` below hands the same writer a transaction the app holds, verified by the
+same verifier, and it may only ever *promote*. A test still asserts `tier` has exactly one
+assignment, and it is the one both doors reach.
 
 | `notificationType` | Subtype | Effect |
 |---|---|---|
@@ -2420,12 +2424,104 @@ Production subscription, after which every legitimate Production notification wo
 the household's tier would freeze wherever it happened to be. The transaction id is the primary key,
 so there is no second row to put it in: the choice is refuse or corrupt.
 
-This is the **only** path that may set `tier`. A subscribe, a renewal, a cancellation, a billing
-failure and a refund all arrive here, which is what keeps one authority over the answer — and is why
-Apple Family Sharing is not enabled on the subscription: it would create a second opinion about who
-is entitled, and two authorities that can disagree about the same fact is the shape of bug this
-contract avoids everywhere else.
+~~This is the **only** path that may set `tier`.~~ — **struck Sep 3, 2026 by phase 140; the
+paragraph below it is the second path, and the authority argument survives it.** A subscribe, a
+renewal, a cancellation, a billing failure and a refund all arrive here, which is what keeps one
+authority over the answer — and is why Apple Family Sharing is not enabled on the subscription: it
+would create a second opinion about who is entitled, and two authorities that can disagree about
+the same fact is the shape of bug this contract avoids everywhere else. The second path does not
+create a second opinion: it carries Apple's own signed statement about one subscription, it cannot
+*end* a membership, and it cannot outrank a notification in the ledger.
 
 A notification for a family this server does not recognise is recorded and acknowledged, never
 rejected — Apple retries, and a 4xx to a real notification is an entitlement that silently never
 lands.
+
+#### The client-submitted transaction — `POST /families/me/transactions`
+
+**Phase 140, Sep 3, 2026. BUILT.** Authenticated as the caller; household-scoped by the bearer token
+and by Apple's signature, both. Body `{ "signed_transaction": "<JWS>" }` — the string StoreKit 2
+calls `Transaction.jwsRepresentation`, verbatim. `200` →
+`{ "status": "...", "family": { …the GET /families/me document… } }`.
+
+**Why it exists — the evening of Sep 2, 2026, replayed.** The owner, on device, tapped Monthly on a
+Sandbox Apple ID that already held the annual. StoreKit reported success; Apple sent
+`DID_CHANGE_RENEWAL_PREF` / `DOWNGRADE` (no tier effect, correctly, per the table above) one second
+before the paywall's first poll; and the paywall then polled `GET /families/me` for a `subscribed`
+nothing was ever going to write, until phase 138's window closed on *"it'll appear here shortly"*.
+That is one instance of a general gap: **the app could see a transaction the server could not**, and
+had no way to hand it over — *Restore a purchase* was `AppStore.sync()` plus a re-read of the same
+server. The same gap is every `SUBSCRIBED` Apple retries past its window, and every Sandbox
+`SUBSCRIBED` the pre-139 rule discarded, including App Review's on Sep 2. This route closes it, and
+as a side effect makes the ordinary first purchase confirm in one round trip rather than a poll.
+
+**What it does, in order.** The JWS is verified by the same `app-store-server-library` verifier the
+webhook uses, against the same bundled Apple root, with the same `bundleId` pin — a bare
+transaction cannot be pinned to `appAppleId`, which only a notification's envelope carries, and the
+`bundleId` claim is inside the signature, so a transaction Apple signed for another app still
+fails. An unverifiable JWS is **`422`** (`validation_failed`, `field: signed_transaction`), not
+`401`: the caller is authenticated, it is the *document* that is wrong. Then the transaction's
+`appAccountToken` — the family id this app attaches at purchase, inside Apple's signature — must
+equal the caller's `family_id`; anything else is **`409`** (`conflict`, *"This purchase belongs to
+a different household."*) and nothing is recorded, for either household. Then the transaction must
+be an `Auto-Renewable Subscription` that is **active**: no `revocationDate`, and an `expiresDate`
+that is present and in the future by the server's clock — a subscription transaction with no
+expiry at all is not "active until further notice"; Apple always sends one. Then it must not
+predate a lapse: a JWS signed at or before the household's `lapsed_at`, or at or before a demoting
+notification that is the ledger's latest word on that transaction, is refused (see the fourth rule
+below). Then guard 2 (one transaction id, one environment) and guard 3 (*Production wins, and
+Sandbox only ever promotes*) apply exactly as they do to a notification. If all of that holds, the
+household is written `subscribed`, `lapsed_at` is cleared, the payer is recorded on the same
+one-guardian rule, and the answer carries the household as `GET /families/me` would now return it
+— so a client told `subscribed` here renders it without a second request, and **cannot be told
+`subscribed` by anything but that document** (D9).
+
+| `status` | Meaning | Written |
+|---|---|---|
+| `tier:subscribed` | An active subscription for this household; the tier is written (or re-affirmed) | tier, `lapsed_at`, payer, ledger |
+| `ignored:not-active` | Expired, revoked, or carrying no `expiresDate`. **Never demotes** — a lapse is Apple's to report through the door that may | nothing |
+| `ignored:out-of-order` | Signed at or before the household's `lapsed_at`, or at or before a demoting notification already recorded for this transaction — a receipt from before the lapse | nothing |
+| `ignored:not-a-subscription` | Not an `Auto-Renewable Subscription` | nothing |
+| `ignored:no-transaction-id` | No `originalTransactionId` | nothing |
+| `ignored:environment-mismatch` | The ledger holds this transaction in the other environment | nothing |
+| `ignored:sandbox-blocked` | A Sandbox transaction under `ENVIRONMENT=prod` for a household `Production` has spoken about | nothing |
+
+**Four rules this route lives under, and each is a test.**
+
+* **It only promotes.** A submitted transaction can write `subscribed` and nothing else. There is
+  no client path to `free`, so a phone restoring an old receipt cannot write its own `lapsed_at`
+  and a household the server calls subscribed stays so whatever the phone sends.
+* **It never advances a notification's ordering key.** Guard 1 reads `latest_signed_date` as a
+  high-water mark, and a submission's `signedDate` is whenever StoreKit last fetched the JWS —
+  a *Restore* tapped this afternoon carries a date that would outrank an `EXPIRED` Apple signed
+  this morning and has not delivered yet. So on a row a notification wrote, a submission touches
+  `family_id` if it was null and **nothing else**: not the date, not the type, not the payload.
+  On a row it creates, the date is the submission's own, which is safe by the same reasoning
+  inverted — an active transaction signed at *S* is Apple's statement that nothing had ended it
+  by *S*. Such a row carries `latest_notification_type: SUBMITTED`, a value Apple never sends,
+  so the ledger says which door wrote it.
+* **It never records what it refused.** Every `ignored:*` and every `4xx` leaves the ledger and the
+  entitlement exactly as they were — the same argument the webhook makes for a refused demotion.
+* **It cannot resurrect a lapse it predates.** A JWS is Apple's statement that the subscription was
+  active *as of its `signedDate`*. A `REFUND` signed an hour later is a newer statement, and the
+  phone may still hold the older one — facially active, expiry a year out, no `revocationDate`,
+  because the refund came after it was signed. So a submission signed at or before `lapsed_at`, or
+  at or before a demoting notification that is the row's latest word, is `ignored:out-of-order`.
+  Guard 1's rule, read against the two places a lapse is recorded rather than against the row's
+  high-water mark alone: a neutral notification (a renewal-preference change) can land after the
+  refund and become the row's latest without un-lapsing anything, and the receipt for a *new*
+  purchase after a lapse is signed after `lapsed_at` and still counts. **Found in review before
+  this shipped**, and it is the reason the rule above it is not sufficient on its own.
+
+**The client's side (iOS, phase 140):** the app submits after `Product.purchase` succeeds and
+before it starts polling, and again on *Restore a purchase*, in both cases with the JWS of the
+current entitlement in D5a's group. A `422`, a `409`, a `404` from a server that predates this
+route, or a dropped connection all fall back to the poll that already existed — the route is an
+accelerator and a repair, not a dependency.
+
+**No rate limit, per `CLAUDE.md`'s rule**: the route touches the caller's own household and can put
+nothing in a stranger's inbox. The most a parent can do by hammering it is make their own household
+subscribed with Apple's signature in hand.
+
+**D5 is amended rather than reversed** — see `decisions.md`. The device still decides nothing: it
+carries Apple's signed statement to the server, and the server decides.

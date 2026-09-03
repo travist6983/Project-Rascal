@@ -119,5 +119,17 @@ async def app_store_notification(
     )
     # Named in the body for the same reason the Apple hook does it: the only other way to
     # find out what a webhook did is to read the logs of a machine you may not be able to
-    # reach.
+    # reach — **and logged here as well, since phase 140.** `recorded:no-tier-change` was the
+    # one outcome no guard logged, so an evening of `202`s with the household still `free` left
+    # nothing in the logs to read; the body Apple received is not something Fly shows.
+    log.info(
+        "app store notification applied",
+        extra={
+            "outcome": outcome,
+            "type": note.notification_type,
+            "subtype": note.subtype,
+            "environment": note.environment,
+            "original_transaction_id": note.original_transaction_id,
+        },
+    )
     return {"status": outcome}

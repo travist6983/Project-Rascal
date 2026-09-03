@@ -1408,3 +1408,15 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   lean on it. Accepted cost: a tester who bought in beta holds `subscribed` until §7a's reverse
   statement is run by hand. `membership_signals` reads `Production` rows ahead of `Sandbox` ones so
   a tester's simulated billing failure never shows on a paying household's Settings screen.
+- **Sep 3, 2026 (phase 140, API lane).** **Amends D5: the app may submit the transaction it holds.**
+  `POST /families/me/transactions` verifies StoreKit 2's `jwsRepresentation` with the webhook's
+  verifier, binds it to the caller by the `appAccountToken` inside Apple's signature, and applies it
+  through the same guards and the same one writer — promote only, never demote, never move a
+  notification's `latest_signed_date`, never record a refusal. Forced by Sep 2: a Monthly tap on a
+  Sandbox Apple ID already holding the annual is `DID_CHANGE_RENEWAL_PREF` (no tier effect), and the
+  app had no way to tell the server about a receipt it could see. Also: the webhook now logs every
+  outcome, because `recorded:no-tier-change` was the one path that logged nothing and Sep 2's ledger
+  had to be read by hand to learn what a `202` had done. Judgment calls: `422` not `401` for an
+  unverifiable JWS (the caller is authenticated; the document is wrong); `409` for another
+  household's token, recording nothing; guard 5 skipped because the bearer token already proves a
+  member; no rate limit because the route reaches only the caller's own household.

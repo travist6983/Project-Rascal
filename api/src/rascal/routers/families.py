@@ -11,15 +11,17 @@ household is reached through `user.family_id` and there is no id in the path to 
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 from sqlalchemy import select
 
-from rascal.deps import CurrentUser, SessionDep, SettingsDep, family_access
-from rascal.errors import not_found
+from rascal.deps import CurrentUser, SessionDep, SettingsDep, family_access, get_app_store_verifier
+from rascal.errors import ErrorCode, RascalError, not_found
 from rascal.models import Guardian, GuardianInvite, User
+from rascal.schemas.app_store import SubmittedTransactionOut, SubmittedTransactionRequest
 from rascal.schemas.family import (
     EntitlementOut,
     FamilyOut,
@@ -31,6 +33,11 @@ from rascal.schemas.family import (
     InvitePreview,
 )
 from rascal.services import invite_email
+from rascal.services.app_store import AppStoreVerifier, NotificationUnverifiable
+from rascal.services.app_store_events import (
+    TransactionBelongsElsewhere,
+    apply_submitted_transaction,
+)
 from rascal.services.grants import active_grant_for
 from rascal.services.guardians import (
     accept_invite,
@@ -48,6 +55,8 @@ from rascal.services.guardians import (
 )
 from rascal.services.membership import membership_signals
 from rascal.services.rate_limit import check_and_record
+
+log = logging.getLogger("rascal.families")
 
 router = APIRouter(prefix="/families", tags=["families"])
 invites_router = APIRouter(prefix="/invites", tags=["families"])
@@ -80,6 +89,12 @@ async def _pending_invites(session, family_id: uuid.UUID) -> list[InviteOut]:
 @router.get("/me", response_model=FamilyOut)
 async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
     """The caller's household: who is in it, what it is entitled to, who has been asked."""
+    return await _family_out(session, user)
+
+
+async def _family_out(session, user: User) -> FamilyOut:
+    """The `GET /families/me` document, shared with the route that answers a submitted
+    transaction with the same shape — one renderer, so the two cannot disagree."""
     entitlement = await entitlement_for(session, user.family_id)
     members = await family_members(session, user.family_id)
 
@@ -150,6 +165,76 @@ async def read_my_family(session: SessionDep, user: CurrentUser) -> FamilyOut:
         guardians=guardians,
         pending_invites=await _pending_invites(session, user.family_id),
     )
+
+
+@router.post(
+    "/me/transactions",
+    response_model=SubmittedTransactionOut,
+    summary="Submit a StoreKit transaction the app holds",
+    description=(
+        "Phase 140. The app posts `Transaction.jwsRepresentation` — the JWS StoreKit 2 hands it "
+        "for every verified transaction — after a purchase and on *Restore a purchase*. The "
+        "server verifies it with the same Apple verifier and trust anchors as "
+        "`POST /webhooks/app-store`, checks that its `appAccountToken` names the caller's "
+        "household, and if it proves an **active** subscription writes `tier: subscribed` "
+        "through the same writer the webhook uses. It never demotes: a lapse or a refund is "
+        "Apple's to report.\n\n"
+        "`200` with a `status` in the webhook's vocabulary and the household as `GET "
+        "/families/me` would now return it. `422` for a JWS Apple did not sign; `409` for a "
+        "transaction whose `appAccountToken` is another household's — nothing is recorded in "
+        "either case."
+    ),
+)
+async def submit_transaction(
+    body: SubmittedTransactionRequest,
+    session: SessionDep,
+    user: CurrentUser,
+    settings: SettingsDep,
+    verifier: AppStoreVerifier = Depends(get_app_store_verifier),
+) -> SubmittedTransactionOut:
+    """Verify, then apply, then answer with the household — never the other way round.
+
+    The only route besides the webhook that reaches `_write_tier`, and it reaches it through
+    `apply_submitted_transaction`, which can only promote. No rate limit, per `CLAUDE.md`: the
+    route touches the caller's own household and nobody else's inbox or data, and a parent
+    hammering it can only make their own household subscribed with Apple's signature in hand.
+    """
+    try:
+        transaction = verifier.verify_transaction(body.signed_transaction)
+    except NotificationUnverifiable as exc:
+        log.warning("submitted transaction failed verification", extra={"reason": str(exc)})
+        raise RascalError(
+            ErrorCode.VALIDATION_FAILED,
+            "This purchase could not be verified.",
+            field="signed_transaction",
+        ) from exc
+
+    try:
+        outcome = await apply_submitted_transaction(
+            session,
+            transaction,
+            family_id=user.family_id,
+            service_environment=settings.environment,
+        )
+    except TransactionBelongsElsewhere as exc:
+        raise RascalError(
+            ErrorCode.CONFLICT, "This purchase belongs to a different household."
+        ) from exc
+
+    # Rendered before the log line, deliberately: the session commits only when this handler
+    # returns, so a failure in the render would roll the write back — and a log that had already
+    # said "applied" would be describing a commit that never happened.
+    family = await _family_out(session, user)
+    log.info(
+        "submitted transaction applied",
+        extra={
+            "outcome": outcome,
+            "family_id": str(user.family_id),
+            "original_transaction_id": transaction.original_transaction_id,
+            "environment": transaction.environment,
+        },
+    )
+    return SubmittedTransactionOut(status=outcome, family=family)
 
 
 @router.get("/{family_id}/entitlement", response_model=EntitlementOut)
