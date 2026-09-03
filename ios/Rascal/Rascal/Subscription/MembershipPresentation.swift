@@ -277,11 +277,13 @@ nonisolated enum MembershipPresentation {
     /// cannot dismiss over a state the sheet would have described differently.
     ///
     /// **`notice` is what separates the outcomes, and it is load-bearing rather than
-    /// belt-and-braces.** `restore()` clears it before it starts and writes it in exactly two
-    /// places: a refused `AppStore.sync()`, and a window that closed with nothing having arrived.
-    /// So nil means the sync succeeded *and* the poll was not the not-found branch — which is what
-    /// stops a parent whose household was **already** subscribed when they tapped from being
-    /// dismissed out of the sheet by a restore that just failed, over an error they never read.
+    /// belt-and-braces.** `restore()` clears it before it starts and writes it in exactly three
+    /// places: a refused `AppStore.sync()`, a window that closed with nothing having arrived, and
+    /// (since phase 143) a receipt the server says is another household's. So nil means the sync
+    /// succeeded *and* the receipt was not refused *and* the poll was not the not-found branch —
+    /// which is what stops a parent whose household was **already** subscribed when they tapped
+    /// from being dismissed out of the sheet by a restore that just failed, over an error they never
+    /// read.
     static func dismissAfterRestore(household: FamilySummary?, notice: String?) -> Bool {
         guard notice == nil else { return false }
         return household?.isMember == true

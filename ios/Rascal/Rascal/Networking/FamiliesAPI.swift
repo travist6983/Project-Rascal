@@ -235,10 +235,13 @@ extension APIClient {
     /// with the same Apple verifier the webhook uses and, if it proves an active subscription for
     /// *this* household, answers with the household already `subscribed`. **The answer is the
     /// `GET /v1/families/me` document**, so a caller settles on it exactly as it would on a read,
-    /// and on nothing else (D5, D9). A `422` is a JWS Apple did not sign for this bundle; a `409`
-    /// is a purchase made under a different household's account; a `404` is a server that
-    /// predates the route. Every caller treats all three, and a dropped connection, the same way:
-    /// fall back to the poll that was already there.
+    /// and on nothing else (D5, D9). A `422` is a JWS Apple did not sign for this bundle; a `404` is
+    /// a server that predates the route. Both, and a dropped connection, fall back to the poll that
+    /// was already there. **A `409` (`.conflict`) is the one refusal a caller tells apart** (phase
+    /// 143): the server will not attribute the receipt to this household — its `appAccountToken`
+    /// names a different one, or the ledger already holds it for one — which is an answer the poll
+    /// can never change, so `SubscriptionModel` says so rather than waiting out the window. A `409`
+    /// without the envelope carries no code and is treated like the others.
     func submitTransaction(_ signedTransaction: String) async throws -> FamilySummary {
         let response: SubmittedTransactionResponse = try await send(
             .post, "v1/families/me/transactions",

@@ -99,10 +99,14 @@ struct SubscriptionSection: View {
                 reassurance
             }
 
-            // **One line, two channels, and only one of them can be set.** `restore()` clears
-            // both before it starts: a run that found a membership sets `restoreConfirmation` and
-            // a run that did not sets `notice`. They render identically because neither is an
-            // alarm — `inkMuted` metadata under the card, never an alert, never red.
+            // **One line, three channels, in priority order — and at most one of the first two
+            // stands.** `restore()` clears both before it starts: a run that found a membership
+            // sets `restoreConfirmation` and a run that did not sets `notice`. Since phase 143 a
+            // purchase's confirmation can write `notice` too — a receipt the server says is another
+            // household's — so `notice` is no longer only a statement about a restore, and a found
+            // membership clears the whole channel rather than one string. They render identically
+            // because none is an alarm — `inkMuted` metadata under the card, never an alert, never
+            // red.
             //
             // Coalesced rather than stacked so the two can never appear together and read as a
             // contradiction. The confirmation wins the ordering because it is the state a parent

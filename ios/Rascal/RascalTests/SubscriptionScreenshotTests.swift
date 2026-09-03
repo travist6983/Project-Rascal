@@ -272,6 +272,52 @@ struct SubscriptionScreenshotTests {
         }
     }
 
+    /// **Phase 143: the refusal that had no sentence.** A receipt attached to another household is a
+    /// `409` the model used to swallow; now it is `notice`, and `notice` renders on both surfaces. On
+    /// the sheet it sits under *Restore a purchase* with the plan rows still live — the sentence
+    /// offers a purchase under a different Apple Account, so the buy button has to be there. On the
+    /// card it sits under the card with the offer row back in place, which is where a parent lands,
+    /// because the sheet dismissed itself the moment Apple took the money.
+    ///
+    /// The no-trial offer, because that is the one production can produce. The thing to look at is
+    /// that the sentence is `inkMuted` metadata and nothing on either surface turned red.
+    @Test("the other-account notice renders on the sheet and on the card")
+    func otherAccountNoticeRenders() throws {
+        let sheet = SubscriptionModel(
+            previewing: .ready(.previewWithoutTrial, familyID: UUID()),
+            household: .sample(tier: "free"),
+            notice: SubscriptionModel.subscriptionOnAnotherAccount
+        )
+        let card = SubscriptionModel(
+            previewing: .loading,
+            household: .sample(tier: "free"),
+            notice: SubscriptionModel.subscriptionOnAnotherAccount
+        )
+
+        try render(
+            PaywallSheet(model: sheet) {}.renderable,
+            named: "membership-other-account-sheet-default",
+            at: .large
+        )
+        try render(
+            SubscriptionSection(model: card).padding(Layout.screenMargin),
+            named: "membership-other-account-card-default",
+            at: .large
+        )
+        for (label, size) in Self.sizes {
+            try render(
+                PaywallSheet(model: sheet) {}.renderable,
+                named: "membership-other-account-sheet-\(label)",
+                at: size
+            )
+            try render(
+                SubscriptionSection(model: card).padding(Layout.screenMargin),
+                named: "membership-other-account-card-\(label)",
+                at: size
+            )
+        }
+    }
+
     /// **The busy row, hosted, so the spinner is a spinner.** `ImageRenderer` cannot draw a
     /// `ProgressView` — the system activity indicator is UIKit-backed — and prints a placeholder
     /// glyph in its place, which the owner read as the shipped icon on Sep 2, 2026. This render
