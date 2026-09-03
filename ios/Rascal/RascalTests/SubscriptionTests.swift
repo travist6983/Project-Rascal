@@ -1573,6 +1573,25 @@ private actor Submissions {
     func record(_ signed: String) { all.append(signed) }
 }
 
+/// What `APIClient.send` actually throws for a `409`: the documented envelope, decoded, with its
+/// code. **Not `unexpectedStatus(409)`** — that is a 409 whose body was not the envelope, which
+/// carries no code and is therefore not a verdict about anything; the tests that use it are
+/// asserting exactly that. Phase 143.
+private let conflict = APIError.api(
+    code: .conflict,
+    message: "This transaction belongs to a different household.",
+    field: nil,
+    status: 409
+)
+
+/// Holds a task so an injected read can wait for it to finish — the way a poll read is made to
+/// observe another door's answer landing *between* two of its own reads, deterministically.
+private actor TaskBox {
+    private var task: Task<Void, Never>?
+    func hold(_ task: Task<Void, Never>) { self.task = task }
+    func wait() async { await task?.value }
+}
+
 /// **The evening of Sep 2, 2026, and the door it forced.** A Monthly tap on an Apple Account that
 /// already held the annual is a plan change; Apple announces it as `DID_CHANGE_RENEWAL_PREF` (no
 /// tier effect) and no amount of polling `GET /families/me` would ever have confirmed it — while
@@ -1819,6 +1838,296 @@ struct SubmittedTransactionTests {
 
         #expect(model.purchase == .subscribed)
         #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+    }
+
+    // MARK: Phase 143: the receipt is another household's
+
+    /// **Sep 3, 2026, in production.** A parent's Apple Account held a subscription bought under a
+    /// household that was not the one they were signed in to — the account that bought it had since
+    /// been deleted, or the same person had signed in with a different provider and been given a new
+    /// household — so `POST /v1/families/me/transactions` answered `409 conflict`. The model read
+    /// that as it read every other throw: carry on to the poll. Apple had said *"You're currently
+    /// subscribed to this"*, the sheet said *"being confirmed"*, the window ran out, and nothing ever
+    /// said why. A 409 is not a non-answer. It is the one refusal that names a reason the parent can
+    /// act on, and it is the one this block makes visible.
+    @Test("a receipt attached to another household ends the confirmation and says so")
+    @MainActor
+    func aConflictIsSaidNotSwallowed() async {
+        let familyID = UUID()
+        let reads = Counter()
+        let store = FakeStore(entitlement: "jws.bought.under.another.account")
+        let model = model(
+            store: store,
+            read: {
+                _ = await reads.bump()
+                return await household("free", id: familyID)
+            },
+            submit: { _ in throw conflict }
+        )
+
+        await model.load()
+        let readsAfterLoad = await reads.read()
+        await model.buy()
+
+        #expect(model.purchase == .idle, "the spinner must not run to the deadline on an answer")
+        #expect(model.notice == SubscriptionModel.subscriptionOnAnotherAccount)
+        #expect(model.household?.isSubscribed == false, "no tier is claimed")
+        let readsAfterBuy = await reads.read()
+        #expect(
+            readsAfterBuy == readsAfterLoad,
+            "the poll ran although the server had already said whose receipt it is"
+        )
+        #expect(
+            model.canBuy,
+            "the sentence offers a purchase under a different Apple Account, so one must be possible"
+        )
+    }
+
+    /// Every other throw is still what phase 140 made it: not a verdict. A `422` is a JWS Apple did
+    /// not sign for this bundle, a transport failure is a dropped connection, and a `409` **without
+    /// the envelope** carries no code — none of them says anything about whose receipt it is, so
+    /// none of them may write a sentence.
+    @Test("a 422, a transport failure and a body-less 409 are still not verdicts")
+    @MainActor
+    func otherThrowsStillFallThrough() async {
+        let familyID = UUID()
+        let refusals: [APIError] = [
+            .api(
+                code: .validationFailed, message: "not signed for this bundle",
+                field: "signed_transaction", status: 422
+            ),
+            .transport("offline"),
+            .unexpectedStatus(409),
+        ]
+        for refusal in refusals {
+            let store = FakeStore(entitlement: "jws")
+            let model = model(
+                store: store,
+                read: { await household("free", id: familyID) },
+                submit: { _ in throw refusal }
+            )
+
+            await model.load()
+            await model.buy()
+
+            #expect(model.purchase == .late, "\(refusal) was treated as a verdict")
+            #expect(model.notice == nil, "\(refusal) wrote a sentence it had no grounds for")
+        }
+    }
+
+    /// The same refusal on the restore path. `aRefusedRestoreSubmissionPolls` above throws a 409
+    /// with **no envelope**, which stays what it was; this is the envelope the server renders, and
+    /// *"nothing has arrived yet"* would be the wrong sentence for it — something arrived, and the
+    /// server said whose it is.
+    @Test("a restore whose receipt is another household's says so, not that nothing arrived")
+    @MainActor
+    func aRestoreConflictIsSaid() async {
+        let familyID = UUID()
+        let reads = Counter()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: {
+                _ = await reads.bump()
+                return await household("free", id: familyID)
+            },
+            submit: { _ in throw conflict }
+        )
+
+        await model.load()
+        let readsAfterLoad = await reads.read()
+        await model.restore()
+
+        #expect(!model.isRestoring)
+        #expect(model.restoreConfirmation == nil)
+        #expect(model.notice == SubscriptionModel.subscriptionOnAnotherAccount)
+        #expect(model.household?.isSubscribed == false)
+        let readsAfterRestore = await reads.read()
+        #expect(readsAfterRestore == readsAfterLoad, "polling cannot change whose receipt it is")
+        let dismisses = MembershipPresentation.dismissAfterRestore(
+            household: model.household, notice: model.notice
+        )
+        #expect(!dismisses, "the paywall stays up so the sentence can be read")
+    }
+
+    /// A purchase whose window closed is `.late` — *"being confirmed"* — and a restore that then
+    /// learns the receipt is another household's has answered that question too. Leaving `.late`
+    /// standing would put *being confirmed* on the sheet above a sentence saying it will not be.
+    @Test("a restore's 409 also closes a late purchase")
+    @MainActor
+    func aConflictClosesALatePurchase() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in
+                // A server without the route during the purchase; the route, refusing, on restore.
+                if await calls.bump() == 1 { throw APIError.unexpectedStatus(404) }
+                throw conflict
+            }
+        )
+
+        await model.load()
+        await model.buy()
+        #expect(model.purchase == .late)
+
+        await model.restore()
+
+        #expect(model.purchase == .idle)
+        #expect(model.notice == SubscriptionModel.subscriptionOnAnotherAccount)
+    }
+
+    /// **The rule every writer in this model follows, facing this refusal.** A foreground read can
+    /// publish a subscribed household while the submission is in flight — another guardian's
+    /// purchase, a grant — and the 409 that then lands is about a receipt. The server has already
+    /// said the household is a member by some other door, and a refused receipt does not take that
+    /// back.
+    @Test("a household the server calls subscribed outranks a refused receipt")
+    @MainActor
+    func aSubscribedHouseholdOutranksTheConflict() async {
+        let familyID = UUID()
+        let gate = Gate()
+        let flipped = Counter()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: {
+                let n = await flipped.read()
+                return await household(n > 0 ? "subscribed" : "free", id: familyID)
+            },
+            submit: { _ in
+                await gate.wait()
+                throw conflict
+            }
+        )
+
+        await model.load()
+        let buying = Task { await model.buy() }
+        await gate.readyToRelease()
+        #expect(model.purchase == .confirming, "the harness has to park inside the submission")
+
+        _ = await flipped.bump()
+        await model.refreshHousehold()
+        #expect(model.purchase == .subscribed)
+
+        await gate.open()
+        await buying.value
+
+        #expect(model.purchase == .subscribed, "a refused receipt must not take back what the server granted")
+        #expect(model.notice == nil)
+    }
+
+    /// `settleReceiptElsewhere()` guards the sentence on `isMember`, not `isSubscribed` — the
+    /// distinction phase 141 exists for. A granted household reads `tier: free` with the card
+    /// already saying *Subscribed*, and *attached to a different account* underneath would be the
+    /// contradiction `aGrantedRestoreIsSilent` already refuses for *nothing has arrived yet*.
+    @Test("a granted household is not told its receipt is somewhere else")
+    @MainActor
+    func aGrantedHouseholdIsSilentOnTheConflict() async {
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: { await grantedHousehold() },
+            submit: { _ in throw conflict }
+        )
+
+        await model.load()
+        await model.restore()
+
+        #expect(model.notice == nil, "attached-to-another-account under a card reading Subscribed is the contradiction")
+        #expect(model.restoreConfirmation == nil, "a grant is not a restored receipt")
+    }
+
+    /// **The sentence survives the visit that is meant to read it.** One `SubscriptionModel` is
+    /// shared by Today and Settings (`RootView`), and a purchase from a locked card leaves the parent
+    /// on the board when the sheet dismisses itself — so the sentence has to be there when they next
+    /// open Settings, and `load()` runs from that card's `.task` on every appearance. Phase 141's rule
+    /// that opening a surface clears `notice` was written for *nothing has arrived yet*, a statement
+    /// about a past run; this is a statement about a standing fact, and it goes when the fact does.
+    @Test("the other-account sentence survives opening a surface, and a membership takes it down")
+    @MainActor
+    func theConflictSentenceSurvivesALoad() async {
+        let familyID = UUID()
+        let flipped = Counter()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: {
+                let n = await flipped.read()
+                return await household(n > 0 ? "subscribed" : "free", id: familyID)
+            },
+            submit: { _ in throw conflict }
+        )
+
+        await model.load()
+        await model.buy()
+        #expect(model.notice == SubscriptionModel.subscriptionOnAnotherAccount)
+
+        await model.load()
+        #expect(
+            model.notice == SubscriptionModel.subscriptionOnAnotherAccount,
+            "the next visit to Settings is where this is read, and that visit is a load()"
+        )
+
+        _ = await flipped.bump()
+        await model.refreshHousehold()
+        #expect(model.notice == nil, "a member household outranks the sentence")
+    }
+
+    /// **The invariant `settleRestoreFound()` states, against the new writer.** A purchase's
+    /// submission can still be in flight when the parent taps Restore. If the restore's own
+    /// submission is inconclusive its poll runs; the purchase's 409 then lands *between two poll
+    /// reads* and writes the sentence; the next read says subscribed. *Found it* beside *attached to
+    /// a different account* is the contradiction, and the standing `notice` would also keep the
+    /// paywall from dismissing on a restore that succeeded. Staged, not hoped for: the poll's first
+    /// read releases the parked submission and waits for the purchase to finish before answering.
+    @Test("a membership a restore finds takes the other-account sentence down with it")
+    @MainActor
+    func aFoundMembershipClearsTheConflictSentence() async {
+        let familyID = UUID()
+        let gate = Gate()
+        let submissions = Counter()
+        let reads = Counter()
+        let purchase = TaskBox()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: {
+                let n = await reads.bump()
+                // Read 1 is `load()`. Read 2 is the restore poll's first: it lets the purchase's
+                // submission through and waits for its 409 to be written, then answers `free`.
+                // Read 3 is the poll's second, and it says subscribed.
+                if n == 2 {
+                    await gate.open()
+                    await purchase.wait()
+                }
+                return await household(n >= 3 ? "subscribed" : "free", id: familyID)
+            },
+            submit: { _ in
+                if await submissions.bump() == 1 {
+                    await gate.wait()
+                    throw conflict
+                }
+                throw APIError.unexpectedStatus(404)
+            }
+        )
+
+        await model.load()
+        await purchase.hold(Task { await model.buy() })
+        await gate.readyToRelease()
+        #expect(model.purchase == .confirming, "the harness has to park inside the submission")
+
+        await model.restore()
+
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil, "at most one of the two channels stands")
+        #expect(model.household?.isSubscribed == true)
+        let dismisses = MembershipPresentation.dismissAfterRestore(
+            household: model.household, notice: model.notice
+        )
+        #expect(dismisses, "a restore that succeeded must be allowed to close the paywall")
     }
 
     // MARK: The failure the parent has read

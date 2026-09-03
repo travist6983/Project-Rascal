@@ -69,7 +69,8 @@ final class SubscriptionModel {
     /// Annual is preselected, per D1. Monthly is not hidden and not shamed.
     var plan: SubscriptionPlan = .annual
     private(set) var isRestoring = false
-    /// A restore that found nothing to restore, said as a sentence rather than an alert.
+    /// A restore that found nothing to restore — or, since phase 143, a receipt the server says is
+    /// another household's — said as a sentence rather than an alert. Rendered by both surfaces.
     private(set) var notice: String?
 
     /// A restore that **did** find one, said as a sentence rather than as nothing at all.
@@ -96,9 +97,10 @@ final class SubscriptionModel {
     /// **`POST /v1/families/me/transactions`, and the second door onto a subscribed household**
     /// (phase 140). Given the JWS the store holds for the current entitlement, the server verifies
     /// it and answers with the household — the same document `readHousehold` returns, which is
-    /// the only thing that may settle `purchase` to `.subscribed`. A throw of any kind is not a
-    /// verdict: a server that predates the route, a dropped connection and a refused receipt all
-    /// leave the poll to do what it did before this existed.
+    /// the only thing that may settle `purchase` to `.subscribed`. A throw is not a verdict — a
+    /// server that predates the route, a dropped connection and a refused JWS all leave the poll
+    /// to do what it did before this existed — **with one exception since phase 143**: a
+    /// `409 conflict`, which says the receipt is another household's. See `submitCurrentEntitlement`.
     private let submitTransaction: @Sendable (String) async throws -> FamilySummary
     private let store: any SubscriptionPurchasing
     /// Injected so the confirmation window can be exercised without waiting 63 seconds.
@@ -305,7 +307,17 @@ final class SubscriptionModel {
         // followed the parent onto the paywall and sat under the buy button indefinitely. Opening
         // either surface clears it. `restoreConfirmation` goes with it, for the same reason:
         // yesterday's "your membership is here" is not a statement about this visit.
-        notice = nil
+        //
+        // **Except the one sentence that is not about a past run** (phase 143). *Attached to a
+        // different account* describes a standing fact about the receipt on this Apple Account,
+        // true until the parent signs in elsewhere or buys under another one — and it has to
+        // survive an appearance, because the visit that reads it *is* an appearance: one model is
+        // shared by Today and Settings (`RootView`), a purchase from a locked card leaves the
+        // parent on the board when the sheet dismisses itself, and the Membership card they then
+        // open calls this from its `.task`. Clearing it here erased the explanation before it
+        // rendered. It still goes when the household becomes a member (`refreshHousehold()`, the
+        // publish below), when a purchase or restore starts, or on `noticeDismissed()`.
+        if notice != Self.subscriptionOnAnotherAccount { notice = nil }
         restoreConfirmation = nil
         if case .ready = phase {} else { phase = .loading }
 
@@ -584,11 +596,21 @@ final class SubscriptionModel {
         // answer is the household document or it is nothing, and nothing falls through to the poll
         // exactly as before. Still under the deadline above, because a hung request is a hung
         // request whichever door it knocks on.
-        if let family = await submitCurrentEntitlement(), purchase == .confirming {
+        switch await submitCurrentEntitlement() {
+        case .subscribed(let family) where purchase == .confirming:
             household = family
             purchase = .subscribed
             notice = nil
             return
+        case .otherHousehold:
+            // **An answer, not a non-answer, and the poll does not run** (phase 143). The server
+            // has said whose receipt this is; ten more reads of this household cannot change that,
+            // and running them left the parent under "Finishing up" until the deadline with nothing
+            // ever saying why.
+            settleReceiptElsewhere()
+            return
+        case .subscribed, .inconclusive:
+            break
         }
 
         let read = self.readHousehold
@@ -628,20 +650,66 @@ final class SubscriptionModel {
         }
     }
 
-    /// Hand the server the transaction the store holds, and return the household **only if the
-    /// server now calls it subscribed**.
+    /// What `POST /v1/families/me/transactions` said, reduced to the three things a caller does
+    /// differently about it.
+    private enum Submission {
+        /// The server verified the receipt and now calls this household subscribed.
+        case subscribed(FamilySummary)
+        /// **`409 conflict`: the server will not attribute this receipt to the caller's household**
+        /// (phase 143) — its `appAccountToken` names another household, or the ledger already holds
+        /// it for one. Not a non-answer: the one refusal that names a reason the parent can act on,
+        /// and the one the poll can never resolve, because no number of household reads changes
+        /// whose receipt it is. (A receipt carrying no token at all is refused the same way on the
+        /// server this was written against, and the client cannot tell the two apart — recorded in
+        /// phase 143's PR as a contract question, not decided here.)
+        case otherHousehold
+        /// Everything else: no transaction on the device, a `404` from a server without the route, a
+        /// `422`, a dropped connection, a `409` whose body was not the envelope, or a `200` whose
+        /// household still reads `free`. *Carry on as before.*
+        case inconclusive
+    }
+
+    /// Hand the server the transaction the store holds, and say what it made of it.
     ///
-    /// Everything that is not that — no transaction on the device, a `404` from a server without
-    /// the route, a `409` for another household's receipt, a `422`, a dropped connection, or a
-    /// `200` whose household still reads `free` (an expired receipt, a Sandbox receipt Production
-    /// has outranked) — is `nil`, and `nil` means *carry on as before*. The route is an
-    /// accelerator and a repair, never a dependency.
-    private func submitCurrentEntitlement() async -> FamilySummary? {
-        guard let signed = await store.currentEntitlement() else { return nil }
-        guard let family = try? await submitTransaction(signed), family.isSubscribed else {
-            return nil
+    /// **`.subscribed` only if the server now calls the household subscribed**; the route is an
+    /// accelerator and a repair, never a dependency, and `.inconclusive` means *carry on as before*
+    /// — exactly what every throw meant before phase 143. The one throw lifted out of that bucket is
+    /// `APIError.api(code: .conflict)`: from Sep 3, 2026 in production, a parent whose Apple Account
+    /// held a subscription bought under another household tapped Buy, Apple said *"You're currently
+    /// subscribed to this"*, this returned `nil`, the poll ran to its deadline, and nothing ever said
+    /// why. Matched on `code`, never on status or message — messages are copy and will change, and a
+    /// `409` with no envelope carries no code and stays inconclusive.
+    private func submitCurrentEntitlement() async -> Submission {
+        guard let signed = await store.currentEntitlement() else { return .inconclusive }
+        do {
+            let family = try await submitTransaction(signed)
+            return family.isSubscribed ? .subscribed(family) : .inconclusive
+        } catch let error as APIError where error.code == .conflict {
+            return .otherHousehold
+        } catch {
+            return .inconclusive
         }
-        return family
+    }
+
+    /// The server said the receipt is another household's. **One writer for both doors** — the
+    /// purchase's confirmation and a restore — so the two cannot drift into saying different things.
+    ///
+    /// **The wait ends on an answer, whatever the household says.** `.confirming` must not spin to
+    /// the deadline once the server has answered, and `.late` (*"being confirmed"*) must not stand
+    /// above a sentence saying it will not be. It moves to `.idle` rather than `.failed`: Apple did
+    /// not refuse the purchase, and the sentence offers a purchase under a different Apple Account,
+    /// so one must be possible. `.subscribed` is not touched — every writer that publishes a
+    /// subscribed household settles `purchase` to it, and a refused receipt does not take that back.
+    ///
+    /// **The sentence, though, defers to the household**, as every channel here does: a foreground
+    /// read can publish a member household while the submission is in flight — another guardian's
+    /// purchase, a grant — and *attached to a different account* under a card reading *Subscribed*
+    /// is the contradiction the restore branches already refuse to print. `notice` is the channel
+    /// because it is the one both surfaces already render.
+    private func settleReceiptElsewhere() {
+        if purchase == .confirming || purchase == .late { purchase = .idle }
+        guard household?.isMember != true else { return }
+        notice = Self.subscriptionOnAnotherAccount
     }
 
     // MARK: Restore
@@ -713,11 +781,20 @@ final class SubscriptionModel {
         // what brings the *household* back. Before this, a restore could only re-read a server
         // that had never been told — which is why the sentence under the card said "nothing has
         // arrived yet" to a parent holding a paid-up receipt.
-        if let family = await submitCurrentEntitlement() {
+        switch await submitCurrentEntitlement() {
+        case .subscribed(let family):
             household = family
             if purchase != .idle, purchase != .subscribed { purchase = .subscribed }
             settleRestoreFound()
             return
+        case .otherHousehold:
+            // **Something arrived, and the server said whose it is** (phase 143) — so neither the
+            // poll nor its "nothing has arrived yet" is the right answer. Only the run the parent is
+            // watching may say so; see `restoreGeneration`.
+            if generation == restoreGeneration { settleReceiptElsewhere() }
+            return
+        case .inconclusive:
+            break
         }
 
         let outcome = await EntitlementConfirmation.poll(
@@ -758,7 +835,12 @@ final class SubscriptionModel {
                 // no receipt to restore and its card already reads *Subscribed*, so this sentence
                 // under it would be the same contradiction. And only the run the parent is
                 // watching may say it — see `restoreGeneration`.
-                notice = Self.restoreNothingYet
+                //
+                // **And only into an empty channel** (phase 143). The prologue cleared it, so
+                // anything standing here was written while the poll was out: the deadline's own
+                // copy of this sentence, or a purchase's 409 saying whose receipt it is — which is
+                // the more specific answer, and the vaguer one must not overwrite it.
+                if notice == nil { notice = Self.restoreNothingYet }
             }
         }
     }
@@ -767,9 +849,16 @@ final class SubscriptionModel {
     /// invariant beside it**: at most one of `restoreConfirmation` and `notice` stands, so a
     /// membership that lands after the deadline wrote *nothing has arrived yet* takes that
     /// sentence down with it — the same rule `confirm()` applies when a late `.subscribed` lands.
+    ///
+    /// **The channel, not one string, since phase 143.** This cleared only `restoreNothingYet`
+    /// while that was the only sentence a run could find here; a purchase's submission can now
+    /// write *attached to a different account* into `notice` while this run's poll is out, and
+    /// *Found it* beside that is the contradiction — with the standing `notice` also keeping the
+    /// paywall from dismissing on a restore that succeeded. This branch only ever runs on a proven
+    /// membership, so any `notice` still standing is stale by construction.
     private func settleRestoreFound() {
         restoreConfirmation = Self.restoreFound
-        if notice == Self.restoreNothingYet { notice = nil }
+        notice = nil
     }
 
     /// **The `.late` branch's sentence, and since phase 141 the deadline's too** — one string, so
@@ -788,6 +877,24 @@ final class SubscriptionModel {
     /// **States what happened and asks for nothing** — no urgency, no exclamation, nothing to act
     /// on. The copy rules apply to a success as much as to a refusal.
     static let restoreFound = "Found it. Your membership is active."
+
+    /// **Proposed Sep 3, 2026, awaiting owner approval.** Not yet in `docs/design/free-tier-copy.md`,
+    /// and that file forbids an agent authoring a user-visible sentence on the membership surface —
+    /// so this is one named constant, flagged in phase 143's PR, for the owner to keep or reword.
+    /// Changing it here changes it on both surfaces at once.
+    ///
+    /// **What it is for.** `POST /v1/families/me/transactions` answers `409 conflict` when it will
+    /// not attribute the receipt to the caller's household — its `appAccountToken` names a different
+    /// one, because the account that bought it was since deleted or the same person signed in with a
+    /// different provider and was given a new household. The API lane's own phase 143 lifts that
+    /// refusal when the other household has nobody left in it; what remains is the case a parent can
+    /// act on. Reproduced in production on Sep 3, 2026: Apple said *"You're currently subscribed to
+    /// this"*, the card said *"being confirmed"*, and nothing ever said why. This is the why.
+    /// **States what happened and what to do, and asks for nothing else** — no urgency, no
+    /// exclamation, nothing red, nothing counting down.
+    static let subscriptionOnAnotherAccount =
+        "This App Store subscription is attached to a different Pocket Chronicle account. "
+        + "Sign in with that account, or subscribe here with a different Apple Account."
 
     func noticeDismissed() {
         notice = nil
