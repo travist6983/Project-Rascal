@@ -1224,6 +1224,12 @@ async def test_the_entitlement_route_reports_the_computed_date(client, session):
         # and it is the test that will catch the next one.
         "plan": None,
         "billing_retry": False,
+        # Phase 144's three. The trial is `make_family`'s default fourteen days from the insert,
+        # read seconds later, so the count is the fourteen a parent is promised; the two period
+        # fields are the not-subscribed answer for the same reason `plan` is.
+        "trial_days_left": 14,
+        "expires_at": None,
+        "auto_renew": None,
         "media_storage_tier": "hot",
     }
 

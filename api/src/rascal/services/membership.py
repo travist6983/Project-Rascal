@@ -35,6 +35,7 @@ the ledger eventually. `eligible_at` is derived for the same reason and says so.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from dataclasses import dataclass
 
@@ -60,31 +61,54 @@ class MembershipSignals:
     plan: SubscriptionPlan | None
     #: Whether Apple is retrying a failing card. **Never gates anything.**
     billing_retry: bool
+    #: When the current paid period ends — Apple's `expiresDate` off the same ledger row, added
+    #: by phase 144 so the Settings card can say *renews on* or *expires on*. **For copy only.**
+    #: Null for a non-member, for a subscription with no receipt behind it, when Apple sent no
+    #: date, when the date has already passed (a stale ledger, never a renewal to announce), and
+    #: **during a billing retry** — the date on a row in retry is the day the renewal failed,
+    #: which is not a day anybody should be told their membership renews.
+    expires_at: dt.datetime | None
+    #: Apple's own `autoRenewStatus` from the last payload's `renewalInfo`: `True` when the
+    #: subscription will renew, `False` when the parent has turned renewal off, `None` when the
+    #: last payload carried no `renewalInfo` — and always `None` when `expires_at` is. Every
+    #: notification carries the current value, so unlike `billing_retry` this is exact rather
+    #: than the last thing Apple happened to say. Added by phase 144.
+    auto_renew: bool | None
 
 
 #: What a household with nothing to say reports. Named rather than repeated so the three
 #: paths that reach it cannot drift into three different shapes of "nothing".
-NO_SIGNALS = MembershipSignals(plan=None, billing_retry=False)
+NO_SIGNALS = MembershipSignals(plan=None, billing_retry=False, expires_at=None, auto_renew=None)
 
 
 async def membership_signals(
-    session: AsyncSession, family_id: uuid.UUID, *, tier: Tier
+    session: AsyncSession,
+    family_id: uuid.UUID,
+    *,
+    tier: Tier,
+    now: dt.datetime | None = None,
 ) -> MembershipSignals:
-    """The plan and billing state for one household. One indexed query, or none at all.
+    """The plan, billing state and period end for one household. One indexed query, or none.
 
     *tier* is passed in rather than re-read because every caller has already loaded the
     `entitlements` row through `services/guardians.entitlement_for`, and a second read of the
     same row to answer the same question is how two callers eventually get two answers.
 
+    *now* is injectable for the same reason `services/guardians.access_for` takes one: a test
+    that wants a period end in the past shifts the clock rather than sleeping past it.
+
     **A household that is not subscribed short-circuits before the query**, so the free tier —
-    which is most households — pays nothing for this field pair at all.
+    which is most households — pays nothing for these fields at all.
     """
     if tier != "subscribed":
         return NO_SIGNALS
+    now = now or dt.datetime.now(tz=dt.UTC)
 
-    # Only the three columns that are read. `raw_payload` on this table is the whole decoded
-    # Apple notification, and loading a JSONB blob of that size on every household read to
-    # look at two strings beside it is the kind of cost that never shows up in a test.
+    # Only the columns that are read. `raw_payload` on this table is the whole decoded Apple
+    # notification, and loading a JSONB blob of that size on every household read to look at
+    # two strings beside it is the kind of cost that never shows up in a test — so the one
+    # value phase 144 needs out of it, `renewalInfo.autoRenewStatus`, is pulled as a scalar by
+    # a JSONB path inside the same select rather than by decoding the blob in Python.
     #
     # `original_transaction_id` breaks ties on `latest_signed_date` so the answer is stable
     # between two calls that see the same rows — a household holding two transactions signed
@@ -102,6 +126,10 @@ async def membership_signals(
                 AppStoreTransaction.product_id,
                 AppStoreTransaction.latest_notification_type,
                 AppStoreTransaction.latest_notification_subtype,
+                AppStoreTransaction.expires_date,
+                AppStoreTransaction.raw_payload["data"]["renewalInfo"][
+                    "autoRenewStatus"
+                ].as_integer(),
             )
             .where(AppStoreTransaction.family_id == family_id)
             .order_by(
@@ -120,7 +148,22 @@ async def membership_signals(
         # nobody knows.
         return NO_SIGNALS
 
-    product_id, notification_type, subtype = row
+    product_id, notification_type, subtype, expires_date, auto_renew_status = row
+    billing_retry = (
+        notification_type == BILLING_RETRY_NOTIFICATION and subtype == BILLING_RETRY_SUBTYPE
+    )
+    # **A period end is reported only while it is in the future and nothing is being retried.**
+    # A past `expires_date` is a ledger Apple has not caught up yet — the row is overwritten by
+    # the next notification and until then the only honest answer is "no date" rather than a
+    # renewal the card would announce in the past tense. And a row in retry carries the date the
+    # renewal *failed* on, which is neither a renewal nor an expiry; the client displaces the
+    # whole date line with the retry sentence, and sending it null here is what keeps a client
+    # from ever having to compare a date to a clock to know that.
+    expires_at = (
+        expires_date
+        if expires_date is not None and expires_date > now and not billing_retry
+        else None
+    )
     return MembershipSignals(
         # `.get` on the mapping, never a substring search — see `constants.PRODUCT_PLANS`.
         plan=PRODUCT_PLANS.get(product_id) if product_id is not None else None,
@@ -142,7 +185,15 @@ async def membership_signals(
         # false alarm tells a healthy subscriber their payment is failing. Being exact needs
         # `renewalInfo.gracePeriodExpiresDate`, which `VerifiedNotification` does not parse;
         # that is the `grace_until` variant, and it is a phase rather than a line.
-        billing_retry=(
-            notification_type == BILLING_RETRY_NOTIFICATION and subtype == BILLING_RETRY_SUBTYPE
+        billing_retry=billing_retry,
+        expires_at=expires_at,
+        # Apple's own word, refreshed by every notification: `renewalInfo` rides on each one and
+        # `_audit_record` decodes it into the stored payload, so this is the current status
+        # rather than an inference from which notification type arrived last. Null when the
+        # last payload carried no `renewalInfo` — a phase-140 submission stores the transaction
+        # JWS alone — and null whenever there is no period end to attach it to, so a client never
+        # sees "renews" beside no date.
+        auto_renew=(
+            None if expires_at is None or auto_renew_status is None else bool(auto_renew_status)
         ),
     )

@@ -149,6 +149,9 @@ async def _family_out(session, user: User) -> FamilyOut:
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        # Phase 144: the count the Settings card shows beside the date, computed by the one
+        # authority beside the one comparison, so the phone never does the arithmetic.
+        trial_days_left=access.trial_days_left,
         # Phase 121's three additive fields, the same three `GET /families/{id}/entitlement`
         # reports and from the same computation. `entitled` is the union every gate now reads;
         # `tier` above is untouched and still means what Apple said.
@@ -158,6 +161,10 @@ async def _family_out(session, user: User) -> FamilyOut:
         lapsed_at=entitlement.lapsed_at,
         plan=signals.plan,
         billing_retry=signals.billing_retry,
+        # Phase 144's two, off the same ledger read as `plan`: the period end the card renders
+        # as *Renews* or *Expires*, and Apple's own word on which of those it is.
+        expires_at=signals.expires_at,
+        auto_renew=signals.auto_renew,
         # **`None` where nobody knows, never `False`.** See `services.guardians.is_payer_for`:
         # a client hides Apple's management sheet on `False`, so a null answered as `False`
         # takes that control away from a parent who is paying.
@@ -265,12 +272,15 @@ async def read_entitlement(
         tier=entitlement.tier,
         access=access.access,
         trial_ends_at=access.trial_ends_at,
+        trial_days_left=access.trial_days_left,
         entitled=access.entitled,
         entitlement_source=access.source,
         grant_expires_at=grant.expires_at if grant is not None else None,
         lapsed_at=entitlement.lapsed_at,
         plan=signals.plan,
         billing_retry=signals.billing_retry,
+        expires_at=signals.expires_at,
+        auto_renew=signals.auto_renew,
         # **Deliberately still `entitlement.tier` and not `access.entitled`.** `eligible_at` is
         # D3's deletion clock and it starts when a *subscription* ends. A trial running out is
         # not a lapse, `lapsed_at` stays null through one, and passing the trial in here would

@@ -14,6 +14,7 @@ from __future__ import annotations
 import calendar
 import datetime as dt
 import hashlib
+import math
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -83,6 +84,14 @@ class Access:
     tier: Tier
     #: The column. Null means *no trial on this household*, not *a trial that ended*.
     trial_ends_at: dt.datetime | None
+    #: Whole days left in a live trial, or null. **Phase 144, for copy only.** The owner asked
+    #: the Settings card to show a count beside the date, and the count is computed here, beside
+    #: the one comparison that decides `in_trial`, so the device never does the arithmetic and
+    #: no second place can disagree with this one about which day the trial ends. Null whenever
+    #: `access` is not `trial` — a subscriber or a granted household holding a future
+    #: `trial_ends_at` is not on a countdown — and never less than 1 while the trial is live,
+    #: because the last partial day is still a day the missions are served.
+    trial_days_left: int | None
     #: Whether an `entitlement_grants` row is currently holding this household open. The
     #: predicate is `services.grants.unexpired`, scoped by `services.grants.active_grants`,
     #: and it lives nowhere else — a test walks the AST of `src/` and asserts it.
@@ -159,9 +168,20 @@ def access_for(
     source: EntitlementSource = (
         "receipt" if subscribed else "grant" if granted else "trial" if in_trial else "none"
     )
+    # **The count is arithmetic on the comparison above, never a second comparison.** The
+    # tripwire in `test_entitlement_cadence.py` counts ordering comparisons against the column
+    # and this adds none: `in_trial` has already established the column is set and ahead of
+    # `now`, so the subtraction is on a value the one authority just judged. `ceil` so a trial
+    # with an hour left still reads as one day rather than zero, and `max(1, ...)` states the
+    # floor rather than leaving it to the rounding.
+    trial_days_left: int | None = None
+    if source == "trial":
+        remaining = entitlement.trial_ends_at - now  # type: ignore[operator]  # non-null: in_trial
+        trial_days_left = max(1, math.ceil(remaining / dt.timedelta(days=1)))
     return Access(
         tier=entitlement.tier,
         trial_ends_at=entitlement.trial_ends_at,
+        trial_days_left=trial_days_left,
         granted=granted,
         entitled=entitled,
         # A grant reaches what a subscription reaches, so it reads `subscribed` here. `source`
