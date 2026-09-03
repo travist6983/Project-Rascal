@@ -99,3 +99,34 @@ All six were fixed in the same session. The one open item is a deliberate deferr
 ## High
 - [x] **TEST_COVERAGE** Pin the `refresh()` / `transactionDelivered()` split behaviourally — a `SubscriptionCenterTests` suite over `StubPerformer`, plus a `#if DEBUG init(testing:)` seam so no test opens a process-lifetime drain on `Transaction.updates`. The source-grep guard could not see the one edit that reintroduces the foreground bug — `ios/Rascal/Rascal/Subscription/SubscriptionCenter.swift:46` (confidence: 88) — break-tested: that edit failed 0 tests before, 4 now
 - [x] **DESIGN_SYSTEM** Render the "You're subscribed." terminal state instead of a dead greyed-out buy button when the entitlement lands while the paywall is open — covers restore, another guardian subscribing, and a purchase arriving from another device, not just the restore path that surfaced it — `ios/Rascal/Rascal/Subscription/PaywallSheet.swift:196` (confidence: 85)
+
+> Updated by rascal-review on 2026-09-03 · branch `main` (whole-tree pass before App Store resubmission, no diff) · 10 validated findings
+> **All eight applied Sep 3, 2026 as phase 141**: iOS fixes in PR #188 (`ios/phase-141-review-fixes`), API + docs in PR #187 (`api/phase-141-review-fixes`). Adversarially reviewed in two rounds; every gate has a test that fails when it alone is reverted.
+
+## Critical
+- (none)
+
+## High
+- [x] **RESTORE_NO_DEADLINE** *(PR #188)* Give `SubscriptionModel.restore()` the same screen deadline `confirm()` got in phase 138 so `isRestoring` cannot wedge the Settings row — `ios/Rascal/Rascal/Subscription/SubscriptionModel.swift:581` (confidence: 90)
+- [x] **GRANT_CARD_CONTRADICTS_ITSELF** *(PR #188)* Decode `entitled`/`entitlement_source` on `FamilySummary` and key `settingsAction` on receipt-or-grant, not `tier` — `ios/Rascal/Rascal/Subscription/MembershipPresentation.swift:180` (confidence: 90)
+- [x] **GRANT_SELLS_MEMBERSHIP** *(PR #188)* `canBuy` and `PaywallSheet.actions` must refuse a granted household, not only `tier == "subscribed"` — `ios/Rascal/Rascal/Subscription/SubscriptionModel.swift:243` (confidence: 90)
+- [x] **SYNC_IGNORES_HAS_MORE** *(PR #188)* Decode `has_more`, send `limit`, and treat a stalled cursor with `has_more` as "ask for a bigger page" instead of done — `ios/Rascal/Rascal/Sync/SyncEngine.swift:276` (confidence: 92)
+- [x] **CONTRACT_DRIFT** *(PR #187)* `GET /subscribe/confirm` decorator says 307; every branch and the contract say 303 — `api/src/rascal/routers/subscribe.py:125` (confidence: 85)
+- [x] **SCHEMA** *(PR #187)* `POST /auth/refresh` doc omits `token_type`, `expires_in` — `docs/api-contract.md:101` (confidence: 85)
+- [x] **SCHEMA** *(PR #187)* `today[]` example omits `assigned_on`, `prompt_id`, `is_custom`, `unlock_at_age` — `docs/api-contract.md:864` (confidence: 85)
+- [x] **SCHEMA** *(PR #187)* `POST /media/upload-url` doc omits `multipart`, `chunk_bytes`, `expires_in`, `media_id?` — `docs/api-contract.md:1099` (confidence: 85)
+
+Observation (simulator, not a validated finding): cold launch with the API unreachable shows only "Can't reach the archive" — children are never cached locally, so a synced archive is unreachable offline. See `.claude/reviews/main/report.md`.
+
+> Updated by rascal-review on 2026-09-03 · branch `main` (admin console, whole-surface, driven in Chrome) · 6 validated findings — **all applied as phase 142, PR #189 (`api/phase-142-console-households`)**
+
+## Critical
+- (none)
+
+## High
+- [x] **REDUNDANT_QUERY** Collapse `overview()`'s 26 statements into one pass per table with `FILTER` — `api/src/rascal/services/admin_metrics.py:64` (confidence: 90)
+- [x] **UNBOUNDED_READ** Bound `recent_signups` to the twelve accounts before counting entries — `api/src/rascal/services/admin_metrics.py:539` (confidence: 88)
+- [x] **REDUNDANT_QUERY** Scope `library_rows`' usage aggregate to the page — `api/src/rascal/services/admin_metrics.py:418` (confidence: 85)
+- [x] **MISSING_INDEX** Index `entries.created_at`, `media.created_at` (and `entries.author_id`, `assignments.prompt_id`) — migration `0026` (confidence: 82)
+- [x] **TRANSACTION_SPAN** `costs()` commits the auth transaction before the vendor fan-out — `api/src/rascal/routers/admin.py:372` (confidence: 85)
+- [x] **OTHER** Store the Studio composer's `eyebrow` — `api/src/rascal/admin/static/admin.js:2370`, `social_assets.eyebrow` (confidence: 90)
