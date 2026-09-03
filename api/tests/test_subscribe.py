@@ -387,3 +387,16 @@ def _install(monkeypatch, handler) -> None:
         return original(*args, **kwargs)
 
     monkeypatch.setattr(httpx, "AsyncClient", _factory)
+
+
+def test_the_published_schema_says_303_like_every_branch_does() -> None:
+    """**The decorator's `status_code` is what OpenAPI publishes; the branches' `RedirectResponse`
+    is what a browser gets.** Until phase 141 they disagreed — 307 in the schema, 303 on the wire —
+    and the contract says *"`303`, always"*. A returned response's own status wins at runtime, so
+    the schema was the only thing lying, and this is the only place a lie there would be caught."""
+    responses = create_app(get_settings()).openapi()["paths"]["/v1/subscribe/confirm"]["get"][
+        "responses"
+    ]
+
+    assert "303" in responses
+    assert "307" not in responses

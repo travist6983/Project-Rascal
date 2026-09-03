@@ -295,6 +295,10 @@ reasons a household can be entitled*, and if the stronger reading was the intent
 wrong shape and gets reverted rather than amended**; *(ii)* *"That `entitled` includes the
 trial"*; *(iii)* *"That a granted household reads `access: "subscribed"`."* **Rejecting it is a
 real option and costs a revert**, which is why it is on this list rather than in `decisions.md`.
+**Since phase 141 (Sep 3, 2026) the revert reaches the device too**: `FamilySummary.isGranted` and
+`isMember` (`ios/Rascal/Rascal/Networking/FamiliesAPI.swift`), the `.hidden` Settings action for a
+granted household, and the `GrantedHouseholdTests` suite all read *(iii)* as shipped, and go with it if
+*(iii)* does not stand.
 
 Every other question this file has asked has been answered, and the answers are in
 `docs/decisions.md`. Add new ones here as they come up.
@@ -905,7 +909,12 @@ rule and `blocked.md` §25 the third occurrence. **A phase that concluded "the g
 reading the guard's own docstring** is how this took three occurrences: the premise — *anybody can
 create a sandbox tester account* — was never checked against who actually holds one.
 
-**The highest number used is 139. A genuinely new phase takes 140.**
+~~**The highest number used is 139. A genuinely new phase takes 140.**~~ — **struck Sep 3, 2026 by
+140 and 141 taking the two numbers in turn**; 140 is the transaction the app now hands the server and
+the paywall that leaves when the purchase does, 141 the fixes from the pre-resubmission review —
+both **two lanes, one number, one row**, which is the shape 140 set.
+
+**The highest number used is 141. A genuinely new phase takes 142.**
 
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 

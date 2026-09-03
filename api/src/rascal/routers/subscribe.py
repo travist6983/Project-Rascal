@@ -122,7 +122,10 @@ async def _deliver_confirmation(settings: Settings, address: str) -> None:
 
 @router.get(
     "/subscribe/confirm",
-    status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+    # 303 in the decorator as well as in every branch: the decorator is what OpenAPI publishes,
+    # the branches are what a browser gets, and until phase 141 they disagreed (307 here, 303
+    # below) while the contract said "303, always".
+    status_code=status.HTTP_303_SEE_OTHER,
     summary="Confirm a subscription from an emailed link",
     response_class=RedirectResponse,
 )

@@ -98,7 +98,13 @@ clock, and **a refresh has to count** or an app in daily use, which rotates its 
 signs in afresh again, would look dormant for a year. Nothing reads the column yet.
 
 **`POST /auth/refresh`**
-Body: `{ refresh_token }` → `{ access_token, refresh_token }`
+Body: `{ refresh_token }` → `{ access_token, refresh_token, token_type: "bearer", expires_in: 900 }`
+
+The same four keys the sign-in routes' `SessionResponse` carries, minus `user`. **`token_type` and
+`expires_in` were missing from this line until phase 141 (Sep 3, 2026)** while the server had always
+sent them and the client had always required them — a server built to the old line would have
+failed every refresh with a decode error, which is the one request a signed-in phone cannot do
+without.
 
 Rotating. The presented token is revoked and a new pair issued. A revoked token presented
 again is a 401 with code `refresh_token_reused`.
@@ -864,10 +870,12 @@ The single call the home screen makes. Returns everything the Today screen rende
   "today": [
     { "id": "...", "slot": "question", "body": "What did he say this week...",
       "kind": "question", "completion_mode": "text", "theme": "their-words",
-      "status": "pending", "expires_on": "2026-08-28" },
+      "status": "pending", "assigned_on": "2026-08-14", "expires_on": "2026-08-28",
+      "prompt_id": "...", "is_custom": false, "unlock_at_age": null },
     { "id": "...", "slot": "mission", "body": "Photograph what he built today...",
       "kind": "photo", "completion_mode": "media", "theme": "everyday-ordinary",
-      "status": "pending", "expires_on": "2026-08-28" }
+      "status": "pending", "assigned_on": "2026-08-14", "expires_on": "2026-08-28",
+      "prompt_id": "...", "is_custom": false, "unlock_at_age": null }
   ],
   "locked": [],
   "waiting": [ ... ],
@@ -886,7 +894,8 @@ And the same day for a household on the free tier — a Friday, so `mission` is 
   "today": [
     { "id": "...", "slot": "question", "body": "What did he say this week...",
       "kind": "question", "completion_mode": "text", "theme": "their-words",
-      "status": "pending", "expires_on": "2026-08-28" }
+      "status": "pending", "assigned_on": "2026-08-14", "expires_on": "2026-08-28",
+      "prompt_id": "...", "is_custom": false, "unlock_at_age": null }
   ],
   "locked": [ { "slot": "mission", "kind_hint": "photo" } ],
   "waiting": [ ... ],
@@ -1096,8 +1105,15 @@ highlight rather than being handed HTML in a JSON API.
 Three-step upload. The server never proxies bytes.
 
 **`POST /media/upload-url`**
-Body: `{ entry_id, kind, filename, bytes, content_type }`
-→ `{ media_id, upload_url, parts?, s3_key }`
+Body: `{ entry_id, kind, filename, bytes, content_type, media_id? }`
+→ `{ media_id, s3_key, upload_url | null, parts | null, multipart, chunk_bytes | null, expires_in }`
+
+`media_id` is client-minted (the staged file needs a name before there is a network), so the
+client sends it and the server echoes it. Exactly one of `upload_url` and `parts` is set;
+`multipart` says which. `chunk_bytes` is the size the presigned part count was computed from —
+split at exactly that, never at an assumed 8MB — and is null on the single-PUT path. **`multipart`,
+`chunk_bytes` and `expires_in` were missing from this line until phase 141 (Sep 3, 2026)** while the
+server always sent them and the client required the first and last as non-optional.
 
 Single presigned PUT at or under ~15MB; presigned multipart above that. **Size is the only rule, for every kind** — video assumed multipart regardless of size until Aug 18, 2026, which cost a two-second clip an initiate round trip, a presign, a part upload and a complete call to move less than one chunk.
 
