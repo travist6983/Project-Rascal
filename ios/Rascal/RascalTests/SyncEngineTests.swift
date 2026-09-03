@@ -612,6 +612,134 @@ struct SyncEngineTests {
         #expect(performer.count(for: "/sync") == 2)
     }
 
+    private func limitParams(_ performer: StubPerformer) -> [String?] {
+        performer.requests
+            .filter { $0.url?.path().contains("/sync") ?? false }
+            .map { request in
+                URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "limit" }?.value
+            }
+    }
+
+    @Test("has_more is a key this client models, not an anomaly")
+    func hasMoreIsKnown() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+        let performer = steadyPerformer(syncJSON(
+            entries: [entryJSON(id: UUID(), childId: child, occurredAt: newest)],
+            cursor: laggedCursor(newest: newest),
+            hasMore: false
+        ))
+
+        let engine = engine(childId: child, performer: performer, context: context)
+        let plan = try #require(await engine.pull().plan)
+
+        #expect(
+            plan.anomalies.filter { $0.kind == .unknownResponseKey }.isEmpty,
+            "the server has sent has_more since Aug 13, 2026; a client reporting it as unknown was reporting its own gap"
+        )
+        #expect(plan.rounds == 2, "the ordinary two-round finish is untouched")
+    }
+
+    @Test("a stalled cursor with more to fetch asks for a bigger page instead of stopping")
+    func aStalledPageGrows() async throws {
+        // **The hole.** Three entries restamped inside one 30-second window — a birthdate
+        // correction does this to a whole archive in one transaction — and a server page that
+        // holds two of them. The lagged cursor lands back inside the window, so the second call
+        // returns the same page and the same cursor: before phase 141 the loop read that as
+        // "done", persisted the cursor, and the third entry was never delivered.
+        let context = try makeContext()
+        let child = UUID()
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+        let ids = [UUID(), UUID(), UUID()]
+        let page = ids.prefix(2).map { entryJSON(id: $0, childId: child, occurredAt: newest) }
+        let whole = ids.map { entryJSON(id: $0, childId: child, occurredAt: newest) }
+        let cursor = laggedCursor(newest: newest)
+
+        let performer = StubPerformer()
+        performer.on("/sync") { call in
+            // Calls 1 and 2 are the default page, cut; call 3 carries the larger limit and is whole.
+            call < 3
+                ? (syncJSON(entries: page, cursor: cursor, hasMore: true), 200)
+                : (syncJSON(entries: whole, cursor: cursor, hasMore: false), 200)
+        }
+
+        let engine = engine(childId: child, performer: performer, context: context)
+        let plan = try #require(await engine.pull().plan)
+
+        let stored = try entries(in: context)
+        #expect(stored.count == 3, "the row past the page must reach the device")
+        #expect(
+            limitParams(performer) == [nil, nil, "2000"],
+            "the default page twice, then the largest the server allows at the same position"
+        )
+        #expect(plan.rounds == 3)
+        #expect(plan.anomalies.filter { $0.kind == .pagingStalled }.isEmpty)
+    }
+
+    @Test("a page that stalls even at the largest size is reported, not silently finished")
+    func aStallAtTheLargestPageIsAnAnomaly() async throws {
+        let context = try makeContext()
+        let child = UUID()
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+        let cursor = laggedCursor(newest: newest)
+        let performer = steadyPerformer(syncJSON(
+            entries: [entryJSON(id: UUID(), childId: child, occurredAt: newest)],
+            cursor: cursor,
+            hasMore: true
+        ))
+
+        let engine = engine(childId: child, performer: performer, context: context)
+        let outcome = await engine.pull()
+        let plan = try #require(outcome.plan)
+
+        #expect(limitParams(performer) == [nil, nil, "2000"], "one escalation, then the stall is named")
+        #expect(plan.rounds == 3)
+        #expect(
+            plan.anomalies.contains { $0.kind == .pagingStalled },
+            "success with a hole in it is the outcome this exists to stop"
+        )
+        #expect(
+            plan.report().contains("the cursor stalled with more to fetch"),
+            "counted in the header and rendered nowhere beneath it is not reported"
+        )
+        #expect(outcome.errorMessage == nil, "what did arrive is still applied; the gap is reported")
+    }
+
+    @Test("a stall met on the last round is reported even though no round is left to grow into")
+    func aStallOnTheLastRoundIsStillAnAnomaly() async throws {
+        // Seven rounds with an advancing cursor — a fresh install paging through a large archive —
+        // and then a page that stalls with more to fetch, on the round the cap makes the last one.
+        // `continue` alone would end the loop with the cap check skipped and nothing recorded: a
+        // clean report and a clean `lastSuccess` over a hole.
+        let context = try makeContext()
+        let child = UUID()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let last = SyncEngine.maxRounds
+        let performer = StubPerformer()
+        performer.on("/sync") { call in
+            let newest = base.addingTimeInterval(Double(min(call, last - 1)) * 60)
+            let more = call >= last - 1
+            return (
+                syncJSON(
+                    entries: [entryJSON(id: UUID(), childId: child, occurredAt: newest)],
+                    cursor: laggedCursor(newest: newest),
+                    hasMore: more
+                ),
+                200
+            )
+        }
+
+        let engine = engine(childId: child, performer: performer, context: context)
+        let plan = try #require(await engine.pull().plan)
+
+        #expect(plan.rounds == last)
+        #expect(plan.anomalies.contains { $0.kind == .pagingStalled })
+        #expect(plan.report().contains("the cursor stalled with more to fetch"))
+        #expect(!limitParams(performer).contains("2000"), "no round was left to ask for a larger page")
+    }
+
     @Test("an empty batch stops the loop even though its cursor advances")
     func emptyBatchStopsTheLoop() async throws {
         let context = try makeContext()

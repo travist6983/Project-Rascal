@@ -362,10 +362,13 @@ struct PaywallSheet: View {
     private var actions: some View {
         VStack(spacing: 4) {
             if model.purchase == .idle {
-                if model.household?.isSubscribed == true {
-                    // **The household became subscribed without this screen buying anything** — a
-                    // restore, another guardian subscribing, or a purchase made on another device
-                    // arriving through the listener.
+                if model.household?.isMember == true {
+                    // **The household became a member without this screen buying anything** — a
+                    // restore, another guardian subscribing, a purchase made on another device
+                    // arriving through the listener, or an admin grant. `isMember` rather than
+                    // `isSubscribed` since phase 141: a granted household reached here through
+                    // the Settings upsell and was shown a live buy button for a membership it
+                    // already had in full.
                     Button("Done", action: onDismiss)
                         .buttonStyle(PrimaryButtonStyle())
                 } else if canOffer {

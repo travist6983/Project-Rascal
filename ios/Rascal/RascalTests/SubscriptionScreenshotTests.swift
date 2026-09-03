@@ -444,6 +444,8 @@ extension FamilySummary {
             // Defaults to unset, so every existing render keeps the Manage control it had: unknown
             // is not `false`, and `mayManageSubscription` is `isPayer != false`.
             isPayer: isPayer,
+            entitled: nil,
+            entitlementSource: nil,
             guardians: [
                 GuardianSummary(
                     userId: UUID(), displayName: "Travis", role: "parent",

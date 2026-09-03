@@ -159,6 +159,8 @@ struct PurchaseReportingTests {
             plan: nil,
             billingRetry: nil,
             isPayer: isPayer,
+            entitled: nil,
+            entitlementSource: nil,
             guardians: [],
             pendingInvites: []
         )

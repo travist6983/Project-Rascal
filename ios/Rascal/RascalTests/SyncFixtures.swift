@@ -101,17 +101,20 @@ func syncJSON(
     assignments: [String] = [],
     tags: [String] = [],
     cursor: Date,
+    hasMore: Bool? = nil,
     extraKeys: [String: String] = [:]
 ) -> Data {
     let extras = extraKeys.isEmpty
         ? ""
         : extraKeys.map { "\"\($0.key)\":\($0.value)" }.joined(separator: ",") + ","
+    // Nil leaves the key out, which is what a server predating `has_more` sent.
+    let more = hasMore.map { ",\"has_more\":\($0)" } ?? ""
     return Data("""
     {\(extras)"entries":[\(entries.joined(separator: ","))],
      "media":[\(media.joined(separator: ","))],
      "assignments":[\(assignments.joined(separator: ","))],
      "tags":[\(tags.joined(separator: ","))],
-     "cursor":"\(ISO8601Formatters.string(from: cursor))"}
+     "cursor":"\(ISO8601Formatters.string(from: cursor))"\(more)}
     """.utf8)
 }
 

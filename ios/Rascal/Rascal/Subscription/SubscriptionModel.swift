@@ -125,6 +125,13 @@ final class SubscriptionModel {
     /// rather than one.
     private let confirmationDeadlineSleep: @Sendable (Duration) async throws -> Void
 
+    /// How long a restore may hold the Settings row before it stops spinning and says something
+    /// true. **Shorter than a purchase's window**, because nobody has just been charged and a
+    /// Settings row cannot spin for two minutes; **longer than the 15-second restore schedule**,
+    /// because that schedule bounds its sleeps and never bounded its reads. Runs on
+    /// `confirmationDeadlineSleep`, the clock the suite does not collapse.
+    private let restoreDeadline: Duration
+
     /// How long `Product.products(for:)` gets before the sheet says there is nothing to offer.
     ///
     /// Ten seconds: long enough that a slow-but-working App Store call still lands, short enough
@@ -166,6 +173,11 @@ final class SubscriptionModel {
     /// one. That preserves phase 37b's reason for the mutex (two screens loading at once must not
     /// let a transient failure replace a working paywall) while making it impossible to wedge.
     private var loadGeneration = 0
+    /// `restore()`'s counterpart to `loadGeneration`, for the same reason: the deadline below
+    /// releases the row while the run is still out, a second tap may start a second run, and the
+    /// first run's return must not clear a flag — or write a sentence — that now belongs to the
+    /// second. Only the run whose number this still is may speak for the row.
+    private var restoreGeneration = 0
 
     init(
         readHousehold: @escaping @Sendable () async throws -> FamilySummary,
@@ -181,6 +193,7 @@ final class SubscriptionModel {
         confirmationDeadlineSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
         },
+        restoreDeadline: Duration = .seconds(45),
         offerTimeout: Duration = .seconds(10),
         offerSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await Task.sleep(for: $0)
@@ -193,6 +206,7 @@ final class SubscriptionModel {
         self.confirmationSleep = confirmationSleep
         self.confirmationDeadline = confirmationDeadline
         self.confirmationDeadlineSleep = confirmationDeadlineSleep
+        self.restoreDeadline = restoreDeadline
         self.offerTimeout = offerTimeout
         self.offerSleep = offerSleep
     }
@@ -258,7 +272,11 @@ final class SubscriptionModel {
         // subscription group a second buy is a plan change rather than a second subscription, so
         // this would not double-charge — but it would take a parent who is already paying through
         // a checkout they did not need, and nothing else on this screen was stopping it.
-        if household?.isSubscribed == true { return false }
+        //
+        // **`isMember`, not `isSubscribed`, since phase 141.** A household entitled by an admin
+        // grant reads `tier: "free"`, so keyed on `tier` this offered — and would have completed —
+        // an Apple checkout for a membership the household already had in full.
+        if household?.isMember == true { return false }
         switch purchase {
         case .idle, .failed: return true
         case .purchasing, .confirming, .subscribed, .late, .awaitingApproval: return false
@@ -631,19 +649,53 @@ final class SubscriptionModel {
     func restore() async {
         guard !isRestoring else { return }
         isRestoring = true
+        restoreGeneration += 1
+        let generation = restoreGeneration
         notice = nil
         // Cleared with `notice`, for the same reason: a second tap must not read as a result
         // until this run has one. At most one of the two is set by the time this returns.
         restoreConfirmation = nil
-        defer { isRestoring = false }
+        // Only release the row if a newer run has not taken it — `load()`'s rule, for the same
+        // reason: an abandoned run returning after the deadline would clear a flag belonging to
+        // somebody else, and re-enable both restore controls under a run still in flight.
+        defer { if generation == restoreGeneration { isRestoring = false } }
+
+        // **The row's terminal state — a deadline on the screen, not a bound on the read.** The
+        // same shape as `confirm()`'s, added by phase 141 for the reason phase 138 recorded and
+        // left standing: `AppStore.sync()`, the four reads of the restore schedule and the fifth
+        // in the `.late` branch below are all unbounded, and a read that never answers parks
+        // `isRestoring` — which spins the Settings row and disables both restore controls — for
+        // as long as that read takes. Nothing here cancels the read; this moves `isRestoring`
+        // off `true` on a deadline and leaves the run to finish or not. A run that finishes late
+        // still writes its answer, exactly as a late `.subscribed` still wins in `confirm()`, and
+        // clears the sentence the deadline left.
+        //
+        // The sentence is the `.late` branch's own, reproduced rather than authored: the window
+        // closing without an answer is the case it was written for — **and it carries that
+        // branch's guard too.** A household the card already calls a member gets a released row
+        // and silence, exactly as the `.late` branch decides: *nothing has arrived yet* under a
+        // status row reading *Subscribed* is the same contradiction, inverted.
+        let deadline = Task { [weak self, restoreDeadline, confirmationDeadlineSleep] in
+            try? await confirmationDeadlineSleep(restoreDeadline)
+            guard let self, generation == self.restoreGeneration, self.isRestoring else { return }
+            self.isRestoring = false
+            if self.restoreConfirmation == nil, self.notice == nil,
+               self.household?.isMember != true {
+                self.notice = Self.restoreNothingYet
+            }
+        }
+        defer { deadline.cancel() }
 
         do {
             try await store.restore()
         } catch let error as SubscriptionStoreError {
-            notice = error.userMessage
+            // A refusal that lands after the deadline released the row and a second run took it
+            // is about a run the parent is no longer watching; it does not get to speak for the
+            // one they are.
+            if generation == restoreGeneration { notice = error.userMessage }
             return
         } catch {
-            notice = error.localizedDescription
+            if generation == restoreGeneration { notice = error.localizedDescription }
             return
         }
 
@@ -664,7 +716,7 @@ final class SubscriptionModel {
         if let family = await submitCurrentEntitlement() {
             household = family
             if purchase != .idle, purchase != .subscribed { purchase = .subscribed }
-            restoreConfirmation = Self.restoreFound
+            settleRestoreFound()
             return
         }
 
@@ -678,7 +730,7 @@ final class SubscriptionModel {
         case .subscribed(let family):
             household = family
             if purchase != .idle, purchase != .subscribed { purchase = .subscribed }
-            restoreConfirmation = Self.restoreFound
+            settleRestoreFound()
         case .late:
             // **The answer has to come from a read that happened.** `refreshHousehold()` returns
             // early on a throwing read, leaving `household` holding whatever it held before — so
@@ -689,8 +741,8 @@ final class SubscriptionModel {
                 // **The window closed before the server said yes, and then it said yes.** The
                 // parent gets the same sentence as the fast path: what matters to them is the
                 // answer, not which read it arrived on.
-                restoreConfirmation = Self.restoreFound
-            } else if household?.isSubscribed != true {
+                settleRestoreFound()
+            } else if household?.isMember != true, generation == restoreGeneration {
                 // **Guarded on the household as well as on the read, and both guards are load
                 // bearing in opposite directions.** `answered` above stops a *failed* read
                 // announcing a membership off a stale summary. This one stops the same failed read
@@ -701,11 +753,30 @@ final class SubscriptionModel {
                 //
                 // **Not a claim about the Apple Account.** The client cannot see what Apple holds;
                 // it can only report that nothing has arrived here yet.
-                notice = "Nothing has arrived yet. If you subscribed on another device, "
-                    + "it can take a moment to appear."
+                //
+                // `isMember` rather than `isSubscribed` since phase 141: a granted household has
+                // no receipt to restore and its card already reads *Subscribed*, so this sentence
+                // under it would be the same contradiction. And only the run the parent is
+                // watching may say it — see `restoreGeneration`.
+                notice = Self.restoreNothingYet
             }
         }
     }
+
+    /// A restore found a membership, by whichever read. **One writer for the sentence and the
+    /// invariant beside it**: at most one of `restoreConfirmation` and `notice` stands, so a
+    /// membership that lands after the deadline wrote *nothing has arrived yet* takes that
+    /// sentence down with it — the same rule `confirm()` applies when a late `.subscribed` lands.
+    private func settleRestoreFound() {
+        restoreConfirmation = Self.restoreFound
+        if notice == Self.restoreNothingYet { notice = nil }
+    }
+
+    /// **The `.late` branch's sentence, and since phase 141 the deadline's too** — one string, so
+    /// the two ways a restore can end without an answer cannot drift into saying different things.
+    /// Reproduced, not authored: it shipped inline in the `.late` branch with phase 37b.
+    static let restoreNothingYet = "Nothing has arrived yet. If you subscribed on another device, "
+        + "it can take a moment to appear."
 
     /// **The owner's sentence, chosen Aug 26, 2026, not an agent's.**
     ///

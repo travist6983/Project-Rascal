@@ -137,7 +137,7 @@ nonisolated struct SyncConflict: Sendable, Identifiable {
 /// **Loud on purpose.** Reading "12 records I did not understand" is a far better outcome than
 /// having twelve records quietly dropped, so nothing in the apply path swallows one of these.
 nonisolated struct SyncAnomaly: Sendable, Identifiable {
-    enum Kind: String, Sendable {
+    enum Kind: String, Sendable, CaseIterable {
         /// A key in the response body this client does not model.
         case unknownResponseKey
         /// The same id twice in one batch. The later one wins; both are named.
@@ -150,6 +150,12 @@ nonisolated struct SyncAnomaly: Sendable, Identifiable {
         case unrecognisedValue
         /// The paging loop hit its cap with the cursor still moving.
         case pagingCapReached
+        /// The cursor stopped advancing with `has_more` still true and no larger page could be
+        /// asked for — either at the server's 2000-row maximum (one collection holds more than
+        /// that inside one 30-second window) or on the last round of the loop, before the page
+        /// could grow. Either way the rows past the page are not on this device, and the next
+        /// pull picks the stall up from a cursor that sits below every one of them.
+        case pagingStalled
 
         var label: String {
             switch self {
@@ -159,6 +165,7 @@ nonisolated struct SyncAnomaly: Sendable, Identifiable {
             case .tagWithoutEntry: "a tag on an unknown entry"
             case .unrecognisedValue: "a value this client has no case for"
             case .pagingCapReached: "the paging cap was reached"
+            case .pagingStalled: "the cursor stalled with more to fetch"
             }
         }
     }
@@ -388,10 +395,11 @@ nonisolated struct SyncPlan: Sendable {
         return lines
     }
 
-    private static let anomalyOrder: [SyncAnomaly.Kind] = [
-        .unknownResponseKey, .duplicateIdInBatch, .mediaWithoutEntry,
-        .tagWithoutEntry, .unrecognisedValue, .pagingCapReached,
-    ]
+    /// Declaration order is report order. **`allCases` rather than a hand-written list**, because
+    /// the list was one and phase 141 added a kind to the enum, to `label`'s switch (which the
+    /// compiler checks) and not to this array (which it does not) — so a `pagingStalled` anomaly
+    /// was counted in the header and rendered nowhere beneath it.
+    private static let anomalyOrder: [SyncAnomaly.Kind] = SyncAnomaly.Kind.allCases
 
     private static func stamp(_ date: Date) -> String {
         let formatter = DateFormatter()

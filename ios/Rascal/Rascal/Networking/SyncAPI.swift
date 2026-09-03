@@ -12,15 +12,22 @@ extension APIClient {
     /// snapshot, which is both the cold-start path and the recovery path when a stored cursor
     /// cannot be read.
     ///
-    /// **This endpoint does not page.** There is no `limit` and no `cursor` parameter on it —
-    /// verified against `api/src/rascal/routers/sync.py`, which declares exactly one query
-    /// parameter besides `child_id`. One call returns the whole delta. The engine still loops,
-    /// for a different reason: the cursor comes back lagged, so a second call is what closes the
-    /// gap between the lagged position and the present.
-    func syncPull(childId: UUID, since: Date?) async throws -> SyncPullResponse {
+    /// **The response is a page.** `limit` caps each of the four collections independently —
+    /// the server's default is 500 and its maximum 2000 — and `has_more` is true while any of
+    /// them was cut. The engine loops for two reasons: the cursor comes back lagged, so a second
+    /// call closes the gap between the lagged position and the present, and a cursor that stops
+    /// advancing while `has_more` is still true is the server's documented stuck state, whose
+    /// remedy is a larger page. (This comment said *"this endpoint does not page"* from Aug 9 to
+    /// Sep 3, 2026; it was true for four days.)
+    ///
+    /// `limit` is nil for the server's default, and only the engine's escalation sets it.
+    func syncPull(childId: UUID, since: Date?, limit: Int? = nil) async throws -> SyncPullResponse {
         var items = [URLQueryItem(name: "child_id", value: childId.uuidString.lowercased())]
         if let since {
             items.append(URLQueryItem(name: "since", value: ISO8601Formatters.string(from: since)))
+        }
+        if let limit {
+            items.append(URLQueryItem(name: "limit", value: String(limit)))
         }
         return try await send(.get, "v1/sync?\(Self.query(items))")
     }

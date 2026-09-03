@@ -35,12 +35,15 @@ import SwiftData
 ///
 /// ## Paging
 ///
-/// `GET /sync` does not page. `api/src/rascal/routers/sync.py` declares one query parameter
-/// besides `child_id` — there is no `limit` and no page token, and `service.pull` selects every
-/// matching row for all four entities in one go. The loop here exists for a different reason: the
-/// cursor comes back lagged, so one more call is what closes the gap between the lagged position
-/// and the present. In practice that is two rounds against a live archive and one against an
-/// idle one.
+/// `GET /sync` pages. `limit` caps each of the four collections independently — the server's
+/// default is 500 and its maximum 2000 — and `has_more` is true while any of them was cut; see
+/// `SyncAPI.swift` for the contract note and for how long this header said the opposite. The
+/// loop here runs for two reasons. The cursor comes back lagged, so one more call is what closes
+/// the gap between the lagged position and the present — two rounds against a live archive and
+/// one against an idle one. And a cursor that stops advancing while `has_more` is still true is
+/// the server's documented stuck state (one collection holding more than a page inside a single
+/// 30-second window), whose remedy is a larger page: the loop grows it once, to the maximum, and
+/// past that names the stall as an anomaly rather than calling a hole a success.
 @MainActor
 final class SyncEngine {
 
@@ -54,11 +57,19 @@ final class SyncEngine {
 
     /// A hard stop on the round loop.
     ///
-    /// Two rounds is the expected number and eight is far outside it, so reaching this means an
-    /// assumption is wrong rather than that the archive is large. It is a backstop against a
+    /// Two rounds is the ordinary number. A fresh install of a large archive legitimately runs
+    /// longer — 500 rows per collection per round with an advancing cursor — and can reach this,
+    /// which is why hitting it is *reported* (`pagingCapReached`) rather than failed: the
+    /// persisted cursor is safe and the next pull resumes from it. What the cap is still for is a
     /// server whose cursor advances forever, which would otherwise be an unbounded request loop
     /// on a parent's cellular data.
     nonisolated static let maxRounds = 8
+
+    /// The server's page size when the client sends no `limit`, and the largest it accepts —
+    /// both from `docs/api-contract.md`'s `GET /sync`. The first is what a stalled page grows
+    /// from; the second is where growing stops and the stall is reported instead.
+    nonisolated static let defaultPageSize = 500
+    nonisolated static let maxPageSize = 2000
 
     /// Records applied between yields to the main run loop. See `yieldIfNeeded`.
     nonisolated static let yieldEvery = 100
@@ -212,6 +223,9 @@ final class SyncEngine {
         // lie about volume — so the later decision replaces the earlier one in place.
         var changeIndex: [String: Int] = [:]
         var since = plan.cursorBefore
+        // Nil until a page stalls: the server's default is the right size for every ordinary
+        // pull, and only the escalation below has a reason to ask for more.
+        var limit: Int?
 
         for round in 1...Self.maxRounds {
             let response: SyncPullResponse
@@ -221,7 +235,7 @@ final class SyncEngine {
             // reports the time it spent before failing.
             let networkStarted = ContinuousClock.now
             do {
-                response = try await api.syncPull(childId: childId, since: since)
+                response = try await api.syncPull(childId: childId, since: since, limit: limit)
                 plan.networkSeconds += Self.elapsed(since: networkStarted)
             } catch {
                 plan.networkSeconds += Self.elapsed(since: networkStarted)
@@ -272,8 +286,41 @@ final class SyncEngine {
             if response.isEmpty { break }
             // Then movement. With rows present the cursor is `max(updated_at) - 30s`, so the
             // second round re-reads the lag band, finds the same maximum, and returns the same
-            // cursor. That is the normal two-round finish.
-            if let previous = since, response.cursor <= previous { break }
+            // cursor. That is the normal two-round finish — **when `has_more` is false.**
+            //
+            // **A cursor that stops while `has_more` is true is the server's documented stuck
+            // state, not a finish** (phase 141). One collection holding more than a page inside a
+            // single 30-second window — a birthdate correction restamps every entry in one
+            // transaction — cannot be paged past by the cursor alone: the lagged cursor lands
+            // back inside the window and the same page comes again. Stopping here persisted that
+            // cursor over rows this device had never seen and reported success. The contract's
+            // remedy is a larger page, so the page grows and the same position is asked again;
+            // at the largest page the server allows, the stall is reported rather than hidden.
+            if let previous = since, response.cursor <= previous {
+                guard response.hasMore else { break }
+                let larger = min((limit ?? Self.defaultPageSize) * 4, Self.maxPageSize)
+                if larger == limit {
+                    let detail = "the cursor stopped advancing with has_more still true "
+                        + "at limit \(Self.maxPageSize); rows past the page are not on this device"
+                    plan.anomalies.append(SyncAnomaly(kind: .pagingStalled, detail: detail))
+                    Self.log.warning("sync \(detail, privacy: .public)")
+                    break
+                }
+                // **A stall met on the last round has no round left to grow into.** `continue`
+                // here would end the loop with the cap check below skipped and nothing recorded —
+                // a clean report over a hole, which is the outcome this branch exists to stop. The
+                // persisted cursor is safe (it sits below every undelivered row), so the next pull
+                // stalls at round one and grows the page then; this pull says so.
+                if round == Self.maxRounds {
+                    let detail = "the cursor stopped advancing with has_more still true on round "
+                        + "\(Self.maxRounds), before a larger page could be asked for"
+                    plan.anomalies.append(SyncAnomaly(kind: .pagingStalled, detail: detail))
+                    Self.log.warning("sync \(detail, privacy: .public)")
+                    break
+                }
+                limit = larger
+                continue
+            }
             since = response.cursor
 
             if round == Self.maxRounds {
