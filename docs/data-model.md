@@ -249,7 +249,7 @@ The receipt ledger — **why** a household is entitled to what `entitlements` sa
 | Column | Type | Notes |
 |---|---|---|
 | `original_transaction_id` | text PK | Apple's stable identifier for one subscription across every renewal and resubscribe. **The natural key, not a surrogate** — a surrogate id beside it would permit two rows about one subscription, which is the state every guard below exists to make unrepresentable |
-| `family_id` | uuid FK | → families, **nullable**, `ON DELETE SET NULL`. Resolved from `appAccountToken`; null for an orphan or unrecognised receipt |
+| `family_id` | uuid FK | → families, **nullable**, `ON DELETE SET NULL`. Resolved from `appAccountToken`; null for an orphan or unrecognised receipt. **Moves** — to the submitting caller's household — when the household it names has nobody left in it (phase 143, Sep 3, 2026); see below |
 | `product_id` | text | nullable |
 | `environment` | text | `Sandbox` \| `Production`, `text` + named CHECK |
 | `latest_notification_type` | text | Apple's `notificationType` — or **`SUBMITTED`**, since phase 140, for a row the app's own `POST /families/me/transactions` created; a value Apple never sends, so the ledger says which door wrote the row |
@@ -268,13 +268,26 @@ Indexed on `family_id`, and on `(environment, latest_signed_date)` — both are 
 **A second writer of rows since phase 140 (Sep 3, 2026), and what it may not touch.** `POST
 /families/me/transactions` records the transaction the app itself holds — `SUBMITTED`, attributed,
 with the transaction's own `signedDate` — when the ledger has no row for it, and on a row a
-notification already wrote it fills a null `family_id` and changes **nothing else**. The ordering
+notification already wrote it fills a null `family_id` — or, since phase 143 (Sep 3, 2026), moves a
+`family_id` naming a household with nobody left in it to the caller's — and changes **nothing
+else**. The ordering
 key is the reason: a submission's `signedDate` is whenever StoreKit last fetched the JWS, so a
 *Restore* tapped this afternoon would outrank an `EXPIRED` Apple signed this morning and has not
 delivered yet, and guard 1 would then call the real notification stale. A row it creates is safe to
 date with the submission, by the same reasoning inverted: an active transaction signed at *S* is
 Apple's statement that nothing had ended it by *S*. A submission never demotes and never records a
 transaction it declined to act on. `api-contract.md` has the route.
+
+**`family_id` can move, in one direction and for one reason (phase 143, Sep 3, 2026).** Account
+deletion hard-deletes `users` and `guardians` and leaves `families` and `entitlements` standing —
+which is what `ON DELETE SET NULL` above was written for — so a row can be attributed to a
+household with nobody left in it while Apple goes on charging the person who left. When that
+person, in a new household, submits the receipt whose `appAccountToken` still names the old one,
+the row's `family_id` moves to the caller (`services/guardians.household_is_empty` is the one
+definition of *empty*: no `users` row, since a member with no children yet is still a member), and
+every later notification carrying the stale token follows the row rather than the token. Nothing
+else on the row changes, the empty household's `entitlements` row is not written, and a row held by
+any household that still has a member never moves.
 
 **`raw_payload` holds the decode, not the JWS.** A stored JWS is a secret-shaped blob nobody will verify a second time; a stored decode is readable at 2am, which is the only time anybody opens this table.
 

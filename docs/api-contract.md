@@ -2521,8 +2521,11 @@ transaction cannot be pinned to `appAppleId`, which only a notification's envelo
 fails. An unverifiable JWS is **`422`** (`validation_failed`, `field: signed_transaction`), not
 `401`: the caller is authenticated, it is the *document* that is wrong. Then the transaction's
 `appAccountToken` — the family id this app attaches at purchase, inside Apple's signature — must
-equal the caller's `family_id`; anything else is **`409`** (`conflict`, *"This purchase belongs to
-a different household."*) and nothing is recorded, for either household. Then the transaction must
+equal the caller's `family_id`; a token naming **a household that still has members**, a token
+naming no household this server knows, or no token at all is **`409`** (`conflict`, *"This purchase
+belongs to a different household."*) and nothing is recorded, for either household. **A token
+naming a household that exists and has nobody left in it is the one exception, since phase 143 —
+the receipt follows the caller; see below.** Then the transaction must
 be an `Auto-Renewable Subscription` that is **active**: no `revocationDate`, and an `expiresDate`
 that is present and in the future by the server's clock — a subscription transaction with no
 expiry at all is not "active until further notice"; Apple always sends one. Then it must not
@@ -2534,6 +2537,33 @@ household is written `subscribed`, `lapsed_at` is cleared, the payer is recorded
 one-guardian rule, and the answer carries the household as `GET /families/me` would now return it
 — so a client told `subscribed` here renders it without a second request, and **cannot be told
 `subscribed` by anything but that document** (D9).
+
+**A receipt whose household has nobody left in it follows the caller — phase 143, Sep 3, 2026, on
+the owner's instruction (*"Please fix this"*).** Account deletion hard-deletes `users` and
+`guardians` and deliberately leaves `families` and `entitlements` standing, so the household a
+receipt was bought in can outlive its only member — still reading `tier=subscribed`, with no one to
+read it. Apple goes on charging the person; the phone goes on holding a JWS whose `appAccountToken`
+names the household they erased. On Sep 3, 2026 at 10:17Z, 10:51Z and 10:52Z production answered
+exactly that person `409` three times, for two live households, and the paywall came back. The
+`409` protects a household from a stranger's replay; a household with nobody in it has nothing to
+protect, and the person holding the Apple-signed receipt on their device is the one Apple is
+charging. So when the token names a household that **exists** and is **empty** — no `users` row
+belongs to it; a member who has not yet added a child is still a member — the submission proceeds
+under the caller's household exactly as if the token had named it: every rule below still applies
+— and the pre-lapse rule reads `lapsed_at` from the household the receipt is leaving as well as the
+caller's, because that is where a refund of this receipt was recorded and the caller's household has
+never heard of it — the ledger row moves to the caller (`family_id` only — the notification's ordering key, type and
+payload stay where they were), and the server logs `submitted transaction reattributed from empty
+household` with both household ids, because a receipt changing households is the fact a support
+conversation will need. **The empty household's entitlement is not written**: a submission may only
+promote, and there is nobody in it to be helped by the correction. **And Apple's later word follows
+the ledger.** Every notification about the subscription still carries the old token; the webhook
+now routes a notification whose token names an empty household to the household the ledger
+attributes it to, so a `DID_RENEW` promotes and an `EXPIRED` demotes the household that holds the
+receipt rather than the ghost. Three refusals are unchanged and each is a test: a token naming a
+household with a member, a token naming no household at all, and a ledger row a *third* household
+holds — the ledger and Apple disagreeing about where the receipt was is not something a client can
+settle, empty token household or not.
 
 | `status` | Meaning | Written |
 |---|---|---|
@@ -2554,7 +2584,8 @@ one-guardian rule, and the answer carries the household as `GET /families/me` wo
   high-water mark, and a submission's `signedDate` is whenever StoreKit last fetched the JWS —
   a *Restore* tapped this afternoon carries a date that would outrank an `EXPIRED` Apple signed
   this morning and has not delivered yet. So on a row a notification wrote, a submission touches
-  `family_id` if it was null and **nothing else**: not the date, not the type, not the payload.
+  `family_id` if it was null — or, since phase 143, if it named a household with nobody left in
+  it — and **nothing else**: not the date, not the type, not the payload.
   On a row it creates, the date is the submission's own, which is safe by the same reasoning
   inverted — an active transaction signed at *S* is Apple's statement that nothing had ended it
   by *S*. Such a row carries `latest_notification_type: SUBMITTED`, a value Apple never sends,

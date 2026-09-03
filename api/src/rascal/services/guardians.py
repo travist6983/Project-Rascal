@@ -389,6 +389,28 @@ async def active_parent_count(session: AsyncSession, family_id: uuid.UUID) -> in
     ) or 0
 
 
+async def household_is_empty(session: AsyncSession, family_id: uuid.UUID) -> bool:
+    """Whether nobody is left in this household — the state account deletion leaves behind.
+
+    `services/deletion.execute_deletion` hard-deletes `users` and `guardians` and deliberately
+    leaves `families` and `entitlements` standing, so an erased household is a real `families`
+    row with no members — possibly still reading `tier=subscribed`. This is the one definition
+    of that state: `app_store_events` reads it to refuse a promotion there is nobody to give
+    (guard 5) and, since phase 143, to let a receipt follow its holder out of such a household.
+
+    **Counted in `users`, not in `guardians`.** A parent who has signed up and not yet added a
+    child has no `guardians` row and is still in the household — still able to sign in, still
+    the person a receipt naming this household was bought by. Counting guardian rows would call
+    that household empty and hand its receipt to whoever asked. Role-agnostic for the same
+    reason `active_parent_count` is: a `viewer` who is the last one here is still here.
+
+    **Existence is the caller's question.** A family id nothing resolves to also has zero
+    members, so a caller that must tell *empty* from *unknown* checks `Family` first —
+    `apply_submitted_transaction` does, because the two get different answers.
+    """
+    return await active_parent_count(session, family_id) == 0
+
+
 async def lock_household(session: AsyncSession, family_id: uuid.UUID) -> None:
     """Take a row lock on the family, so two accepts into it cannot both pass the cap.
 
