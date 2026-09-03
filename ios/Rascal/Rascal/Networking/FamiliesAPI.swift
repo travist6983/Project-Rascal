@@ -144,6 +144,33 @@ nonisolated struct FamilySummary: Decodable, Equatable, Sendable {
     /// Hiding it on a null would strip a working control from a parent who is paying.
     let isPayer: Bool?
 
+    /// When the trial runs out. **Read for display only, since phase 144**: formatted through the
+    /// date formatter Settings already uses for a dated commitment, and never compared to a clock —
+    /// the gate is the server's, and `access` above is its answer. Null means no trial on this
+    /// household, not one that ended.
+    ///
+    /// `var` with a `nil` default rather than `let`, on this and the four below: a `let` with an
+    /// initial value is left out of the synthesized decode entirely, and a `let` without one means
+    /// touching every memberwise-init call site for a field the server may not send.
+    var trialEndsAt: Date? = nil
+    /// Whole days left in a live trial, **computed by the server** beside the one comparison that
+    /// decides the trial, so this device never does date arithmetic against its own clock. Null
+    /// whenever `access` is not `trial`; never less than 1 while it is. The card renders it beside
+    /// the date and never alone. Phase 144.
+    var trialDaysLeft: Int? = nil
+    /// When the grant holding this household runs out; null means no grant or a perpetual one, and
+    /// `entitlementSource` is what tells those apart — read this only when it says `grant`.
+    var grantExpiresAt: Date? = nil
+    /// When the current paid period ends — Apple's `expiresDate`, for copy only. **Null is an
+    /// answer**: a non-member, a subscription with no receipt behind it, a date already past, or a
+    /// household in a billing retry all read null, and the card draws no date line for any of
+    /// them. Phase 144.
+    var expiresAt: Date? = nil
+    /// Apple's own word on whether the period above renews: `true` renews, `false` the parent has
+    /// turned renewal off, `nil` nobody knows. Always nil when `expiresAt` is. The card reads the
+    /// three as *Renews*, *Expires* and *Paid through*. Phase 144.
+    var autoRenew: Bool? = nil
+
     /// **The union the server gates on since phase 121** — a receipt, an active grant, or a live
     /// trial. `tier` still means *what Apple said*; this is whether the archive is open.
     ///

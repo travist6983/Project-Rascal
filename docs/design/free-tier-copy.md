@@ -45,9 +45,12 @@ Tokens: `{{PRODUCT}}`, `{{PRICE_MONTH}}` = `$5.99`, `{{PRICE_YEAR}}` = `$59.99`.
 Carried from `docs/decisions.md` and the standing product rules. An agent reviewing or extending this
 copy checks against these before proposing anything.
 
-1. **No guilt, no urgency, no counting.** No badges, no red dots, no "you've missed 4 missions", no
-   countdown on the trial, no "don't lose your archive". A locked card that accumulates a number is a
-   streak wearing a padlock.
+1. **No guilt, no urgency, no counting.** No badges, no red dots, no "you've missed 4 missions", ~~no
+   countdown on the trial~~, no "don't lose your archive". A locked card that accumulates a number is a
+   streak wearing a padlock. **Amended Sep 3, 2026 by the owner, for one surface (phase 144):** the
+   Settings membership card may state the day the trial ends and how many days that is — *"13 days
+   left, until Sep 17, 2026"* — **from the server's own count**, never arithmetic on the phone, and
+   only beside the date. Nowhere else, no push, no notice, no badge: the rest of this rule stands.
 2. **Never "unlock", never "upgrade", never "premium" or "pro".** The word is **membership**. A person
    **joins**; they do not upgrade. The verb on the primary action is **Become a member**.
 3. **The archive is never the thing being sold.** Membership buys *more of the day*. Everything a
@@ -284,15 +287,22 @@ surface. **The owner chose it on Aug 22, 2026** from three candidates: `Trial`, 
 one. `Two weeks` was rejected as reading like a duration in a value row, which is one step from the
 countdown rule 1 bans.
 
-**What the row deliberately does not say.** No date, no day count, no "ends on". `trial_ends_at` is
+~~**What the row deliberately does not say.** No date, no day count, no "ends on". `trial_ends_at` is
 decoded by the client and read by nothing, and a test now pins that the membership surface contains
-no date arithmetic at all. A digit in any of these four answers fails the suite.
+no date arithmetic at all. A digit in any of these four answers fails the suite.~~ — **reversed Sep 3,
+2026 by the owner (phase 144, §9 below).** The card now says both the day and the count, and
+*Everything open* — the owner's Aug 22 pick — is retired: it was the owner's own first complaint,
+*"makes no sense"*. The arithmetic test survives with its two `trial_ends_at` tokens removed: the
+surface may read and format a server date and may never compute from one.
 
 **Why `Everything open` and not the trial's *name*:** the row reports what the household *has*, not
 what stage it is at. That is the same reason `Free` is not `Free tier` and why rule 2's *membership*
 vocabulary is not violated by either — nobody is being told to upgrade.
 
 **5 · An archive-scoped reassurance for the Settings card — resolved without a new string.**
+**Struck Sep 3, 2026 by the owner (phase 144): *"The yours either way section can go completely."***
+The block below still renders on the membership sheet and nowhere else; the paragraph is kept as the
+record of why it was on the card from phase 112 to 144.
 
 Phase 112 was asked to put the archive reassurance on the membership card **in every state**. This
 file has no one-line form of it, and the file forbids an agent writing one. Rather than propose a
@@ -408,6 +418,62 @@ happens.
 Manage row appears — "the normal you have subscription view", in the owner's words — so 8c stays on
 the sheet. A refused purchase renders the store's own sentence (`SubscriptionStoreError.userMessage`,
 already shipped) under the card only if the parent swiped the sheet away without reading it.
+
+
+### 9 · The Settings membership card, redesigned — phase 144, Sep 3, 2026
+
+**Approved by the owner on Sep 3, 2026 from twelve rendered mockups**, after he asked for an overhaul
+in his own words: *"Everything open makes no sense … See what membership includes is also super
+confusing … The yours either way section can go completely."* The design is
+`membership-card-redesign.md` beside this file; every string below is approved as written unless
+marked, and lives in `MembershipCopy.Card`. `{date}` is the server's instant through
+`DayHeaderText.dayAndMonth`; `{days}` is the server's `trial_days_left`. **Neither is arithmetic on
+the phone.**
+
+| id | Where | String | Status |
+|---|---|---|---|
+| S2 | Header eyebrow, every state | `Your household` | approved §7 row 1 |
+| H1 | Headline, trial | `Free trial` | approved; replaces `Everything open` |
+| H2 | Headline, free (never or lapsed) | `Free` | shipped since 37a |
+| H3 | Headline, `plan: annual` | `Annual membership` | approved — *"Annual Membership please"* |
+| H4 | Headline, `plan: monthly` | `Monthly membership` | approved — *"if they are monthly it should say that"* |
+| H5 | Headline, subscribed with no plan on the wire | `Membership` | approved |
+| H6 | Headline, granted | `Complimentary membership` | approved |
+| H7 | Headline, unknown | `—` | shipped since 37a |
+| D1 | Detail, trial | `{days} days left, until {date}. No card, nothing to cancel.` | approved (mockup 1B) |
+| D1s | Detail, trial, last day | `One day left, until {date}. No card, nothing to cancel.` | built as spelled-out, so no constant carries a digit; owner to confirm |
+| D1d | Detail, trial, an older server sending no count | `Until {date}. No card, nothing to cancel.` | approved (mockup 1A) |
+| D1b | Detail, trial, no date either | `No card, nothing to cancel.` | §3's body, first sentence |
+| D2 | Detail, free | `The daily question is always free.` | §2 title |
+| D3 | Detail, subscribed, `auto_renew: true` | `Renews {date}` | approved |
+| D4 | Detail, subscribed, `auto_renew: false` | `Expires {date}` | approved |
+| D5 | Detail, subscribed, `auto_renew` unknown | `Paid through {date}` | approved |
+| D5p | Appended to D5 where Manage is beneath | `Whether it renews is set in the App Store.` | approved |
+| D6 | Detail, `is_payer: false`, appended | `Managed by the other parent.` | approved (mockup 4) |
+| D7 | Detail, `billing_retry: true` | `The App Store couldn't take the last payment and will try again. Membership carries on in the meantime.` | approved (mockup 5) |
+| D8 | Detail, granted, perpetual | `Everything a member has, with nothing to pay and nothing to renew.` | approved |
+| D9 | Detail, granted with an end | `Everything a member has, until {date}. After that the daily question keeps going, free.` | approved |
+| D10 | Detail, no household yet | `The app hasn't heard back from the server yet. It'll check again the next time you open it.` | approved |
+| D11 | Detail, `access` this build cannot read | `This version of the app can't read your membership yet. Nothing is held back; an update will be able to show it.` | approved |
+| R1 | CTA label | `Become a member` | §2 primary action |
+| R2 | CTA detail, free and unknown | `Membership is what fills in the rest of the day.` | §2 subtitle |
+| R2t | CTA detail, trial | `Keeps the missions going after the trial. You're charged when you join, not when it ends.` | approved |
+| R3 | Manage label | `Manage subscription` | shipped |
+| R4′ | Manage detail | `Change the plan or cancel in the App Store, from the Apple Account that pays for it.` | approved; replaces `Change the plan or cancel, in the App Store.` |
+| R4r | Manage detail, billing retry | R4′ + ` The payment method is in that account's settings.` | approved |
+| R5 | Restore label | `Restore a purchase` | shipped; Review 3.1.2(c) |
+| R6 | Restore detail | `If you've paid before and this phone doesn't know it yet.` | §7 row 4 |
+
+**Retired from the card**: `Everything open`, `Subscribed`, `See what membership includes`, the
+footnote *"One price covers everyone in the house…"* (still the sheet's), and *Yours either way*
+with its three lines (still the sheet's). **Moved into the card**: the late and Ask-to-Buy sentences
+(§8d, §8e) render as a plain row in the CTA's slot rather than under the card, and *Become a member*
+is not shown above them.
+
+**Restore appears only where a restore could find something** — trial, free, and a household the
+server has not answered for — and is hidden for every member state, because for a member it can
+only re-read the answer already on the card. The paywall keeps its own Restore and its Terms and
+Privacy links for App Review.
 
 ## Conflicts
 

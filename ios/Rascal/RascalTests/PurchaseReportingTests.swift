@@ -61,11 +61,17 @@ struct PurchaseReportingTests {
         )
     }
 
-    @Test("the terminal states keep the offer row, because the sheet behind it says more")
-    func terminalStatesKeepTheOffer() {
+    /// **Since phase 144 the two waiting states report in the card and the offer is gone**: a
+    /// parent who has just paid must not be invited, in the card's loudest colour, to do it again.
+    /// `.failed` keeps the offer for the retry that lives on the sheet, beside Terms and Privacy.
+    @Test("the waiting states report in the offer row's slot; a refusal keeps the offer")
+    func terminalStatesReportInsteadOfOffering() {
         let free = household(tier: "free")
-        #expect(MembershipPresentation.settingsAction(for: free, purchase: .late) == .offer)
-        #expect(MembershipPresentation.settingsAction(for: free, purchase: .awaitingApproval) == .offer)
+        #expect(MembershipPresentation.settingsAction(for: free, purchase: .late) == .reported(PurchaseCopy.late))
+        #expect(
+            MembershipPresentation.settingsAction(for: free, purchase: .awaitingApproval)
+                == .reported(PurchaseCopy.approval)
+        )
         #expect(MembershipPresentation.settingsAction(for: free, purchase: .failed("no")) == .offer)
         #expect(MembershipPresentation.settingsAction(for: free, purchase: .idle) == .offer)
     }
@@ -92,10 +98,12 @@ struct PurchaseReportingTests {
 
     // MARK: - The one line under the card
 
-    @Test("the card's purchase line is the sheet's sentence, or nothing")
+    /// **Only the refusal, since phase 144.** The late and Ask-to-Buy sentences moved into the
+    /// card as the reported row, and a sentence rendered in the card must not also render under it.
+    @Test("the card's purchase line is the store's refusal, or nothing")
     func purchaseLineTable() {
-        #expect(MembershipPresentation.purchaseLine(for: .late) == PurchaseCopy.late)
-        #expect(MembershipPresentation.purchaseLine(for: .awaitingApproval) == PurchaseCopy.approval)
+        #expect(MembershipPresentation.purchaseLine(for: .late) == nil)
+        #expect(MembershipPresentation.purchaseLine(for: .awaitingApproval) == nil)
         #expect(MembershipPresentation.purchaseLine(for: .failed("The App Store said no.")) == "The App Store said no.")
         #expect(MembershipPresentation.purchaseLine(for: .idle) == nil)
         #expect(MembershipPresentation.purchaseLine(for: .purchasing) == nil)
@@ -103,9 +111,15 @@ struct PurchaseReportingTests {
         #expect(MembershipPresentation.purchaseLine(for: .subscribed) == nil)
     }
 
+    /// Since phase 144 the sentence is the card's reported row rather than the line under it.
     @Test("the late line is not an error and does not read as one")
     func theLateLineIsCalm() {
-        let line = MembershipPresentation.purchaseLine(for: .late) ?? ""
+        guard case .reported(let line) = MembershipPresentation.settingsAction(
+            for: household(tier: "free"), purchase: .late
+        ) else {
+            Issue.record("the late state must report in the card")
+            return
+        }
         #expect(line.hasPrefix(PurchaseCopy.lateTitle))
         #expect(line.hasSuffix(PurchaseCopy.lateDetail))
         for phrase in MembershipCopy.bannedPhrases {

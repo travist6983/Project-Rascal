@@ -464,6 +464,8 @@ struct MembershipTests {
             // Membership card can say them too. A source that ships card strings and is not
             // scanned is the gap phase 126 closed for the model.
             "Subscription/PurchaseCopy.swift",
+            // Phase 144: the card's header and row details are composed here.
+            "Subscription/MembershipPresentation.swift",
             "Today/LockedPromptCard.swift",
             "Today/TodayBoardView.swift",
             "Onboarding/TrialWelcomeScreen.swift",

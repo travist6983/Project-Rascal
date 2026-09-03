@@ -2233,8 +2233,8 @@ struct GrantedHouseholdTests {
     func theCardSaysNothingToAGrantedHousehold() {
         let granted = grantedHousehold()
         #expect(
-            MembershipPresentation.settingsStatus(for: granted) == MembershipCopy.Status.subscribed,
-            "the status row reads what the server says, which is subscribed"
+            MembershipPresentation.settingsHeader(for: granted).headline == MembershipCopy.Card.complimentary,
+            "the header names what the household has, and it is not an Apple subscription"
         )
         #expect(
             MembershipPresentation.settingsAction(for: granted) == .hidden,
@@ -2276,7 +2276,12 @@ struct GrantedHouseholdTests {
             MembershipPresentation.settingsAction(for: granted, purchase: .purchasing)
                 == .finishing(PurchaseCopy.talkingToAppStore)
         )
-        #expect(MembershipPresentation.settingsAction(for: granted, purchase: .late) == .hidden)
+        // A grant landing while a purchase is late keeps the purchase's sentence, in the same
+        // spirit as the two above (phase 144 moved `.late` into the card).
+        #expect(
+            MembershipPresentation.settingsAction(for: granted, purchase: .late)
+                == .reported(PurchaseCopy.late)
+        )
     }
 
     @Test("a granted household's fruitless restore says nothing under a card that reads Subscribed")
