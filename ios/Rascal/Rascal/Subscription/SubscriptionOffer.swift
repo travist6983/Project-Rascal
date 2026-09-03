@@ -68,6 +68,18 @@ nonisolated protocol SubscriptionPurchasing: Sendable {
     /// purchasing without one; see `SubscriptionStore.purchase`.
     func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome
     func restore() async throws
+    /// The signed transaction this device holds for an active subscription in the group, if any
+    /// — `Transaction.jwsRepresentation`, the thing `POST /v1/families/me/transactions` accepts.
+    /// **Never an entitlement decision** (D5): it is a document the server verifies, and `nil`
+    /// simply means there is nothing to hand over. See `SubscriptionStore.currentEntitlement`.
+    func currentEntitlement() async -> String?
+}
+
+extension SubscriptionPurchasing {
+    /// Nothing to hand over. **The real store overrides this**; the default exists for the test
+    /// doubles that stand in for StoreKit and have no transaction to speak of, so a fake built
+    /// for a hang or a refusal is not also obliged to invent a receipt.
+    func currentEntitlement() async -> String? { nil }
 }
 
 nonisolated enum SubscriptionStoreError: Error, Equatable {

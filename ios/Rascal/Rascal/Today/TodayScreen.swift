@@ -302,13 +302,15 @@ struct TodayScreen: View {
             // and a sheet owned by a row is torn down whenever the row is recycled.
             //
             // **`onDismiss` re-reads the board, and it has to be `onDismiss` rather than the
-            // sheet's own callback.** A parent who buys membership here leaves the server already
-            // knowing — `EntitlementConfirmation.poll` does not stop until it says `subscribed` —
-            // but nothing on Today would have noticed: `.task` does not re-run when a sheet over it
-            // closes, `scenePhase` stays `.active` for an in-app sheet, and this screen reads only
-            // `subscription == nil`, never its household. So the board behind the sheet kept
-            // rendering the pre-purchase response, locked cards and all, until the parent happened
-            // to background the app or pull to refresh.
+            // sheet's own callback.** ~~A parent who buys membership here leaves the server already
+            // knowing — `EntitlementConfirmation.poll` does not stop until it says `subscribed`~~
+            // — **no longer true since phase 140: the sheet dismisses itself the moment Apple takes
+            // the money, before the server has answered.** So this re-read shows the board as the
+            // server still has it, locked cards and all, and the `onChange` below is what opens it
+            // seconds later. The re-read is still wanted for every other way out of the sheet:
+            // `.task` does not re-run when a sheet over it closes, `scenePhase` stays `.active`
+            // for an in-app sheet, and this screen reads only `subscription == nil`, never its
+            // household.
             //
             // `PaywallSheet`'s own dismiss closure is not enough: it is invoked by that view's
             // buttons and **does not run when the sheet is swiped away**, which is the more common
@@ -318,6 +320,18 @@ struct TodayScreen: View {
             } content: {
                 if let subscription {
                     PaywallSheet(model: subscription) { showingMembership = false }
+                }
+            }
+            // **The server's word, when it arrives** (phase 140). The household turning over from
+            // `free` to `subscribed` — by the confirmation the sheet left running, by a restore,
+            // by another guardian's purchase seen on a foreground read — is the one event that
+            // should unlock this board, and it is the household that is observed rather than the
+            // purchase machinery, per D5: nothing on this screen reacts to a local receipt. The
+            // transition table is a pure function so `nil → true` (a first read of an
+            // already-subscribed household) does not reload a board that was never locked.
+            .onChange(of: subscription?.household?.isSubscribed) { old, new in
+                if MembershipPresentation.boardNeedsReload(wasSubscribed: old, isSubscribed: new) {
+                    Task { await model.load(showSpinner: false) }
                 }
             }
     }

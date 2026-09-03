@@ -460,6 +460,10 @@ struct MembershipTests {
             // render on the Membership card, and were in no file this list named. A guard that
             // covers the views and not the model that supplies their words covers half the surface.
             "Subscription/SubscriptionModel.swift",
+            // Phase 140: the five purchase-state sentences, moved out of `PaywallSheet` so the
+            // Membership card can say them too. A source that ships card strings and is not
+            // scanned is the gap phase 126 closed for the model.
+            "Subscription/PurchaseCopy.swift",
             "Today/LockedPromptCard.swift",
             "Today/TodayBoardView.swift",
             "Onboarding/TrialWelcomeScreen.swift",
@@ -1112,7 +1116,7 @@ struct MembershipTests {
         #expect(MembershipCopy.bannedPhrases.count == 11, "the copy file's §4 lists eleven")
         #expect(MembershipCopy.allUserVisibleStrings.count > 30, "the string list stopped collecting")
 
-        for string in MembershipCopy.allUserVisibleStrings {
+        for string in MembershipCopy.allUserVisibleStrings + PurchaseCopy.allUserVisibleStrings {
             for banned in MembershipCopy.bannedPhrases {
                 #expect(
                     !MembershipCopy.contains(banned, in: string),

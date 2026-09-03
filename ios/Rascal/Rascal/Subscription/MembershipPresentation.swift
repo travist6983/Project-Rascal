@@ -156,6 +156,11 @@ nonisolated enum MembershipPresentation {
         case manage
         /// The membership sheet — a household that has not joined.
         case offer
+        /// **A purchase is in flight, and the card is where it is reported** (phase 140). The
+        /// sheet dismisses the moment Apple takes the money, so the row that would sell the
+        /// household something shows instead what is happening to the thing they just bought.
+        /// Carries its own label so the view renders it without consulting `purchase` again.
+        case finishing(String)
         /// **Neither, and no row at all.** A subscribed household whose caller is explicitly *not*
         /// the payer. There is no approved copy naming the other parent, so the card says nothing
         /// rather than inventing a sentence about somebody else's card.
@@ -177,9 +182,68 @@ nonisolated enum MembershipPresentation {
     /// sheet, and a household inside its server-granted trial has no Apple subscription to manage —
     /// there is nothing there for them to see. `access` answers what may be *served*; this answers
     /// whether somebody is paying Apple, which is `tier`'s question and always was.
-    static func settingsAction(for household: FamilySummary?) -> MembershipAction {
-        guard let household, household.isSubscribed else { return .offer }
-        return household.mayManageSubscription ? .manage : .hidden
+    static func settingsAction(
+        for household: FamilySummary?,
+        purchase: SubscriptionModel.PurchasePhase = .idle
+    ) -> MembershipAction {
+        // **The server wins.** A household it already calls subscribed is managed, whatever the
+        // local purchase machinery is doing — a purchase that raced a foreground read is not a
+        // reason to hide the Manage row from a member.
+        if let household, household.isSubscribed {
+            return household.mayManageSubscription ? .manage : .hidden
+        }
+        switch purchase {
+        case .purchasing: return .finishing(PurchaseCopy.talkingToAppStore)
+        case .confirming: return .finishing(PurchaseCopy.finishingUp)
+        // `.late` and `.awaitingApproval` keep the offer row: the sheet behind it renders the
+        // same terminal sentence with Done, plus Terms and Privacy, which the card cannot.
+        // `.failed` keeps it for the retry that lives on the sheet.
+        case .idle, .late, .awaitingApproval, .failed, .subscribed: return .offer
+        }
+    }
+
+    /// Whether the paywall should dismiss itself on this transition of `purchase`.
+    ///
+    /// **Only the entry into `.confirming`**, which is the moment the purchase has left the
+    /// parent's hands: Apple has the money and the server is being told. Everything before it
+    /// (`.purchasing`, a `.failed` with its retry, an `.awaitingApproval` the parent may be
+    /// watching for) stays on the sheet; everything after it is the card's to report. An
+    /// Ask-to-Buy approval landing while the sheet is open enters `.confirming` by
+    /// `transactionArrived()` and dismisses the same way — one rule rather than two.
+    static func dismissAfterPurchase(
+        from old: SubscriptionModel.PurchasePhase,
+        to new: SubscriptionModel.PurchasePhase
+    ) -> Bool {
+        new == .confirming && old != .confirming
+    }
+
+    /// The one line the Membership card says under itself about a purchase, if anything.
+    ///
+    /// `.late` and `.awaitingApproval` are the two terminal states the sheet used to hold open;
+    /// with the sheet gone they are said here, in the same words. `.failed` carries the store's
+    /// own sentence — the sheet keeps its retry, but a parent who swiped it away unread should
+    /// still find the reason on the card. `.confirming` and `.purchasing` are the busy row, not a
+    /// line; `.subscribed` needs no sentence because the status row already reads *Subscribed*.
+    static func purchaseLine(for purchase: SubscriptionModel.PurchasePhase) -> String? {
+        switch purchase {
+        case .late: return PurchaseCopy.late
+        case .awaitingApproval: return PurchaseCopy.approval
+        case .failed(let message): return message
+        case .idle, .purchasing, .confirming, .subscribed: return nil
+        }
+    }
+
+    /// Whether a presenter behind the sheet should re-read its own screen because the household
+    /// just became subscribed.
+    ///
+    /// **Only the false → true transition.** `nil` is a household not yet read, and reloading on
+    /// `nil → true` would re-fetch every screen on the first read of an already-subscribed
+    /// household; `true → true` is a foreground re-read confirming what was known. Observing the
+    /// household rather than `purchase` is deliberate: it is the server's word (D5), it fires for
+    /// a membership that lands by any door — another guardian's purchase seen on a foreground
+    /// read, a restore — and it cannot fire on a local receipt.
+    static func boardNeedsReload(wasSubscribed: Bool?, isSubscribed: Bool?) -> Bool {
+        wasSubscribed == false && isSubscribed == true
     }
 
     /// **Whether a restore that has just finished should close the paywall.**

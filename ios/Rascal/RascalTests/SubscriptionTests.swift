@@ -73,19 +73,30 @@ private actor FakeStore: SubscriptionPurchasing {
     /// model *during* a purchase rather than after one.
     private var holdPurchase = false
     private var held: CheckedContinuation<Void, Never>?
+    /// What `currentEntitlement()` hands over — the JWS the device holds, or nothing. Counted,
+    /// because the phase 140 tests assert the model *asked* as much as what it did with the answer.
+    private let entitlement: String?
+    private(set) var entitlementReads = 0
 
     init(
         offer: SubscriptionOffer? = .double,
         outcomes: [Result<PurchaseOutcome, SubscriptionStoreError>] = [.success(.purchased)],
         restoreResult: Result<Void, SubscriptionStoreError> = .success(()),
         restoreResults: [Result<Void, SubscriptionStoreError>] = [],
-        holdPurchase: Bool = false
+        holdPurchase: Bool = false,
+        entitlement: String? = nil
     ) {
         self.offer = offer
         self.outcomes = outcomes
         self.restoreResult = restoreResult
         self.restoreResults = restoreResults
         self.holdPurchase = holdPurchase
+        self.entitlement = entitlement
+    }
+
+    func currentEntitlement() async -> String? {
+        entitlementReads += 1
+        return entitlement
     }
 
     /// Let a held purchase finish.
@@ -1525,5 +1536,298 @@ struct ConfirmationDeadlineTests {
         // ...and then the read lands and overrides it.
         let settled = await eventually { model.purchase == .subscribed }
         #expect(settled, "a subscribed household that arrives late must still be published")
+    }
+}
+
+// MARK: - Phase 140: the receipt the app holds
+
+private actor Submissions {
+    private(set) var all: [String] = []
+    func record(_ signed: String) { all.append(signed) }
+}
+
+/// **The evening of Sep 2, 2026, and the door it forced.** A Monthly tap on an Apple Account that
+/// already held the annual is a plan change; Apple announces it as `DID_CHANGE_RENEWAL_PREF` (no
+/// tier effect) and no amount of polling `GET /families/me` would ever have confirmed it — while
+/// the device held, the whole time, an Apple-signed transaction proving the household was paid up.
+/// `POST /v1/families/me/transactions` is how the app hands that over, and these tests pin what
+/// the model does with the answer and, more importantly, what it does with every non-answer.
+@Suite("Phase 140 — the app hands the server the transaction it holds")
+struct SubmittedTransactionTests {
+
+    @MainActor
+    private func model(
+        store: FakeStore,
+        read: @escaping @Sendable () async throws -> FamilySummary,
+        submit: @escaping @Sendable (String) async throws -> FamilySummary
+    ) -> SubscriptionModel {
+        SubscriptionModel(
+            readHousehold: read,
+            submitTransaction: submit,
+            store: store,
+            confirmationSchedule: Array(repeating: .zero, count: 10),
+            confirmationSleep: { _ in }
+        )
+    }
+
+    @Test("a purchase confirms on the submission, without a single poll read")
+    @MainActor
+    func submissionConfirmsWithoutPolling() async {
+        let familyID = UUID()
+        let reads = Counter()
+        let submissions = Submissions()
+        let store = FakeStore(entitlement: "jws.of.the.purchase")
+        let model = model(
+            store: store,
+            read: {
+                _ = await reads.bump()
+                return await household("free", id: familyID)
+            },
+            submit: { signed in
+                await submissions.record(signed)
+                return await household("subscribed", id: familyID)
+            }
+        )
+
+        await model.load()
+        let readsAfterLoad = await reads.read()
+        await model.buy()
+
+        #expect(model.purchase == .subscribed)
+        #expect(model.household?.isSubscribed == true)
+        let submitted = await submissions.all
+        #expect(submitted == ["jws.of.the.purchase"])
+        let readsAfterBuy = await reads.read()
+        #expect(
+            readsAfterBuy == readsAfterLoad,
+            "the poll ran although the submission had already answered with the household"
+        )
+        let asked = await store.entitlementReads
+        #expect(asked == 1)
+    }
+
+    /// **The household the server answered with is the one kept**, not a second read: a re-read
+    /// could fail and blank a household the app had just confirmed.
+    @Test("the household in the answer is the one on screen")
+    @MainActor
+    func theAnsweredHouseholdIsKept() async {
+        let familyID = UUID()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in
+                var family = await household("subscribed", id: familyID)
+                family = FamilySummary(
+                    familyId: family.familyId, tier: family.tier, access: family.access,
+                    lapsedAt: nil, plan: "monthly", billingRetry: nil, isPayer: true,
+                    guardians: family.guardians, pendingInvites: []
+                )
+                return family
+            }
+        )
+
+        await model.load()
+        await model.buy()
+
+        #expect(model.household?.plan == "monthly")
+        #expect(model.household?.isPayer == true)
+    }
+
+    /// A `404` from a server without the route, a `409`, a `422`, a dropped connection: every one
+    /// is a throw, and a throw is not a verdict. The poll runs exactly as it did before phase 140.
+    @Test("a server that predates the route leaves the poll exactly as it was")
+    @MainActor
+    func aThrowFallsThroughToThePoll() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: {
+                let n = await calls.bump()
+                return await household(n >= 4 ? "subscribed" : "free", id: familyID)
+            },
+            submit: { _ in throw APIError.unexpectedStatus(404) }
+        )
+
+        await model.load()
+        await model.buy()
+
+        #expect(model.purchase == .subscribed, "the poll did not run after the submission threw")
+        #expect(model.household?.isSubscribed == true)
+    }
+
+    /// A `200` whose household still reads `free` — an expired receipt, a Sandbox receipt
+    /// Production has outranked — is an answer, and the answer is *not yet*. Nothing on the device
+    /// may read anything else into it (D5).
+    @Test("a submission the server answers with free is not a confirmation")
+    @MainActor
+    func aFreeAnswerIsNotAConfirmation() async {
+        let familyID = UUID()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in await household("free", id: familyID) }
+        )
+
+        await model.load()
+        await model.buy()
+
+        #expect(model.purchase == .late)
+        #expect(model.household?.isSubscribed == false)
+        #expect(!model.canBuy, "a purchase that went through must not be offered again")
+    }
+
+    @Test("no transaction on the device means nothing is submitted, and the poll runs")
+    @MainActor
+    func nothingToSubmit() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let submissions = Submissions()
+        let store = FakeStore(entitlement: nil)
+        let model = model(
+            store: store,
+            read: {
+                let n = await calls.bump()
+                return await household(n >= 3 ? "subscribed" : "free", id: familyID)
+            },
+            submit: { signed in
+                await submissions.record(signed)
+                return await household("subscribed", id: familyID)
+            }
+        )
+
+        await model.load()
+        await model.buy()
+
+        let submitted = await submissions.all
+        #expect(submitted.isEmpty)
+        #expect(model.purchase == .subscribed)
+    }
+
+    // MARK: Restore
+
+    /// **What a restore actually restores now.** Before phase 140 it was `AppStore.sync()` and a
+    /// re-read of a server that had never been told — "nothing has arrived yet", to a parent
+    /// holding a paid-up receipt.
+    @Test("a restore submits the receipt and reports found, without polling")
+    @MainActor
+    func aRestoreSubmits() async {
+        let familyID = UUID()
+        let reads = Counter()
+        let submissions = Submissions()
+        let store = FakeStore(entitlement: "jws.from.currentEntitlements")
+        let model = model(
+            store: store,
+            read: {
+                _ = await reads.bump()
+                return await household("free", id: familyID)
+            },
+            submit: { signed in
+                await submissions.record(signed)
+                return await household("subscribed", id: familyID)
+            }
+        )
+
+        await model.load()
+        let readsAfterLoad = await reads.read()
+        await model.restore()
+
+        #expect(model.household?.isSubscribed == true)
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil)
+        let submitted = await submissions.all
+        #expect(submitted == ["jws.from.currentEntitlements"])
+        let readsAfterRestore = await reads.read()
+        #expect(readsAfterRestore == readsAfterLoad)
+        let restores = await store.restores
+        #expect(restores == 1, "AppStore.sync() still runs first — it is what brings the receipt")
+    }
+
+    @Test("a restore whose submission is refused polls as before and says nothing arrived")
+    @MainActor
+    func aRefusedRestoreSubmissionPolls() async {
+        let familyID = UUID()
+        let store = FakeStore(entitlement: "jws")
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in throw APIError.unexpectedStatus(409) }
+        )
+
+        await model.load()
+        await model.restore()
+
+        #expect(model.restoreConfirmation == nil)
+        #expect(model.notice?.hasPrefix("Nothing has arrived yet") == true)
+        #expect(model.household?.isSubscribed == false)
+    }
+
+    /// A restore that lands while a purchase is still `.confirming` or `.late` closes it — the
+    /// same rule the poll's own `.subscribed` branch follows.
+    @Test("a restore's answer settles an open purchase")
+    @MainActor
+    func aRestoreSettlesAnOpenPurchase() async {
+        let familyID = UUID()
+        let store = FakeStore(entitlement: "jws")
+        let calls = Counter()
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in
+                // Refused during the purchase, honoured on the restore.
+                if await calls.bump() == 1 { throw APIError.unexpectedStatus(404) }
+                return await household("subscribed", id: familyID)
+            }
+        )
+
+        await model.load()
+        await model.buy()
+        #expect(model.purchase == .late)
+
+        await model.restore()
+
+        #expect(model.purchase == .subscribed)
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+    }
+
+    // MARK: The failure the parent has read
+
+    @Test("Not now on a refused purchase clears it, and only it")
+    @MainActor
+    func dismissFailureMovesOnlyFailed() async {
+        let familyID = UUID()
+        let store = FakeStore(outcomes: [.failure(.productsUnavailable)])
+        let model = model(
+            store: store,
+            read: { await household("free", id: familyID) },
+            submit: { _ in throw APIError.unexpectedStatus(404) }
+        )
+
+        await model.load()
+        await model.buy()
+        guard case .failed = model.purchase else {
+            Issue.record("the harness has to reach .failed or this proves nothing")
+            return
+        }
+
+        model.dismissFailure()
+
+        #expect(model.purchase == .idle)
+        #expect(model.canBuy, "a dismissed failure is not a spent purchase")
+
+        // Every other state stays exactly where it is.
+        let lateModel = self.model(
+            store: FakeStore(entitlement: "jws"),
+            read: { await household("free", id: familyID) },
+            submit: { _ in await household("free", id: familyID) }
+        )
+        await lateModel.load()
+        await lateModel.buy()
+        #expect(lateModel.purchase == .late)
+        lateModel.dismissFailure()
+        #expect(lateModel.purchase == .late)
     }
 }

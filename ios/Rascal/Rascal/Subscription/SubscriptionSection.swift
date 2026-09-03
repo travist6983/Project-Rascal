@@ -38,7 +38,25 @@ struct SubscriptionSection: View {
                 // **Each case carries its own leading rule** rather than the card carrying one
                 // between every pair. `hidden` emits no row, and a fixed divider above it would
                 // leave two rules stacked against each other with nothing in between.
-                switch MembershipPresentation.settingsAction(for: model.household) {
+                switch MembershipPresentation.settingsAction(
+                    for: model.household, purchase: model.purchase
+                ) {
+                case .finishing(let label):
+                    // **The purchase, reported where the parent lands** (phase 140). The sheet
+                    // dismissed itself the moment Apple took the money; this row is what it was
+                    // showing, in the slot that would otherwise sell them something. The same
+                    // treatment as the sheet's busy row — a `terracotta` spinner and `inkMuted`
+                    // body — and not a `SettingsActionRow`, because there is nothing to tap.
+                    SettingsDivider()
+                    HStack(spacing: 10) {
+                        ProgressView().tint(.terracotta)
+                        Text(label)
+                            .typeRole(.body)
+                            .foregroundStyle(Color.inkMuted)
+                    }
+                    .padding(Layout.cardPadding)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityElement(children: .combine)
                 case .manage:
                     SettingsDivider()
                     SettingsActionRow(
@@ -88,7 +106,16 @@ struct SubscriptionSection: View {
             // Coalesced rather than stacked so the two can never appear together and read as a
             // contradiction. The confirmation wins the ordering because it is the state a parent
             // is looking at the card to see.
-            if let line = model.restoreConfirmation ?? model.notice {
+            //
+            // **A third channel since phase 140, last in the order**: what the purchase has to
+            // say for itself once the sheet has gone — the calm late line, the Ask-to-Buy line,
+            // or the store's own sentence for a refusal the parent swiped past unread. Behind the
+            // restore channels because those are answers to something the parent just tapped on
+            // this card, and a pure function decides the sentence so it is asserted without a
+            // view host.
+            if let line = model.restoreConfirmation ?? model.notice
+                ?? MembershipPresentation.purchaseLine(for: model.purchase)
+            {
                 Text(line)
                     .typeRole(.metadata)
                     .foregroundStyle(Color.inkMuted)
@@ -357,6 +384,51 @@ struct SubscriptionSection: View {
     // MARK: Dynamic Type
 
     /// XXL is the floor this card has to survive, per the phase's checks.
+    // MARK: A purchase, reported on the card (phase 140)
+
+    /// The sheet has just dismissed itself; the server is being told. The offer row's slot.
+    #Preview("Purchase — finishing up") {
+        MembershipCardPreview(
+            model: SubscriptionModel(
+                previewing: .loading,
+                household: .previewing(tier: "free", access: .free),
+                purchase: .confirming
+            )
+        )
+    }
+
+    /// The window closed with the server still saying `free`. Calm, under the card, not red.
+    #Preview("Purchase — late") {
+        MembershipCardPreview(
+            model: SubscriptionModel(
+                previewing: .loading,
+                household: .previewing(tier: "free", access: .free),
+                purchase: .late
+            )
+        )
+    }
+
+    #Preview("Purchase — awaiting approval") {
+        MembershipCardPreview(
+            model: SubscriptionModel(
+                previewing: .loading,
+                household: .previewing(tier: "free", access: .free),
+                purchase: .awaitingApproval
+            )
+        )
+    }
+
+    /// The store's own sentence, for a refusal the parent swiped past unread.
+    #Preview("Purchase — refused, sheet swiped away") {
+        MembershipCardPreview(
+            model: SubscriptionModel(
+                previewing: .loading,
+                household: .previewing(tier: "free", access: .free),
+                purchase: .failed(SubscriptionStoreError.productsUnavailable.userMessage)
+            )
+        )
+    }
+
     #Preview("Membership — trial, XXL") {
         MembershipCardPreview(
             model: SubscriptionModel(

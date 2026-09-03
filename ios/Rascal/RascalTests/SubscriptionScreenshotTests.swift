@@ -105,8 +105,36 @@ struct SubscriptionScreenshotTests {
             previewing: .loading,
             household: .sample(tier: "subscribed", isPayer: false)
         )
+        // **Phase 140: the purchase, reported on the card.** The sheet dismisses at `.confirming`
+        // and this card is where the parent lands, so its busy row and its late line are rendered
+        // at every size — the busy row is the one to eyeball at AX sizes, where the spinner must
+        // not wrap under the label.
+        let confirming = SubscriptionModel(
+            previewing: .loading, household: .sample(tier: "free"), purchase: .confirming
+        )
+        let late = SubscriptionModel(
+            previewing: .loading, household: .sample(tier: "free"), purchase: .late
+        )
+        let awaitingApproval = SubscriptionModel(
+            previewing: .loading, household: .sample(tier: "free"), purchase: .awaitingApproval
+        )
 
         for (label, size) in Self.sizes {
+            try render(
+                SubscriptionSection(model: confirming).padding(Layout.screenMargin),
+                named: "membership-confirming-\(label)",
+                at: size
+            )
+            try render(
+                SubscriptionSection(model: late).padding(Layout.screenMargin),
+                named: "membership-late-\(label)",
+                at: size
+            )
+            try render(
+                SubscriptionSection(model: awaitingApproval).padding(Layout.screenMargin),
+                named: "membership-awaiting-approval-\(label)",
+                at: size
+            )
             try render(
                 SubscriptionSection(model: subscribed).padding(Layout.screenMargin),
                 named: "membership-subscribed-\(label)",
@@ -242,6 +270,67 @@ struct SubscriptionScreenshotTests {
         for (label, size) in Self.sizes {
             try render(postTrial, named: "notice-post-trial-\(label)", at: size, minimumHeight: 60)
         }
+    }
+
+    /// **The busy row, hosted, so the spinner is a spinner.** `ImageRenderer` cannot draw a
+    /// `ProgressView` — the system activity indicator is UIKit-backed — and prints a placeholder
+    /// glyph in its place, which the owner read as the shipped icon on Sep 2, 2026. This render
+    /// goes through a `UIWindow` and `drawHierarchy`, which draws the indicator the way the app
+    /// does, so the PNG shows what a parent sees: the terracotta spinner beside *Finishing up*,
+    /// the same one the paywall's own busy row uses. Phase 140.
+    @Test("the busy row draws the system spinner when hosted, not ImageRenderer's placeholder")
+    @MainActor
+    func theBusyRowSpinsWhenHosted() throws {
+        let confirming = SubscriptionModel(
+            previewing: .loading, household: .sample(tier: "free"), purchase: .confirming
+        )
+        let host = UIHostingController(
+            rootView: SubscriptionSection(model: confirming)
+                .padding(Layout.screenMargin)
+                .frame(width: 393)
+                .background(Color.canvas)
+        )
+        // **On a real scene, or nothing draws.** A `UIWindow` with no `windowScene` in the test
+        // host is never on screen, and both `drawHierarchy` and the indicator's animation treat
+        // it as invisible — the first attempt produced a blank PNG. The test host is the app,
+        // so it has a scene to borrow.
+        let scene = try #require(
+            UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        )
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 900)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.layoutIfNeeded()
+        let size = host.sizeThatFits(in: CGSize(width: 393, height: CGFloat.greatestFiniteMagnitude))
+        let bounds = CGRect(x: 0, y: 0, width: 393, height: max(size.height, 100))
+        window.frame = bounds
+        host.view.frame = bounds
+        host.view.layoutIfNeeded()
+        // One run of the run loop so the indicator has a frame to show and the hierarchy has
+        // been committed to the render server before it is asked to draw.
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        let image = UIGraphicsImageRenderer(bounds: bounds).image { context in
+            if !window.drawHierarchy(in: bounds, afterScreenUpdates: true) {
+                window.layer.render(in: context.cgContext)
+            }
+        }
+        // **Torn down, not just hidden.** This window was made key on the app's live scene, and
+        // the suite runs in parallel with everything else in the process; a stray key window
+        // left attached is the kind of thing that shows up as a flake in an unrelated test.
+        window.isHidden = true
+        window.rootViewController = nil
+        window.windowScene = nil
+
+        let data = try #require(image.pngData())
+        try FileManager.default.createDirectory(
+            at: Self.outputDirectory, withIntermediateDirectories: true
+        )
+        let url = Self.outputDirectory.appendingPathComponent("membership-confirming-hosted.png")
+        try data.write(to: url)
+        print("RASCAL_SCREENSHOT \(url.path) \(Int(image.size.width))x\(Int(image.size.height)) hosted")
+        #expect(image.size.height >= 100)
     }
 
     /// One render, at one size, written as a PNG.
