@@ -21,6 +21,12 @@ nonisolated struct SyncPullResponse: Decodable, Sendable {
     /// overlap window — see `SyncEngine.overlapWindow`.
     let cursor: Date
 
+    /// **True while any of the four collections was cut at the page bound.** The pull is not
+    /// finished until this is false — see `SyncEngine.execute` for what a stalled cursor means
+    /// while it is true. A server predating the field sent the whole delta in one response, so
+    /// absent reads as false.
+    let hasMore: Bool
+
     /// Keys the client does not model, so the dry-run report can say "12 records I did not
     /// understand" instead of dropping them silently.
     ///
@@ -30,7 +36,9 @@ nonisolated struct SyncPullResponse: Decodable, Sendable {
     let unrecognisedKeys: [String]
 
     /// Everything this response could carry that this client knows how to apply.
-    static let knownKeys: Set<String> = ["entries", "media", "assignments", "tags", "cursor"]
+    /// `hasMore` rather than `has_more`: the decoder converts from snake case before these keys
+    /// are read, so the unrecognised-key check sees the converted spelling.
+    static let knownKeys: Set<String> = ["entries", "media", "assignments", "tags", "cursor", "hasMore"]
 
     private struct AnyKey: CodingKey {
         let stringValue: String
@@ -40,7 +48,7 @@ nonisolated struct SyncPullResponse: Decodable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case entries, media, assignments, tags, cursor
+        case entries, media, assignments, tags, cursor, hasMore
     }
 
     init(from decoder: Decoder) throws {
@@ -54,6 +62,7 @@ nonisolated struct SyncPullResponse: Decodable, Sendable {
             .decodeIfPresent([SyncAssignmentResponse].self, forKey: .assignments) ?? []
         tags = try container.decodeIfPresent([SyncTagResponse].self, forKey: .tags) ?? []
         cursor = try container.decode(Date.self, forKey: .cursor)
+        hasMore = try container.decodeIfPresent(Bool.self, forKey: .hasMore) ?? false
 
         let all = try decoder.container(keyedBy: AnyKey.self)
         unrecognisedKeys = all.allKeys

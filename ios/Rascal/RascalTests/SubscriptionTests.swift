@@ -193,6 +193,33 @@ private func household(_ tier: String, id: UUID = UUID()) -> FamilySummary {
         plan: nil,
         billingRetry: nil,
         isPayer: nil,
+        entitled: nil,
+        entitlementSource: nil,
+        guardians: [
+            GuardianSummary(
+                userId: UUID(), displayName: "Travis", role: "parent",
+                grantedAt: .now, isYou: true
+            )
+        ],
+        pendingInvites: []
+    )
+}
+
+/// A household the server entitles by an admin grant: `tier` still `free`, `access` reading
+/// `subscribed` by the server's deliberate choice, and `entitlement_source` the only field that
+/// says why. The pairing `tier` and `access` cannot describe between them.
+@MainActor
+private func grantedHousehold(id: UUID = UUID()) -> FamilySummary {
+    FamilySummary(
+        familyId: id,
+        tier: "free",
+        access: .subscribed,
+        lapsedAt: nil,
+        plan: nil,
+        billingRetry: nil,
+        isPayer: nil,
+        entitled: true,
+        entitlementSource: "grant",
         guardians: [
             GuardianSummary(
                 userId: UUID(), displayName: "Travis", role: "parent",
@@ -1621,6 +1648,7 @@ struct SubmittedTransactionTests {
                 family = FamilySummary(
                     familyId: family.familyId, tier: family.tier, access: family.access,
                     lapsedAt: nil, plan: "monthly", billingRetry: nil, isPayer: true,
+                    entitled: nil, entitlementSource: nil,
                     guardians: family.guardians, pendingInvites: []
                 )
                 return family
@@ -1831,3 +1859,495 @@ struct SubmittedTransactionTests {
         #expect(lateModel.purchase == .late)
     }
 }
+
+// MARK: - Phase 141: a granted household is a member, not a buyer
+
+/// **The card that contradicted itself.** A household the server entitles by an admin grant reads
+/// `access: "subscribed"` with `tier: "free"` — deliberately, per the contract — and until phase
+/// 141 the client read only `tier`: the status row said *Subscribed* while the row beneath it
+/// offered to sell membership, and the paywall behind that row showed a live buy button for a
+/// membership the household already had in full. `entitlement_source` is the field that tells
+/// complimentary from paid, and these pin that it is read where the subject is selling, and
+/// **not** read where the subject is an Apple receipt.
+@Suite("Phase 141 — a granted household is a member, not a buyer")
+struct GrantedHouseholdTests {
+
+    @Test("entitled and entitlement_source decode, and their absence is nil rather than a failure")
+    func theTwoFieldsDecodeAndTolerateAbsence() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let familyID = UUID()
+
+        let granted = try decoder.decode(FamilySummary.self, from: Data("""
+            {"family_id":"\(familyID.uuidString)","tier":"free","access":"subscribed",
+             "entitled":true,"entitlement_source":"grant","guardians":[],"pending_invites":[]}
+            """.utf8))
+        #expect(granted.entitled == true)
+        #expect(granted.entitlementSource == "grant")
+        #expect(granted.isGranted)
+        #expect(granted.isMember)
+        #expect(!granted.isSubscribed, "a grant is not an Apple subscription")
+
+        // A server predating phase 121 sends neither key. A non-optional here would have failed
+        // this decode and taken the whole membership card with it.
+        let older = try decoder.decode(FamilySummary.self, from: Data("""
+            {"family_id":"\(familyID.uuidString)","tier":"subscribed","guardians":[],"pending_invites":[]}
+            """.utf8))
+        #expect(older.entitled == nil)
+        #expect(older.entitlementSource == nil)
+        #expect(!older.isGranted)
+        #expect(older.isMember, "a receipt is still a membership without the newer fields")
+
+        // A value a later server invents is carried, not crashed on, and is not a grant.
+        let novel = try decoder.decode(FamilySummary.self, from: Data("""
+            {"family_id":"\(familyID.uuidString)","tier":"free","access":"subscribed",
+             "entitled":true,"entitlement_source":"sponsor","guardians":[],"pending_invites":[]}
+            """.utf8))
+        #expect(!novel.isGranted)
+        #expect(!novel.isMember)
+    }
+
+    @Test("a trial is not a member — the paywall exists to be shown to one")
+    @MainActor
+    func aTrialIsStillOffered() {
+        let trial = FamilySummary(
+            familyId: UUID(), tier: "free", access: .trial, lapsedAt: nil, plan: nil,
+            billingRetry: nil, isPayer: nil, entitled: true, entitlementSource: "trial",
+            guardians: [], pendingInvites: []
+        )
+        #expect(!trial.isMember)
+        #expect(MembershipPresentation.settingsAction(for: trial) == .offer)
+    }
+
+    @Test("the Settings card offers a granted household nothing — no upsell, no Manage")
+    @MainActor
+    func theCardSaysNothingToAGrantedHousehold() {
+        let granted = grantedHousehold()
+        #expect(
+            MembershipPresentation.settingsStatus(for: granted) == MembershipCopy.Status.subscribed,
+            "the status row reads what the server says, which is subscribed"
+        )
+        #expect(
+            MembershipPresentation.settingsAction(for: granted) == .hidden,
+            "Subscribed with See-what-membership-includes beneath it is the contradiction"
+        )
+        // The receipt-keyed branch is untouched: a paying household is still managed.
+        #expect(MembershipPresentation.settingsAction(for: household("subscribed")) == .manage)
+        #expect(MembershipPresentation.settingsAction(for: household("free")) == .offer)
+    }
+
+    @Test("a granted household cannot be taken through a checkout")
+    @MainActor
+    func aGrantedHouseholdCannotBuy() async {
+        let store = FakeStore()
+        let model = makeModel(store: store) { await grantedHousehold() }
+
+        await model.load()
+        guard case .ready = model.phase else {
+            Issue.record("the harness has to reach .ready or this proves nothing")
+            return
+        }
+
+        #expect(!model.canBuy)
+        await model.buy()
+        let purchases = await store.purchases
+        #expect(purchases.isEmpty, "buy() must return at its own guard, before StoreKit")
+        #expect(model.purchase == .idle)
+    }
+
+    @Test("a grant landing mid-purchase does not hide the busy row")
+    @MainActor
+    func aGrantDoesNotHideFinishingUp() {
+        let granted = grantedHousehold()
+        #expect(
+            MembershipPresentation.settingsAction(for: granted, purchase: .confirming)
+                == .finishing(PurchaseCopy.finishingUp)
+        )
+        #expect(
+            MembershipPresentation.settingsAction(for: granted, purchase: .purchasing)
+                == .finishing(PurchaseCopy.talkingToAppStore)
+        )
+        #expect(MembershipPresentation.settingsAction(for: granted, purchase: .late) == .hidden)
+    }
+
+    @Test("a granted household's fruitless restore says nothing under a card that reads Subscribed")
+    @MainActor
+    func aGrantedRestoreIsSilent() async {
+        let store = FakeStore()
+        let model = makeModel(store: store) { await grantedHousehold() }
+
+        await model.load()
+        await model.restore()
+
+        #expect(model.restoreConfirmation == nil, "no receipt was restored")
+        #expect(model.notice == nil, "nothing-has-arrived under Subscribed is the contradiction")
+        #expect(
+            MembershipPresentation.dismissAfterRestore(household: model.household, notice: model.notice),
+            "the paywall's Done and this predicate key on the same thing"
+        )
+    }
+
+    @Test("a receipt submission still means an Apple receipt, not a grant")
+    @MainActor
+    func theReceiptPathStillReadsTier() async {
+        // `submitCurrentEntitlement` returns the household only if the server calls it
+        // *subscribed* — a receipt question, which a grant must not answer. A granted household
+        // handed back from the submit route is "carry on as before", exactly as a free one is.
+        let familyID = UUID()
+        let store = FakeStore(entitlement: "signed")
+        let model = SubscriptionModel(
+            readHousehold: { await household("free", id: familyID) },
+            submitTransaction: { _ in await grantedHousehold(id: familyID) },
+            store: store,
+            confirmationSchedule: [],
+            confirmationSleep: { _ in }
+        )
+
+        await model.load()
+        await model.restore()
+
+        #expect(model.restoreConfirmation == nil, "a grant is not a restored receipt")
+    }
+}
+
+// MARK: - Phase 141: the restore window has a deadline too
+
+/// **Phase 138's own sentence, one surface over.** `confirm()` was given a screen deadline on
+/// Sep 1, 2026 and `restore()` was recorded as *"the identical unbounded read, deliberately left
+/// alone"* — a minimal-fix rule, not a decision that the row may spin forever. App Review is
+/// required to exercise restore, and a hung `AppStore.sync()` or household read parked
+/// `isRestoring`, which spins the Settings row and disables both restore controls, with no
+/// terminal state at all. These are `ConfirmationDeadlineTests` for the other window.
+@Suite("Phase 141 — the restore window is bounded by more than its sleeps")
+struct RestoreDeadlineTests {
+
+    @MainActor
+    private func eventually(
+        within budget: Duration = .milliseconds(3000),
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let step = Duration.milliseconds(25)
+        var waited = Duration.zero
+        while waited < budget {
+            if condition() { return true }
+            try? await Task.sleep(for: step)
+            waited += step
+        }
+        return condition()
+    }
+
+    /// The restore schedule is real (four reads) and the sleeps between them are collapsed, so a
+    /// test waits on nothing but the read it controls and the deadline under test — which runs
+    /// on the clock the suite does not collapse, for the reason `confirmationDeadlineSleep`
+    /// documents.
+    @MainActor
+    private func model(
+        deadline: Duration,
+        store: any SubscriptionPurchasing,
+        read: @escaping @Sendable () async throws -> FamilySummary
+    ) -> SubscriptionModel {
+        SubscriptionModel(
+            readHousehold: read,
+            store: store,
+            confirmationSchedule: Array(repeating: .zero, count: 10),
+            confirmationSleep: { _ in },
+            confirmationDeadlineSleep: { try await Task.sleep(for: $0) },
+            restoreDeadline: deadline
+        )
+    }
+
+    @Test("a household read that never answers still releases the Settings row")
+    @MainActor
+    func aHungReadStillMovesTheRow() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        let model = model(deadline: .milliseconds(200), store: store) {
+            if await calls.bump() > 1 { try? await Task.sleep(for: .seconds(10)) }
+            return await household("free", id: familyID)
+        }
+
+        await model.load()
+        let restoring = Task { await model.restore() }
+        defer { restoring.cancel() }
+
+        let started = await eventually { model.isRestoring }
+        #expect(started, "the harness has to reach a spinning row or this proves nothing")
+
+        let released = await eventually { !model.isRestoring }
+        #expect(
+            released,
+            """
+            isRestoring never went false. The restore is suspended inside a household read, so the \
+            Settings row spins and both restore controls stay disabled for as long as that read \
+            takes — the schedule cannot end a window that is parked in a read.
+            """
+        )
+        #expect(model.notice == SubscriptionModel.restoreNothingYet)
+        #expect(model.restoreConfirmation == nil)
+    }
+
+    @Test("the deadline never fires on a restore that actually answers")
+    @MainActor
+    func aPromptRestoreBeatsTheDeadline() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+        let model = model(deadline: .seconds(30), store: store) {
+            let n = await calls.bump()
+            return await household(n == 1 ? "free" : "subscribed", id: familyID)
+        }
+
+        await model.load()
+        await model.restore()
+
+        #expect(!model.isRestoring)
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil)
+    }
+
+    @Test("a membership found after the deadline still says so, and the deadline's sentence goes")
+    @MainActor
+    func theServerGetsTheLastWord() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        // Free on the load, then a read that answers *subscribed* only after the deadline has
+        // released the row. The parent must end on "Found it", not on "nothing has arrived yet"
+        // — the server is the authority (D5) and arriving late does not change that. And at most
+        // one of the two sentences may stand, which is the invariant `restore()` states at its top.
+        let model = model(deadline: .milliseconds(150), store: store) {
+            let n = await calls.bump()
+            if n == 1 { return await household("free", id: familyID) }
+            try? await Task.sleep(for: .milliseconds(300))
+            return await household("subscribed", id: familyID)
+        }
+
+        await model.load()
+        let restoring = Task { await model.restore() }
+        defer { restoring.cancel() }
+
+        let released = await eventually { !model.isRestoring && model.notice != nil }
+        #expect(released, "the deadline should speak first")
+
+        let found = await eventually { model.restoreConfirmation == SubscriptionModel.restoreFound }
+        #expect(found, "a membership that arrives late must still be published")
+        #expect(model.notice == nil, "found and nothing-arrived cannot both stand")
+        #expect(model.household?.isSubscribed == true)
+    }
+
+    @Test("a subscribed household whose restore times out gets a released row and silence")
+    @MainActor
+    func aSubscribedHouseholdIsNotToldNothingArrived() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        // Already subscribed when the parent taps — a non-payer guardian, say — and every read
+        // after the load parks. The `.late` branch already refuses to write "nothing has arrived
+        // yet" under a card that reads Subscribed; the deadline has to refuse the same way.
+        let model = model(deadline: .milliseconds(150), store: store) {
+            if await calls.bump() > 1 { try? await Task.sleep(for: .seconds(10)) }
+            return await household("subscribed", id: familyID)
+        }
+
+        await model.load()
+        let restoring = Task { await model.restore() }
+        defer { restoring.cancel() }
+
+        // Wait for the row to start spinning first, or `!isRestoring` is true before the task has
+        // run at all and the test proves nothing.
+        let started = await eventually { model.isRestoring }
+        #expect(started, "the harness has to reach a spinning row or this proves nothing")
+
+        let released = await eventually { !model.isRestoring }
+        #expect(released)
+        #expect(model.notice == nil, "nothing-has-arrived under Subscribed is the contradiction")
+        #expect(model.restoreConfirmation == nil)
+        #expect(model.household?.isSubscribed == true)
+    }
+
+    @Test("a run the deadline abandoned cannot speak for the run that replaced it")
+    @MainActor
+    func anAbandonedRunStaysQuiet() async {
+        let familyID = UUID()
+        let calls = Counter()
+        // The first `AppStore.sync()` hangs past the deadline and then refuses; the second answers
+        // at once. Before the generation guard, the first run's refusal landed as `notice` after
+        // the second run had already found the membership — both sentences standing, and the
+        // paywall's Done refusing to dismiss over an error the parent never caused.
+        let store = LateRefusingStore(delay: .milliseconds(400))
+        let model = model(deadline: .milliseconds(150), store: store) {
+            let n = await calls.bump()
+            return await household(n == 1 ? "free" : "subscribed", id: familyID)
+        }
+
+        await model.load()
+        let first = Task { await model.restore() }
+        defer { first.cancel() }
+        let released = await eventually { !model.isRestoring && model.notice != nil }
+        #expect(released, "the deadline releases the row with the not-found sentence")
+
+        await model.restore()
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil)
+
+        // Let the abandoned run's refusal land.
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(model.notice == nil, "the abandoned run's refusal is about a run nobody is watching")
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(!model.isRestoring)
+    }
+
+    @Test("an abandoned run returning while its replacement is in flight does not release the row")
+    @MainActor
+    func anAbandonedRunDoesNotReleaseItsReplacement() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let sleeps = Counter()
+        // A refuses at 400 ms — after its 150 ms deadline has released the row and B has taken it.
+        // B's poll read parks, so B is still in flight when A returns; B's own deadline is held
+        // off (10 s) so nothing but A's return could release the row during the test.
+        let store = LateRefusingStore(delay: .milliseconds(400))
+        let model = SubscriptionModel(
+            readHousehold: {
+                if await calls.bump() > 1 { try? await Task.sleep(for: .seconds(10)) }
+                return await household("free", id: familyID)
+            },
+            store: store,
+            confirmationSchedule: Array(repeating: .zero, count: 10),
+            confirmationSleep: { _ in },
+            confirmationDeadlineSleep: { requested in
+                try await Task.sleep(for: await sleeps.bump() == 1 ? requested : .seconds(10))
+            },
+            restoreDeadline: .milliseconds(150)
+        )
+
+        await model.load()
+        let first = Task { await model.restore() }
+        defer { first.cancel() }
+        let released = await eventually { !model.isRestoring && model.notice != nil }
+        #expect(released, "A's deadline releases the row")
+
+        let second = Task { await model.restore() }
+        defer { second.cancel() }
+        let taken = await eventually { model.isRestoring && model.notice == nil }
+        #expect(taken, "B has the row")
+
+        // A's refusal lands while B is still parked in its read.
+        try? await Task.sleep(for: .milliseconds(500))
+        #expect(model.isRestoring, "A's return must not release a row that is B's now")
+        #expect(model.notice == nil, "A's refusal is about a run nobody is watching")
+    }
+
+    @Test("an abandoned run's deadline firing late cannot release its replacement either")
+    @MainActor
+    func anAbandonedDeadlineDoesNotReleaseItsReplacement() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let sleeps = Counter()
+        let latch = Latch()
+        // A refuses at 100 ms, before its deadline; its deadline task is cancelled at A's return
+        // but is parked on the latch, so its body runs only when the test lets it — after B has
+        // the row. Without the generation check, that body releases B's row and writes a
+        // sentence under it.
+        let store = LateRefusingStore(delay: .milliseconds(100))
+        let model = SubscriptionModel(
+            readHousehold: {
+                if await calls.bump() > 1 { try? await Task.sleep(for: .seconds(10)) }
+                return await household("free", id: familyID)
+            },
+            store: store,
+            confirmationSchedule: Array(repeating: .zero, count: 10),
+            confirmationSleep: { _ in },
+            confirmationDeadlineSleep: { _ in
+                if await sleeps.bump() == 1 { await latch.wait() } else { try await Task.sleep(for: .seconds(10)) }
+            },
+            restoreDeadline: .milliseconds(150)
+        )
+
+        await model.load()
+        await model.restore()
+        #expect(!model.isRestoring)
+        #expect(model.notice != nil, "A's refusal is the current sentence")
+
+        let second = Task { await model.restore() }
+        defer { second.cancel() }
+        let taken = await eventually { model.isRestoring && model.notice == nil }
+        #expect(taken, "B has the row")
+
+        await latch.open()
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(model.isRestoring, "A's deadline must not release a row that is B's now")
+        #expect(model.notice == nil, "A's deadline must not write under B")
+    }
+
+    @Test("a released row accepts a second tap, and the second run is a real one")
+    @MainActor
+    func aSecondTapAfterTheDeadlineRuns() async {
+        let familyID = UUID()
+        let calls = Counter()
+        let store = FakeStore()
+
+        // The first restore hangs forever; the deadline releases the row; the parent taps again
+        // and this time the server answers. `guard !isRestoring` must not be the thing that
+        // swallows the second tap — that guard was the whole wedge.
+        let model = model(deadline: .milliseconds(150), store: store) {
+            let n = await calls.bump()
+            if n == 1 { return await household("free", id: familyID) }
+            if n == 2 { try? await Task.sleep(for: .seconds(10)) }
+            return await household("subscribed", id: familyID)
+        }
+
+        await model.load()
+        let first = Task { await model.restore() }
+        defer { first.cancel() }
+        let released = await eventually { !model.isRestoring && model.notice != nil }
+        #expect(released)
+
+        await model.restore()
+
+        let restores = await store.restores
+        #expect(restores == 2, "the second tap reached the store")
+        #expect(model.restoreConfirmation == SubscriptionModel.restoreFound)
+        #expect(model.notice == nil)
+    }
+}
+
+/// A store whose first `restore()` hangs for `delay` and then refuses, and whose later ones
+/// succeed at once — the shape that lets an abandoned run return *after* its replacement.
+private actor LateRefusingStore: SubscriptionPurchasing {
+    private let delay: Duration
+    private var restores = 0
+    init(delay: Duration) { self.delay = delay }
+    func loadOffer() async throws -> SubscriptionOffer { .double }
+    func purchase(_ plan: SubscriptionPlan, familyID: UUID) async throws -> PurchaseOutcome { .cancelled }
+    func restore() async throws {
+        restores += 1
+        if restores == 1 {
+            try? await Task.sleep(for: delay)
+            throw SubscriptionStoreError.unverified
+        }
+    }
+    func currentEntitlement() async -> String? { nil }
+}
+
+/// A wait that ignores cancellation, so a cancelled deadline task can be held until the test
+/// decides its body may run. `withCheckedContinuation` is not cancellation-aware, which is the
+/// property this needs and `Task.sleep` lacks.
+private actor Latch {
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        opened = true
+        for waiter in waiters { waiter.resume() }
+        waiters.removeAll()
+    }
+}
+

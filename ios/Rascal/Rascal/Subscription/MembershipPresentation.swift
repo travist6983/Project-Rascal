@@ -161,19 +161,20 @@ nonisolated enum MembershipPresentation {
         /// household something shows instead what is happening to the thing they just bought.
         /// Carries its own label so the view renders it without consulting `purchase` again.
         case finishing(String)
-        /// **Neither, and no row at all.** A subscribed household whose caller is explicitly *not*
-        /// the payer. There is no approved copy naming the other parent, so the card says nothing
-        /// rather than inventing a sentence about somebody else's card.
+        /// **Neither, and no row at all.** Two households reach it: a subscribed one whose caller
+        /// is explicitly *not* the payer, and (since phase 141) one entitled by an admin grant.
+        /// There is no approved copy naming the other parent, and none for a complimentary
+        /// membership, so the card says nothing rather than inventing a sentence for either.
         case hidden
     }
 
     /// **What the membership card offers, as a pure function.**
     ///
-    /// `hidden` exists only for one state and is reachable only on an **explicit `false`**:
+    /// `hidden` has two states. For a subscriber it is reachable only on an **explicit `false`**:
     /// `is_payer` is null in exactly the two-guardian case — the one case where the question is
     /// meaningful — and hiding Apple's management sheet on a null would strip a working control
     /// from a parent who is paying. `FamilySummary.mayManageSubscription` is the `!= false` that
-    /// makes unknown behave as yes.
+    /// makes unknown behave as yes. The second is a granted household (phase 141), below.
     ///
     /// **`offer` when there is no household yet**, which is the shipped behaviour and is not this
     /// phase's question to reopen.
@@ -181,7 +182,9 @@ nonisolated enum MembershipPresentation {
     /// **Keyed on `tier`, not `access`, and deliberately.** Manage opens *Apple's* subscription
     /// sheet, and a household inside its server-granted trial has no Apple subscription to manage —
     /// there is nothing there for them to see. `access` answers what may be *served*; this answers
-    /// whether somebody is paying Apple, which is `tier`'s question and always was.
+    /// whether somebody is paying Apple, which is `tier`'s question and always was. **A grant is
+    /// the one state `tier` and `access` cannot describe between them**, which is why
+    /// `entitlement_source` is read here too (phase 141).
     static func settingsAction(
         for household: FamilySummary?,
         purchase: SubscriptionModel.PurchasePhase = .idle
@@ -198,7 +201,18 @@ nonisolated enum MembershipPresentation {
         // `.late` and `.awaitingApproval` keep the offer row: the sheet behind it renders the
         // same terminal sentence with Done, plus Terms and Privacy, which the card cannot.
         // `.failed` keeps it for the retry that lives on the sheet.
-        case .idle, .late, .awaitingApproval, .failed, .subscribed: return .offer
+        case .idle, .late, .awaitingApproval, .failed, .subscribed:
+            // **A granted household is neither.** The status row above it already reads
+            // *Subscribed* (`settingsStatus` keys on `access`, and a grant reads `subscribed`
+            // there by the server's deliberate choice), there is no Apple subscription for Manage
+            // to open, and offering to sell membership to a household that has all of it is the
+            // contradiction phase 141 found: "Subscribed" with "See what membership includes"
+            // directly beneath. No row, as the explicit-non-payer case already does for the same
+            // reason — there is no approved copy for a complimentary membership, so the card says
+            // nothing rather than inventing it. After the busy states, not before them: a grant
+            // landing while a purchase is mid-flight must not hide "Finishing up".
+            if let household, household.isGranted { return .hidden }
+            return .offer
         }
     }
 
@@ -258,9 +272,9 @@ nonisolated enum MembershipPresentation {
     /// **The device does not decide entitlement (D5).** `household` is the `FamilySummary` that
     /// `EntitlementConfirmation.poll` read back from `GET /v1/families/me`; `isSubscribed` is the
     /// server's word on it. Nothing here does arithmetic, reads a receipt, or consults StoreKit.
-    /// It is `isSubscribed` rather than `access.isEntitled` on purpose: that is the same predicate
-    /// the sheet's own **Done** button keys on, so this cannot dismiss over a state the sheet would
-    /// have described differently.
+    /// It is `isMember` rather than `access.isEntitled` on purpose: that is the same predicate
+    /// the sheet's own **Done** button keys on (a receipt or a grant, since phase 141), so this
+    /// cannot dismiss over a state the sheet would have described differently.
     ///
     /// **`notice` is what separates the outcomes, and it is load-bearing rather than
     /// belt-and-braces.** `restore()` clears it before it starts and writes it in exactly two
@@ -270,7 +284,7 @@ nonisolated enum MembershipPresentation {
     /// dismissed out of the sheet by a restore that just failed, over an error they never read.
     static func dismissAfterRestore(household: FamilySummary?, notice: String?) -> Bool {
         guard notice == nil else { return false }
-        return household?.isSubscribed == true
+        return household?.isMember == true
     }
 
     /// **What the Settings *Your household* row reports** — *Household* until phase 125 renamed the

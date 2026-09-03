@@ -74,8 +74,9 @@ struct SubscriptionSection: View {
                         showingPaywall = true
                     }
                 case .hidden:
-                    // A subscriber who is explicitly not the payer. Nothing to manage and nothing
-                    // to sell them; the copy file has no sentence for it, so the card is silent.
+                    // A subscriber who is explicitly not the payer, or a household on an admin
+                    // grant (phase 141). Nothing to manage and nothing to sell either of them; the
+                    // copy file has no sentence for it, so the card is silent.
                     EmptyView()
                 }
 
@@ -217,6 +218,8 @@ struct SubscriptionSection: View {
                 plan: plan,
                 billingRetry: billingRetry,
                 isPayer: isPayer,
+                entitled: nil,
+                entitlementSource: nil,
                 guardians: [],
                 pendingInvites: []
             )
@@ -375,8 +378,7 @@ struct SubscriptionSection: View {
                 previewing: .loading,
                 household: .previewing(tier: "free", access: .free),
                 // The string `restore()` actually sets, not one written for a preview.
-                notice: "Nothing has arrived yet. If you subscribed on another device, "
-                    + "it can take a moment to appear."
+                notice: SubscriptionModel.restoreNothingYet
             )
         )
     }

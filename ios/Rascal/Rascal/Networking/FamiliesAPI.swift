@@ -144,11 +144,40 @@ nonisolated struct FamilySummary: Decodable, Equatable, Sendable {
     /// Hiding it on a null would strip a working control from a parent who is paying.
     let isPayer: Bool?
 
+    /// **The union the server gates on since phase 121** — a receipt, an active grant, or a live
+    /// trial. `tier` still means *what Apple said*; this is whether the archive is open.
+    ///
+    /// Optional for the same reason `billingRetry` is: a server predating the field sends no key,
+    /// and a non-optional `Bool` would fail the whole decode. Carried so a client can read what the
+    /// server actually decides on; nothing gates on it here yet.
+    let entitled: Bool?
+
+    /// `receipt` | `grant` | `trial` | `none`. **How a client tells complimentary from paid**, which
+    /// `tier` and `access` together cannot: a granted household reads `access: "subscribed"` with
+    /// `tier: "free"`, and the contract calls that pairing deliberate.
+    ///
+    /// A `String?` rather than an enum, as `plan` is and for the same reason — a value a later
+    /// server invents must not fail the decode. Read it through `isGranted`.
+    let entitlementSource: String?
+
     let guardians: [GuardianSummary]
     /// Only invites still acceptable. Accepted, revoked and expired ones are history.
     let pendingInvites: [InviteSummary]
 
+    /// Somebody is paying Apple. **The only question Apple's management sheet answers**, and the
+    /// only one a receipt submission proves — keep reading this where the subject is a receipt.
     var isSubscribed: Bool { tier == "subscribed" }
+
+    /// Complimentary access from an admin grant. Not an Apple subscription: there is nothing in
+    /// Apple's sheet to manage and, more to the point, nothing to sell.
+    var isGranted: Bool { entitlementSource == "grant" }
+
+    /// **A household a checkout would not serve** — paying Apple already, or granted everything a
+    /// payment would buy. The buy button and the Settings upsell read this rather than `tier`,
+    /// because a granted household keyed on `tier` was offered membership under a card that
+    /// already said *Subscribed* (phase 141). A trial is deliberately *not* a member: the paywall
+    /// exists to be shown to one.
+    var isMember: Bool { isSubscribed || isGranted }
 
     /// `billingRetry`, with absent and `false` collapsed — which is every state that exists.
     /// **Nothing renders this yet**: there is no approved copy for the grace state, and a household
