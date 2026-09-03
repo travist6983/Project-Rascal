@@ -6,8 +6,19 @@ test in `tests/test_app_store.py` asserts that it stays the only one. `docs/runb
 this phase does not add one.
 
 Everything in this module runs *after* `services/app_store.verify_notification` has verified a
-signature. There is no other entry point: the router hands this function a
-`VerifiedNotification`, which cannot be constructed from an unverified payload.
+signature. ~~There is no other entry point: the router hands this function a
+`VerifiedNotification`, which cannot be constructed from an unverified payload.~~ — **there are
+two entry points since phase 140 (Sep 3, 2026), and the sentence's real claim still holds.**
+`apply_notification` takes a `VerifiedNotification` from `POST /webhooks/app-store`;
+`apply_submitted_transaction` takes a `VerifiedTransaction` from `POST /families/me/transactions`,
+the JWS the app itself holds for a purchase, verified by the same verifier against the same roots.
+Neither type can be constructed from an unverified payload, `_write_tier` is still the one
+assignment to `tier`, and a submitted transaction may only ever *promote* — the notification
+stream stays the sole authority on a membership ending. Why the second door exists: a purchase
+StoreKit reports as a success is not always one Apple announces as `SUBSCRIBED` (a plan change on
+an Apple ID already holding the group is `DID_CHANGE_RENEWAL_PREF`, no tier effect), and a
+`SUBSCRIBED` that was lost or discarded left the app with no way to tell the server about a
+receipt it could see with its own eyes — "Restore a purchase" only re-read the server.
 
 ## Five guards, and the table of notification types matters less than any of them
 
@@ -83,6 +94,7 @@ has left — asked from two directions.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 
@@ -95,7 +107,7 @@ from rascal.constants import (
     Tier,
 )
 from rascal.models import AppStoreTransaction, Entitlement, Family, User
-from rascal.services.app_store import VerifiedNotification
+from rascal.services.app_store import VerifiedNotification, VerifiedTransaction
 from rascal.services.guardians import active_parent_count, family_members
 
 log = logging.getLogger("rascal.app_store.events")
@@ -374,9 +386,240 @@ async def apply_notification(
         await session.flush()
         return _outcome(effect, family_id, demotion_refused, promotion_refused, sandbox_blocked)
 
-    await _write_tier(session, family_id, effect, note)
+    await _write_tier(
+        session,
+        family_id,
+        effect,
+        signed_date=note.signed_date,
+        source=note.notification_type,
+        environment=note.environment,
+        set_payer=note.notification_type == "SUBSCRIBED",
+    )
     await session.flush()
     return f"tier:{effect}"
+
+
+class TransactionBelongsElsewhere(Exception):
+    """The submitted transaction's `appAccountToken` is not the caller's household.
+
+    Raised rather than returned as a status because it is the one outcome the caller must not
+    be allowed to mistake for success: nothing was recorded and nothing will be, and the
+    router turns it into a `409` the client can show. Every other refusal here is a `200` with
+    a status string, the way the webhook answers `202`, because for those the household is
+    right and the answer is simply "not yet" or "not this".
+    """
+
+
+#: The ledger's `latest_notification_type` for a row a submission created — a value Apple
+#: never sends, so a reader of the table can tell a client-reported purchase from a
+#: notification at a glance. `membership_signals` reads only the `plan` off such a row.
+SUBMITTED = "SUBMITTED"
+
+#: The only `type` claim this door acts on. A consumable or a non-renewing product carries no
+#: `expiresDate`, and "active until further notice" is not a claim this service will make
+#: about anything Apple did not call a subscription.
+_AUTO_RENEWABLE = "Auto-Renewable Subscription"
+
+
+async def apply_submitted_transaction(
+    session: AsyncSession,
+    txn: VerifiedTransaction,
+    *,
+    family_id: uuid.UUID,
+    service_environment: str,
+) -> str:
+    """Record a transaction the app submitted and, if it proves an active subscription, promote.
+
+    **What this is allowed to do, and what it is not.** It may write `tier = subscribed` and
+    attribute a ledger row to the caller's household. It never writes `free`, never touches
+    `latest_signed_date` on a row a notification has already written, and never records a
+    transaction it declined to act on — so the notification stream is still the only thing that
+    can end a membership, and a submission can never make a later `EXPIRED` look stale
+    (guard 1 reads that column as a high-water mark, and a client can obtain a freshly signed
+    JWS at any time).
+
+    `family_id` is the caller's, from the bearer token, and the transaction's own
+    `appAccountToken` must name it: the token was attached at purchase by this app and is inside
+    Apple's signature, so this checks Apple's statement of who bought it against who is asking,
+    rather than taking either party's word.
+
+    **And it cannot resurrect a lapse it predates.** A JWS is Apple's statement that the
+    subscription was active *as of its `signedDate`*; a `REFUND` signed an hour later is a newer
+    statement, and the phone may still hold the older one. So a submission signed at or before
+    the household's `lapsed_at`, or at or before a demoting notification that is the ledger's
+    latest word on that transaction, is refused — guard 1's ordering rule, read against the two
+    places a lapse is recorded rather than against the row's high-water mark alone, because a
+    neutral notification (a renewal-preference change) can land after the refund and become the
+    row's latest without un-lapsing anything.
+    """
+    if txn.app_account_token is None or txn.app_account_token != family_id:
+        log.warning(
+            "submitted transaction refused: appAccountToken is not the caller's household",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "family_id": str(family_id),
+                "app_account_token": str(txn.app_account_token),
+            },
+        )
+        raise TransactionBelongsElsewhere
+
+    if not txn.original_transaction_id:
+        return "ignored:no-transaction-id"
+    if txn.transaction_type != _AUTO_RENEWABLE:
+        log.warning(
+            "submitted transaction ignored: not an auto-renewable subscription",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "type": txn.transaction_type,
+            },
+        )
+        return "ignored:not-a-subscription"
+
+    existing = await session.get(AppStoreTransaction, txn.original_transaction_id)
+
+    # Guard 2, unchanged in meaning: one transaction id, one environment.
+    if existing is not None and existing.environment != txn.environment:
+        log.warning(
+            "submitted transaction refused: it claims a transaction recorded in the other "
+            "environment",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "recorded_environment": existing.environment,
+                "payload_environment": txn.environment,
+            },
+        )
+        return "ignored:environment-mismatch"
+
+    # The ledger already attributes this subscription to a different household. Apple's
+    # signature says the caller, the ledger says somebody else, and a client cannot resolve
+    # that: `apply_notification` logs the same disagreement and proceeds on Apple's word
+    # because a notification is Apple speaking; here it is the caller speaking with Apple's
+    # signature in hand, and the conservative answer is to touch nothing.
+    if existing is not None and existing.family_id is not None and existing.family_id != family_id:
+        log.warning(
+            "submitted transaction refused: the ledger attributes it to a different family",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "recorded_family_id": str(existing.family_id),
+                "family_id": str(family_id),
+            },
+        )
+        raise TransactionBelongsElsewhere
+
+    # **Active means an `expiresDate` in the future and no `revocationDate`.** A subscription
+    # transaction with no expiry at all is not "active until further notice" — Apple always
+    # sends one, and `apply_notification` never invents an entitlement from a claim a payload
+    # omitted. A lapsed or refunded transaction is Apple's to report, through the door that may
+    # demote; recording it here would be a client writing its own `lapsed_at`.
+    active = (
+        txn.revocation_date is None
+        and txn.expires_date is not None
+        and txn.expires_date > dt.datetime.now(dt.UTC)
+    )
+    if not active:
+        return "ignored:not-active"
+
+    # **A receipt from before the lapse.** Both places a demotion is recorded are consulted:
+    # the household's `lapsed_at` (written by every demotion, cleared by every promotion) and,
+    # for this transaction's row, a demoting notification that is the row's latest word.
+    entitlement = await session.get(Entitlement, family_id)
+    lapsed_at = entitlement.lapsed_at if entitlement is not None else None
+    if lapsed_at is not None and txn.signed_date <= lapsed_at:
+        log.warning(
+            "submitted transaction ignored: signed before the household's lapse",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "family_id": str(family_id),
+                "signed_date": txn.signed_date.isoformat(),
+                "lapsed_at": lapsed_at.isoformat(),
+            },
+        )
+        return "ignored:out-of-order"
+    if (
+        existing is not None
+        and tier_effect(existing.latest_notification_type, existing.latest_notification_subtype)
+        == "free"
+        and txn.signed_date <= existing.latest_signed_date
+    ):
+        log.warning(
+            "submitted transaction ignored: a demoting notification for it is newer",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "family_id": str(family_id),
+                "signed_date": txn.signed_date.isoformat(),
+                "stored_signed_date": existing.latest_signed_date.isoformat(),
+                "stored_type": existing.latest_notification_type,
+            },
+        )
+        return "ignored:out-of-order"
+
+    # Guard 3, the same rule: Production wins, and Sandbox only ever promotes.
+    if is_sandbox_in_production(txn.environment, service_environment) and not may_write_tier(
+        txn.environment,
+        service_environment,
+        family_has_production_row=await _has_production_transaction(session, family_id),
+    ):
+        log.warning(
+            "sandbox transaction submitted for a household production has spoken about",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "family_id": str(family_id),
+            },
+        )
+        return "ignored:sandbox-blocked"
+
+    # Guard 5 does not apply: the caller is a member of this household by construction, so
+    # `active_parent_count` is at least one, and asserting it would be asserting the bearer
+    # token. Guard 4 does not apply either: this door cannot demote.
+
+    await _record_submission(session, txn, existing=existing, family_id=family_id)
+    await _write_tier(
+        session,
+        family_id,
+        "subscribed",
+        signed_date=txn.signed_date,
+        source=SUBMITTED,
+        environment=txn.environment,
+        set_payer=True,
+    )
+    await session.flush()
+    return "tier:subscribed"
+
+
+async def _record_submission(
+    session: AsyncSession,
+    txn: VerifiedTransaction,
+    *,
+    existing: AppStoreTransaction | None,
+    family_id: uuid.UUID,
+) -> None:
+    """The ledger's side of a submission: a row where there was none, attribution where it was
+    missing, and **nothing else**.
+
+    A row a notification wrote keeps its `latest_signed_date`, its type and its payload. The
+    date is guard 1's high-water mark and a submission's `signedDate` is whenever StoreKit last
+    fetched the JWS — advancing it would let a restore tapped today outrank an `EXPIRED` Apple
+    signed an hour ago and has not delivered yet. A new row's date *is* the submission's,
+    which is safe by the same reasoning inverted: an active transaction signed at *S* is
+    Apple's statement that nothing had ended it by *S*.
+    """
+    if existing is None:
+        session.add(
+            AppStoreTransaction(
+                original_transaction_id=txn.original_transaction_id,
+                family_id=family_id,
+                product_id=txn.product_id,
+                environment=txn.environment,
+                latest_notification_type=SUBMITTED,
+                latest_notification_subtype=None,
+                latest_signed_date=txn.signed_date,
+                expires_date=txn.expires_date,
+                raw_payload=txn.raw,
+            )
+        )
+        return
+    if existing.family_id is None:
+        existing.family_id = family_id
 
 
 def _outcome(
@@ -493,9 +736,19 @@ async def _write_tier(
     session: AsyncSession,
     family_id: uuid.UUID,
     effect: Tier,
-    note: VerifiedNotification,
+    *,
+    signed_date: dt.datetime,
+    source: str,
+    environment: str,
+    set_payer: bool,
 ) -> None:
-    """The one place `entitlements.tier` is assigned. `updated_at` is the trigger's."""
+    """The one place `entitlements.tier` is assigned. `updated_at` is the trigger's.
+
+    Takes the four facts it acts on rather than a `VerifiedNotification`, since phase 140,
+    because a submitted transaction reaches it too — and the single `.tier =` below is what
+    `test_tier_has_exactly_one_writer` counts, so a second writer for the second door would
+    have failed that test rather than passed it, which is the test doing its job.
+    """
     entitlement = await session.get(Entitlement, family_id)
     if entitlement is None:  # pragma: no cover — create_household writes both rows together
         entitlement = Entitlement(family_id=family_id)
@@ -504,20 +757,20 @@ async def _write_tier(
     entitlement.tier = effect
     if effect == "subscribed":
         entitlement.lapsed_at = None
-        if note.notification_type == "SUBSCRIBED":
+        if set_payer:
             await _set_payer(session, entitlement, family_id)
     else:
         # `signedDate` rather than "now": when Apple decided is what D3's clocks run from, and
         # a late-delivered notification would otherwise date the lapse to when we heard.
-        entitlement.lapsed_at = note.signed_date
+        entitlement.lapsed_at = signed_date
 
     log.info(
         "entitlement written from an app store notification",
         extra={
             "family_id": str(family_id),
             "tier": effect,
-            "type": note.notification_type,
-            "environment": note.environment,
+            "type": source,
+            "environment": environment,
         },
     )
 

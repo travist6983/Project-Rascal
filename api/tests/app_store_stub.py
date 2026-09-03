@@ -309,6 +309,51 @@ def sign_notification(
     return _sign(chain, payload)
 
 
+def sign_transaction(
+    chain: Chain,
+    *,
+    signed_date: dt.datetime,
+    environment: str = "Production",
+    original_transaction_id: str = "2000000000000001",
+    transaction_id: str | None = None,
+    product_id: str = ANNUAL_PRODUCT_ID,
+    app_account_token: uuid.UUID | str | None = None,
+    expires_date: dt.datetime | None = None,
+    revocation_date: dt.datetime | None = None,
+    purchase_date: dt.datetime | None = None,
+    bundle_id: str = BUNDLE_ID,
+    transaction_type: str = "Auto-Renewable Subscription",
+) -> str:
+    """A bare transaction JWS — what StoreKit 2 calls `jwsRepresentation` on the device.
+
+    The same claims `sign_notification` nests as `signedTransactionInfo`, signed on their own:
+    this is the object phase 140's `POST /families/me/transactions` accepts, and building it
+    from the same signer means a test proves the route verifies Apple's signature rather than
+    a shape of our own.
+    """
+    claims = {
+        "originalTransactionId": original_transaction_id,
+        "transactionId": transaction_id or original_transaction_id,
+        "bundleId": bundle_id,
+        "productId": product_id,
+        "environment": environment,
+        "type": transaction_type,
+        "signedDate": millis(signed_date),
+        "purchaseDate": millis(purchase_date or signed_date),
+        "originalPurchaseDate": millis(purchase_date or signed_date),
+        "quantity": 1,
+        "inAppOwnershipType": "PURCHASED",
+    }
+    if app_account_token is not None:
+        claims["appAccountToken"] = str(app_account_token)
+    if expires_date is not None:
+        claims["expiresDate"] = millis(expires_date)
+    if revocation_date is not None:
+        claims["revocationDate"] = millis(revocation_date)
+        claims["revocationReason"] = 0
+    return _sign(chain, claims)
+
+
 def tamper(signed_payload: str) -> str:
     """Flip one character of the payload segment, leaving the signature intact.
 

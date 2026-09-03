@@ -252,9 +252,9 @@ The receipt ledger — **why** a household is entitled to what `entitlements` sa
 | `family_id` | uuid FK | → families, **nullable**, `ON DELETE SET NULL`. Resolved from `appAccountToken`; null for an orphan or unrecognised receipt |
 | `product_id` | text | nullable |
 | `environment` | text | `Sandbox` \| `Production`, `text` + named CHECK |
-| `latest_notification_type` | text | |
+| `latest_notification_type` | text | Apple's `notificationType` — or **`SUBMITTED`**, since phase 140, for a row the app's own `POST /families/me/transactions` created; a value Apple never sends, so the ledger says which door wrote the row |
 | `latest_notification_subtype` | text | nullable |
-| `latest_signed_date` | timestamptz | Apple's `signedDate` off the **outer** payload. **The ordering key** |
+| `latest_signed_date` | timestamptz | Apple's `signedDate` off the **outer** payload. **The ordering key.** A submitted transaction sets it only on a row it creates, and **never moves it on a row a notification wrote** — see below |
 | `expires_date` | timestamptz | nullable |
 | `raw_payload` | jsonb | the decoded notification, whole, with both nested JWSs replaced by their own claims |
 | `created_at` / `updated_at` | timestamptz | `updated_at` by the `set_updated_at()` trigger |
@@ -264,6 +264,17 @@ Indexed on `family_id`, and on `(environment, latest_signed_date)` — both are 
 **This table is the substrate for three guards**, which is the reason it exists at all rather than a place to keep receipts. Idempotency: Apple retries until it gets a 2xx, so the same notification arrives more than once as a matter of course. Ordering: `latest_signed_date` is the high-water mark, and anything older writes nothing. Provenance: a demotion is refused for a family with no row here linking it to that transaction, which is what stops a stray `EXPIRED` from undoing §7a's hand-written row and locking the owner out of his own product.
 
 **`family_id` is nullable and that is load-bearing.** `appAccountToken` is the only channel by which Apple can carry a family id; a purchase made without one is an orphan receipt, and recording it unattributed is strictly better than refusing it — a 4xx means Apple tells us about it forever, and the row is the evidence a support conversation would need. `ON DELETE SET NULL` rather than `CASCADE` because a receipt outlives the household it paid for: a hard account deletion must not take the billing record with it, and Apple will still send a `REFUND` about it.
+
+**A second writer of rows since phase 140 (Sep 3, 2026), and what it may not touch.** `POST
+/families/me/transactions` records the transaction the app itself holds — `SUBMITTED`, attributed,
+with the transaction's own `signedDate` — when the ledger has no row for it, and on a row a
+notification already wrote it fills a null `family_id` and changes **nothing else**. The ordering
+key is the reason: a submission's `signedDate` is whenever StoreKit last fetched the JWS, so a
+*Restore* tapped this afternoon would outrank an `EXPIRED` Apple signed this morning and has not
+delivered yet, and guard 1 would then call the real notification stale. A row it creates is safe to
+date with the submission, by the same reasoning inverted: an active transaction signed at *S* is
+Apple's statement that nothing had ended it by *S*. A submission never demotes and never records a
+transaction it declined to act on. `api-contract.md` has the route.
 
 **`raw_payload` holds the decode, not the JWS.** A stored JWS is a secret-shaped blob nobody will verify a second time; a stored decode is readable at 2am, which is the only time anybody opens this table.
 

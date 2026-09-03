@@ -86,6 +86,35 @@ class VerifiedNotification:
     raw: dict
 
 
+@dataclass(frozen=True)
+class VerifiedTransaction:
+    """One signed transaction the app itself holds, verified — phase 140's counterpart of
+    :class:`VerifiedNotification`.
+
+    StoreKit 2 hands the app a JWS for every verified transaction (`jwsRepresentation`), signed
+    by the same App Store key that signs a notification's nested `signedTransactionInfo`. This
+    is that object after the same verifier has checked it, flattened to the fields the writer
+    reads. Frozen for the reason `VerifiedNotification` is.
+
+    **It carries no `notification_type`, because it is not a notification.** It says what Apple
+    last knew about one subscription — active until `expires_date`, or revoked at
+    `revocation_date` — and the writer decides from those two dates alone whether it may
+    promote. It never demotes; see `apply_submitted_transaction`.
+    """
+
+    original_transaction_id: str | None
+    transaction_id: str | None
+    product_id: str | None
+    transaction_type: str | None
+    environment: AppStoreEnvironment
+    signed_date: dt.datetime
+    purchase_date: dt.datetime | None
+    expires_date: dt.datetime | None
+    revocation_date: dt.datetime | None
+    app_account_token: uuid.UUID | None
+    raw: dict
+
+
 def load_root_certificates(directory: Path) -> list[bytes]:
     """Every DER `.cer` in *directory*, sorted so the list is stable across filesystems.
 
@@ -191,6 +220,64 @@ class AppStoreVerifier:
             raise NotificationUnverifiable(f"Payload did not verify: {status}")
 
         return self._decode(payload, environment, signed_payload)
+
+    def verify_transaction(self, signed_transaction: str) -> VerifiedTransaction:
+        """Verify one bare transaction JWS — the string StoreKit 2 calls `jwsRepresentation`.
+
+        The same verifier, the same roots, the same `bundleId` pin as the nested transaction
+        inside a notification (`_decode` below calls the identical library method). What a
+        bare transaction cannot be pinned to is `appAppleId`, which only a notification's
+        envelope carries; the `bundleId` claim is inside the signature, so a transaction for
+        another app still fails here.
+
+        **Every failure is `NotificationUnverifiable`**, for the same reason `verify` has no
+        other exit: the caller has exactly one branch to write, and it is the refusal.
+        """
+        if not self._verifiers:
+            raise NotificationUnverifiable("No App Store trust anchors are configured.")
+
+        transaction = None
+        last_error: VerificationException | None = None
+        for environment in (Environment.PRODUCTION, Environment.SANDBOX):
+            verifier = self._verifiers.get(environment)
+            if verifier is None:
+                continue
+            try:
+                transaction = verifier.verify_and_decode_signed_transaction(signed_transaction)
+                break
+            except VerificationException as exc:
+                last_error = exc
+            except Exception as exc:  # malformed JWS, bad base64, unparseable JSON
+                raise NotificationUnverifiable(f"Transaction could not be decoded: {exc}") from exc
+
+        if transaction is None:
+            status = last_error.status.name if last_error else "VERIFICATION_FAILURE"
+            raise NotificationUnverifiable(f"Transaction did not verify: {status}")
+
+        signed_date = _moment(getattr(transaction, "signedDate", None))
+        if signed_date is None:
+            # The ledger's ordering key. A transaction without one cannot be placed against
+            # the notifications about the same subscription, so it cannot be applied safely.
+            raise NotificationUnverifiable("Transaction carries no signedDate.")
+
+        record = _claims(signed_transaction)
+        record["environment"] = "Sandbox" if environment == Environment.SANDBOX else "Production"
+
+        return VerifiedTransaction(
+            original_transaction_id=_first_str(getattr(transaction, "originalTransactionId", None)),
+            transaction_id=_first_str(getattr(transaction, "transactionId", None)),
+            product_id=_first_str(getattr(transaction, "productId", None)),
+            # The raw string rather than the library's enum, for the reason `_decode` reads
+            # `notificationType` off the claims: an enum is `None` for a value it does not know.
+            transaction_type=_optional_str(record.get("type")),
+            environment="Sandbox" if environment == Environment.SANDBOX else "Production",
+            signed_date=signed_date,
+            purchase_date=_moment(getattr(transaction, "purchaseDate", None)),
+            expires_date=_moment(getattr(transaction, "expiresDate", None)),
+            revocation_date=_moment(getattr(transaction, "revocationDate", None)),
+            app_account_token=_as_uuid(getattr(transaction, "appAccountToken", None)),
+            raw=record,
+        )
 
     def _decode(
         self, payload: object, environment: Environment, signed_payload: str
