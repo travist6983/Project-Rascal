@@ -30,6 +30,8 @@ from helpers import auth_headers
 from rascal.constants import PRODUCT_PLANS
 from rascal.models import AppStoreTransaction, Entitlement
 from rascal.schemas.family import FamilyOut
+from rascal.services.guardians import access_for
+from rascal.services.membership import membership_signals
 
 # The same fixed past instant `test_app_store.py` uses, for the same reason: a `signedDate` is
 # when Apple decided, and pinning it keeps certificate validity out of the runner's clock.
@@ -569,6 +571,10 @@ async def test_a_payload_missing_every_new_field_still_decodes_to_the_safe_direc
     assert decoded.is_payer is None
     # No alarm about a card nobody said was failing.
     assert decoded.billing_retry is False
+    # Phase 144: no count, no date, no word about renewal — a client renders the bare headline.
+    assert decoded.trial_days_left is None
+    assert decoded.expires_at is None
+    assert decoded.auto_renew is None
 
 
 async def test_the_new_fields_are_additive_and_change_nothing_that_was_there(client, session):
@@ -607,6 +613,12 @@ async def test_the_new_fields_are_additive_and_change_nothing_that_was_there(cli
         "entitled",
         "entitlement_source",
         "grant_expires_at",
+        # Phase 144's three, for the Settings card: the count beside the trial's date, and the
+        # period end with Apple's word on whether it renews. All null for this household — no
+        # trial is served to a subscriber, and there is no receipt behind a hand-set tier.
+        "trial_days_left",
+        "expires_at",
+        "auto_renew",
     }
     # This household is subscribed with no grant, so the additions say exactly that.
     assert body["entitled"] is True
@@ -666,3 +678,312 @@ async def test_billing_retry_is_the_last_word_apple_said_and_under_reports_by_de
     # The part that actually matters, and it is unchanged: they are still fully entitled.
     assert body["access"] == "subscribed"
     assert body["plan"] == "annual"
+
+
+# --- Phase 144 · `expires_at`, `auto_renew` and `trial_days_left` -----------------------------
+#
+# The Settings card's redesign (Sep 3, 2026) asked two questions the wire could not answer:
+# *when does this membership renew or end*, and *how many days of the trial are left*. The
+# first is on the ledger row `plan` already reads; the second is arithmetic beside the one
+# trial comparison in `access_for`. Both are for copy only and neither moves a gate.
+
+
+def _far_future() -> dt.datetime:
+    """A period end a year out, **relative to the clock and never a literal** — a future date
+    literal is what `test_fixture_dates.py` forbids, because it becomes a past one on a day
+    nobody is watching. Truncated to whole seconds because Apple's `expiresDate` is in
+    milliseconds and the stub rounds to them; a fixture carrying microseconds would come back
+    a hair earlier than it went in and the equality below would be false for no reason."""
+    return dt.datetime.now(tz=dt.UTC).replace(microsecond=0) + dt.timedelta(days=365)
+
+
+def _moment(value: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(value)
+
+
+async def _entitlement(client, user, family_id) -> dict:
+    response = await client.get(f"/v1/families/{family_id}/entitlement", headers=auth_headers(user))
+    assert response.status_code == 200
+    return response.json()
+
+
+async def test_a_subscription_reports_when_it_renews(
+    app_store_client, client, session, app_store_chain
+):
+    """The owner's ask, on the wire: *Renews {date}* needs a date and a word, and both come off
+    the ledger row `plan` is already read from — one query, no new column."""
+    renews = _far_future()
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+    )
+
+    body = await _me(client, user)
+    assert _moment(body["expires_at"]) == renews
+    assert body["auto_renew"] is True, "the stub signs `autoRenewStatus: 1` unless told otherwise"
+    assert body["plan"] == "annual"
+
+
+async def test_auto_renew_off_is_reported_as_apple_said_it(
+    app_store_client, client, session, app_store_chain
+):
+    """`DID_CHANGE_RENEWAL_STATUS` moves no tier — the household is paid up to the date — and
+    the card now says *Expires {date}* rather than *Renews*, because Apple said so, not because
+    the last notification type was inferred into a guess."""
+    ends = _far_future()
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.MONTHLY_PRODUCT_ID,
+        expires_date=ends,
+    )
+    await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="DID_CHANGE_RENEWAL_STATUS",
+        subtype="AUTO_RENEW_DISABLED",
+        signed_date=LATER,
+        app_account_token=family.id,
+        product_id=stub.MONTHLY_PRODUCT_ID,
+        expires_date=ends,
+        auto_renew_status=0,
+    )
+
+    body = await _me(client, user)
+    assert body["access"] == "subscribed", "turning renewal off takes nothing away today"
+    assert _moment(body["expires_at"]) == ends
+    assert body["auto_renew"] is False
+    assert body["plan"] == "monthly"
+
+
+async def test_a_payload_without_renewal_info_leaves_auto_renew_unknown(
+    app_store_client, client, session, app_store_chain
+):
+    """Null means nobody knows, and the client renders *Paid through {date}* for it. A receipt
+    the app submitted itself (phase 140) is the live case: it carries the transaction JWS and
+    no `renewalInfo`, so until Apple's next notification the status is genuinely unknown."""
+    renews = _far_future()
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+        include_renewal_info=False,
+    )
+
+    body = await _me(client, user)
+    assert _moment(body["expires_at"]) == renews
+    assert body["auto_renew"] is None
+
+
+async def test_a_lapsed_household_reports_no_period_end_even_though_the_row_holds_one(
+    app_store_client, client, session, app_store_chain
+):
+    """The same rule `plan` has: both fields describe a *current* subscription. The ledger row
+    keeps its date — it is the audit record — and the wire reports null beside `access: free`."""
+    family = await make_family(session, trial_ends_at=None)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=_far_future(),
+    )
+    await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="EXPIRED",
+        subtype=None,
+        signed_date=LATER,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=LATER,
+    )
+
+    body = await _me(client, user)
+    assert body["access"] == "free"
+    assert body["expires_at"] is None
+    assert body["auto_renew"] is None
+    row = (
+        await session.execute(
+            select(AppStoreTransaction).where(AppStoreTransaction.family_id == family.id)
+        )
+    ).scalar_one()
+    assert row.expires_date is not None, "the ledger still holds the date; the wire does not"
+
+
+async def test_a_period_end_in_the_past_is_not_reported(app_store_client, session, app_store_chain):
+    """A stale ledger — the renewal happened and Apple's notification has not landed yet — must
+    never surface as *Renews {a date that has passed}*. The clock is injected rather than slept
+    past, which is the same shape `access_for` gives its tests."""
+    renews = _far_future()
+    family = await make_family(session, tier="subscribed")
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+    )
+
+    day = dt.timedelta(days=1)
+    before = await membership_signals(session, family.id, tier="subscribed", now=renews - day)
+    assert before.expires_at == renews
+    assert before.auto_renew is True
+
+    after = await membership_signals(session, family.id, tier="subscribed", now=renews + day)
+    assert after.expires_at is None
+    assert after.auto_renew is None, "no word about renewal beside no date"
+    assert after.plan == "annual", "the plan is still what the ledger says"
+
+    # `now == expires_date` is the boundary, and the period has ended: the comparison is strict
+    # so the card never says *Renews today* about a renewal that is already due.
+    boundary = await membership_signals(session, family.id, tier="subscribed", now=renews)
+    assert boundary.expires_at is None
+
+
+async def test_a_household_in_grace_reports_no_period_end(
+    app_store_client, client, session, app_store_chain
+):
+    """The date on a row in retry is the day the renewal *failed*, which is neither a renewal
+    to announce nor an expiry to state. **The fixture carries a future date on purpose**: the
+    stub's default is no date at all, and a test that passed because there was nothing to hide
+    would prove nothing about the rule."""
+    renews = _far_future()
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+    )
+    await _post(
+        app_store_client,
+        app_store_chain,
+        notification_type="DID_FAIL_TO_RENEW",
+        subtype="GRACE_PERIOD",
+        signed_date=LATER,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+    )
+
+    body = await _me(client, user)
+    assert body["access"] == "subscribed", "grace withholds nothing"
+    assert body["billing_retry"] is True
+    assert body["expires_at"] is None
+    assert body["auto_renew"] is None
+
+
+async def test_a_free_household_reports_none_of_the_three(client, session):
+    family = await make_family(session, tier="free", trial_ends_at=None)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    body = await _me(client, user)
+    assert body["access"] == "free"
+    assert body["trial_days_left"] is None
+    assert body["expires_at"] is None
+    assert body["auto_renew"] is None
+
+
+async def test_a_trial_reports_its_days_left_and_a_subscriber_does_not(client, session):
+    """`make_family` leaves the trial to its column default — fourteen days from the insert —
+    so a read seconds later has thirteen-and-a-bit days left, which `ceil` reports as 14: the
+    count a parent reads on day one is the fourteen they were promised."""
+    trialling = await make_family(session)
+    parent = await make_user(session, family=trialling)
+    # A subscriber holding the same future trial is not on a countdown (`subscribed` beats
+    # `trial`, and the count follows `access`).
+    paying = await make_family(session, tier="subscribed")
+    payer = await make_user(session, family=paying)
+    await session.commit()
+
+    trial = await _me(client, parent)
+    assert trial["access"] == "trial"
+    assert trial["trial_days_left"] == 14
+
+    subscribed = await _me(client, payer)
+    assert subscribed["access"] == "subscribed"
+    assert subscribed["trial_ends_at"] is not None, "the column is untouched"
+    assert subscribed["trial_days_left"] is None
+
+
+def test_trial_days_left_is_arithmetic_on_the_one_comparison():
+    """Every edge of the count, against an injected clock. **No new comparison against
+    `trial_ends_at` exists for it** — `test_entitlement_cadence.py`'s AST walk still finds
+    exactly one — so the day the count says the trial ends is the day the gate closes."""
+    now = dt.datetime.now(tz=dt.UTC)
+    day = dt.timedelta(days=1)
+    hour = dt.timedelta(hours=1)
+
+    def left(**kwargs) -> int | None:
+        granted = kwargs.pop("granted", False)
+        return access_for(Entitlement(**kwargs), granted=granted, now=now).trial_days_left
+
+    assert left(tier="free", trial_ends_at=now + 14 * day) == 14
+    assert left(tier="free", trial_ends_at=now + 13 * day + hour) == 14, "a partial day is a day"
+    assert left(tier="free", trial_ends_at=now + 13 * day) == 13
+    assert left(tier="free", trial_ends_at=now + hour) == 1, "the last hours are still day one"
+    assert left(tier="free", trial_ends_at=now + dt.timedelta(seconds=1)) == 1
+    # `now == trial_ends_at` is the boundary the cadence tests pin: the trial has ended.
+    assert left(tier="free", trial_ends_at=now) is None
+    assert left(tier="free", trial_ends_at=now - day) is None
+    assert left(tier="free", trial_ends_at=None) is None
+    # Not a countdown for anybody who is not on the trial, whatever the column holds.
+    assert left(tier="subscribed", trial_ends_at=now + 14 * day) is None
+    assert left(tier="free", trial_ends_at=now + 14 * day, granted=True) is None
+
+
+async def test_the_entitlement_route_reports_the_same_three(
+    app_store_client, client, session, app_store_chain
+):
+    """One function, two shapes — the rule `plan` and `billing_retry` already obey, extended
+    to the three fields phase 144 added, so the console and the app can never disagree about
+    when a membership renews."""
+    renews = _far_future()
+    family = await make_family(session)
+    user = await make_user(session, family=family)
+    await session.commit()
+
+    await _post(
+        app_store_client,
+        app_store_chain,
+        app_account_token=family.id,
+        product_id=stub.ANNUAL_PRODUCT_ID,
+        expires_date=renews,
+    )
+
+    me = await _me(client, user)
+    entitlement = await _entitlement(client, user, family.id)
+    for key in ("trial_days_left", "expires_at", "auto_renew"):
+        assert me[key] == entitlement[key], key
+    assert _moment(entitlement["expires_at"]) == renews
+    assert entitlement["auto_renew"] is True
+    assert entitlement["trial_days_left"] is None

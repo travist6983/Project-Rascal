@@ -250,8 +250,13 @@ def sign_notification(
     app_apple_id: int | None = APP_APPLE_ID,
     include_transaction_info: bool = True,
     include_renewal_info: bool = True,
+    auto_renew_status: int = 1,
 ) -> str:
     """A whole V2 notification, nested exactly as Apple nests one.
+
+    *auto_renew_status* is Apple's `renewalInfo.autoRenewStatus` — `1` will renew, `0` the
+    customer turned renewal off — and it rides on every notification, which is what lets
+    phase 144 report it as the current status rather than as an inference.
 
     **`signedTransactionInfo` and `signedRenewalInfo` are JWS strings, not objects.** That is
     the shape the real thing has, and building the stub any other way would let a
@@ -279,7 +284,7 @@ def sign_notification(
         "originalTransactionId": original_transaction_id,
         "autoRenewProductId": product_id,
         "productId": product_id,
-        "autoRenewStatus": 1,
+        "autoRenewStatus": auto_renew_status,
         "environment": environment,
         "signedDate": millis(signed_date),
         "recentSubscriptionStartDate": millis(signed_date),

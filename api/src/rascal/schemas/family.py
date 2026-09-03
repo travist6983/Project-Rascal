@@ -46,6 +46,13 @@ class FamilyOut(ApiModel):
     #: one ended at an unrecorded time. For copy only — a client must never compute
     #: entitlement from it, because that is the device deciding, which D5 forbids.
     trial_ends_at: dt.datetime | None = None
+    #: Whole days left in a live trial, or null. **Added by phase 144, for copy only**, because
+    #: the owner asked the Settings card to show a count beside the date and the count belongs
+    #: to the server — computed in `services.guardians.access_for` beside the one comparison
+    #: that decides the trial, so the device never does date arithmetic against its own clock.
+    #: Null whenever `access` is not `trial`: a subscriber or a granted household holding a
+    #: future `trial_ends_at` is not on a countdown. Never less than 1 while the trial is live.
+    trial_days_left: int | None = None
     #: **When the subscription lapsed, and what tells "never subscribed" from "used to be".**
     #: Added by phase 113 off the same `entitlements` row this route already reads — no second
     #: query. The same value `GET /families/{id}/entitlement` has reported since phase 107; it
@@ -107,6 +114,20 @@ class FamilyOut(ApiModel):
     #: in grace and a server predating this field — so a tri-state would buy a third branch and
     #: no information.
     billing_retry: bool = False
+    #: When the current paid period ends — Apple's `expiresDate` off the same ledger row `plan`
+    #: is read from, added by phase 144 so the Settings card can say *Renews {date}* or
+    #: *Expires {date}*. **For copy only, and null is an answer**: a non-member, a subscription
+    #: with no receipt behind it, a payload with no date, a date already in the past, or a
+    #: household in a billing retry all read null — the last because the date on a row in retry
+    #: is the day a renewal *failed*, and the client displaces the whole date line with the
+    #: retry sentence instead. Under the same rule as `plan`: never beside `access: "free"`.
+    expires_at: dt.datetime | None = None
+    #: Apple's own `autoRenewStatus` from the last payload: `true` renews, `false` the parent has
+    #: turned renewal off, `null` nobody knows — the last payload carried no `renewalInfo`, which
+    #: a receipt the app submitted itself does not — and always null when `expires_at` is. The
+    #: client reads `true` as "Renews", `false` as "Expires", and null as "Paid through". Added by
+    #: phase 144. Unlike `billing_retry` this is exact: every notification refreshes it.
+    auto_renew: bool | None = None
     #: Whether **the calling user** is the one paying. `true` | `false` | `null`.
     #:
     #: **`null` means unknown and must never be treated as `false`.** A client hides Apple's
@@ -154,6 +175,9 @@ class EntitlementOut(ApiModel):
     #: When the trial runs out; null means no trial on this household. See
     #: `FamilyOut.trial_ends_at`.
     trial_ends_at: dt.datetime | None = None
+    #: Whole days left in a live trial, or null. The same value as `FamilyOut.trial_days_left`,
+    #: from the same `access_for` call. Phase 144.
+    trial_days_left: int | None = None
     #: **The union, and what every gate in this service now branches on.** True when a payload
     #: Apple signed says this household is subscribed, **or** an `entitlement_grants` row is
     #: holding it open, **or** it is inside its trial. Added by phase 121.
@@ -200,6 +224,10 @@ class EntitlementOut(ApiModel):
     #: `FamilyOut.billing_retry`, and it gates nothing here either.** A household in grace
     #: reads `access: "subscribed"` on this route too and is fully entitled.
     billing_retry: bool = False
+    #: The same two values as `FamilyOut.expires_at` and `FamilyOut.auto_renew` — one function,
+    #: `services.membership.membership_signals`, two shapes. See the notes there. Phase 144.
+    expires_at: dt.datetime | None = None
+    auto_renew: bool | None = None
     #: Where original media is stored. **A constant `hot` today**: D3's move to the Tigris
     #: Archive tier at 90 days lapsed is phase 38, `media` has no `storage_tier` column yet,
     #: and reporting the field now means the client that will show it does not need a second

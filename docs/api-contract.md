@@ -690,12 +690,15 @@ nothing to forge.
   "tier": "free",
   "access": "trial",
   "trial_ends_at": "2026-09-04T00:00:00Z",
+  "trial_days_left": 13,
   "entitled": true,
   "entitlement_source": "trial",
   "grant_expires_at": null,
   "lapsed_at": null,
   "plan": null,
   "billing_retry": false,
+  "expires_at": null,
+  "auto_renew": null,
   "is_payer": null,
   "guardians": [
     { "user_id": "…", "display_name": "Travis", "role": "parent",
@@ -738,6 +741,27 @@ household the full board. That is why each of these is a separate optional field
 | `plan` | `"annual" \| "monthly" \| null` | **Unknown, and a client must render its fallback rather than guess.** Null means no receipt behind the subscription (the hand-written household in `runbook-deploy.md` §7a), a product id this server does not recognise, **or a household that is not currently subscribed**. |
 | `billing_retry` | `bool`, default `false` | Not in a billing retry. **Never optional** — `false` and absent are the same render. |
 | `is_payer` | `bool \| null` | **Unknown, and it must never be read as `false`.** See below. |
+
+##### The three fields phase 144 added — Sep 3, 2026, for the Settings card and nothing else
+
+**All three are additive and optional, for copy only, and none of them moves a gate.** They exist
+because the owner redesigned the Settings membership card into a receipt — *Free trial · 13 days
+left, until Sep 17*; *Annual membership · Renews Sep 17, 2027* — and the wire could name the
+state but not the day. **Both shapes carry them**: `GET /families/me` and
+`GET /families/{id}/entitlement`, from the same two functions, under the same "one function, two
+shapes" rule `plan` and `billing_retry` already obey.
+
+| field | type | what a null means |
+|---|---|---|
+| `trial_days_left` | `int \| null` | **No live trial.** Whole days remaining, `ceil((trial_ends_at − now) / 1 day)`, never less than 1 while the trial is live — the last partial day is still a day the missions are served. **Null whenever `access` is not `trial`**: a subscriber or a granted household holding a future `trial_ends_at` is not on a countdown. Computed in `services/guardians.access_for` beside the one comparison that decides the trial, so the phone never does date arithmetic against its own clock and no second place can disagree about which day the trial ends. `test_entitlement_cadence.py`'s AST walk still finds exactly one comparison. |
+| `expires_at` | `datetime \| null` | **No period end to name.** Apple's `expiresDate` off the same `app_store_transactions` row `plan` is read from. Null when `tier` is not `subscribed`; when there is no receipt behind the subscription (the hand-written household in `runbook-deploy.md` §7a); when Apple sent no date; **when the date has already passed** — a ledger Apple's next notification has not overwritten yet, which must never surface as *Renews {a date in the past}*; **and while `billing_retry` is true** — the date on a row in retry is the day the renewal *failed*, which is neither a renewal nor an expiry, and the client displaces the whole date line with the retry sentence. The comparison against the clock is the server's, so a client never has to compare a date to a clock to know whether to show it. |
+| `auto_renew` | `bool \| null` | **Nobody knows.** Apple's own `renewalInfo.autoRenewStatus` from the last stored payload: `true` the subscription will renew, `false` the parent has turned renewal off. **Exact, unlike `billing_retry`**: `signedRenewalInfo` rides on every subscription notification and the webhook decodes it into `raw_payload`, so this is the current status refreshed by every notification rather than an inference from which type arrived last. Null when the last payload carried no `renewalInfo` — a receipt the app submitted itself through `POST /families/me/transactions` stores the transaction JWS alone, so a fresh subscriber who arrived that way reads null until Apple's first notification — and **always null when `expires_at` is null**, so a client never sees "renews" beside no date. |
+
+**How a client reads the pair**: `auto_renew: true` → *Renews {expires_at}*; `false` → *Expires
+{expires_at}*; `null` with a date → *Paid through {expires_at}*; no date → no date line. `expires_at`
+is read as a scalar column and `auto_renew` as a JSONB path inside the one indexed select
+`membership_signals` already makes — the payload blob is never loaded to answer either. No
+migration: nothing is stored that was not already stored.
 
 **`plan` and `billing_retry` describe a *current* subscription.** A household that lapsed from
 annual reports `plan: null`, not `"annual"`, so `plan` never appears beside `access: "free"` and
@@ -2151,6 +2175,7 @@ which is the bug D4 and D5 exist to prevent.
   "tier": "free",
   "access": "free",
   "trial_ends_at": "2026-08-07T00:00:00Z",
+  "trial_days_left": null,
   "entitled": false,
   "entitlement_source": "none",
   "grant_expires_at": null,
@@ -2158,6 +2183,8 @@ which is the bug D4 and D5 exist to prevent.
   "eligible_at": "2028-05-01",
   "plan": null,
   "billing_retry": false,
+  "expires_at": null,
+  "auto_renew": null,
   "media_storage_tier": "hot"
 }
 ```
@@ -2174,7 +2201,11 @@ days lapsed lands.
 **`plan` and `billing_retry` are the same two values `GET /families/me` reports**, from the same
 function over the same ledger row — one authority, two shapes, in the pattern `access` already
 follows. See the phase 113 section under `GET /families/me` for what each null means. **Neither
-gates anything on this route either.** `is_payer` and `lapsed_at` are not repeated here:
+gates anything on this route either.** **Phase 144 (Sep 3, 2026) extended the pair to five**:
+`expires_at` and `auto_renew` come off the same `membership_signals` call, and `trial_days_left`
+off the same `access_for` call, so this route and `GET /families/me` report identical values for
+all three — a test asserts it — and the console can never say a membership renews on a day the
+app does not. See the phase 144 section under `GET /families/me` for the null rules. `is_payer` and `lapsed_at` are not repeated here:
 `lapsed_at` was already on this shape, and `is_payer` is about the *caller*, which is a household
 question rather than a subscription one.
 
