@@ -73,6 +73,14 @@ struct PaywallSheet: View {
             .onChange(of: SubscriptionCenter.shared.transactionRevision) { _, _ in
                 Task { await model.transactionArrived() }
             }
+            // A receipt the listener handed over at launch or on arrival, and the server accepted
+            // — see `SubscriptionCenter.householdRevision` (phase 145). A re-read rather than
+            // `transactionArrived()`: this is the server's answer moving, not a transaction, and a
+            // pending Ask-to-Buy is settled by what the server now says rather than sent back
+            // through the confirmation window.
+            .onChange(of: SubscriptionCenter.shared.householdRevision) { _, _ in
+                Task { await model.refreshHousehold() }
+            }
             // Coming back to the app is **not** a transaction — it is a reason to re-read. Ask the
             // server and let it decide; a foreground must not rewrite a pending Ask-to-Buy into
             // "being confirmed", which is what one shared counter did.
