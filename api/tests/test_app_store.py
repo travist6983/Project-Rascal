@@ -284,6 +284,10 @@ async def test_a_forged_inner_transaction_is_refused(app_store_verifier, app_sto
         ("EXPIRED", "BILLING_RETRY", "free"),
         ("REFUND", None, "free"),
         ("REVOKE", None, "free"),
+        # Phase 145: a reversed refund reinstates; the writer then checks the period has not
+        # ended. A declined one revoked nothing.
+        ("REFUND_REVERSED", None, "subscribed"),
+        ("REFUND_DECLINED", None, None),
         ("DID_CHANGE_RENEWAL_PREF", "UPGRADE", None),
         ("DID_CHANGE_RENEWAL_PREF", "DOWNGRADE", None),
         ("CONSUMPTION_REQUEST", None, None),
@@ -833,6 +837,362 @@ async def test_a_refused_demotion_does_not_create_the_link_it_was_refused_for(
 
     assert second.json()["status"] == "recorded:demotion-refused"
     assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+
+# --- Guard 6: a sibling receipt keeps a household subscribed (phase 145) ---------------------
+#
+# D4 lets any guardian subscribe to restore a lapsed household, so after the payer's card
+# recovers (`DID_RENEW` / `BILLING_RECOVERY`) a two-guardian family holds two renewing Production
+# rows. Until Sep 5, 2026 an `EXPIRED` on either one demoted the household while Apple was still
+# charging the other parent. Found by a read-only trace of the writer against the production
+# ledger; no household was affected, because every row in that ledger was Sandbox.
+
+ROW_A, ROW_B = "2000000000000001", "2000000000000002"
+
+
+async def _two_guardian_household(session) -> Family:
+    family = await make_family(session)
+    await make_user(session, family=family, display_name="Travis")
+    await make_user(session, family=family, display_name="Partner")
+    await session.commit()
+    return family
+
+
+def _ahead(days: int) -> dt.datetime:
+    """An `expiresDate` still in the future on the day the test runs. Everything else in this
+    file is arithmetic on `SIGNED_AT`, which is firmly in the past — and a receipt that is still
+    paying is a claim about today, so this is the one date here that has to be read off the
+    clock. `signedDate` stays inside the fixture chain's validity; `expiresDate` is not checked
+    against the chain."""
+    return dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=days)
+
+
+async def _subscribe(
+    client, chain, family, row, *, signed_date, expires_date, environment="Production"
+):
+    response = await _post(
+        client,
+        stub.sign_notification(
+            chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=signed_date,
+            environment=environment,
+            original_transaction_id=row,
+            app_account_token=family.id,
+            expires_date=expires_date,
+        ),
+    )
+    assert response.status_code == 202
+    return response.json()["status"]
+
+
+async def test_an_expiry_on_one_receipt_does_not_demote_a_household_another_still_pays_for(
+    app_store_client, session, app_store_chain
+):
+    """**The defect, replayed.** Two Production rows, both linked, both renewing; the payer's
+    expires. Guard 4 would honour it — the row is linked — and the other parent is still being
+    charged. Held, not refused: the row keeps its attribution and records the `EXPIRED`, because
+    it is Apple's newest word about *that* subscription, and the household keeps its tier."""
+    family = await _two_guardian_household(session)
+    for row in (ROW_A, ROW_B):
+        assert (
+            await _subscribe(
+                app_store_client,
+                app_store_chain,
+                family,
+                row,
+                signed_date=EARLIER,
+                expires_date=_ahead(30),
+            )
+            == "tier:subscribed"
+        )
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT,
+            original_transaction_id=ROW_A,
+            app_account_token=family.id,
+            expires_date=SIGNED_AT,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "recorded:sibling-active"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None, "D3's clock must not start while a parent is paying"
+    row_a = await _transaction(session, ROW_A)
+    assert row_a.family_id == family.id, "held, not refused: the attribution stays"
+    assert row_a.latest_notification_type == "EXPIRED"
+    assert row_a.latest_signed_date == SIGNED_AT
+    assert row_a.expires_date == SIGNED_AT
+    assert (await _transaction(session, ROW_B)).family_id == family.id
+
+
+async def test_the_household_lapses_when_the_last_paying_receipt_expires(
+    app_store_client, session, app_store_chain
+):
+    """The hold is not a hole: when the sibling's own `EXPIRED` arrives, the first row's period has
+    ended and its latest word is a demotion, so nothing holds this one. The lapse is dated to
+    *this* `signedDate` — the day the last parent stopped paying, not the first."""
+    family = await _two_guardian_household(session)
+    for row in (ROW_A, ROW_B):
+        await _subscribe(
+            app_store_client,
+            app_store_chain,
+            family,
+            row,
+            signed_date=EARLIER,
+            expires_date=_ahead(30),
+        )
+
+    async def expire(row, signed_date):
+        response = await _post(
+            app_store_client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type="EXPIRED",
+                subtype="VOLUNTARY",
+                signed_date=signed_date,
+                original_transaction_id=row,
+                app_account_token=family.id,
+                expires_date=signed_date,
+            ),
+        )
+        assert response.status_code == 202
+        return response.json()["status"]
+
+    assert await expire(ROW_A, SIGNED_AT) == "recorded:sibling-active"
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+    assert await expire(ROW_B, LATER) == "tier:free"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == LATER
+    assert (await _transaction(session, ROW_A)).family_id == family.id
+    assert (await _transaction(session, ROW_B)).family_id == family.id
+
+
+async def test_a_sandbox_sibling_never_holds_a_production_demotion(
+    production_client, session, app_store_chain
+):
+    """Same environment, or it does not count. Phase 139's TestFlight-then-buy household: its
+    Sandbox row was attributed while it was the only thing known about the household, and a
+    sandbox subscription renews forever on the accelerated clock with an `expires_date` always
+    ahead of today. If that row could hold a Production `EXPIRED`, a tester who once bought in
+    beta would never lapse for real."""
+    family = await _two_guardian_household(session)
+    sandbox, production = ROW_B, ROW_A
+
+    assert (
+        await _subscribe(
+            production_client,
+            app_store_chain,
+            family,
+            sandbox,
+            signed_date=EARLIER,
+            expires_date=_ahead(30),
+            environment="Sandbox",
+        )
+        == "tier:subscribed"
+    )
+    assert (await _transaction(session, sandbox)).family_id == family.id, "attributed, so in reach"
+    assert (
+        await _subscribe(
+            production_client,
+            app_store_chain,
+            family,
+            production,
+            signed_date=EARLIER + dt.timedelta(days=1),
+            expires_date=_ahead(30),
+        )
+        == "tier:subscribed"
+    )
+
+    response = await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT,
+            environment="Production",
+            original_transaction_id=production,
+            app_account_token=family.id,
+            expires_date=SIGNED_AT,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "tier:free"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT
+
+
+async def test_a_refunded_sibling_does_not_hold_whatever_its_expiry_says(
+    app_store_client, session, app_store_chain
+):
+    """A `REFUND` payload still carries the period's `expiresDate`, which may be months off; what
+    makes the row not a paying one is its latest word. Both directions in one sequence: the
+    refund on B is itself held, because A is paying — and then A's expiry finds B refunded and
+    lapses the household."""
+    family = await _two_guardian_household(session)
+    for row in (ROW_A, ROW_B):
+        await _subscribe(
+            app_store_client,
+            app_store_chain,
+            family,
+            row,
+            signed_date=EARLIER,
+            expires_date=_ahead(30),
+        )
+
+    refund = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="REFUND",
+            signed_date=SIGNED_AT,
+            original_transaction_id=ROW_B,
+            app_account_token=family.id,
+            expires_date=_ahead(30),
+        ),
+    )
+    assert refund.json()["status"] == "recorded:sibling-active"
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+    expired = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=LATER,
+            original_transaction_id=ROW_A,
+            app_account_token=family.id,
+            expires_date=LATER,
+        ),
+    )
+
+    assert expired.json()["status"] == "tier:free"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == LATER
+
+
+async def test_a_sibling_in_billing_retry_holds_without_a_future_expiry(
+    app_store_client, session, app_store_chain
+):
+    """**Found in review before this shipped.** A row in Apple's billing grace period carries the
+    *failed* renewal's `expiresDate` — already past — and that household is fully entitled while
+    Apple retries the card (`membership.py` nulls `expires_at` on the same row for the same
+    reason). Filtering siblings on a future date in SQL dropped exactly this one, so the other
+    parent's `EXPIRED` wrote the household `free` and started D3's clock while a card was being
+    retried. The date is selected and the grace pair decides in Python now."""
+    family = await _two_guardian_household(session)
+    for row in (ROW_A, ROW_B):
+        await _subscribe(
+            app_store_client,
+            app_store_chain,
+            family,
+            row,
+            signed_date=EARLIER,
+            expires_date=_ahead(30),
+        )
+
+    retrying = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_FAIL_TO_RENEW",
+            subtype="GRACE_PERIOD",
+            signed_date=EARLIER + dt.timedelta(days=1),
+            original_transaction_id=ROW_B,
+            app_account_token=family.id,
+            expires_date=EARLIER,
+        ),
+    )
+    assert retrying.json()["status"] == "recorded:no-tier-change"
+    row_b = await _transaction(session, ROW_B)
+    assert row_b.expires_date == EARLIER, "the failed renewal's date, already past"
+    assert (row_b.latest_notification_type, row_b.latest_notification_subtype) == (
+        "DID_FAIL_TO_RENEW",
+        "GRACE_PERIOD",
+    )
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT,
+            original_transaction_id=ROW_A,
+            app_account_token=family.id,
+            expires_date=SIGNED_AT,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "recorded:sibling-active"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None
+
+
+@pytest.mark.parametrize("sibling_expires", [EARLIER, None], ids=["past", "missing"])
+async def test_a_sibling_with_no_future_expiry_does_not_hold(
+    app_store_client, session, app_store_chain, sibling_expires
+):
+    """A period that has ended, or a row whose payloads never carried an `expiresDate`, is not
+    evidence that anybody is paying — the lost-`EXPIRED` case and the quiet-payload case. `None`
+    stays `None` on the row: `_record` never invents an expiry a payload omitted. The sibling's
+    latest word here is `SUBSCRIBED`, not the grace pair — a past date on a row in billing retry
+    is the one past date that still pays, and the test above is that case."""
+    family = await _two_guardian_household(session)
+    await _subscribe(
+        app_store_client,
+        app_store_chain,
+        family,
+        ROW_A,
+        signed_date=EARLIER,
+        expires_date=_ahead(30),
+    )
+    await _subscribe(
+        app_store_client,
+        app_store_chain,
+        family,
+        ROW_B,
+        signed_date=EARLIER,
+        expires_date=sibling_expires,
+    )
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+    assert (await _transaction(session, ROW_B)).expires_date == sibling_expires
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT,
+            original_transaction_id=ROW_A,
+            app_account_token=family.id,
+            expires_date=SIGNED_AT,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "tier:free"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT
 
 
 # --- Unknown types, unknown families, orphan receipts ----------------------------------------
@@ -1623,21 +1983,122 @@ def test_every_notification_string_this_service_branches_on_is_one_apple_sends()
     )
 
 
-def test_a_refund_that_apple_later_reverses_is_recorded_but_does_not_restore():
-    """**A known gap, pinned so it is a decision rather than a discovery.**
+def test_a_refund_that_apple_later_reverses_restores_and_a_declined_one_does_not():
+    """**The Aug 20, 2026 gap, closed by phase 145 on Sep 5, 2026.**
 
-    `REFUND_REVERSED` means Apple reversed a refund it had granted — the customer should have
-    access again. `REFUND_DECLINED` means a refund request was refused, so nothing should have
-    changed. Neither restores `subscribed` here: phase 37a implements the table it was given,
-    where anything outside it is recorded with no tier change.
-
-    **The row is written either way**, so this is recoverable by hand from
-    `app_store_transactions` and is not a lost payment. It is written down as a test because
-    the alternative is somebody finding it while a customer is on the phone.
+    Until then this test pinned the opposite — `REFUND_REVERSED` recorded with no tier change,
+    *"a known gap, not an oversight"*, recoverable by hand from the ledger. It restores now: Apple
+    reversed a refund it had granted, so the access the `REFUND` revoked comes back — with the one
+    condition the two tests below exercise, that the payload's `expiresDate` is still ahead.
+    `REFUND_DECLINED` is unchanged, because a refund that was refused revoked nothing.
     """
-    assert tier_effect("REFUND_REVERSED", None) is None
+    assert tier_effect("REFUND_REVERSED", None) == "subscribed"
     assert tier_effect("REFUND_DECLINED", None) is None
     assert tier_effect("REFUND", None) == "free"
+
+
+@pytest.mark.parametrize(
+    "expires_date", [SIGNED_AT + dt.timedelta(days=10), None], ids=["past", "missing"]
+)
+async def test_a_refund_reversal_after_the_period_ended_reinstates_nothing(
+    app_store_client, session, app_store_chain, expires_date
+):
+    """Apple's dispute process can outlast a monthly period. What the refund revoked was access
+    until `expiresDate`; a reversal that lands after that date — or whose payload never said when
+    the period ended — has nothing to give back, and writing `subscribed` would clear `lapsed_at`
+    on a household nothing is renewing. Recorded, attributed, and named in the status."""
+    family = await _household(session)
+    await session.commit()
+    for notification_type, subtype, signed_date in (
+        ("SUBSCRIBED", "INITIAL_BUY", EARLIER),
+        ("REFUND", None, SIGNED_AT),
+    ):
+        await _post(
+            app_store_client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type=notification_type,
+                subtype=subtype,
+                signed_date=signed_date,
+                app_account_token=family.id,
+            ),
+        )
+    entitlement = await _entitlement(session, family.id)
+    assert (entitlement.tier, entitlement.lapsed_at) == ("free", SIGNED_AT)
+
+    response = await _post(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="REFUND_REVERSED",
+            signed_date=LATER,
+            app_account_token=family.id,
+            expires_date=expires_date,
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "recorded:nothing-to-reinstate"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT
+    row = await _transaction(session, "2000000000000001")
+    assert row.latest_notification_type == "REFUND_REVERSED", "still recorded"
+    assert row.latest_signed_date == LATER
+    assert row.family_id == family.id
+
+
+async def test_a_refund_reversal_restores_a_production_household_and_clears_the_lapse(
+    production_client, session, app_store_chain
+):
+    """The case the gap was about: a real household, refunded and then un-refunded by Apple with
+    months of the period left. `lapsed_at` clears because `_write_tier` clears it on every
+    promotion — D3's clock must not keep running on a household Apple says is paid up. The payer
+    is neither set nor unset: `set_payer` is still `SUBSCRIBED`'s alone, and the `SUBSCRIBED`
+    already named the one guardian there is."""
+    family = await make_family(session)
+    parent = await make_user(session, family=family)
+    await session.commit()
+    for notification_type, subtype, signed_date in (
+        ("SUBSCRIBED", "INITIAL_BUY", EARLIER),
+        ("REFUND", None, SIGNED_AT),
+    ):
+        await _post(
+            production_client,
+            stub.sign_notification(
+                app_store_chain,
+                notification_type=notification_type,
+                subtype=subtype,
+                signed_date=signed_date,
+                environment="Production",
+                app_account_token=family.id,
+                expires_date=_ahead(300),
+            ),
+        )
+    entitlement = await _entitlement(session, family.id)
+    assert (entitlement.tier, entitlement.lapsed_at) == ("free", SIGNED_AT)
+
+    response = await _post(
+        production_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="REFUND_REVERSED",
+            signed_date=LATER,
+            environment="Production",
+            app_account_token=family.id,
+            expires_date=_ahead(300),
+        ),
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "tier:subscribed"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.lapsed_at is None
+    assert entitlement.payer_user_id == parent.id
+    row = await _transaction(session, "2000000000000001")
+    assert row.latest_notification_type == "REFUND_REVERSED"
+    assert row.family_id == family.id
 
 
 async def test_an_ambiguous_bundle_id_refuses_rather_than_guessing(

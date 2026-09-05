@@ -20,7 +20,7 @@ an Apple ID already holding the group is `DID_CHANGE_RENEWAL_PREF`, no tier effe
 `SUBSCRIBED` that was lost or discarded left the app with no way to tell the server about a
 receipt it could see with its own eyes — "Restore a purchase" only re-read the server.
 
-## Five guards, and the table of notification types matters less than any of them
+## Six guards, and the table of notification types matters less than any of them
 
 **1. Ordering.** Apple retries until it gets a 2xx, and retries arrive interleaved with new
 notifications. An `EXPIRED` delivered *after* a `RESUBSCRIBE` will, in the obvious
@@ -104,6 +104,27 @@ the ledger row with it, and `apply_notification` thereafter follows the ledger p
 rather than routing Apple's later word about the subscription into the ghost.
 `services/guardians.household_is_empty` is the one definition of *empty*, counted in `users` —
 a member with no children yet is still a member. Every other refusal stands.
+
+**6. A sibling receipt keeps a household subscribed.** D4 makes the subscription unit the
+household and lets *any* guardian subscribe to restore a lapsed one, so a two-guardian family can
+legitimately hold two Production subscriptions at once: the payer's card fails, the other parent
+subscribes, and then the payer's card recovers (`DID_RENEW` / `BILLING_RECOVERY`). From that day the
+ledger holds two rows for one family, both renewing, and an `EXPIRED` on *either* one — honoured
+by the obvious implementation, because the row is linked and Production — sets the household
+`free` while Apple is still charging the other parent. So a demotion guards 3 and 4 have both let
+through is **held** when another row for the same family, in the same environment, whose own latest
+word is not a demotion, carries an `expires_date` still ahead of the clock — or is in Apple's
+billing grace period, where the row's date is the failed renewal's and already past while the
+household is fully entitled. Held rather than refused: the row is recorded *with* its attribution,
+unlike guard 4's refusal, because this row is linked and the notification is genuinely Apple's last
+word about this subscription — dropping the link would make the sibling's own `EXPIRED`, when it
+comes, look like guard 4's stranger. `lapsed_at` is untouched, so D3's clock does not start while a
+parent is paying; when the last paying receipt expires nothing holds that one, and the household
+lapses then, dated to that `signedDate`. Same environment, because Production and Sandbox are
+already two worlds (guards 2 and 3) and a tester's renewing Sandbox subscription must never hold a
+Production demotion. Added by phase 145 on Sep 5, 2026 from a read-only trace of this module against
+the production ledger; no household was affected, because no Production transaction had yet reached
+the server — all three rows in the ledger were Sandbox.
 """
 
 from __future__ import annotations
@@ -116,6 +137,8 @@ from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rascal.constants import (
+    BILLING_RETRY_NOTIFICATION,
+    BILLING_RETRY_SUBTYPE,
     DEMOTING_NOTIFICATIONS,
     PROMOTING_NOTIFICATIONS,
     Tier,
@@ -140,6 +163,13 @@ def tier_effect(notification_type: str, subtype: str | None) -> Tier | None:
       still retrying the card and the household keeps everything; with no subtype the billing
       has actually failed. `GRACE_PERIOD_EXPIRED` is the separate notification that arrives
       when the retrying stops, and that one demotes.
+    * **`REFUND_REVERSED` promotes here, and `apply_notification` then reads the date.** Apple
+      reversed a refund it had granted, reinstating what the `REFUND` revoked — access until
+      `expiresDate`. This table says `subscribed` so that it stays a table; the writer downgrades a
+      reversal whose `expiresDate` is missing or already past to no change, because a period that
+      has ended has nothing left to reinstate. `REFUND_DECLINED` stays a no-change: a refund that
+      was refused revoked nothing. Closed the gap the Aug 20, 2026 decisions-log line recorded,
+      by phase 145 on Sep 5, 2026.
     """
     if notification_type in PROMOTING_NOTIFICATIONS:
         return "subscribed"
@@ -402,6 +432,71 @@ async def apply_notification(
         effect = None
         promotion_refused = True
 
+    # **A refund reversal reinstates a period, so it needs a period to reinstate.** The table
+    # promotes on `REFUND_REVERSED` because Apple has undone the `REFUND` that demoted this
+    # household — but what that refund revoked was access *until `expiresDate`*, and Apple's
+    # dispute process can outlast a monthly period. A reversal arriving after that date would
+    # otherwise write `subscribed` and clear `lapsed_at` on a household whose subscription has
+    # ended with nothing renewing it. So the payload's own `expiresDate` decides, against the same
+    # clock `apply_submitted_transaction` holds a receipt to: ahead of it, the promotion goes
+    # through; missing or behind it, the reversal is recorded and the tier stays where the
+    # `REFUND` — or a later `EXPIRED` — put it. Checked after guard 5 so it fires only for a
+    # promotion that was otherwise about to be written, and the log line means exactly that.
+    nothing_to_reinstate = False
+    if (
+        effect == "subscribed"
+        and family_id is not None
+        and note.notification_type == "REFUND_REVERSED"
+        and (note.expires_date is None or note.expires_date <= dt.datetime.now(dt.UTC))
+    ):
+        log.warning(
+            "refund reversal recorded without reinstating: the period it would restore has ended",
+            extra={
+                "original_transaction_id": note.original_transaction_id,
+                "family_id": str(family_id),
+                "expires_date": (
+                    note.expires_date.isoformat() if note.expires_date is not None else None
+                ),
+            },
+        )
+        effect = None
+        nothing_to_reinstate = True
+
+    # --- Guard 6: a sibling receipt keeps a household subscribed ----------------------------
+    #
+    # Reached only by a demotion guards 3 and 4 have both let through: a Production `EXPIRED`
+    # (or `REFUND`, `REVOKE`, `GRACE_PERIOD_EXPIRED`, a failed `DID_FAIL_TO_RENEW`) on a row this
+    # service already links to this household. D4 lets any guardian subscribe to restore a lapsed
+    # household, so after the payer's card recovers a two-guardian family holds two renewing
+    # Production rows — and this notification is Apple's word about *one* of them. Before writing
+    # `free`, ask whether the other is still paid up: same family, same environment, a different
+    # transaction, its own latest word not a demotion, and either an `expires_date` still ahead of
+    # the clock **or a card in Apple's billing grace period** — `DID_FAIL_TO_RENEW` / `GRACE_PERIOD`
+    # carries the *failed* renewal's date, which is already past, and that household is fully
+    # entitled while Apple retries (`membership.py` says the same about `expires_at`), so a row in
+    # retry pays without a future date. Compared to now rather than to this payload's `signedDate`
+    # because the question is whether somebody is paying *today*, which is the comparison
+    # `apply_submitted_transaction` already makes about a receipt. Held, not refused: the row is
+    # recorded with its attribution
+    # intact, because it is a linked row and this is Apple's newest word about it — dropping the
+    # link here would make the sibling's own `EXPIRED`, when it comes, look like guard 4's
+    # stranger. `lapsed_at` is untouched, so D3's clock does not start while a parent is paying.
+    sibling_active = False
+    if effect == "free" and family_id is not None:
+        sibling = await _active_sibling(session, note, family_id=family_id)
+        if sibling is not None:
+            log.warning(
+                "demotion held: a sibling subscription still pays for this household",
+                extra={
+                    "type": note.notification_type,
+                    "original_transaction_id": note.original_transaction_id,
+                    "sibling_original_transaction_id": sibling,
+                    "family_id": str(family_id),
+                },
+            )
+            effect = None
+            sibling_active = True
+
     # **Two cases record the notification without recording who it is about**, and both are
     # the same argument: an attribution this service has just declined to act on must not
     # become the transaction record that lets a *later* notification act. A refused demotion
@@ -417,7 +512,15 @@ async def apply_notification(
 
     if effect is None or family_id is None:
         await session.flush()
-        return _outcome(effect, family_id, demotion_refused, promotion_refused, sandbox_blocked)
+        return _outcome(
+            effect,
+            family_id,
+            demotion_refused,
+            promotion_refused,
+            sandbox_blocked,
+            sibling_active=sibling_active,
+            nothing_to_reinstate=nothing_to_reinstate,
+        )
 
     await _write_tier(
         session,
@@ -474,7 +577,7 @@ async def apply_submitted_transaction(
     `family_id` is the caller's, from the bearer token, and the transaction's own
     `appAccountToken` must name it: the token was attached at purchase by this app and is inside
     Apple's signature, so this checks Apple's statement of who bought it against who is asking,
-    rather than taking either party's word.
+    rather than taking either party's word. Two exceptions, phases 143 and 145, both below.
 
     **And it cannot resurrect a lapse it predates.** A JWS is Apple's statement that the
     subscription was active *as of its `signedDate`*; a `REFUND` signed an hour later is a newer
@@ -496,9 +599,31 @@ async def apply_submitted_transaction(
     Apple-signed receipt on their device is the one Apple is charging. So when the token names a
     household that *exists* and is *empty*, the submission proceeds under the caller's household
     and the ledger row moves with it — logged as a warning, because a moved receipt is the fact a
-    support conversation would need. Every other refusal stands exactly as it was: no token, a
-    household that still has a member, a household this server has no row for, and a ledger row
-    a *third* household holds.
+    support conversation would need. Every other refusal stands exactly as it was: a household
+    that still has a member, a household this server has no row for, and a ledger row a *third*
+    household holds. A receipt with no token at all is the other exception, phase 145's, next.
+
+    **A receipt with no `appAccountToken` follows the caller when nobody holds it — phase 145,
+    Sep 5, 2026, owner-authorised.** App Store Connect has Streamlined Purchasing on, and an offer
+    code redeemed in the App Store app has the same shape: a subscription bought with this app not
+    running is one this app never attached a token to, and Apple will never carry one for it. The
+    webhook records such a receipt unattributed, correctly — a notification has no caller — and
+    until this phase this door refused it with `409`, so the person Apple was charging could never
+    be attributed even from their own signed-in device. The bearer token already proves a member of
+    the household; the JWS is Apple's signature over an active subscription; and the only party who
+    can present a token-less receipt *first* is the device it was delivered to. A stranger who
+    obtained the bytes could claim an unclaimed orphan before its owner did — the same exposure as
+    sharing a sign-in — and that is accepted in exchange for a paying customer not being locked
+    out. So a token-less receipt is accepted, and attributed to the caller's household, only when
+    the ledger has no row for it or a row with `family_id` NULL (an orphan the webhook recorded
+    first). **A row already attributed to another household stays `409`, empty or not** — phase
+    143's move is not extended here: a stale token names its ghost, which is how that move knows
+    where the receipt came from; a missing token names nobody, and there is nothing to follow. A
+    row attributed to the caller's own household is the caller's, and re-submitting it is the
+    ordinary restore. Every other rule on this door applies unchanged, and the attribution is
+    logged at warning. Once attributed, `apply_notification` follows the ledger for every later
+    token-less notification about the subscription (`family_id = token_family_id or
+    existing.family_id`), so Apple's renewals and the eventual `EXPIRED` reach the same household.
 
     **The ghost's entitlement is not touched.** It may go on reading `subscribed` with nobody in
     it: writing `free` there would be this door demoting, which it may not do, and there is no
@@ -507,23 +632,19 @@ async def apply_submitted_transaction(
     names an empty household, so a `DID_RENEW` or an `EXPIRED` reaches the household that holds
     the receipt now rather than the one that used to.
     """
-    if txn.app_account_token is None:
-        log.warning(
-            "submitted transaction refused: appAccountToken is not the caller's household",
-            extra={
-                "original_transaction_id": txn.original_transaction_id,
-                "family_id": str(family_id),
-                "app_account_token": None,
-            },
-        )
-        raise TransactionBelongsElsewhere
+    # **A missing token is not a refusal any more; it is a question for the ledger** (phase 145).
+    # The receipt names nobody, so whether the caller may have it turns on whether anybody else
+    # already does — decided below, once the row is loaded, by the same check that refuses a row
+    # another household holds. `untagged` is carried to that point and to the log.
+    untagged = txn.app_account_token is None
 
     # `moved_from` is the household the receipt is leaving, or `None` for the ordinary case where
     # Apple's token and the bearer token agree. Set only when the token's household exists and
     # nobody is left in it — `household_is_empty` does not check existence, and "no such
-    # household" is a receipt this server knows nothing about, not a degenerate empty one.
+    # household" is a receipt this server knows nothing about, not a degenerate empty one. A
+    # token-less receipt never sets it: there is no household to have left.
     moved_from: uuid.UUID | None = None
-    if txn.app_account_token != family_id:
+    if not untagged and txn.app_account_token != family_id:
         token_family = await session.get(Family, txn.app_account_token)
         if token_family is None or not await household_is_empty(session, token_family.id):
             log.warning(
@@ -572,6 +693,9 @@ async def apply_submitted_transaction(
     # may move is the one held by the empty household the token itself names** — the ledger and
     # Apple agree about where the receipt was, and that place has nobody in it. A row a *third*
     # household holds is a disagreement nobody here can settle, empty token household or not.
+    # **For a token-less receipt this is the whole decision**: `moved_from` is `None`, so a row
+    # any other household holds — empty or not — is refused here, and a row nobody holds, or no
+    # row, goes on to be attributed to the caller.
     if (
         existing is not None
         and existing.family_id is not None
@@ -678,6 +802,18 @@ async def apply_submitted_transaction(
                 "to_family_id": str(family_id),
             },
         )
+    if untagged and (existing is None or existing.family_id is None):
+        # Same placement, same reason: only an attribution that is about to be written is logged.
+        # A warning because this is the one write on this door that rests on the bearer token
+        # alone — Apple's signature proves the subscription, not whose household it is.
+        log.warning(
+            "submitted transaction attributed to the caller: the receipt carries no "
+            "appAccountToken",
+            extra={
+                "original_transaction_id": txn.original_transaction_id,
+                "family_id": str(family_id),
+            },
+        )
     await _record_submission(session, txn, existing=existing, family_id=family_id)
     await _write_tier(
         session,
@@ -737,6 +873,9 @@ def _outcome(
     demotion_refused: bool,
     promotion_refused: bool,
     sandbox_blocked: bool,
+    *,
+    sibling_active: bool,
+    nothing_to_reinstate: bool,
 ) -> str:
     if demotion_refused:
         return "recorded:demotion-refused"
@@ -749,6 +888,14 @@ def _outcome(
     # would lose the one fact that makes it findable.
     if promotion_refused:
         return "recorded:promotion-refused"
+    # Both of phase 145's are attributed by construction, and both are named for the same reason
+    # `sandbox-blocked` is: a held demotion is the one outcome here where "tier unchanged" is
+    # good news, and a reversal with nothing to reinstate is the one that reads like a lost
+    # payment until the `expiresDate` is beside it in the log.
+    if sibling_active:
+        return "recorded:sibling-active"
+    if nothing_to_reinstate:
+        return "recorded:nothing-to-reinstate"
     if family_id is None:
         return "recorded:unattributed"
     return "recorded:no-tier-change"
@@ -766,6 +913,55 @@ async def _has_production_transaction(session: AsyncSession, family_id: uuid.UUI
             )
         )
     )
+
+
+async def _active_sibling(
+    session: AsyncSession, note: VerifiedNotification, *, family_id: uuid.UUID
+) -> str | None:
+    """The `original_transaction_id` of another receipt still paying for this household, or `None`.
+
+    Another row for the same family in the same environment, not this transaction, whose own
+    latest word is not a demotion — and which is paying today, which is one of two things: an
+    `expires_date` still ahead of the clock, or a card in Apple's billing grace period. **The
+    second is why the date is selected rather than filtered on in SQL.** A row whose latest word is
+    `DID_FAIL_TO_RENEW` / `GRACE_PERIOD` carries the failed renewal's `expiresDate`, already past,
+    and that household is fully entitled while Apple retries the card — `membership.py` nulls
+    `expires_at` for the same row for the same reason. Filtering on the date would have dropped
+    exactly the sibling whose parent is mid-retry and written the household `free` under them;
+    found in review before this shipped.
+
+    "Is a demotion" is `tier_effect` in Python rather than a restatement in SQL, so that what
+    counts as a demotion has one definition; a household holds a handful of rows at most, and
+    `ix_app_store_transactions_family_id` finds them. A row a submission created (`SUBMITTED`)
+    counts, because it is Apple's signed statement that the subscription was active and
+    `tier_effect` reads it as no change. Ordered so a redelivery's log line names the same sibling.
+    """
+    now = dt.datetime.now(dt.UTC)
+    rows = (
+        await session.execute(
+            select(
+                AppStoreTransaction.original_transaction_id,
+                AppStoreTransaction.latest_notification_type,
+                AppStoreTransaction.latest_notification_subtype,
+                AppStoreTransaction.expires_date,
+            )
+            .where(
+                AppStoreTransaction.family_id == family_id,
+                AppStoreTransaction.environment == note.environment,
+                AppStoreTransaction.original_transaction_id != note.original_transaction_id,
+            )
+            .order_by(AppStoreTransaction.original_transaction_id)
+        )
+    ).all()
+    for original_transaction_id, latest_type, latest_subtype, expires_date in rows:
+        if tier_effect(latest_type, latest_subtype) == "free":
+            continue
+        in_retry = (
+            latest_type == BILLING_RETRY_NOTIFICATION and latest_subtype == BILLING_RETRY_SUBTYPE
+        )
+        if in_retry or (expires_date is not None and expires_date > now):
+            return original_transaction_id
+    return None
 
 
 async def _resolve_family(session: AsyncSession, note: VerifiedNotification) -> uuid.UUID | None:
