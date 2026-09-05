@@ -2334,11 +2334,19 @@ entitlement.
 Body: `{ "signedPayload": "<JWS>" }` → `202`, `{ "status": "..." }`. The status names what the hook
 did — `tier:subscribed`, `ignored:out-of-order`, `recorded:unattributed`,
 `recorded:demotion-refused`, `recorded:promotion-refused`, `recorded:sandbox-blocked`,
-`recorded:no-tier-change` — because the only other way to find out is to read the logs of a
-machine you may not be able to reach. **`recorded:sandbox-blocked` is phase 139's** (Sep 2, 2026):
-a Sandbox notification about a household Production has already spoken about, recorded and
-unattributed — named, because `blocked.md` §25 is two evenings spent discovering that a refused
-Sandbox write was folded into `no-tier-change`.
+`recorded:sibling-active`, `recorded:nothing-to-reinstate`, `recorded:no-tier-change` — because the
+only other way to find out is to read the logs of a machine you may not be able to reach.
+**`recorded:sandbox-blocked` is phase 139's** (Sep 2, 2026): a Sandbox notification about a
+household Production has already spoken about, recorded and unattributed — named, because
+`blocked.md` §25 is two evenings spent discovering that a refused Sandbox write was folded into
+`no-tier-change`.
+
+**`recorded:sibling-active` and `recorded:nothing-to-reinstate` are phase 145's** (Sep 5, 2026),
+and both are attributed. The first is a demotion *held*: another receipt for the same household, in
+the same environment, is still paying — see *A sibling receipt keeps a household subscribed* below
+— so the row records Apple's word about this subscription, keeps its attribution, and the tier
+stays. The second is a `REFUND_REVERSED` whose `expiresDate` is missing or already past: the
+reversal is recorded and reinstates nothing, because the period it would have restored has ended.
 
 **`recorded:promotion-refused` means the household has no members left** (phase 127). Account
 deletion hard-deletes `users` and leaves `families` standing, and Apple keeps renewing a
@@ -2388,9 +2396,17 @@ it — see *Production wins* below.
 Apple's notification does not know what a family is. `appAccountToken` — a UUID the client attaches
 at purchase time and Apple echoes back in `transactionInfo` — is the **only** channel by which one
 can travel. A purchase made without it produces an orphan receipt that no server-side process can
-ever attribute to a household: not a job, not a migration, not a support tool. It is unrecoverable
+ever attribute to a household: not a job, not a migration, not a support tool. ~~It is unrecoverable
 without a support conversation with the person who paid, and the transactions already made that way
-stay unattributable forever.
+stay unattributable forever.~~ — **narrowed Sep 5, 2026 by phase 145, owner-authorised.** Exactly one
+party can recover it: the signed-in phone that holds the receipt. App Store Connect has Streamlined
+Purchasing on, and an offer code redeemed in the App Store app has the same shape — a subscription
+bought with this app not running is one this app never tagged and Apple never will — so `POST
+/families/me/transactions` now accepts a token-less JWS and attributes it to the caller's household
+when the ledger has no row for it or an unattributed one (see *A receipt with no household tag*
+below). The obligation on the client stands unchanged for every purchase the app itself starts;
+what changed is that a purchase the app did not start is nobody's only until the customer launches
+the app, rather than forever.
 
 The server's side of this is already built and deliberately forgiving: a missing or malformed
 `appAccountToken` is recorded with a null `family_id` and a warning, never an exception and never a
@@ -2410,14 +2426,15 @@ assignment, and it is the one both doors reach.
 | `SUBSCRIBED` | `INITIAL_BUY`, `RESUBSCRIBE` | → `subscribed`, `lapsed_at` cleared, payer recorded |
 | `DID_RENEW` | any | → `subscribed`, `lapsed_at` cleared |
 | `DID_CHANGE_RENEWAL_STATUS` | `AUTO_RENEW_DISABLED` / `AUTO_RENEW_ENABLED` | **no change.** Cancelling auto-renew is not lapsing — the household is paid up until `expires_date`, and demoting here bills them for time they do not get |
-| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card |
+| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card. **Off at the Sep 5, 2026 read-back** (`docs/reports/asc-verification-2026-09-05.md`, row 5); the owner has queued turning it on — 16 days, all renewals — via a Cowork session, and this row is then the one production sees at a failed charge rather than the no-subtype row below. No server change either way |
 | `DID_FAIL_TO_RENEW` | none | → `free`, `lapsed_at` = `signedDate` |
 | `GRACE_PERIOD_EXPIRED` | — | → `free`, `lapsed_at` = `signedDate` |
 | `EXPIRED` | any | → `free`, `lapsed_at` = `signedDate` |
 | `REFUND` | — | → `free`, `lapsed_at` = `signedDate` |
 | `REVOKE` | — | → `free`, `lapsed_at` = `signedDate` |
 | `DID_CHANGE_RENEWAL_PREF` | any | no change — monthly↔annual is a *plan change*, which D5a's single subscription group is what makes true |
-| `REFUND_REVERSED`, `REFUND_DECLINED` | — | **recorded, no change — and this is a known gap, not an oversight.** A reversed refund means the customer should have access back, and this does not give it to them. The row is written, so it is recoverable by hand from `app_store_transactions`; restoring automatically is a decision nobody has made |
+| `REFUND_REVERSED` | — | ~~**recorded, no change — and this is a known gap, not an oversight.** A reversed refund means the customer should have access back, and this does not give it to them. The row is written, so it is recoverable by hand from `app_store_transactions`; restoring automatically is a decision nobody has made~~ — **struck Sep 5, 2026 by phase 145, which made the decision.** → `subscribed`, `lapsed_at` cleared, **only while the payload's `expiresDate` is in the future** at the moment the notification is applied. Apple reversed a refund it had granted, so what the `REFUND` revoked — access until `expiresDate` — comes back; a reversal arriving after that date has nothing to reinstate and is recorded with no change (`recorded:nothing-to-reinstate`). The payer is not re-recorded: the purchase that named them was the `SUBSCRIBED`. Every guard still applies |
+| `REFUND_DECLINED` | — | recorded, no change. A refund that was refused revoked nothing, so there is nothing to give back |
 | `TEST` | — | recorded, no change. This is what App Store Connect's *send a test notification* button produces, and it is the first real payload this endpoint will ever receive |
 | anything else | — | recorded, no change, `202` |
 
@@ -2500,6 +2517,22 @@ reconciles it by hand. That is the deliberate direction to fail in. Over-grantin
 subscription; under-granting locks a paying family out of their own archive, and the specific family
 it would lock out first is the owner's.
 
+**A sibling receipt keeps a household subscribed** — phase 145, Sep 5, 2026. D4 makes the
+subscription unit the household and lets *any* guardian subscribe to restore a lapsed one, so a
+two-guardian family can legitimately hold two Production subscriptions at once: the payer's card
+fails, the other parent subscribes, the payer's card recovers (`DID_RENEW` / `BILLING_RECOVERY`).
+From then on the ledger holds two renewing rows for one family, and an `EXPIRED` on *either* one —
+linked, Production, honoured by every rule above — set the household `free` while Apple was still
+charging the other parent. So a demotion the rules above would honour is **held** when another
+`app_store_transactions` row for the same family, in the same environment, whose own latest word is
+not a demotion, carries an `expires_date` still in the future: the row is recorded *with* its
+attribution (this is a linked row and Apple's newest word about it, unlike the refusal above),
+`lapsed_at` is untouched, and the status is `recorded:sibling-active`. When the last paying
+receipt's own `EXPIRED` arrives nothing holds it, and the household lapses then, dated to that
+`signedDate`. Same environment only — a tester's renewing Sandbox row never holds a Production
+demotion. Found by a read-only trace against the production ledger; no household was affected,
+because no Production transaction had yet reached the server.
+
 **Attribution falls back to the ledger when a notification carries no `appAccountToken`.** The token
 is attached at purchase time, and the notification that matters most — the `EXPIRED` a year or two
 later — is the one furthest from that purchase. If the attribution had to arrive on every payload, a
@@ -2552,11 +2585,14 @@ transaction cannot be pinned to `appAppleId`, which only a notification's envelo
 fails. An unverifiable JWS is **`422`** (`validation_failed`, `field: signed_transaction`), not
 `401`: the caller is authenticated, it is the *document* that is wrong. Then the transaction's
 `appAccountToken` — the family id this app attaches at purchase, inside Apple's signature — must
-equal the caller's `family_id`; a token naming **a household that still has members**, a token
-naming no household this server knows, or no token at all is **`409`** (`conflict`, *"This purchase
-belongs to a different household."*) and nothing is recorded, for either household. **A token
-naming a household that exists and has nobody left in it is the one exception, since phase 143 —
-the receipt follows the caller; see below.** Then the transaction must
+equal the caller's `family_id`; a token naming **a household that still has members**, ~~a token
+naming no household this server knows, or no token at all~~ or a token naming no household this
+server knows is **`409`** (`conflict`, *"This purchase
+belongs to a different household."*) and nothing is recorded, for either household. **Two
+exceptions. A token naming a household that exists and has nobody left in it — since phase 143, the
+receipt follows the caller. And no token at all — since phase 145, Sep 5, 2026, a token-less receipt
+follows the caller when the ledger has no row for it or a row nobody is attributed to; a row any
+other household holds, empty or not, is still `409`.** Both below. Then the transaction must
 be an `Auto-Renewable Subscription` that is **active**: no `revocationDate`, and an `expiresDate`
 that is present and in the future by the server's clock — a subscription transaction with no
 expiry at all is not "active until further notice"; Apple always sends one. Then it must not
@@ -2595,6 +2631,27 @@ receipt rather than the ghost. Three refusals are unchanged and each is a test: 
 household with a member, a token naming no household at all, and a ledger row a *third* household
 holds — the ledger and Apple disagreeing about where the receipt was is not something a client can
 settle, empty token household or not.
+
+**A receipt with no household tag follows the phone that holds it — phase 145, Sep 5, 2026,
+owner-authorised.** The Sep 5 App Store Connect read-back found Streamlined Purchasing on, and an
+offer code redeemed in the App Store app has the same shape: a subscription bought with this app
+not running is one this app never attached an `appAccountToken` to, and Apple will never carry one
+for it. The webhook records such a receipt unattributed — correctly, a notification has no caller —
+and until this phase this door refused it at the missing token, so the one person Apple was
+charging could never be attributed, even from their own signed-in device. The bearer token already
+proves a member of the household; the JWS is Apple's signature over an active subscription; and the
+only party who can present a token-less receipt *first* is the device it was delivered to. A
+stranger who obtained the bytes could claim an unclaimed orphan before its owner did — the same
+exposure as sharing a sign-in — and that is accepted in exchange for a paying customer not being
+locked out. So a token-less JWS is accepted, and attributed to the caller's household, **only when
+the ledger has no row for that `originalTransactionId` or a row with `family_id` null**; every other
+rule on this door applies unchanged, the attribution is logged at warning, and a row attributed to
+the caller's own household is the ordinary restore. **A row any other household holds stays `409`,
+empty or not** — phase 143's move is not extended to token-less receipts: a stale token names its
+ghost, which is how that move knows where the receipt came from; a missing token names nobody, and
+there is nothing to follow. Once attributed, the webhook's ledger fallback carries Apple's later
+token-less `DID_RENEW` and `EXPIRED` to the same household. Six tests, one per sentence above, in
+`tests/test_submitted_transactions.py`.
 
 | `status` | Meaning | Written |
 |---|---|---|

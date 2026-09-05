@@ -132,7 +132,13 @@ APP_STORE_ENVIRONMENTS: Final = ("Sandbox", "Production")
 #: The notification types that move a household **up** to `subscribed`.
 #:
 #: `SUBSCRIBED` covers `INITIAL_BUY` and `RESUBSCRIBE`; `DID_RENEW` covers every subtype.
-PROMOTING_NOTIFICATIONS: Final = ("SUBSCRIBED", "DID_RENEW")
+#: `REFUND_REVERSED` is here since phase 145 (Sep 5, 2026): Apple reversed a refund it had
+#: granted, so the access the `REFUND` revoked is reinstated — **but only for a period that
+#: has not ended.** The table says *promote*; `services/app_store_events.apply_notification`
+#: downgrades a reversal whose `expiresDate` is missing or past to no change, because a reversal
+#: arriving after the period ended has nothing to reinstate. `REFUND_DECLINED` is deliberately
+#: absent: a refund that was refused revoked nothing, so there is nothing to give back.
+PROMOTING_NOTIFICATIONS: Final = ("SUBSCRIBED", "DID_RENEW", "REFUND_REVERSED")
 
 #: The notification types that move a household **down** to `free`, setting `lapsed_at`.
 #:

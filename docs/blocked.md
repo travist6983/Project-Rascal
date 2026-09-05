@@ -649,8 +649,16 @@ at a desk rather than mid-phase. Recorded as **D5a** in `docs/decisions.md`.
    **This is the step where a wrong line costs money rather than time.** Nothing has been created
    yet, which is the only reason this is an edit and not an incident; a configured introductory
    offer is visible to every purchaser from the moment the product goes live.
-6. **Record the App Store Server Notifications V2 endpoint URL.** D5 holds that the server writes
-   the entitlement and every gate reads the server, so this URL is what phase 37 is built against.
+6. ~~**Record the App Store Server Notifications V2 endpoint URL.** D5 holds that the server writes
+   the entitlement and every gate reads the server, so this URL is what phase 37 is built against.~~
+   — **done; read back Sep 5, 2026 by phase 145** from a read-only Cowork session
+   (`docs/reports/asc-verification-2026-09-05.md`, rows 1a–3; `docs/reports/asc-2026-09-05/01-server-urls.png`
+   and `02-app-information.png`). Both the Production and the Sandbox Server URL fields read exactly
+   `https://rascal-api.fly.dev/v1/webhooks/app-store` — the current App Store Connect UI has no
+   V1/V2 selector, so the endpoint is V2 by construction — Apple ID `6800155810` matches the deployed
+   `APP_STORE_APP_APPLE_ID`, and the bundle id `com.travisterry.childarchive` matches. D5's reasoning
+   stands unchanged: the server writes the entitlement, every gate reads the server, and this URL is
+   what phase 37 was built against.
 
 ### Submission snapshot, Aug 29, 2026 (phase 133), read from a live App Store Connect session
 
@@ -702,6 +710,23 @@ first real transaction: until steps 1–5 are done there is no sandbox purchase 
 of Aug 28, 2026: the round trip has been observed end to end, in Sandbox.** What is still true is
 narrower — **no Production purchase has ever reached this service**, which is the first live
 subscriber's job to prove, not this errand's.
+
+**Sep 5, 2026 addendum, by phase 145, from a read-only Cowork read-back** — the snapshot above is
+left as written; this is what had changed a week later (`docs/reports/asc-verification-2026-09-05.md`,
+screenshots under `docs/reports/asc-2026-09-05/`). **iOS 1.0 reads "Waiting for Review"**, submitted
+Wednesday Sep 2, 2026 at 9:43 PM ET, **build 23** — the Submit for Review button the snapshot says
+had not been clicked has been. The `Membership` group and both its products read Waiting for Review
+alongside it. **Billing Grace Period is off. Family Sharing is off** on both products. **Zero
+introductory offers** on both — App Store Connect is the way step 5 wants it, so the `.storekit`
+inconsistency above is now the StoreKit file's problem only. One sandbox tester, monthly renewal
+every five minutes, interrupted purchases off. **Streamlined Purchasing is on** — recorded as read. A
+purchase completed from the App Store with the app not running carries no `appAccountToken`; the
+webhook records it unattributed, and since phase 145 the same day (owner-authorised) `POST
+/families/me/transactions` accepts a token-less receipt nobody is attributed to and follows the
+signed-in caller, so the exposure is now only a customer who never launches the app. The owner is
+turning the feature off via Cowork regardless. **Worth a look, not a
+finding**: in passing, the 1.0 page's Previews and Screenshots section showed only a bare iPhone
+placeholder; Cowork did not audit it and this file does not claim a count. Recorded because the app is already in the queue and a listing with no screenshots is the kind of thing App Review answers with a rejection.
 
 
 ---

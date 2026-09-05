@@ -1517,6 +1517,110 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   already stores rather than inferred from the last notification type. `expires_at` is null during
   a billing retry on purpose: the date on a row in retry is the day a renewal failed.
 
+- **Sep 5, 2026 (phase 145, API lane).** **Guard 6: a sibling receipt keeps a household subscribed.**
+  Found by a read-only trace of `apply_notification` against the production ledger rather than by a
+  customer — every Production row was still hypothetical, all three rows being Sandbox. D4 lets any
+  guardian subscribe to restore a lapsed household, so after the payer's card recovers a two-guardian
+  family holds two renewing Production rows, and an `EXPIRED` on either one demoted the household
+  while Apple was still charging the other parent. Judgment calls: **(1) Held, not refused** — the
+  row is recorded *with* its attribution, unlike guard 4's refusal, because this row is already
+  linked and the notification is Apple's newest word about that subscription; withholding the link
+  would make the sibling's own `EXPIRED`, when it comes, look like a stranger's and be refused by
+  guard 4 forever. **(2) A sibling holds only if its own latest word is not a demotion *and* its
+  `expires_date` is ahead of the clock** — either alone is not evidence anybody is paying: a
+  `REFUND` payload still carries the period's `expiresDate`, and a `SUBSCRIBED` whose `EXPIRED` was
+  lost keeps a stale future date until it is not future any more. The date is compared to *now*,
+  not to the demoting payload's `signedDate`, because the question is whether somebody is paying
+  today, and it is the same comparison `apply_submitted_transaction` makes about a receipt; it is
+  not a `trial_ends_at` comparison. **(3) "Is a demotion" is `tier_effect` in Python, not a
+  restatement in SQL** — the household's rows are fetched by `ix_app_store_transactions_family_id`
+  and filtered in a loop of at most a handful, so what counts as a demotion keeps one definition; a
+  `SUBMITTED` row counts as paying for the same reason. **(4) Same environment only.** A Sandbox
+  row renews forever on the accelerated clock, so a tester's row must never hold a Production
+  demotion; Production and Sandbox are already two worlds under guards 2 and 3. **(5) A new
+  status, `recorded:sibling-active`**, rather than folding into `no-tier-change`: it is the one
+  outcome where "tier unchanged" is the good news, and §25 is what folding a deliberate non-write
+  into the quiet outcome costs.
+
+- **Sep 5, 2026 (phase 145, API lane).** **Closes the Aug 20, 2026 (37a, second pass) gap:
+  `REFUND_REVERSED` restores access.** That line recorded the reversal as *"a known gap rather than
+  a discovery made while a customer is on the phone"*, pinned by a test; the test now pins the
+  closure. Judgment calls: **(1) Only while the payload's `expiresDate` is in the future when the
+  notification is applied.** Apple's semantics are *reinstate what the refund revoked*, and what
+  it revoked was access until `expiresDate`; a reversal that lands after that date — Apple's
+  dispute process can outlast a monthly period — has nothing to reinstate, and writing
+  `subscribed` would clear `lapsed_at` on a household nothing is renewing. **(2) `tier_effect`
+  stays a pure table**: `REFUND_REVERSED` joins `PROMOTING_NOTIFICATIONS` (read nowhere else — the
+  vocabulary test and the writer), and `apply_notification` downgrades the effect to no change when
+  `expiresDate` is missing or past, after guard 5 so the log line fires only for a promotion that
+  was otherwise about to be written. Threading the date through `tier_effect` would have made the
+  table a function of the clock. **(3) Its own status, `recorded:nothing-to-reinstate`**, because
+  a reversal that changes nothing reads like a lost payment until the `expiresDate` is beside it.
+  **(4) `REFUND_DECLINED` stays no-change** — a refund that was refused revoked nothing. **(5)
+  `set_payer` stays `SUBSCRIBED` only** — the purchase that named the payer was the `SUBSCRIBED`,
+  and a reversal is not a purchase.
+
+- **Sep 5, 2026 (phase 145, API lane).** `docs/runbook-deploy.md`'s symptom table enumerates the
+  deliberate `recorded:*` statuses and was outside this lane's owned paths, so the two new names were
+  filed as `CONTRACT_REQUEST-api-1003.md` in `.claude/coordination/phase-145/` rather than edited
+  from the API worktree. The coordinator resolved it the same morning by adding the file to this
+  lane's `LANE.json`, and the row now carries exactly the edit the request described. The
+  lane-ownership check is the mechanism, and a lane that edits around it is the reason the check
+  exists — asking took one file and about an hour.
+
+- **Sep 5, 2026 (phase 145, API lane).** **Guard 6 reads the billing grace period, not just the
+  date** — the single review pass's one HIGH finding, fixed before this shipped. `_active_sibling`
+  filtered `expires_date > now()` in SQL, and a row whose latest word is `DID_FAIL_TO_RENEW` /
+  `GRACE_PERIOD` carries the *failed* renewal's `expiresDate`, already past, while the household is
+  fully entitled and Apple retries the card — `membership.py` nulls `expires_at` on that same row for
+  that same reason. So the sibling whose parent was mid-retry was the one sibling the query dropped,
+  and the other parent's `EXPIRED` would have written the household `free` and started D3's clock
+  under a card Apple was still charging. The date is now selected rather than filtered on, and a
+  sibling holds when its latest word is not a demotion **and** either its `expires_date` is ahead of
+  the clock or it is the grace pair (`BILLING_RETRY_NOTIFICATION` / `BILLING_RETRY_SUBTYPE`, the
+  constants `membership.py` and `admin_metrics.py` already read). A sibling with a past date whose
+  latest word is anything else still does not hold. App Store Connect had the grace period **off** as
+  of the same day's read-back, so production would have seen the no-subtype row first — which is why
+  this was a review finding and not a customer.
+
+- **Sep 5, 2026 (phase 145, API lane).** **The App Store Connect read-back is filed, not
+  summarised.** `docs/reports/asc-verification-2026-09-05.md` and the ten screenshots under
+  `docs/reports/asc-2026-09-05/` are the read-only Cowork session's answer sheet, copied into the
+  tree so the claims below cite a file rather than a memory. What it confirmed: both Server URL
+  fields read `https://rascal-api.fly.dev/v1/webhooks/app-store` (the UI has no V1/V2 selector),
+  Apple ID `6800155810` and bundle id `com.travisterry.childarchive` match what is deployed, the
+  group and both products are *Waiting for Review* alongside iOS 1.0 build 23 (submitted Sep 2, 9:43
+  PM ET), Billing Grace Period **off**, Family Sharing **off** on both, zero introductory offers on
+  both, one sandbox tester on the five-minute month, Streamlined Purchasing **on**. Recorded where
+  each belongs: `blocked.md` §10 step 6 struck, a dated addendum to the Aug 29 submission snapshot,
+  and one sentence beside the `DID_FAIL_TO_RENEW` rows in the contract. **Streamlined Purchasing is
+  flagged for the owner and not acted on**: a purchase completed from the App Store with the app not
+  running carries no `appAccountToken`, which this server records unattributed and the submission
+  door answers `409` — turning the setting off is an App Store Connect call, not a server change.
+
+- **Sep 5, 2026 (phase 145, API lane).** **Owner-authorised: a receipt with no `appAccountToken`
+  follows the phone that holds it, when nobody else does.** The same day's App Store Connect
+  read-back found Streamlined Purchasing on, and an offer code redeemed in the App Store app has
+  the same shape — a subscription bought with this app not running is one this app never tagged
+  and Apple will never tag. The webhook recorded it unattributed (correct: a notification has no
+  caller) and `POST /families/me/transactions` refused it at `txn.app_account_token is None` with
+  `409`, so the one person Apple was charging could never be attributed, even from their own
+  signed-in device. Judgment calls: **(1) Accepted only when the ledger has no row for the
+  transaction or a row with `family_id` NULL.** The bearer token proves a member, the JWS is
+  Apple's signature over an active subscription, and the only party who can present a token-less
+  receipt *first* is the device it was delivered to; a stranger with the bytes could claim an
+  unclaimed orphan before its owner — the same exposure as sharing a sign-in — accepted in exchange
+  for a paying customer not being locked out. **(2) A row attributed to any *other* household stays
+  `409`, empty or not** — phase 143's move is not extended: a stale token names its ghost, which is
+  how that move knows where the receipt came from; a missing token names nobody, and there is
+  nothing to follow. **(3) A row attributed to the caller's own household is accepted**, because
+  that is the customer's own restore and the brief's "any household" cannot have meant to `409`
+  it; flagged as the one reading of the brief this line settles. **(4) Nothing else on the door
+  moved**: auto-renewable only, guard 2, active, pre-lapse, guard 3, `_record_submission`,
+  `_write_tier(subscribed, set_payer=True)`. **(5) The attribution is logged at warning**, at the
+  write rather than the decision, like the phase 143 move. **(6) The webhook needed no change**:
+  `family_id = token_family_id or existing.family_id` already follows the ledger for a token-less
+  `DID_RENEW` and `EXPIRED`, and a test now says so rather than assuming it.
 - **Sep 5, 2026 (phase 145, iOS lane).** **The receipt the device holds now reaches the server
   without a tap.** A read-only trace found that `POST /v1/families/me/transactions` was called from
   exactly two places, both behind a parent's finger — a purchase's confirmation and Restore — so a

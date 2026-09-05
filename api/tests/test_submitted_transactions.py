@@ -210,9 +210,24 @@ async def test_a_transaction_for_another_household_is_a_409_and_writes_nothing(
     assert await _rows(session) == 0
 
 
-async def test_a_transaction_with_no_token_is_a_409(app_store_client, session, app_store_chain):
-    """No `appAccountToken` means no proof of whose purchase it is, and the caller's word is not
-    proof — the whole point of the token is that it is inside Apple's signature."""
+# --- A receipt with no household tag follows the phone that holds it (phase 145) ------------------
+#
+# Until Sep 5, 2026 the test here was `test_a_transaction_with_no_token_is_a_409`: *"No
+# `appAccountToken` means no proof of whose purchase it is, and the caller's word is not proof."*
+# App Store Connect has Streamlined Purchasing on, and an offer code redeemed in the App Store app
+# has the same shape — a subscription bought with this app not running carries no token, ever — so
+# that rule locked out exactly the customer Apple was charging, from their own signed-in device.
+# Owner-authorised the same day: a token-less receipt nobody holds follows the caller; one another
+# household holds, empty or not, is still `409`.
+
+
+async def test_a_receipt_with_no_token_follows_the_caller_when_nobody_holds_it(
+    app_store_client, session, app_store_chain
+):
+    """The Streamlined Purchasing shape: no ledger row at all, because Apple's notification is
+    still in flight or came and went unattributed and was never recorded (a `TEST`-era outage,
+    say). The bearer token proves a member, the JWS proves an active subscription, and the phone
+    presenting it is the one it was delivered to."""
     family = await make_family(session)
     parent = await make_user(session, family=family)
     await session.commit()
@@ -223,9 +238,192 @@ async def test_a_transaction_with_no_token_is_a_409(app_store_client, session, a
         stub.sign_transaction(app_store_chain, signed_date=SIGNED_AT, expires_date=EXPIRES),
     )
 
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "tier:subscribed"
+    row = await _transaction(session, "2000000000000001")
+    assert row.family_id == family.id
+    assert row.latest_notification_type == "SUBMITTED"
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "subscribed"
+    assert entitlement.payer_user_id == parent.id, "one guardian, so the payer is not a guess"
+
+
+async def test_a_receipt_with_no_token_claims_a_row_a_notification_left_orphaned(
+    app_store_client, session, app_store_chain
+):
+    """The other Streamlined Purchasing shape, and the likelier one: Apple's `SUBSCRIBED` arrived
+    first with no token, the webhook recorded it unattributed (correctly — a notification has no
+    caller), and the phone launches afterwards. The row is claimed, its ordering key untouched."""
+    family = await make_family(session)
+    parent = await make_user(session, family=family)
+    await session.commit()
+
+    orphan = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert orphan.json()["status"] == "recorded:unattributed"
+    assert (await _transaction(session, "2000000000000001")).family_id is None
+
+    response = await _submit(
+        app_store_client,
+        parent,
+        stub.sign_transaction(
+            app_store_chain, signed_date=SIGNED_AT + dt.timedelta(minutes=5), expires_date=EXPIRES
+        ),
+    )
+
+    assert response.json()["status"] == "tier:subscribed"
+    row = await _transaction(session, "2000000000000001")
+    assert row.family_id == family.id
+    assert row.latest_signed_date == SIGNED_AT, "a submission never moves the high-water mark"
+    assert row.latest_notification_type == "SUBSCRIBED"
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+
+async def test_a_receipt_with_no_token_never_takes_a_row_another_household_holds(
+    app_store_client, session, app_store_chain
+):
+    """A missing token names nobody, so it cannot outrank a ledger that names somebody. The
+    stranger-with-the-bytes case, after the owner has already been attributed: `409`, and nothing
+    moves for either household."""
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    theirs = await make_family(session)
+    await make_user(session, family=theirs, display_name="Somebody")
+    await session.commit()
+    bought = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="SUBSCRIBED",
+            subtype="INITIAL_BUY",
+            signed_date=SIGNED_AT,
+            app_account_token=theirs.id,
+            expires_date=EXPIRES,
+        ),
+    )
+    assert bought.json()["status"] == "tier:subscribed"
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain, signed_date=SIGNED_AT + dt.timedelta(minutes=5), expires_date=EXPIRES
+        ),
+    )
+
     assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert (await _entitlement(session, theirs.id)).tier == "subscribed"
+    assert (await _transaction(session, "2000000000000001")).family_id == theirs.id
+
+
+async def test_a_receipt_with_no_token_does_not_follow_the_caller_out_of_an_empty_household(
+    app_store_client, session, app_store_chain
+):
+    """**Phase 143's move is deliberately not extended to token-less receipts**, and this pins it.
+    A stale token names its ghost — the ledger and Apple agree where the receipt came from, and
+    that place is empty. A missing token names nobody: there is no agreement to check and nothing
+    to follow, so a row the ghost holds is a row somebody holds, and the answer is `409`."""
+    ghost = await _household_whose_only_member_left(session, app_store_client, app_store_chain)
+    mine = await make_family(session)
+    me = await make_user(session, family=mine)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        me,
+        stub.sign_transaction(
+            app_store_chain,
+            signed_date=SIGNED_AT + dt.timedelta(days=1),
+            environment="Sandbox",
+            original_transaction_id=GHOST_TRANSACTION,
+            expires_date=EXPIRES,
+        ),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert (await _transaction(session, GHOST_TRANSACTION)).family_id == ghost
+    assert (await _entitlement(session, mine.id)).tier == "free"
+    assert (await _entitlement(session, ghost)).tier == "subscribed"
+
+
+async def test_a_receipt_with_no_token_that_has_expired_is_not_active(
+    app_store_client, session, app_store_chain
+):
+    """The active rule is not relaxed for a token-less receipt: an ended period is Apple's to
+    report through the door that may demote, and nothing is recorded here."""
+    family = await make_family(session)
+    parent = await make_user(session, family=family)
+    await session.commit()
+
+    response = await _submit(
+        app_store_client,
+        parent,
+        stub.sign_transaction(app_store_chain, signed_date=SIGNED_AT, expires_date=LAPSED),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ignored:not-active"
     assert (await _entitlement(session, family.id)).tier == "free"
     assert await _rows(session) == 0
+
+
+async def test_after_a_token_less_claim_apples_notifications_follow_the_ledger(
+    app_store_client, session, app_store_chain
+):
+    """Apple will never attach a token to this subscription, so every later notification about it
+    is an orphan to `_resolve_family` — and `apply_notification` falls back to the ledger row the
+    claim wrote (`family_id = token_family_id or existing.family_id`). The renewal promotes the
+    same household and the eventual `EXPIRED` demotes it, exactly as for a tagged receipt."""
+    family = await make_family(session)
+    parent = await make_user(session, family=family)
+    await session.commit()
+    claimed = await _submit(
+        app_store_client,
+        parent,
+        stub.sign_transaction(app_store_chain, signed_date=SIGNED_AT, expires_date=EXPIRES),
+    )
+    assert claimed.json()["status"] == "tier:subscribed"
+
+    renewed = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="DID_RENEW",
+            signed_date=SIGNED_AT + dt.timedelta(days=30),
+            expires_date=EXPIRES,
+        ),
+    )
+    assert renewed.json()["status"] == "tier:subscribed", renewed.text
+    row = await _transaction(session, "2000000000000001")
+    assert row.family_id == family.id
+    assert row.latest_notification_type == "DID_RENEW"
+    assert (await _entitlement(session, family.id)).tier == "subscribed"
+
+    expired = await _notify(
+        app_store_client,
+        stub.sign_notification(
+            app_store_chain,
+            notification_type="EXPIRED",
+            subtype="VOLUNTARY",
+            signed_date=SIGNED_AT + dt.timedelta(days=60),
+            expires_date=SIGNED_AT + dt.timedelta(days=60),
+        ),
+    )
+    assert expired.json()["status"] == "tier:free", expired.text
+    entitlement = await _entitlement(session, family.id)
+    assert entitlement.tier == "free"
+    assert entitlement.lapsed_at == SIGNED_AT + dt.timedelta(days=60)
 
 
 async def test_a_tampered_transaction_is_a_422_and_writes_nothing(
