@@ -713,20 +713,35 @@ subscriber's job to prove, not this errand's.
 
 **Sep 5, 2026 addendum, by phase 145, from a read-only Cowork read-back** — the snapshot above is
 left as written; this is what had changed a week later (`docs/reports/asc-verification-2026-09-05.md`,
-screenshots under `docs/reports/asc-2026-09-05/`). **iOS 1.0 reads "Waiting for Review"**, submitted
-Wednesday Sep 2, 2026 at 9:43 PM ET, **build 23** — the Submit for Review button the snapshot says
-had not been clicked has been. The `Membership` group and both its products read Waiting for Review
-alongside it. **Billing Grace Period is off. Family Sharing is off** on both products. **Zero
-introductory offers** on both — App Store Connect is the way step 5 wants it, so the `.storekit`
-inconsistency above is now the StoreKit file's problem only. One sandbox tester, monthly renewal
-every five minutes, interrupted purchases off. **Streamlined Purchasing is on** — recorded as read. A
-purchase completed from the App Store with the app not running carries no `appAccountToken`; the
-webhook records it unattributed, and since phase 145 the same day (owner-authorised) `POST
-/families/me/transactions` accepts a token-less receipt nobody is attributed to and follows the
-signed-in caller, so the exposure is now only a customer who never launches the app. The owner is
-turning the feature off via Cowork regardless. **Worth a look, not a
-finding**: in passing, the 1.0 page's Previews and Screenshots section showed only a bare iPhone
-placeholder; Cowork did not audit it and this file does not claim a count. Recorded because the app is already in the queue and a listing with no screenshots is the kind of thing App Review answers with a rejection.
+screenshots under `docs/reports/asc-2026-09-05/`). **iOS 1.0 reads "Waiting for Review"**,
+submitted Wednesday Sep 2, 2026 at 9:43 PM ET, **build 23** — the Submit for Review button the
+snapshot says had not been clicked has been. The `Membership` group and both its products read
+Waiting for Review alongside it. ~~*Billing Grace Period is off.*~~ — **turned on later the
+same day: 16 days, all renewals, Production and Sandbox.** **Family Sharing is off** on both
+products. **Zero introductory offers** on both — App Store Connect is the way step 5 wants it,
+so the `.storekit` inconsistency above is now the StoreKit file's problem only. One sandbox
+tester, monthly renewal every five minutes, interrupted purchases off. **Streamlined Purchasing
+is on** — recorded as read. A purchase completed from the App Store with the app not running
+carries no `appAccountToken`; the webhook records it unattributed, and since phase 145 the same
+day (owner-authorised) `POST /families/me/transactions` accepts a token-less receipt nobody is
+attributed to and follows the signed-in caller, so the exposure is now only a customer who
+never launches the app. ~~*The owner is turning the feature off via Cowork regardless.*~~ —
+**Apple refuses to turn it off**, tried Sep 5, 2026: *"Streamlined purchasing cannot be turned
+off because your latest approved binary doesn't include the required StoreKit APIs"*
+(`docs/reports/asc-changes-2026-09-05.md`, item 2). **So phase 145's token-less receipt is not
+belt-and-braces, it is the only mitigation there is**, and it stays that way until a binary
+carrying those APIs is *approved* — which build 23, in review, is not. What holds the exposure
+near zero meanwhile is item 3 of the same report: **neither subscription is promoted on the App
+Store**, and an unpromoted product has no product-page purchase to complete without the app.
+~~*Worth a look, not a finding: the 1.0 page's Previews and Screenshots section showed only a
+bare iPhone placeholder.*~~ — **audited Sep 5, 2026 and there is nothing wrong with it**: ten
+screenshots on the 6.5" set, the other six iPhone sizes drawing from it, no required marker on
+any of them (`docs/reports/asc-changes-2026-09-05.md`, item 4). The placeholder was the section
+collapsed, not an empty listing, and the Aug 29 *0 of 10, required* line was already stale when
+this addendum repeated its worry. ~~*Recorded because the app is already in the queue and a
+listing with no screenshots is the kind of thing App Review answers with a rejection.*~~ — true
+of an empty listing and this one was never empty; the reason to record it now is the opposite
+one, that a doubt written from a glance outlives the glance.
 
 
 ---
