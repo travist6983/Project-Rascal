@@ -1621,3 +1621,55 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   write rather than the decision, like the phase 143 move. **(6) The webhook needed no change**:
   `family_id = token_family_id or existing.family_id` already follows the ledger for a token-less
   `DID_RENEW` and `EXPIRED`, and a test now says so rather than assuming it.
+- **Sep 5, 2026 (phase 145, iOS lane).** **The receipt the device holds now reaches the server
+  without a tap.** A read-only trace found that `POST /v1/families/me/transactions` was called from
+  exactly two places, both behind a parent's finger — a purchase's confirmation and Restore — so a
+  purchase whose submission failed while Apple's webhook was also lost, or a renewal landing while
+  the webhook was down, left the household running out its fortnight and reading *Free* while Apple
+  charged. `SubscriptionCenter.reconcile()` is the same hand-over `SubscriptionModel` already makes,
+  run where nobody is tapping: read the household, leave a member alone (`isMember`, so a grant is
+  not offered a receipt it did not buy), ask the store for `currentEntitlement()`, submit, and bump
+  `householdRevision` if the server now says `subscribed`. D5 is untouched: the center still holds
+  no tier and keeps no household — it reads the server's answer to decide whether to bother the
+  server, and reads it again to decide whether a screen should look.
+- **Sep 5, 2026 (phase 145, iOS lane).** **The reconciliation is silent, including on a `409`.**
+  Every failure is swallowed — a `409 conflict` saying the receipt belongs to another household, a
+  `422`, a `404` from an older server, a dropped connection — with nothing but an `os.Logger`
+  debug line that omits the JWS. Nobody asked for this run, so there is no sentence a parent is
+  waiting on and no state to leave behind; the `409` is *already* said, in the one place a parent
+  can act on it, when they tap Buy or Restore (`settleReceiptElsewhere()`). A launch writing that
+  sentence under a card nobody was looking at would be a notice about nothing the parent did, and
+  `free-tier-copy.md` forbids an agent authoring membership copy in any case. Not done: a notice, a
+  badge, or any surfaced state for a refused reconciliation.
+- **Sep 5, 2026 (phase 145, iOS lane).** **It runs at launch and on each drained transaction, and
+  deliberately not on every foreground.** Those two are the moments the device learns something
+  without anybody tapping — the process starting (a renewal may have landed while the app was
+  dead) and a transaction coming off `Transaction.updates`. A foreground is the most frequent event
+  the app has and would put an Apple-verification round trip on the server every time a non-member
+  household with a receipt came back to the app — including, forever, a household whose receipt
+  the server has already refused with a `409`. The foreground re-check stays what it was: a bare
+  `GET` whose answer is discarded. On the drain path the hand-over runs *before* `refresh()` and
+  the counter bump, so the screens the bump wakes find a server that has already been told; the
+  drain's own `refresh()` is kept even though `reconcile()` has just read the same route, because
+  it is the read the listener promised and the shape test pins, and a second `GET` on an event
+  that happens a few times a year is not worth a weaker guard.
+- **Sep 5, 2026 (phase 145, iOS lane).** **A sibling counter, `householdRevision`, rather than a
+  second writer to `transactionRevision`.** The two mean different things and a screen does
+  different things about them: `transactionRevision` says *a transaction came off the stream*, and a
+  paywall parked on "needs approval" answers it by re-entering the confirmation window;
+  `householdRevision` says *the server's answer moved*, and the right response is a plain
+  `refreshHousehold()`. Routing a reconciled receipt through the transaction counter would have made
+  a launch look like an Ask-to-Buy approval, which is the exact bug the `refresh()` split exists to
+  prevent, arriving one door over. `PaywallSheet` and `SubscriptionSection` observe it and re-read
+  the household; `TodayScreen` observes it and re-reads the *board*, because on a warm launch
+  nothing has read the household yet and the `nil → true` transition rule would rightly see nothing
+  while the locked cards a parent is looking at are the whole symptom.
+- **Sep 5, 2026 (phase 145, iOS lane).** **Nothing is asked before there is a session, and a
+  fresh sign-in is not a third trigger.** `start(api:)` runs before `OnboardingGate` resolves a
+  session — deliberately, so the drain is reading before any paywall exists — so on a fresh install
+  the launch reconciliation meets a client with no tokens. It checks `hasSession()` and leaves
+  rather than send a `GET` that can only `401`. A parent who signs in afterwards is reconciled by
+  the next launch or the next transaction, and by the submission Buy and Restore already make; a
+  hook on `SessionState` moving off `.signedOut` would be a third entry point into the same
+  hand-over for a case the next process start already covers. Likewise a household read that fails
+  sends nothing: the server was not asked, so it is not told, and the next trigger asks again.
