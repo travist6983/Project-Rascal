@@ -334,6 +334,15 @@ struct TodayScreen: View {
                     Task { await model.load(showSpinner: false) }
                 }
             }
+            // **A receipt the listener handed over without a tap, and the server accepted** — see
+            // `SubscriptionCenter.householdRevision` (phase 145). The board is what is re-read,
+            // not the household: on a warm launch nothing has read `subscription.household` yet,
+            // so the transition rule above would correctly see `nil → true` and do nothing, while
+            // the locked cards a parent is looking at are the whole symptom. Still the server's
+            // word, still nothing on this screen reading a receipt.
+            .onChange(of: SubscriptionCenter.shared.householdRevision) { _, _ in
+                Task { await model.load(showSpinner: false) }
+            }
     }
 
     @ViewBuilder

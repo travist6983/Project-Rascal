@@ -167,6 +167,12 @@ struct SubscriptionSection: View {
         .onChange(of: SubscriptionCenter.shared.transactionRevision) { _, _ in
             Task { await model.transactionArrived() }
         }
+        // A receipt the listener handed over at launch or on arrival, and the server accepted —
+        // see `SubscriptionCenter.householdRevision` (phase 145). A plain re-read: the server's
+        // answer moved, and the card shows whatever it now says.
+        .onChange(of: SubscriptionCenter.shared.householdRevision) { _, _ in
+            Task { await model.refreshHousehold() }
+        }
         // A foreground is a reason to re-read, not a transaction. See `transactionRevision`.
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

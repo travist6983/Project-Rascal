@@ -1138,7 +1138,9 @@ struct SubscriptionCenterTests {
             performer: performer,
             tokens: InMemoryTokenStore()
         )
-        return (SubscriptionCenter(testing: api), performer)
+        // A store with nothing to hand over: these tests are about `refresh()`, which never asks
+        // it, and `ReconciliationTests` below is where the store gets a receipt.
+        return (SubscriptionCenter(testing: api, store: FakeStore()), performer)
     }
 
     @Test("a foreground re-check asks the server and does not look like a transaction")
@@ -1187,6 +1189,296 @@ struct SubscriptionCenterTests {
         // listener, and the invariant under test is that neither path invents a transaction.
         await center.refresh()
         #expect(center.transactionRevision == 0)
+    }
+}
+
+// MARK: - The receipt reaches the server without a tap
+
+/// **Phase 145, and the gap it closes was found by reading rather than by a parent.** Until now
+/// the JWS the device holds was submitted from exactly two places, both behind a tap: a purchase's
+/// confirmation and a restore. A purchase whose submission failed while Apple's webhook was also
+/// lost, or a renewal landing while the webhook was down, left the server never hearing about a
+/// receipt the phone was carrying — and a household running out its trial and reading *Free* while
+/// Apple charged. `SubscriptionCenter.reconcile()` runs the same hand-over at launch and on every
+/// drained transaction; these pin what it sends, what it refuses to send, and that it says nothing.
+@Suite("Phase 145 — the receipt the device holds reaches the server without a tap")
+struct ReconciliationTests {
+
+    private static let familyID = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
+
+    /// A household in its trial: `tier` free, `access` trial, no grant. Not a member, which is the
+    /// shape the defect lives in.
+    private static let trialHousehold = """
+    {"family_id":"\(familyID)","tier":"free","access":"trial","entitled":true,
+     "entitlement_source":"trial","guardians":[],"pending_invites":[]}
+    """
+    private static let subscribedHousehold = """
+    {"family_id":"\(familyID)","tier":"subscribed","access":"subscribed","entitled":true,
+     "entitlement_source":"receipt","guardians":[],"pending_invites":[]}
+    """
+    /// Complimentary access: `tier` still free, and `isMember` because of the grant alone.
+    private static let grantedHousehold = """
+    {"family_id":"\(familyID)","tier":"free","access":"subscribed","entitled":true,
+     "entitlement_source":"grant","guardians":[],"pending_invites":[]}
+    """
+    private static func submission(of household: String, status: String = "tier:subscribed") -> String {
+        #"{"status":"\#(status)","family":\#(household)}"#
+    }
+    private static let conflictEnvelope = """
+    {"error":{"code":"conflict","message":"This transaction belongs to a different household.","field":null}}
+    """
+
+    /// A center with a scripted server, a store, and a session — or, when `signedIn` is false, the
+    /// client a fresh install holds, with no tokens at all.
+    @MainActor
+    private func center(
+        household: String,
+        householdStatus: Int = 200,
+        submission: String = "{}",
+        submissionStatus: Int = 200,
+        store: FakeStore,
+        signedIn: Bool = true
+    ) -> (SubscriptionCenter, StubPerformer) {
+        let performer = StubPerformer()
+        // Registered in this order on purpose: `StubPerformer` matches by `contains` and the
+        // *last* matching rule wins, so the transactions route — whose path also contains
+        // `families/me` — has to be registered after the household read to be the one that
+        // answers a POST.
+        performer.on("families/me") { _ in (Data(household.utf8), householdStatus) }
+        performer.on("families/me/transactions") { _ in (Data(submission.utf8), submissionStatus) }
+        let tokens = signedIn
+            ? InMemoryTokenStore(TokenPair(accessToken: "access", refreshToken: "refresh"))
+            : InMemoryTokenStore()
+        let api = APIClient(
+            baseURL: URL(string: "https://example.invalid")!,
+            performer: performer,
+            tokens: tokens
+        )
+        return (SubscriptionCenter(testing: api, store: store), performer)
+    }
+
+    private func posts(_ performer: StubPerformer) -> [URLRequest] {
+        performer.requests.filter {
+            $0.httpMethod == "POST" && ($0.url?.path().hasSuffix("families/me/transactions") ?? false)
+        }
+    }
+
+    private func reads(_ performer: StubPerformer) -> Int {
+        performer.requests.filter {
+            $0.httpMethod == "GET" && ($0.url?.path().hasSuffix("families/me") ?? false)
+        }.count
+    }
+
+    @Test("a household the server does not call a member gets the receipt the device holds")
+    @MainActor
+    func submitsTheReceiptForANonMember() async throws {
+        let store = FakeStore(entitlement: "jws.apple.signed")
+        let (center, performer) = center(
+            household: Self.trialHousehold,
+            submission: Self.submission(of: Self.subscribedHousehold),
+            store: store
+        )
+
+        await center.reconcile()
+
+        let sent = posts(performer)
+        #expect(sent.count == 1, "the receipt was not handed over")
+        let body = try #require(sent.first?.httpBody)
+        let decoded = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        #expect(decoded?["signed_transaction"] as? String == "jws.apple.signed")
+        let asked = await store.entitlementReads
+        #expect(asked == 1)
+        // The server now calls the household subscribed, so open screens are told to look —
+        #expect(center.householdRevision == 1, "a subscribed answer must wake the open screens")
+        // — and told through the right door. Nothing came off `Transaction.updates`.
+        #expect(
+            center.transactionRevision == 0,
+            "a reconciled receipt announced itself as a transaction — a launch would look like an approval"
+        )
+    }
+
+    @Test(
+        "a member is left alone — no receipt is offered for what the server already grants",
+        arguments: [subscribedHousehold, grantedHousehold]
+    )
+    @MainActor
+    func aMemberIsLeftAlone(household: String) async {
+        let store = FakeStore(entitlement: "jws.apple.signed")
+        let (center, performer) = center(
+            household: household,
+            submission: Self.submission(of: Self.subscribedHousehold),
+            store: store
+        )
+
+        await center.reconcile()
+
+        #expect(reads(performer) == 1, "the server is asked once, so the answer can decide")
+        #expect(posts(performer).isEmpty, "a member's receipt was submitted")
+        // Not even asked for: the store is only consulted once there is something to reconcile.
+        let asked = await store.entitlementReads
+        #expect(asked == 0)
+        #expect(center.householdRevision == 0)
+        #expect(center.transactionRevision == 0)
+    }
+
+    @Test("no receipt on the device means nothing is sent, and nothing is announced")
+    @MainActor
+    func noReceiptMeansNothingIsSent() async {
+        let store = FakeStore(entitlement: nil)
+        let (center, performer) = center(household: Self.trialHousehold, store: store)
+
+        await center.reconcile()
+
+        #expect(reads(performer) == 1)
+        #expect(posts(performer).isEmpty, "a POST with no receipt in it")
+        let asked = await store.entitlementReads
+        #expect(asked == 1, "the store was the step that stopped this, so it must have been asked")
+        #expect(center.householdRevision == 0)
+        #expect(center.transactionRevision == 0)
+    }
+
+    /// **Every refusal is silent, and the `409` is the one that matters.** The server saying the
+    /// receipt belongs to a different household is the refusal `SubscriptionModel` turns into a
+    /// sentence when a parent taps Buy or Restore — and exactly the one a launch must not, because
+    /// nobody did anything and there is nothing on screen for a sentence to be about.
+    @Test(
+        "a refused submission is swallowed whole — no throw, no state, no counter",
+        arguments: [
+            (409, conflictEnvelope),
+            (422, #"{"error":{"code":"validation_failed","message":"not signed for this bundle","field":"signed_transaction"}}"#),
+            (409, "{}"),
+            (404, "{}"),
+            (500, "not json at all"),
+        ]
+    )
+    @MainActor
+    func aRefusalIsSilent(status: Int, body: String) async {
+        let store = FakeStore(entitlement: "jws.bought.under.another.account")
+        let (center, performer) = center(
+            household: Self.trialHousehold,
+            submission: body,
+            submissionStatus: status,
+            store: store
+        )
+
+        // The assertion is partly that this line returns at all: `reconcile()` does not throw,
+        // so a refusal that escaped would be a crash rather than a failed expectation.
+        await center.reconcile()
+
+        #expect(posts(performer).count == 1, "\(status) was never even attempted")
+        #expect(center.householdRevision == 0, "\(status) woke the screens over nothing")
+        #expect(center.transactionRevision == 0, "\(status) was announced as a transaction")
+    }
+
+    @Test("a server that takes the receipt and still says free announces nothing")
+    @MainActor
+    func aFreeAnswerSignalsNothing() async {
+        // A `200` whose household still reads `free` — a receipt for an expired subscription,
+        // say, which the server verified and had no reason to promote on.
+        let store = FakeStore(entitlement: "jws.of.a.lapsed.year")
+        let (center, performer) = center(
+            household: Self.trialHousehold,
+            submission: Self.submission(of: Self.trialHousehold, status: "ignored:not-active"),
+            store: store
+        )
+
+        await center.reconcile()
+
+        #expect(posts(performer).count == 1)
+        #expect(center.householdRevision == 0, "nothing changed, so there is nothing to re-read")
+        #expect(center.transactionRevision == 0)
+    }
+
+    @Test("a household read that fails sends nothing rather than guessing")
+    @MainActor
+    func aFailedReadSendsNothing() async {
+        let store = FakeStore(entitlement: "jws.apple.signed")
+        let (center, performer) = center(
+            household: #"{"error":{"code":"internal_error","message":"bad minute","field":null}}"#,
+            householdStatus: 500,
+            store: store
+        )
+
+        await center.reconcile()
+
+        #expect(posts(performer).isEmpty, "the server was not asked, so it must not be told")
+        let asked = await store.entitlementReads
+        #expect(asked == 0)
+        #expect(center.householdRevision == 0)
+    }
+
+    /// `start(api:)` runs before `OnboardingGate` has resolved a session — deliberately, so the
+    /// drain is reading before any paywall exists — which means on a fresh install the launch
+    /// reconciliation meets a client with no tokens. It must notice and leave, not send a `GET`
+    /// that can only `401`.
+    @Test("before there is a session, nothing is asked of anybody")
+    @MainActor
+    func nothingIsAskedBeforeSignIn() async {
+        let store = FakeStore(entitlement: "jws.apple.signed")
+        let (center, performer) = center(household: Self.trialHousehold, store: store, signedIn: false)
+
+        await center.reconcile()
+
+        #expect(performer.requests.isEmpty, "a request went out with no session behind it")
+        let asked = await store.entitlementReads
+        #expect(asked == 0)
+        #expect(center.householdRevision == 0)
+        #expect(center.transactionRevision == 0)
+    }
+
+    /// The counter split, extended to the new counter. `SubscriptionCenterTests` pins that
+    /// `refresh()` never bumps `transactionRevision`; this pins that it never bumps
+    /// `householdRevision` either, because a foreground is a re-read and not news.
+    @Test("refresh() still bumps neither counter, whatever the server says")
+    @MainActor
+    func refreshBumpsNeitherCounter() async {
+        let store = FakeStore(entitlement: "jws.apple.signed")
+        let (center, performer) = center(household: Self.subscribedHousehold, store: store)
+
+        await center.refresh()
+        await center.refresh()
+
+        #expect(reads(performer) == 2, "the foreground re-check is a real read")
+        #expect(posts(performer).isEmpty, "refresh() is a read, never a submission")
+        #expect(center.transactionRevision == 0, "the foreground bug returning")
+        #expect(center.householdRevision == 0, "the foreground bug returning by the new door")
+    }
+
+    /// The drain cannot be driven here — `Transaction.updates` needs an `SKTestSession`, which
+    /// `SubscriptionStoreKitTests` records is not always available — so, like `theListenerIsWired`,
+    /// this pins the shape: the hand-over runs inside the drain's callback and runs **before** the
+    /// counter bumps, so the screens the bump wakes find a server that has already been told. And
+    /// `start(api:)` runs it once on its own, for the launch.
+    @Test("the drain reconciles before it announces, and the listener's start reconciles once")
+    func theDrainReconcilesFirst() throws {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Rascal/Subscription/SubscriptionCenter.swift")
+        let source = SubscriptionPriceTests.executableLines(of: try String(contentsOf: file, encoding: .utf8))
+
+        let drain = try #require(source.range(of: "SubscriptionStore.drain(Transaction.updates)"))
+        let inDrain = source[drain.upperBound...]
+        let reconcile = try #require(inDrain.range(of: "await self?.reconcile()"))
+        let refresh = try #require(inDrain.range(of: "await self?.refresh()"))
+        let delivered = try #require(inDrain.range(of: "await self?.transactionDelivered()"))
+        #expect(
+            reconcile.lowerBound < refresh.lowerBound && refresh.lowerBound < delivered.lowerBound,
+            "the drain must hand the receipt over before it re-reads and before it bumps the counter"
+        )
+
+        // Exactly one more `reconcile()` call in the file, for the launch — the one `start(api:)`
+        // makes. Two would be a second launch path; none would be the defect back.
+        let calls = source.components(separatedBy: "self?.reconcile()").count - 1
+        #expect(calls == 2, "expected the drain's call and the launch's call, found \(calls)")
+
+        // And `refresh()` is still the bare read it was. The foreground re-check must not have
+        // grown a submission.
+        if let body = source.range(of: "func refresh() async {") {
+            let after = source[body.upperBound...]
+            let end = after.range(of: "\n    }")?.lowerBound ?? after.endIndex
+            #expect(!after[..<end].contains("reconcile"), "refresh() reconciles — a foreground now submits")
+            #expect(!after[..<end].contains("householdRevision"), "refresh() bumps the new counter")
+        }
     }
 }
 
