@@ -2426,7 +2426,7 @@ assignment, and it is the one both doors reach.
 | `SUBSCRIBED` | `INITIAL_BUY`, `RESUBSCRIBE` | → `subscribed`, `lapsed_at` cleared, payer recorded |
 | `DID_RENEW` | any | → `subscribed`, `lapsed_at` cleared |
 | `DID_CHANGE_RENEWAL_STATUS` | `AUTO_RENEW_DISABLED` / `AUTO_RENEW_ENABLED` | **no change.** Cancelling auto-renew is not lapsing — the household is paid up until `expires_date`, and demoting here bills them for time they do not get |
-| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card. **Off at the Sep 5, 2026 read-back** (`docs/reports/asc-verification-2026-09-05.md`, row 5); the owner has queued turning it on — 16 days, all renewals — via a Cowork session, and this row is then the one production sees at a failed charge rather than the no-subtype row below. No server change either way |
+| `DID_FAIL_TO_RENEW` | `GRACE_PERIOD` | **no change** — Apple is still retrying the card. ~~*Off at the Sep 5, 2026 read-back; the owner has queued turning it on.*~~ — **On since later the same day**: 16 days, all renewals, Production **and** Sandbox (`docs/reports/asc-changes-2026-09-05.md`, item 1). **So this row is the one production sees at a failed charge**, and the no-subtype row below is now the exception rather than the rule. No server change either way — the subtype was always the thing that decided it |
 | `DID_FAIL_TO_RENEW` | none | → `free`, `lapsed_at` = `signedDate` |
 | `GRACE_PERIOD_EXPIRED` | — | → `free`, `lapsed_at` = `signedDate` |
 | `EXPIRED` | any | → `free`, `lapsed_at` = `signedDate` |

@@ -1673,3 +1673,30 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   hook on `SessionState` moving off `.signedOut` would be a third entry point into the same
   hand-over for a case the next process start already covers. Likewise a household read that fails
   sends nothing: the server was not asked, so it is not told, and the next trigger asks again.
+- **Sep 5, 2026 (phase 146, docs lane).** **Billing Grace Period is on: 16 days, all renewals,
+  Production *and* Sandbox.** With it off, a parent whose card expires loses the archive the morning
+  it fails and reads *Free* with nothing on the card explaining why; sixteen days is a reissued card.
+  The third field — Server Environments — was not in the brief and App Store Connect asked for it;
+  Production *and* Sandbox was chosen deliberately, so a sandbox tester exercises the same path a
+  paying parent will. **No server change**: `tier_effect` already keys off the subtype, so this only
+  decides which of the two `DID_FAIL_TO_RENEW` rows Apple sends, and both were already implemented.
+- **Sep 5, 2026 (phase 146, docs lane).** **Streamlined Purchasing cannot be turned off, and phase
+  145 is therefore load-bearing rather than defensive.** App Store Connect refused the save outright:
+  *"Streamlined purchasing cannot be turned off because your latest approved binary doesn't include
+  the required StoreKit APIs."* It needs an **approved** binary carrying those APIs, and build 23 —
+  in review — is not one, so this is not a setting anybody can simply change today. **What this costs
+  us is nothing right now and would have cost a customer everything later**: a purchase completed
+  from the App Store with the app not running carries no `appAccountToken`, and until phase 145 that
+  receipt was refused with a `409` from the one device that could have claimed it. Recorded here
+  because phase 145 wrote *"the owner is turning the feature off regardless"* into `blocked.md`, and
+  that sentence is now false. Item 3 of the same read is what keeps the exposure near zero meanwhile
+  — **neither subscription is promoted on the App Store**, and an unpromoted product has no
+  product-page purchase to complete.
+- **Sep 5, 2026 (phase 146, docs lane).** **The Previews and Screenshots worry was wrong twice and is
+  struck at both ends.** Ten screenshots sit on the 6.5" set with the other six iPhone sizes drawing
+  from it and no required marker anywhere. `blocked.md`'s Aug 29 *0 of 10, required* line was already
+  stale when the Sep 5 addendum repeated it as *worth a look*, and the addendum's own evidence was a
+  collapsed section read in passing. **A doubt recorded from a glance reads exactly like a finding
+  three days later**, which is the failure this file keeps recording under a different name: the
+  addendum should have said Cowork did not open it, and instead said what it appeared to show.
+
