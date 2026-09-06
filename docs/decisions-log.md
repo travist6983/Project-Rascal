@@ -10,6 +10,89 @@ that file left open.
 > unedited by **phase 123 on Aug 25, 2026**. They were not summarised and nothing was dropped;
 > `grep -rn … docs/` still finds them. This file carries **Aug 17, 2026 onward**.
 
+## Sep 6, 2026 — phase 147, adding media becomes part of membership
+
+API lane. The owner's call: **a household that is not a member may not add new media of any kind —
+photo, video or audio; text and `did_it` entries stay unlimited and free.** It reverses the storage
+half of D2 and names the word D3 left out. The decision itself is in `decisions.md`; what follows is
+what the brief left to this phase.
+
+- **The gate reads `Access.entitled`, not `Access.is_member`, so a household inside its fourteen
+  days may add media.** This is the one substantive call and the brief pointed both ways at once: it
+  said *"member" means `Access.is_member`* and, two sentences later, *a trial household should still
+  be able to add media (a trial exists to show the product)*, and it asked for a test pinning the
+  trial as **allowed**. Those cannot both hold — `is_member` is `source in ("receipt", "grant")`
+  (`constants.py:94`), which is exactly the set that excludes a trial. **Behaviour won over the
+  label**, on three grounds: the brief's own rationale and its own test list both name the trial as
+  allowed, and only the identifier disagrees; a trial that cannot photograph a child is not a trial
+  of a product whose entire subject is photographing one, so refusing it would be a conversion
+  decision dressed as a paywall; and the invite gate and this one are asking genuinely different
+  questions — D4 sells the *second parent* on a subscription, where D3's lapse rule is about
+  *storage*, and a household in its trial has not lapsed and reads `access: "trial"`, never `free`.
+  **The two gates now differ for exactly one household shape and that is deliberate.**
+  `test_a_household_inside_its_trial_may_add_media` is the pin: swapping the one identifier in
+  `plan_upload` fails that test and no other, which was verified by doing it. **Confirmed by
+  the owner the same day, after the fact**: the reading is what he intended, his brief was
+  self-contradictory, and **the iOS lane was told to gate on `entitled` too**, so client and
+  server ask the same question. That moves this line from a judgment call to a settled rule —
+  it is kept here rather than promoted into `decisions.md` because D2's Sep 6 amendment
+  already carries it as the decision; this is the record of how it was reached.
+- **The gate is in `services/media.plan_upload`, not in the router.** `plan_upload` is the only
+  place in `src/` that constructs a `Media` row, so a second caller inherits the refusal; a check
+  written beside `POST /media/upload-url` would have to be remembered. `family_id` is a required
+  keyword for the same reason `access_for(granted=…)` is — a default would be the hole. It is the
+  *caller's* household, the read `GET /today` already takes, because a child is reached through
+  `guardians` and the thing that is paid for is `users.family_id`.
+- **It is the first statement in the function, before the entry lookup.** The authorization
+  dependency has already 404'd an unknown entry and 403'd a stranger, so the only behaviour this
+  ordering changes is that a free household naming *another of its own children's* entries now
+  reads `402` where it used to read `422` — the refusal that applies whatever the body says,
+  applied first.
+- **`POST /media/{id}/complete` is deliberately not gated, and it was considered as a belt.** A
+  client can hold a presigned URL across a lapse. It creates nothing: the row and the URLs were
+  minted by an `upload-url` call the server already approved, and by the time `complete` runs the
+  bytes are in storage. Refusing would leave them under a `pending` row that `GET /media/{id}/url`
+  refuses to presign and no client can retry — an object the household already captured, made
+  permanently unreadable, which is precisely what D3's operative test forbids. The exposure it
+  would buy is bounded by `presign_ttl_seconds` (one hour) in any case.
+- **`/sync/push` is let through, and it needs no gate for a structural reason rather than a lenient
+  one.** `PushMedia` carries no `kind`, no `bytes` and no `s3_key`, and `_apply_media` answers
+  `conflict` — *"Call POST /v1/media/upload-url before pushing metadata"* — for an id it has never
+  seen. So the push path cannot create a row at all; every media row in the archive passed through
+  the gated route. That also answers the queued-offline-entry case the brief flagged: a client
+  draining a queue built while the household was a member is pushing metadata for rows that were
+  gated on the day they were captured, and refusing it now would strand them.
+- **`POST /entries` needs no gate either, and the reason is the same shape.** `EntryCreate` has no
+  media field, so an entry cannot arrive carrying an artifact. `ApiModel` ignores unknown keys
+  rather than rejecting them, so a body with a `media` array is silently dropped — asserted both on
+  the schema and over the wire, because the wire assertion is what would catch the field being added
+  later without the gate following it.
+- **`POST /children/{id}/avatar-upload-url` is deliberately out of scope, and this is the one
+  exclusion worth a second look.** A child's avatar is a photograph, and *"media of any kind"* read
+  literally would cover it. It is excluded because it is not archive media by construction:
+  `services/avatars.py` opens by saying it is *"deliberately not a `media` row"*, it writes no row
+  at all, it lives in `children.avatar_key`, it is one per child and replaced rather than
+  accumulated, and D2's cap was always about what a household *stores*. Gating it would mean a free
+  household cannot put a face on its own child's record, which is not what the decision is about.
+  **Flagged rather than assumed**, and **the owner confirmed the exclusion the same day and is
+  keeping it**, on a ground this phase had not written down: **an avatar is one replaceable
+  image tied to *creating a child*, so gating it would block onboarding on the free tier.**
+  That is the load-bearing reason and it is stronger than the structural ones above — a free
+  household must be able to finish setting up a child, and D2 as amended withholds media from
+  the archive, never the ability to start using the product. The structural facts still hold
+  and are why the exclusion costs nothing: no `media` row, no entry, one key per child,
+  replaced rather than accumulated, and `MAX_AVATAR_BYTES` already caps it at 5 MB of a
+  ~512px square. **So `POST /children/{id}/avatar-upload-url` is deliberately ungated and
+  stays that way**; a future phase that gates it is reversing an owner's call, not filling a
+  gap this one left.
+- **The refusal is `402 subscription_required` with one sentence: *"Adding photos, video and audio
+  is part of membership."*** No new error code — `ErrorCode.SUBSCRIPTION_REQUIRED` already exists,
+  already maps to 402, and its own comment says a client shows it *"as a door rather than a wall"*.
+  The sentence obeys `docs/design/free-tier-copy.md`: the word is **membership**, never "upgrade",
+  "unlock" or "premium"; no exclamation; no call to action, because the client renders its own; and
+  it says nothing about the archive, per rule 3, since nothing about the archive changed. A test
+  asserts all of that against the wire rather than against the constant.
+
 ## Aug 30, 2026 — phase 135, the photo authorization that was already there
 
 iOS lane. The brief asked for photo-library authorization to be *built* for the camera-roll

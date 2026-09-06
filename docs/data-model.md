@@ -508,14 +508,35 @@ column records.
 **A media row counts from the moment it exists, not from the moment its bytes land.** That is the
 owner's ruling of Aug 18, 2026, shipped by phase 86 (`a1b25b8`, merged as PR #137).
 `derive_entry_type` does not filter on `upload_status`, so a `pending` row already answers `audio`,
-and `retype_owning_entry` (`services/media.py:70`) runs on **both** of `plan_upload`'s return
-paths — `services/media.py:130` and `:158` — as well as on `complete_upload` (`:208`) and on the
+and `retype_owning_entry` (`services/media.py:81`) runs on **both** of `plan_upload`'s return
+paths — `services/media.py:175` and `:203` — as well as on `complete_upload` (`:253`) and on the
 `/sync/push` path that removes a media row (`services/sync.py:352`, in `_apply_media`). Recomputing only once bytes
 landed was a hole with no floor: an upload that never completes never calls `POST
 /media/{id}/complete`, so the entry kept its creation-time type **permanently**, and a voice note
 recorded off Wi-Fi whose upload later died was filed forever as an entry with nothing in it,
 invisible to the Voice filter. `upload_status` is the field that answers *"are the bytes there"*;
 `entry_type` answers *"what is this"*.
+
+**Phase 147, Sep 6, 2026, moved every `media.py` line number above and added one
+consequence to this column. It did not touch the rule.** The four citations read `:70`,
+`:130`, `:158` and `:208` until that date and **moved by different amounts** — 11 for the
+definition, 45 for the three call sites, because the phase added a constant above the
+definition and then a docstring and a refusal inside `plan_upload`. Read them out of the
+file rather than applying an offset; `services/sync.py:352` did not move.
+
+**The consequence.** A household that is not entitled may not add new media of any kind,
+so `plan_upload` now has a **third exit** beside the two return paths: a
+`402 subscription_required` raised **before the `Media(...)` row is constructed**. That
+ordering is not incidental — a refusal placed *after* the row existed would strand exactly
+the type this paragraph is about, which is phase 86's hole rebuilt with a paywall in it.
+The effect on the data: **a free household's newly created entries can only ever be typed
+`text` or `did_it`**, because no media row is ever written for them to be typed from.
+**Entries it already has keep the type they have** and nothing recomputes them —
+`retype_owning_entry` still runs unchanged on `complete_upload` and on the `/sync/push`
+removal path for a free household, so a lapsed household finishing an upload it began while
+entitled, or deleting media, still gets a correct `entry_type`. Per D3 an existing entry
+never becomes unreadable, unexportable or unsearchable because a subscription ended, and
+`entry_type` is what the Voice and Photos filters read.
 
 **Why the struck cell above was worse than merely stale.** `CLAUDE.md` says that when the code and
 this file disagree, *the code is wrong* — so a sentence here describing a derivation the service

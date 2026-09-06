@@ -22,9 +22,20 @@ from rascal.errors import ErrorCode, RascalError, not_found, validation_failed
 from rascal.models import Entry, EntryTag, Media
 from rascal.schemas.media import CompletedPart, UploadPart
 from rascal.services import s3
+from rascal.services.guardians import access_for_family
 
 # S3 refuses more than 10,000 parts in a single multipart upload.
 MAX_PARTS = 10_000
+
+#: The refusal a household that is not entitled reads when it tries to add media.
+#:
+#: One sentence, and it obeys `docs/design/free-tier-copy.md`: the word is **membership**, never
+#: "upgrade", "unlock" or "premium", and there is no exclamation and no call to action — the
+#: client renders its own. It names what membership *includes* rather than what free lacks
+#: (rule 4, the lock states inclusion), and it says nothing about the archive, because nothing
+#: about the archive changed: every photo, clip and recording a household already has stays
+#: readable, exportable and searchable forever. See `docs/decisions.md` D2 and D3.
+MEDIA_REQUIRES_MEMBERSHIP = "Adding photos, video and audio is part of membership."
 
 
 @dataclass(frozen=True)
@@ -91,6 +102,7 @@ async def plan_upload(
     session: AsyncSession,
     child_id: uuid.UUID,
     *,
+    family_id: uuid.UUID,
     entry_id: uuid.UUID,
     kind: MediaKind,
     filename: str,
@@ -99,6 +111,39 @@ async def plan_upload(
     media_id: uuid.UUID | None,
     settings: Settings,
 ) -> UploadPlan:
+    """Presign an upload, and **refuse one outright unless the household is entitled.**
+
+    **This function is the only place in `src/` that constructs a `Media` row.** `grep -rn
+    'Media(' api/src/rascal/` finds four lines and three of them are class statements — the
+    model's own, `schemas/sync.PushMedia`, and a same-named dataclass in
+    `services/social/instagram.py` that is Instagram's word for a post. The fourth is below. So
+    the gate is here rather than in the router: a second caller of `plan_upload` inherits it,
+    where a check written beside `POST /media/upload-url` would have to be remembered.
+
+    `family_id` is a required keyword for the same reason `access_for(granted=…)` is: a caller
+    that could omit the household would be a caller that could skip the gate, and the default
+    would be the hole. It is the **caller's** household rather than the child's, which is the
+    read `GET /today` already takes — a child is reached through `guardians` and the thing that
+    is paid for is `users.family_id`.
+
+    **`entitled`, not `is_member`** — settled Sep 6, 2026, and it is the one judgment this
+    phase made rather than inherited. A household inside its fourteen days is `entitled` and is
+    deliberately **not** a member (`Access.is_member` is `source in ("receipt", "grant")`, which
+    is what the guardian-invite paywall asks). A trial that cannot photograph a child is not a
+    trial of this product, so the trial passes here and does not pass there, and the two gates
+    ask different questions on purpose. See `docs/decisions-log.md`, Sep 6, 2026.
+
+    Nothing below this refusal touches a read path. Download, export, search, sync,
+    `POST /media/{id}/complete` and `PATCH /media/{id}/derived` are untouched by it, per D3's
+    operative test: *if a change would make an existing entry unreadable, unexportable or
+    unsearchable on a free tier, it is wrong.*
+    """
+    # First, before the entry is even loaded: this is the refusal that applies whatever the
+    # body says, and it is read from the one authority rather than recomputed here.
+    household = await access_for_family(session, family_id)
+    if not household.entitled:
+        raise RascalError(ErrorCode.SUBSCRIPTION_REQUIRED, MEDIA_REQUIRES_MEMBERSHIP)
+
     entry = await session.get(Entry, entry_id)
     if entry is None or entry.deleted_at is not None:
         raise not_found("Entry")
