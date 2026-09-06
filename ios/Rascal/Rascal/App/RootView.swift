@@ -154,6 +154,10 @@ struct RootView: View {
     @State private var pendingAdd: AddToArchiveChoice?
     @State private var showingAddSheet = false
     @State private var showingBackfill = false
+    /// The membership sheet, opened from the **+** sheet's call to action (phase 147). The same
+    /// `PaywallSheet` Today's locked cards, Settings and the guardian invite open — the copy file
+    /// is explicit that there is one sheet and it is the same one every time.
+    @State private var showingPaywall = false
     /// The floating bar's measured height, reported by the bar itself.
     ///
     /// Seeded at roughly what the current design produces at the default text size — a ~64pt
@@ -214,6 +218,39 @@ struct RootView: View {
                 subject: promptSubject
             )
         }
+        // **Set here, above the sheets rather than inside the tabs, and that placement is the whole
+        // reason it works** (phase 147). A sheet inherits the environment of the view its modifier
+        // is attached to, so the `.environment` calls further down inside `signedIn(_:)` never
+        // reach the composer — which is exactly the `{name}` defect recorded on the composer sheet
+        // below. This sits above every `.sheet` and `.fullScreenCover` in this body, so the **+**
+        // sheet, the composer and the backfill flow all read the same answer.
+        .environment(\.mayAddMedia, mayAddMedia)
+        // **The server turning a file away for membership** (phase 147). Two things happen and they
+        // are different: the board is told to say one calm sentence with a way in, and it re-reads.
+        //
+        // The re-read is the important half. A refusal only happens when this device's picture was
+        // stale — the **+** sheet offered a verb the server then declined, or a share arrived from
+        // an extension that cannot know — so the answer is to go and ask the one route that knows,
+        // exactly as `SubscriptionCenter.householdRevision` is answered. **Nothing here reads a
+        // tier out of the 402**: the refusal is the reason to ask, not the answer.
+        //
+        // **Here rather than on `TodayScreen`, and that placement is the fix rather than a
+        // preference.** A composer opened from the **+** button can be saved from any tab, and the
+        // sweep that meets the refusal runs on its dismissal — so on Timeline or Settings the board
+        // is not mounted, an `onChange` there would never fire, and re-mounting establishes at the
+        // current count without firing either. The note would simply have been lost on three tabs
+        // out of four. This view is alive on all of them.
+        //
+        // `nil → 1` must fire and `old ?? 0` is what allows it: the coordinator is nil for the first
+        // frame and no refusal can predate it, so any increase is a real event.
+        .onChange(of: mediaCoordinator?.membershipRefusals) { old, new in
+            guard let new, new > (old ?? 0) else { return }
+            todayModel.noteMediaRefusal()
+            Task {
+                await subscription?.refreshHousehold()
+                await todayModel.load(showSpinner: false)
+            }
+        }
         .task {
             if thumbnails == nil {
                 thumbnails = ThumbnailStore(api: session.api)
@@ -268,6 +305,18 @@ struct RootView: View {
                     push: sync
                 )
             }
+            // **The household is read here now, and it has to be** (phase 147, corrected Sep 6).
+            // `mayAddMedia` gates the **+** sheet and every picker in the composer on this
+            // document's `entitled`, and until this phase nothing above the tabs ever asked for it
+            // — `SubscriptionModel.household` was populated only by opening the paywall or the
+            // Settings card, so a parent who never went there would have been offered media
+            // forever on the nil-fails-open rule. Awaited rather than fired and forgotten so the
+            // first **+** tap of a launch reads an answer rather than the default.
+            //
+            // **Not a second opinion about the tier.** This is the same route, the same document
+            // and the same per-session model Settings reads; `SubscriptionCenter` still refuses to
+            // hold one, for the reason it gives.
+            await subscription?.refreshHousehold()
             await runSweep()
             scanForBackfill()
         }
@@ -293,6 +342,13 @@ struct RootView: View {
                 // entries.
                 StagingSweeper(store: StagingStore(), context: context).sweep()
                 Task { await runSweep() }
+                // **The household, on every foreground** (phase 147), for the reason
+                // `SubscriptionSection` re-reads on the same event: a subscription bought on
+                // another device, a grant issued by an admin, a trial that ran out overnight or a
+                // lapse are all answers that move while the app is away, and `mayAddMedia` is what
+                // the **+** button offers on the next tap. A foreground is a reason to re-read,
+                // never a transaction.
+                Task { await subscription?.refreshHousehold() }
                 // `force: false`, so the cache does its job. A foreground is not a reason to walk
                 // forty thousand assets again.
                 scanForBackfill()
@@ -397,6 +453,61 @@ struct RootView: View {
         .sheet(isPresented: $showingNotificationReoffer) {
             NotificationReofferSheet(preference: notifications, familyTimezone: timezone)
         }
+        // **The membership sheet, opened from the + sheet** (phase 147).
+        //
+        // Presented here rather than from `AddToArchiveSheet`, because a sheet presented from a
+        // sheet that is on its way out is dropped — the same constraint that made
+        // `AddToArchiveChoice` an enum in the first place, so the call to action rides the
+        // mechanism that already exists rather than a second one.
+        //
+        // `onDismiss` re-reads the board for the reason `TodayScreen`'s does: since phase 140 the
+        // sheet dismisses itself the moment Apple takes the money, before the server has answered,
+        // and this re-read is what turns `mayAddMedia` over on the tab the parent is actually on —
+        // Today's own `onChange` does not run while Settings or Timeline is showing.
+        .sheet(isPresented: $showingPaywall) {
+            Task {
+                // The household first, because it is what `mayAddMedia` reads — the board is
+                // re-read beside it so the locked cards catch up in the same beat.
+                await subscription?.refreshHousehold()
+                await todayModel.load(showSpinner: false)
+            }
+        } content: {
+            if let subscription {
+                PaywallSheet(model: subscription) { showingPaywall = false }
+            }
+        }
+    }
+
+    /// **May this household put a new file in the archive?** The server's answer, read and never
+    /// computed (iOS rule 1, D9).
+    ///
+    /// **It is `GET /v1/families/me`'s `entitled`** — the same field the API lane's phase-147 gate
+    /// keys on, so this client refuses exactly what the server refuses and never a household the
+    /// server would have served. It reads it off `SubscriptionModel.household`, which is the one
+    /// place in this app entitled to say what the server said about the household (D5), and which
+    /// is refreshed below at launch, on every foreground, and whenever the answer could have moved.
+    ///
+    /// **`nil` fails open**, and it means two things that are the same thing: `entitled` absent
+    /// (a server older than phase 121) and the household not read yet. D9 — the device never
+    /// decides entitlement, and a value it cannot read means entitled. A parent in a tunnel is
+    /// offered everything, and the server's 402 is the backstop.
+    ///
+    /// **The board's locked cards still read `TodayResponse.access`, and that is not a second
+    /// answer.** `access_for` computes `entitled = subscribed or granted or in_trial` and then
+    /// `access = "subscribed" if (subscribed or granted) else ("trial" if entitled else "free")`,
+    /// so `access != "free"` and `entitled` are the same boolean by construction.
+    /// `MediaMembershipTests.theTwoServerAnswersCannotDisagree` is that invariant as a test, which
+    /// is what keeps them from drifting now that they arrive on two different documents.
+    ///
+    /// **A household inside its fourteen days is entitled**, so it is offered everything — which is
+    /// deliberately *not* `FamilySummary.isMember` (`receipt || grant`). See
+    /// `.claude/coordination/phase-147/CONTRACT_REQUEST-ios-1300.md`.
+    ///
+    /// **The rule itself is in `MembershipPresentation`, not here**, so it can be asserted: this
+    /// view is a surface the suite cannot render, and a decision written in a `body` is a decision
+    /// nothing checks.
+    private var mayAddMedia: Bool {
+        MembershipPresentation.mayAddMedia(household: subscription?.household)
     }
 
     /// What the **+** sheet shows.
@@ -406,10 +517,14 @@ struct RootView: View {
     /// authorization, which is only ever asked for by the explainer that lives behind the row.
     /// A phone that had never granted access therefore never saw the row and never could.
     private var addToArchiveModel: AddToArchiveModel {
-        guard let backfill else { return AddToArchiveModel() }
+        guard let backfill else { return AddToArchiveModel(mayAddMedia: mayAddMedia) }
         let clusters: [BackfillCluster]
         if case .ready(let ready) = backfill.state { clusters = ready } else { clusters = [] }
-        return AddToArchiveModel(authorization: backfill.authorization, clusters: clusters)
+        return AddToArchiveModel(
+            authorization: backfill.authorization,
+            clusters: clusters,
+            mayAddMedia: mayAddMedia
+        )
     }
 
     /// Acted on after the sheet has gone, never during. See `pendingAdd`.
@@ -428,6 +543,12 @@ struct RootView: View {
             )
         case .backfill:
             showingBackfill = true
+        case .membership:
+            // Guarded at the point of opening, not inside the sheet, for the reason `TodayScreen`
+            // states at its own locked card: `subscription` is nil for the first frame, and an
+            // `if let` inside the content presents an **empty sheet** the parent has to dismiss.
+            // Doing nothing for that fraction of a second is the better failure.
+            if subscription != nil { showingPaywall = true }
         }
     }
 

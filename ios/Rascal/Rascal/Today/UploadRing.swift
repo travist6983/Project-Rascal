@@ -118,6 +118,21 @@ struct FailedUploadList: View {
     let onRetry: (Media) -> Void
     let onRetryAll: () -> Void
 
+    /// **Whether *Upload it* can do anything** (phase 147).
+    ///
+    /// A household that may not add media has a server that will answer `402
+    /// subscription_required` to every one of these rows, and `resetForManualRetry()` puts a
+    /// `failed` row straight back to `staged` — so the button would reset, re-request, be refused,
+    /// and return the row to exactly where it started, for as long as somebody kept pressing it.
+    /// `SyncUploadsModel.canRetry` states the rule this follows in its own words: *"Never show a
+    /// control that cannot act."*
+    ///
+    /// **The rows stay and only the action goes.** *"This photo hasn't uploaded yet"* is true and is
+    /// the sentence a parent needs; what is not offered is a button that lies. The way to change the
+    /// answer is on the **+** sheet and on the board's own notice, both of which are standing in
+    /// exactly this state.
+    @Environment(\.mayAddMedia) private var mayAddMedia
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(failures, id: \.id) { media in
@@ -131,13 +146,15 @@ struct FailedUploadList: View {
                         .typeRole(.metadata)
                         .foregroundStyle(Color.inkMuted)
                     Spacer(minLength: 0)
-                    Button("Upload it") { onRetry(media) }
-                        .typeRole(.metadata)
-                        .foregroundStyle(Color.terracotta)
+                    if mayAddMedia {
+                        Button("Upload it") { onRetry(media) }
+                            .typeRole(.metadata)
+                            .foregroundStyle(Color.terracotta)
+                    }
                 }
             }
 
-            if failures.count > 1 {
+            if mayAddMedia, failures.count > 1 {
                 Button("Upload all \(failures.count)", action: onRetryAll)
                     .typeRole(.metadata)
                     .foregroundStyle(Color.terracotta)

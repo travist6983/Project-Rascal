@@ -134,6 +134,27 @@ nonisolated enum MembershipCopy {
     /// The verb, per copy-file rule 2: *"A person **joins**; they do not upgrade."*
     static let primaryAction = "Become a member"
 
+    /// **⚠️ Authored by phase 147 on Sep 6, 2026 and NOT approved by the owner.** Recorded under
+    /// *Proposed additions* §10 in `docs/design/free-tier-copy.md` and named in the phase report so
+    /// it can be kept or reworded in one place.
+    ///
+    /// The owner's call of Sep 6, 2026 stops a non-entitled household adding new media at all —
+    /// photo, video and voice — while writing and did-it stay free and unlimited. That leaves the
+    /// **+** sheet with three verbs it must not offer, and **no approved sentence says why.** §2's
+    /// nearest bullet is *"Video, and photographs without a limit"*, which was written against D2's
+    /// hundred-photo lifetime cap and now describes a difference from zero — using it here would
+    /// tell a free parent they have photographs with a limit when they have none.
+    ///
+    /// So this is built out of the two approved fragments rather than written fresh: rule 4's
+    /// *"Included with membership"* — the file's own words for a lock that states inclusion rather
+    /// than deprivation — with the shapes named in front of it, the way §1's locked cards name the
+    /// shape of what is missing without teasing its content.
+    ///
+    /// It states no count, no date and no consequence, and nothing about the archive: rule 3 is
+    /// that the archive is never the thing being sold, and everything already captured stays
+    /// readable, exportable and searchable whatever this says.
+    static let mediaIncluded = "Photos, video and voice notes are included with membership."
+
     /// *"plain text, `inkMuted`, never smaller than the primary's label size and never greyed to
     /// near-invisibility."*
     static let notNow = "Not now"
@@ -384,7 +405,8 @@ nonisolated enum MembershipCopy {
         var strings = [
             lockedFooter, lockedHint,
             title, subtitle, addsLabel, freeLabel,
-            primaryAction, notNow, notNowHint, footnote, renewalTerms, productsUnavailable,
+            primaryAction, mediaIncluded, notNow, notNowHint, footnote, renewalTerms,
+            productsUnavailable,
             TrialWelcome.title, TrialWelcome.body, TrialWelcome.action,
             postTrialNotice, postTrialOpen, postTrialDismiss,
             membershipMissingAction,

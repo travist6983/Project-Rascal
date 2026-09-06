@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 /// What this device has already shown the parent about membership.
 ///
@@ -518,5 +519,83 @@ nonisolated enum MembershipPresentation {
         updated.trialWelcomeOwed = false
         updated.trialWelcomeShown = true
         return updated
+    }
+}
+
+// MARK: - Phase 147: may this household add new media?
+
+/// **The server's answer to "may this household put a new file in the archive", carried down the
+/// view tree.**
+///
+/// The owner's call of Sep 6, 2026 stops a household that is not entitled adding new media — photo,
+/// video or audio — while writing and did-it stay free and unlimited. That answer has to reach the
+/// **+** sheet *and* the composer, which are presented from two different places, so it travels the
+/// way `promptSubject`, `personalization` and `childAgeMonths` already do rather than as a
+/// parameter threaded through six call sites.
+///
+/// **`true` by default, and the default is the rule rather than a convenience.** D9: *the device
+/// never decides entitlement, and a value it cannot read means entitled.* A view nobody set this on
+/// offers everything, which is the same failure direction `Access.isEntitled` and
+/// `TodayBoard.lockedSlots(in:)` already take — the failure has to be *"you can see everything"*,
+/// never *"here is a paywall"*.
+///
+/// **Only `RootView` writes it**, from the `access` on the board's own `TodayResponse`, so this and
+/// the locked cards are one answer read twice rather than two answers.
+private struct MayAddMediaKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var mayAddMedia: Bool {
+        get { self[MayAddMediaKey.self] }
+        set { self[MayAddMediaKey.self] = newValue }
+    }
+}
+
+extension MembershipPresentation {
+
+    /// **Which membership sentence stands on the board, when both channels have one.**
+    ///
+    /// A pure function rather than a `??` inside a view, for the reason this whole type exists: a
+    /// coalescing rule written in a `body` is a rule `RascalTests` cannot reach.
+    ///
+    /// The two channels are deliberately separate properties on `TodayModel` — a once-ever
+    /// presentation and a report of something that just happened must not share a slot, or network
+    /// timing decides which survives. They are coalesced *here*, at the point of rendering, so the
+    /// two can never stack and read as two different paywalls on one screen; `SubscriptionSection`
+    /// coalesces its three channels for the same reason.
+    ///
+    /// **The refusal wins.** It is about a file the parent added seconds ago; the post-trial note is
+    /// about a fortnight that ended. Both open the same sheet, so nothing is lost by deferring one.
+    ///
+    /// **The row's two action labels are shared and stay approved copy.** `TodayBoardView` draws
+    /// this slot with `MembershipCopy.postTrialOpen` — *"See what's included"* — and
+    /// `postTrialDismiss`, whichever sentence is in it. That is deliberate reuse rather than an
+    /// oversight: the sheet it opens is the same sheet, so the label is true of both, and the
+    /// alternative was authoring a second pair of button words for one row.
+    static func boardMembershipNotice(refusal: String?, postTrial: String?) -> String? {
+        refusal ?? postTrial
+    }
+
+    /// **The gate. `GET /families/me`'s `entitled`, and nothing else.**
+    ///
+    /// The API lane's phase-147 gate keys on `Access.entitled` — *a receipt, an active grant, or a
+    /// live trial* — and refuses only a genuinely free household with `402
+    /// subscription_required`. This is the same field on the same document, so the client refuses
+    /// exactly what the server refuses and never a household the server would have served.
+    ///
+    /// **`nil` fails open, and that is the rule rather than a default.** `entitled` is `Bool?`
+    /// because a server predating phase 121 sends no key at all, and `household` is itself nil
+    /// until `GET /v1/families/me` has answered this session. Both mean *we do not know*, and D9
+    /// settles which way not knowing falls: the device never decides entitlement, and a value it
+    /// cannot read means entitled. The server's 402 is the backstop, and phase 147 makes it a calm
+    /// sentence with a way in rather than an error — which is what makes failing open safe.
+    ///
+    /// **It is deliberately not `isMember`.** That is `receipt || grant` and excludes a trial, so
+    /// gating on it would tell a household in the fourteen days it was welcomed into that it cannot
+    /// add a photograph. The brief originally named it; the coordinator corrected it on Sep 6, 2026
+    /// once the API lane's gate shipped on `entitled`.
+    static func mayAddMedia(household: FamilySummary?) -> Bool {
+        household?.entitled ?? true
     }
 }

@@ -9,6 +9,12 @@ struct MediaPreviewRow: View {
     let onRemove: (MediaDraft) -> Void
     let onAddMore: () -> Void
 
+    /// **The `+` tile is a picker like any other** (phase 147), so it goes with the rest of them
+    /// when the household may not add media. Read from the environment rather than passed in
+    /// because the two call sites are both inside `ComposerView` and both already read it — a
+    /// third parameter would be the same answer arriving by a fourth route.
+    @Environment(\.mayAddMedia) private var mayAddMedia
+
     /// Past this, the rest collapse into a `+N` tile. Four fits a phone width at this size
     /// without the tiles becoming too small to recognise a face in.
     private let visibleLimit = 4
@@ -26,7 +32,7 @@ struct MediaPreviewRow: View {
                         tile(draft)
                     }
                     if overflow > 0 { overflowTile }
-                    addMoreTile
+                    if mayAddMedia { addMoreTile }
                 }
                 .padding(.horizontal, 2)
                 .padding(.vertical, 2)

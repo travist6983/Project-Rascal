@@ -418,4 +418,65 @@ struct MediaCoordinatorTests {
         let row = try #require(read(mediaId))
         #expect(row.state == .staged)
     }
+
+    // MARK: - Phase 147: the server refusing a file for membership
+
+    /// **A 402 is terminal now, not a retry**, and the difference is six requests and a row that
+    /// reads *Waiting* for hours while it makes them.
+    ///
+    /// The household is not entitled to add new media, so the server answers identically every
+    /// time; `recordAttemptFailure` would put the row back to `staged` with a schedule against a
+    /// refusal no amount of waiting moves. Same shape, same reason, as the `not_found` branch on
+    /// the other leg.
+    ///
+    /// **The photograph is not touched.** The staged original stays on the phone and the row stays
+    /// in the archive, so *Upload it* can send it the moment the household becomes a member — which
+    /// is what D3's operative test requires: nothing a parent already has becomes unreadable,
+    /// unexportable or unsearchable.
+    @Test("a subscription_required ticket is terminal at once, and keeps the file")
+    func aMembershipRefusalIsTerminalAndKeepsTheFile() async throws {
+        let (entryId, mediaId) = try seed()
+        defer { purge(entryId: entryId, mediaId: mediaId) }
+
+        let store = temporaryStagingStore()
+        let staged = try store.stage(data: Data("pretend jpeg".utf8), as: mediaId, ext: "jpg")
+
+        let performer = StubPerformer()
+        performer.on("/v1/media/upload-url") { _ in
+            (mediaErrorJSON("subscription_required", "Membership includes photos."), 402)
+        }
+        let coordinator = MediaCoordinator(api: testClient(performer), store: store)
+
+        await coordinator.beginUpload(mediaId: mediaId)
+
+        let row = try #require(read(mediaId))
+        #expect(row.state == .failed, "a refusal a retry cannot move is a failure now")
+        #expect(row.nextAttemptAt == nil, "nothing is scheduled against a permanent answer")
+        #expect(store.exists(staged), "the only copy of the photo must survive the refusal")
+        #expect(row.s3Key == nil)
+        #expect(coordinator.membershipRefusals == 1, "the board has to be told to go and re-read")
+    }
+
+    /// **The distinction the branch above exists to make.** A 500 on the same route is not a
+    /// membership refusal and must still back off and retry — collapsing the two would turn a
+    /// server blip into a permanently stopped upload, which is the strictly worse direction.
+    @Test("only subscription_required is terminal — an internal error still backs off")
+    func onlyTheMembershipRefusalIsTerminal() async throws {
+        let (entryId, mediaId) = try seed()
+        defer { purge(entryId: entryId, mediaId: mediaId) }
+
+        let store = temporaryStagingStore()
+        _ = try store.stage(data: Data("pretend jpeg".utf8), as: mediaId, ext: "jpg")
+
+        let performer = StubPerformer()
+        performer.on("/v1/media/upload-url") { _ in (mediaErrorJSON("internal_error", "no"), 500) }
+        let coordinator = MediaCoordinator(api: testClient(performer), store: store)
+
+        await coordinator.beginUpload(mediaId: mediaId)
+
+        let row = try #require(read(mediaId))
+        #expect(row.state == .staged)
+        #expect(row.nextAttemptAt != nil)
+        #expect(coordinator.membershipRefusals == 0, "nothing about membership happened here")
+    }
 }

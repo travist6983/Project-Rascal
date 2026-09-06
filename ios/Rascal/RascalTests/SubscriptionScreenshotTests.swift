@@ -423,6 +423,45 @@ struct SubscriptionScreenshotTests {
         try renderHosted(SubscriptionSection(model: retry), named: "membership-billing-retry-hosted")
     }
 
+    /// **Phase 147: the + sheet, both sides of the gate, on the real surface.**
+    ///
+    /// The whole of this phase is a decision about *which rows exist*, and the suite has no view
+    /// host — so the model is asserted in `MediaMembershipTests` and this is the only thing that
+    /// shows the result drawn. Three PNGs to look at, and one thing to check in each: the member's
+    /// sheet is unchanged (2×2 grid, camera-roll row); the free sheet has a single full-width
+    /// **Write** tile and *Become a member* where the camera roll was, with **nothing dimmed and no
+    /// empty tile-shaped hole beside Write**; and the accessibility render shows the membership
+    /// row's two lines wrapping rather than truncating.
+    ///
+    /// Hosted rather than `ImageRenderer`, because a grid whose column count changes is exactly the
+    /// kind of layout the approximation gets wrong, and because `TapScaleButtonStyle` rows draw
+    /// through UIKit.
+    ///
+    /// **Do not measure margins off these PNGs.** `renderHosted` adds `Layout.screenMargin` of its
+    /// own and `content` already carries it, so the side gutters in these three are double what the
+    /// sheet draws. Everything inside the gutters — the grid, the divider, the rows — is the real
+    /// layout at the real width minus that inset.
+    @Test("the + sheet renders hosted, entitled and not")
+    @MainActor
+    func theAddSheetRendersHosted() throws {
+        let entitled = AddToArchiveModel(authorization: .authorized, mayAddMedia: true)
+        let free = AddToArchiveModel(authorization: .authorized, mayAddMedia: false)
+
+        try renderHosted(
+            AddToArchiveSheet(model: entitled) { _ in }.renderable,
+            named: "add-sheet-entitled-hosted"
+        )
+        try renderHosted(
+            AddToArchiveSheet(model: free) { _ in }.renderable,
+            named: "add-sheet-membership-hosted"
+        )
+        try renderHosted(
+            AddToArchiveSheet(model: free) { _ in }.renderable
+                .environment(\.dynamicTypeSize, .accessibility3),
+            named: "add-sheet-membership-ax3-hosted"
+        )
+    }
+
     /// A render through a `UIWindow` and `drawHierarchy`, at the default text size.
     @MainActor
     private func renderHosted(_ view: some View, named name: String) throws {

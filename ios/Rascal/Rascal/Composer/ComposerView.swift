@@ -136,6 +136,11 @@ struct ComposerView: View {
     @Environment(\.promptSubject) private var promptSubject
     @Environment(\.personalization) private var personalization
     @Environment(\.childAgeMonths) private var childAgeMonths
+    /// **The server's word on whether this household may put a new file in the archive**
+    /// (phase 147), set once by `RootView` above every sheet. `true` unless the board's own
+    /// `access` came back an explicit `free`, so a composer opened before the board has loaded —
+    /// or against a server that does not report entitlement — offers everything.
+    @Environment(\.mayAddMedia) private var mayAddMedia
 
     /// Backdating is a first-class flow, so this is a real choice and not a hidden setting.
     @State private var occurredAt = Date()
@@ -235,7 +240,12 @@ struct ComposerView: View {
             loadForEditing()
             // An audio mission lands on the recorder with nothing in between. The brief is
             // fifteen seconds, one-handed, and a setup screen is most of that budget.
-            if request.assignment?.promptKind == .audio, request.mode == .media,
+            //
+            // **`mayAddMedia` first, because this one opens without a tap** (phase 147). Every
+            // other picker in this file waits for a gesture, so hiding the control is enough; this
+            // presents a full-screen recorder on arrival, and a household that may not add audio
+            // would meet it before it could read anything.
+            if mayAddMedia, request.assignment?.promptKind == .audio, request.mode == .media,
                !request.isEditing, drafts.isEmpty {
                 showRecorder = true
             }
@@ -301,13 +311,20 @@ struct ComposerView: View {
         )) ?? []
     }
 
-    /// The **+** sheet's four verbs, honoured on arrival.
+    /// The **+** sheet's verbs, honoured on arrival.
+    ///
+    /// **The three media verbs fall back to the keyboard when the household may not add media**
+    /// (phase 147). The **+** sheet does not offer them in that state, so this is unreachable
+    /// through the door it was built for — but a `ComposerOpening` is a value that can outlive the
+    /// screen that chose it (a stale `pendingAdd`, a future caller), and presenting a picker
+    /// without a tap is the one thing in this file that a parent could not decline. Writing is
+    /// what they can still do, so that is where it lands rather than on nothing at all.
     private func openWhatWasAlreadyChosen() {
         guard !request.isEditing else { return }
         switch request.opening {
-        case .library: showLibrary = true
-        case .camera: showCamera = true
-        case .recorder: showRecorder = true
+        case .library: if mayAddMedia { showLibrary = true } else { writing = true }
+        case .camera: if mayAddMedia { showCamera = true } else { writing = true }
+        case .recorder: if mayAddMedia { showRecorder = true } else { writing = true }
         case .writing: writing = true
         case nil: break
         }
@@ -479,9 +496,23 @@ struct ComposerView: View {
     @ViewBuilder
     private var freeformCapture: some View {
         if drafts.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                SectionLabel("Add photos or a voice note — optional")
-                captureChoices
+            // **The label goes with the tiles** (phase 147). `captureChoices` renders nothing when
+            // the household may not add media, and a section header standing over an empty space is
+            // furniture that says a control failed to load.
+            //
+            // **The gate reaches the pickers and stops there, exactly as `captureIt` does.** Putting
+            // it around this whole builder instead was a defect caught in review: `mayAddMedia` is
+            // live environment state whose documented failure direction is *entitled while the board
+            // has not landed*, so a parent can legitimately stage photos and then have the board
+            // arrive `free` with the composer still open. Hiding the preview row at that moment
+            // would take their files off the screen while `canSave` and `save()` went on attaching
+            // them — an entry with invisible media, saved by somebody who thought the composer was
+            // empty. Files already staged are theirs; only the way to add more closes.
+            if mayAddMedia {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel("Add photos or a voice note — optional")
+                    captureChoices
+                }
             }
         } else {
             MediaPreviewRow(drafts: drafts, onRemove: remove, onAddMore: { showLibrary = true })
@@ -501,9 +532,24 @@ struct ComposerView: View {
     /// recorder, and this is the way back in after a cancel. Everything else keeps the photo
     /// affordances and gains a voice tile, because a voice note is a legitimate answer to
     /// almost anything and to a freeform entry especially.
+    ///
+    /// **And nothing at all when the household may not add media** (phase 147). Gated here rather
+    /// than at each of the five call sites, because this and `addAnother` are the only two places
+    /// in the app that put a picker in front of an archive entry — every route in reaches one of
+    /// them. `TimelineScreen`'s *Write the first one* and `MomentsScreen`'s *Capture something*
+    /// both open a freeform composer and were closed by this line rather than by two more.
+    ///
+    /// **The set disappears; nothing is dimmed.** `docs/design-system.md` says it about this very
+    /// component — *"The prompt's kind decides the set, because an affordance that leads nowhere is
+    /// worse than its absence"* — and the same file's `Toggle` rule says a refused control is
+    /// replaced by a sentence rather than greyed. The sentence lives on the **+** sheet, which is
+    /// the surface a parent reaches this from and the one place a route to membership belongs;
+    /// *"no alerts in a composing surface"* is why there is not a second one here.
     @ViewBuilder
     private var captureChoices: some View {
-        if isAudioPrompt {
+        if !mayAddMedia {
+            EmptyView()
+        } else if isAudioPrompt {
             Button { showRecorder = true } label: {
                 choiceTile(symbol: "mic", label: "Record")
             }
@@ -544,22 +590,30 @@ struct ComposerView: View {
 
     /// Adding to an entry that already has something on it. Both, because an entry may hold
     /// photos and a voice note together — the media model has always allowed it.
+    ///
+    /// **Absent when the household may not add media** (phase 147), for the reason `captureChoices`
+    /// gives. Reachable in that state only through the camera-roll backfill, whose drafts are
+    /// staged before the composer opens — the door to that flow is itself closed on the **+**
+    /// sheet, so this is the second lock on a shut door rather than the only one.
+    @ViewBuilder
     private var addAnother: some View {
-        HStack(spacing: 16) {
-            PhotosPicker(
-                selection: $picking,
-                maxSelectionCount: 10,
-                matching: .images,
-                photoLibrary: .shared()
-            ) {
-                Text("Choose from library")
+        if mayAddMedia {
+            HStack(spacing: 16) {
+                PhotosPicker(
+                    selection: $picking,
+                    maxSelectionCount: 10,
+                    matching: .images,
+                    photoLibrary: .shared()
+                ) {
+                    Text("Choose from library")
+                        .typeRole(.metadata)
+                        .foregroundStyle(Color.terracotta)
+                }
+                Button("Add a voice note") { showRecorder = true }
                     .typeRole(.metadata)
                     .foregroundStyle(Color.terracotta)
+                Spacer(minLength: 0)
             }
-            Button("Add a voice note") { showRecorder = true }
-                .typeRole(.metadata)
-                .foregroundStyle(Color.terracotta)
-            Spacer(minLength: 0)
         }
     }
 

@@ -1700,3 +1700,83 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   three days later**, which is the failure this file keeps recording under a different name: the
   addendum should have said Cowork did not open it, and instead said what it appeared to show.
 
+- **Sep 6, 2026 (phase 147, iOS lane).** **The media gate is `FamilySummary.entitled`, not
+  `FamilySummary.isMember`, and the difference is the trial.** The brief named `isMember` and in the
+  same breath said a trial household is allowed to add media; `is_member` is `source in
+  ("receipt", "grant")` in *both* lanes (`constants.py:94`, `FamiliesAPI.swift:207`), so it is
+  `false` for a trial and the two clauses cannot both hold. Raised as a contract request rather than
+  resolved quietly (`.claude/coordination/phase-147/CONTRACT_REQUEST-ios-1300.md`); **the
+  coordinator confirmed the same day that the API lane's gate shipped on `Access.entitled`**, so the
+  client reads the same field on the same document and refuses exactly what the server refuses. It
+  keeps §3's *"Two weeks, everything open"* true and matches D3, which stops new uploads **on
+  non-payment** — a live trial is not that.
+- **Sep 6, 2026 (phase 147, iOS lane).** **`entitled` nil fails open, and there are two ways to be
+  nil.** The field is absent on a server predating phase 121, and `SubscriptionModel.household` is
+  itself nil until `GET /v1/families/me` has answered this session. Both mean *we do not know*, and
+  D9 settles it: the device never decides entitlement, and a value it cannot read means entitled. The
+  server's 402 is the backstop, which is what makes failing open safe rather than merely generous —
+  and phase 147 makes that refusal a calm sentence with a way in rather than an error.
+- **Sep 6, 2026 (phase 147, iOS lane).** **`RootView` now reads the household at launch and on every
+  foreground, and it had to.** `SubscriptionModel.household` was populated only by opening the
+  paywall or the Settings card, so a parent who never went to either would have been offered media
+  forever under the nil-fails-open rule. It is the same route, the same document and the same
+  per-session model Settings reads — not a second opinion, which is the thing
+  `SubscriptionCenter.refresh()` still refuses to hold.
+- **Sep 6, 2026 (phase 147, iOS lane).** **The board keeps reading `TodayResponse.access` and that
+  is not a second answer.** `access_for` computes `entitled = subscribed or granted or in_trial` and
+  then `access = "subscribed" if (subscribed or granted) else ("trial" if entitled else "free")`, so
+  `access != "free"` and `entitled` are the same boolean by construction. They now arrive on two
+  documents, so the invariant is pinned as a test —
+  `MediaMembershipTests.theTwoServerAnswersCannotDisagree` — rather than left as a shared field.
+- **Sep 6, 2026 (phase 147, iOS lane).** **The media verbs are removed from the + sheet, not
+  disabled**, and the design system says so in five places rather than one: `CaptureChoices`
+  (*"an affordance that leads nowhere is worse than its absence"*, and the audio prompt that gets
+  one tile rather than three greyed ones), the backfill grid's cloud-only tile (*"no circle at all…
+  an affordance offering to select it would be a control that lies"*), `Toggle` (*"a control refused
+  at the system level is replaced by a sentence"*), `Buttons` (*"a disabled primary is **waiting**,
+  not broken"* — this is not waiting), and `LockedPromptCard`, which is its own card rather than a
+  dimmed `PromptCard`. The grid drops to one full-width **Write** tile and the camera-roll row is
+  replaced by *Become a member*.
+- **Sep 6, 2026 (phase 147, iOS lane).** **The composer's pickers are gated at `captureChoices` and
+  `addAnother` rather than at each caller**, and that choice is what closed two entry points the
+  phase brief did not list: `TimelineScreen`'s *Write the first one* and `MomentsScreen`'s *Capture
+  something* both open a freeform composer whose media tiles would otherwise have stayed live. Every
+  route into a picker reaches one of those two view-builders.
+- **Sep 6, 2026 (phase 147, iOS lane).** **A `402 subscription_required` on `POST
+  /media/upload-url` is terminal at once, not a backed-off retry.** The server answers identically
+  until membership changes, so `recordAttemptFailure` would spend six requests over hours and leave
+  the row reading *Waiting* while it did — the same reasoning as `finishUpload`'s `not_found`
+  branch. Nothing is deleted: the staged original and the `Media` row survive, so the existing
+  *Upload it* control sends it the moment the household joins, which is what D3's operative test
+  requires.
+- **Sep 6, 2026 (phase 147, iOS lane).** **The share extension is left ungated, deliberately, and
+  the 402 is why it can be.** `RascalShare` compiles nine shared files and neither `APIClient` nor
+  `FamilySummary` is among them; the only way to gate it would be to cache an entitlement answer
+  into the App Group, which is the second opinion about the tier that `SubscriptionCenter.refresh()`
+  refuses to hold for exactly this reason (D5). So a share by a non-entitled household becomes a
+  local entry whose media the server declines, and the board says so — which is the case the refusal
+  handling was built for rather than an oversight.
+- **Sep 6, 2026 (phase 147, iOS lane).** **One sentence was authored and it is flagged rather than
+  hidden.** `free-tier-copy.md` forbids an agent writing copy into a view; three of the four verbs
+  had to disappear and no approved string says why. §2's nearest bullet — *"Video, and photographs
+  without a limit"* — was written against D2's hundred-photo cap and now describes a difference from
+  zero, so using it would have told a free parent they have photographs with a limit when they have
+  none. `MembershipCopy.mediaIncluded` is recorded as *Proposed additions* §10, marked unapproved,
+  and is one constant to reword.
+
+- **Sep 6, 2026 (phase 147, iOS lane).** **The two upload-retry controls are hidden rather than left
+  to loop**, found by review. `resetForManualRetry()` puts a `failed` row back to `staged`, so
+  *Upload it* on Today and *Retry now* in Settings → Syncing would reset, re-request, be refused with
+  the same 402, and land the row exactly where it started — for as long as somebody kept pressing.
+  `SyncUploadsModel.canRetry` already states the rule in its own words, *"Never show a control that
+  cannot act"*; this is the one condition it cannot see, because that model never asks the server
+  anything. The rows and their counts stay — *"This photo hasn't uploaded yet"* is true — and only
+  the button goes. **Both gates live in view bodies (`FailedUploadList`, `SyncScreen`) and are
+  therefore untested**, per `view-body-logic-is-untestable`: said here rather than left for a green
+  suite to imply coverage it does not have.
+- **Sep 6, 2026 (phase 147, iOS lane).** **The composer's entitlement gate reaches the pickers and
+  stops there**, corrected in review. Wrapping the whole of `freeformCapture` in it also swallowed
+  the branch that draws `MediaPreviewRow`, so a parent who staged photos while the board was still
+  loading — which the fail-open rule makes an ordinary sequence, not an edge — would have watched
+  their files leave the screen while `canSave` and `save()` went on attaching them. Files already
+  staged are theirs; only the way to add more closes. `captureIt` already had it this way.

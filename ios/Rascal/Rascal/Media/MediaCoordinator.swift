@@ -11,6 +11,7 @@ import SwiftData
 /// succeeded while `complete` failed must **not** re-upload: the bytes are already in storage,
 /// and sending them again wastes a parent's cellular data to reach the same state.
 @MainActor
+@Observable
 final class MediaCoordinator {
 
     /// **Global on purpose, and it has to be. Do not "fix" this, and do not make a second one.**
@@ -38,6 +39,22 @@ final class MediaCoordinator {
     /// call. That trades this global for a delay before the server learns the object landed,
     /// which is worse for the parent, so it was not taken.
     static var shared: MediaCoordinator?
+
+    /// **How many times the server has refused a media upload for membership this session**
+    /// (phase 147).
+    ///
+    /// A counter rather than a `Bool`, and observed rather than stored, for the reasons
+    /// `SubscriptionCenter.householdRevision` gives: a bump is *an event*, and a `Bool` that is
+    /// already `true` reports the second refusal as nothing at all. It says one true thing — the
+    /// server just refused — and holds no opinion about the tier. The screen that answers it goes
+    /// and re-reads the one route that knows.
+    ///
+    /// **Nothing is persisted, and there is no column for this.** `SyncUploadsModel` records that
+    /// `Media` carries no upload-failure reason and that inventing one is a schema change belonging
+    /// to its own phase; this phase does not invent one. The consequence is that the sentence is a
+    /// session's, not a row's: relaunching loses it, and the row reads as an ordinary stopped
+    /// upload — which is what it is.
+    private(set) var membershipRefusals = 0
 
     private let api: APIClient
     private let store: StagingStore
@@ -122,6 +139,24 @@ final class MediaCoordinator {
                 to: destination,
                 contentType: media.contentType
             )
+        } catch let error as APIError where error.code == .subscriptionRequired {
+            // **Terminal at once, and not a retry** (phase 147). The household is not entitled to
+            // add new media, and the server will answer identically on every attempt until that
+            // changes — so spending the backoff schedule on it would be six requests over hours to
+            // be told the same thing, and would leave the row reading *Waiting* the whole time.
+            // The same shape as `finishUpload`'s `.notFound` branch, for the same reason: a refusal
+            // a retry cannot move is a failure now rather than a failure later.
+            //
+            // **Nothing here is deleted and nothing is hidden.** The staged original stays on the
+            // phone, the `Media` row stays, the `Entry` and every word in it are already saved and
+            // sync normally — D3's operative test is that no existing entry becomes unreadable,
+            // unexportable or unsearchable, and this touches none of that. If the household
+            // becomes a member the row is retried by the same *Upload it* control that has always
+            // been there, because `resetForManualRetry` puts a `failed` row back to `staged`.
+            media.state = .failed
+            media.nextAttemptAt = nil
+            try? context.save()
+            membershipRefusals &+= 1
         } catch {
             media.recordAttemptFailure()
             try? context.save()
