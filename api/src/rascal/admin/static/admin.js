@@ -21,10 +21,36 @@
 import * as cards from "/admin/static/cards.js";
 import * as timeline from "/admin/static/timeline.js";
 
-const TOKEN_KEY = "vellum.admin.token";
-const REFRESH_KEY = "vellum.admin.refresh";
-let token = localStorage.getItem(TOKEN_KEY) || "";
-let refreshToken = localStorage.getItem(REFRESH_KEY) || "";
+// Renamed off the retired product name on Sep 7, 2026, and **migrated rather than switched**.
+// These are the last two live `vellum` identifiers in the service; every other occurrence left in
+// the repository is a comment recording the rename or a test asserting the name is NOT that.
+//
+// A bare rename would have been a silent regression: every signed-in admin reads the new key,
+// finds nothing, and is bounced to the login screen with a perfectly good token still sitting in
+// their browser under the old name. So `read()` falls back to the old key once and rewrites the
+// value under the new one, which makes the migration invisible and self-completing — the old keys
+// are removed as they are found, and a browser that never had them pays one `getItem` miss.
+//
+// Delete `LEGACY_` and the fallback once no admin has an unmigrated browser. There is no way to
+// observe that from here, so the safe reading is: leave it. It costs two lookups on page load.
+const TOKEN_KEY = "pocketchronicle.admin.token";
+const REFRESH_KEY = "pocketchronicle.admin.refresh";
+const LEGACY_TOKEN_KEY = "vellum.admin.token";
+const LEGACY_REFRESH_KEY = "vellum.admin.refresh";
+
+function readStoredCredential(key, legacyKey) {
+  const current = localStorage.getItem(key);
+  if (current) return current;
+  const legacy = localStorage.getItem(legacyKey);
+  if (!legacy) return "";
+  // Carry it across before returning it, so a reload after this one needs no fallback at all.
+  localStorage.setItem(key, legacy);
+  localStorage.removeItem(legacyKey);
+  return legacy;
+}
+
+let token = readStoredCredential(TOKEN_KEY, LEGACY_TOKEN_KEY);
+let refreshToken = readStoredCredential(REFRESH_KEY, LEGACY_REFRESH_KEY);
 
 const $ = (id) => document.getElementById(id);
 const body = document.body;
@@ -3259,6 +3285,10 @@ function signOut(message) {
   $("h-detail").hidden = true;
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
+  // Both names, always. Signing out has to clear a credential the migration has not reached yet,
+  // or a token survives the logout that cleared it.
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_KEY);
   body.dataset.view = "signin";
   $("console").hidden = true;
   const error = $("signin-error");
