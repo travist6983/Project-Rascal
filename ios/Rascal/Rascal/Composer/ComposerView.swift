@@ -632,7 +632,7 @@ struct ComposerView: View {
     /// What is already attached. Read-only by design this phase.
     private var attachedMedia: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionLabel(existingMedia.count == 1 ? "1 photo" : "\(existingMedia.count) photos")
+            SectionLabel(MediaCountLabel.label(kinds: existingMedia.map(\.kind)))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(existingMedia, id: \.id) { media in

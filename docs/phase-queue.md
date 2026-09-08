@@ -924,7 +924,9 @@ both **two lanes, one number, one row**, which is the shape 140 set.
 ~~**The highest number used is 141. A genuinely new phase takes 142.**~~ — **struck Sep 3, 2026 by
 142 taking the number this sentence offered.**
 
-**The highest number used is 142. A genuinely new phase takes 143.**
+~~**The highest number used is 142. A genuinely new phase takes 143.**~~ — **struck Sep 7, 2026 by phase 148, and this strike is the largest gap this section has ever had to close: five numbers went by without touching it.** 143 (the receipt whose household is empty), 144 (the Settings membership card), 145 (two receipts and the reversed refund), 146 (the App Store Connect changes) and 147 (photos, video and voice become part of membership) all took numbers while this sentence went on offering 143. **The four prescribed commands disagreed with it and with each other**: `git log --all` answered 146, `git for-each-ref` and `gh pr list` answered 147, `grep -rhoiE 'phase[- ][0-9]{3}' docs/` answered 146. **147 was the highest and it was on branches that had not merged** (`origin/api/phase-147-api` and `origin/ios/phase-147-ios`), which is why the commit log alone undercounted — the same shape the 136 near-miss recorded, one source out of four seeing it. **Both merged the same evening** (PRs #197 and #198, `a4f8197`), after 148 was allocated and while its work was in the tree; 148 was rebased onto them and the only conflict was this pair of files' ledger rows, both kept. **148 is the composer's attachment heading** (iOS lane, worked against `main` with no branch): a voice note sat under a heading reading *1 PHOTO*, and a second reported defect — an audio card that would not open — did not reproduce and was deliberately not fixed. Its row went into `roadmap-status.md` at allocation.
+
+**The highest number used is 148. A genuinely new phase takes 149.**
 
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 
