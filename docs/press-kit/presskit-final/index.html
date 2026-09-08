@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Chronicle — press kit</title>
+<meta name="description" content="Press kit for Pocket Chronicle: a private, prompted archive of a child's childhood for iPhone. Screenshots, demo video, app icon, facts and quotes.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="icon/icon-320.png">
+
+<!-- NOTE FOR TRAVIS, not for press: the three quotes in "Quotes you can use" are written in your
+     voice from your own words, but you have not said them verbatim. Read them and change anything
+     you would not say before this folder goes to a writer. Everything else on this page was
+     verified against the shipped app on September 7, 2026. -->
+
+<style>
+@font-face{font-family:"Nunito";src:url("fonts/nunito-var-latin.woff2") format("woff2");font-weight:600 800;font-display:swap}
+@font-face{font-family:"Source Sans 3";src:url("fonts/source-sans-3-var-latin.woff2") format("woff2");font-weight:400 600;font-display:swap}
+
+:root{
+  color-scheme:light;
+  --canvas:#FDFAF4; --surface:#FFFDF9; --border:#EDE5DA;
+  --ink:#23253C; --ink-muted:#6E6A63; --ink-faint:#B4ADA3;
+  --terracotta:#C05A2B; --terracotta-deep:#9A431E; --terracotta-soft:#FBEDE2;
+  --periwinkle:#5566D6; --periwinkle-deep:#3F4FB0; --periwinkle-soft:#E9EBFB; --periwinkle-border:#DADDF7;
+  --sage:#E8F0E6; --sage-border:#D8E4D5; --sage-ink:#4B7A4F;
+  --display:"Nunito",ui-rounded,"Avenir Next",system-ui,sans-serif;
+  --text:"Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --radius:18px; --gutter:24px; --measure:66ch;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--canvas);color:var(--ink);font-family:var(--text);
+  font-size:17px;line-height:1.62;letter-spacing:.002em;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 var(--gutter)}
+h1,h2,h3{font-family:var(--display);font-weight:800;letter-spacing:-.02em;line-height:1.14;margin:0}
+h1{font-size:clamp(34px,5.2vw,54px)}
+h2{font-size:clamp(24px,3.2vw,32px);margin:0 0 6px}
+h3{font-size:19px;font-weight:700;margin:0 0 4px}
+p{margin:0 0 16px;max-width:var(--measure)}
+a{color:var(--terracotta-deep);text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:var(--terracotta)}
+.eyebrow{font-family:var(--display);font-weight:700;font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-muted);margin:0 0 12px}
+.lede{font-size:20px;line-height:1.55;color:var(--ink)}
+.muted{color:var(--ink-muted)}
+.small{font-size:15px;line-height:1.55}
+
+/* nav */
+nav.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--canvas) 90%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+nav.top .wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+nav.top strong{font-family:var(--display);font-size:15px;margin-right:10px}
+nav.top a{font-size:14px;color:var(--ink-muted);text-decoration:none;padding:5px 10px;border-radius:999px}
+nav.top a:hover{background:var(--terracotta-soft);color:var(--terracotta-deep)}
+
+/* hero */
+header.hero{padding:56px 0 8px}
+.heroGrid{display:grid;grid-template-columns:132px 1fr;gap:28px;align-items:start}
+.heroGrid img.appicon{width:132px;height:132px;border-radius:29.4%;display:block;box-shadow:0 10px 30px rgba(35,37,60,.13)}
+.pill{display:inline-flex;align-items:center;gap:8px;background:var(--sage);border:1px solid var(--sage-border);color:var(--sage-ink);font-weight:600;font-size:14px;padding:5px 13px;border-radius:999px;margin-bottom:14px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--sage-ink);display:inline-block}
+.btnrow{display:flex;gap:12px;flex-wrap:wrap;margin:22px 0 0}
+.btn{display:inline-block;background:var(--terracotta);color:#FFFDF9;font-family:var(--display);font-weight:700;font-size:16px;padding:13px 24px;border-radius:999px;text-decoration:none;border:0}
+.btn:hover{background:var(--terracotta-deep);color:#FFFDF9}
+.btn.ghost{background:transparent;color:var(--terracotta-deep);border:1.5px solid var(--terracotta);padding:11.5px 22px}
+.btn.ghost:hover{background:var(--terracotta-soft)}
+
+section{padding:44px 0;border-top:1px solid var(--border);margin-top:36px;scroll-margin-top:64px}
+section:first-of-type{border-top:0}
+
+/* facts */
+table.facts{border-collapse:collapse;width:100%;max-width:760px;font-size:16px}
+table.facts th,table.facts td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--border)}
+table.facts th{width:190px;font-family:var(--display);font-weight:700;color:var(--ink-muted);font-size:14px;letter-spacing:.01em}
+table.facts tr:last-child th,table.facts tr:last-child td{border-bottom:0}
+
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px;margin-top:8px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px}
+.card p{margin:0;font-size:16px;color:var(--ink-muted)}
+.card h3{color:var(--ink)}
+.card.peri{background:var(--periwinkle-soft);border-color:var(--periwinkle-border)}
+.card.peri h3{color:var(--periwinkle-deep)}
+.card.terra{background:var(--terracotta-soft);border-color:var(--border)}
+.card.terra h3{color:var(--terracotta-deep)}
+
+/* video */
+.videoWrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;display:grid;grid-template-columns:minmax(0,300px) 1fr;gap:26px;align-items:start}
+.videoWrap video{width:100%;border-radius:12px;display:block;background:var(--ink)}
+ol.beats{margin:0;padding-left:20px;font-size:16px;color:var(--ink-muted)}
+ol.beats li{margin-bottom:5px}
+
+/* shots */
+.shots{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:22px;margin-top:22px}
+.shot{margin:0}
+.shot a{display:block;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:var(--surface)}
+.shot img{width:100%;height:auto;display:block}
+.shot figcaption{font-size:14.5px;color:var(--ink-muted);margin-top:9px;line-height:1.45}
+.shot b{display:block;color:var(--ink);font-family:var(--display);font-weight:700;font-size:15px;margin-bottom:2px}
+
+/* quotes */
+blockquote{margin:0 0 18px;padding:20px 24px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--terracotta);border-radius:0 var(--radius) var(--radius) 0;max-width:var(--measure)}
+blockquote p{font-size:18px;line-height:1.55;margin:0 0 8px}
+blockquote cite{font-style:normal;font-size:14px;color:var(--ink-muted)}
+
+/* copy blocks */
+.copyblock{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:16px;max-width:var(--measure)}
+.copyblock .head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px}
+.copyblock .label{font-family:var(--display);font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.copyblock button{font-family:var(--text);font-size:13px;font-weight:600;color:var(--terracotta-deep);background:var(--terracotta-soft);border:1px solid var(--border);border-radius:999px;padding:4px 12px;cursor:pointer}
+.copyblock button:hover{background:#F6E2D3}
+.copyblock p{margin:0;font-size:16px}
+
+ul.plain{margin:0 0 16px;padding-left:20px;max-width:var(--measure)}
+ul.plain li{margin-bottom:8px}
+
+.note{background:var(--periwinkle-soft);border:1px solid var(--periwinkle-border);border-radius:var(--radius);padding:18px 22px;max-width:var(--measure)}
+.note p:last-child{margin-bottom:0}
+
+footer{padding:40px 0 64px;border-top:1px solid var(--border);margin-top:36px;color:var(--ink-muted);font-size:15px}
+
+@media (max-width:720px){
+  .heroGrid{grid-template-columns:1fr;gap:20px}
+  .heroGrid img.appicon{width:104px;height:104px}
+  .videoWrap{grid-template-columns:1fr}
+  table.facts th{width:auto;display:block;padding-bottom:0;border-bottom:0}
+  table.facts td{display:block;padding-top:2px}
+}
+@media print{
+  nav.top,.btnrow,.copyblock button{display:none}
+  body{background:#fff}
+  section{break-inside:avoid;border-top:1px solid #ddd}
+  a{color:#23253C;text-decoration:none}
+}
+</style>
+</head>
+<body>
+
+<nav class="top"><div class="wrap">
+  <strong>Pocket Chronicle</strong>
+  <a href="#facts">Facts</a>
+  <a href="#story">Story</a>
+  <a href="#different">What's different</a>
+  <a href="#video">Video</a>
+  <a href="#screens">Screenshots</a>
+  <a href="#quotes">Quotes</a>
+  <a href="#boilerplate">Boilerplate</a>
+  <a href="#accuracy">Accuracy</a>
+  <a href="#contact">Contact</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="heroGrid">
+    <img class="appicon" src="icon/pocket-chronicle-icon-1024-rounded.png" alt="The Pocket Chronicle app icon: five fanned cards on a terracotta ground.">
+    <div>
+      <div class="pill"><span class="dot"></span> On the App Store since September 7, 2026</div>
+      <h1>Pocket Chronicle</h1>
+      <p class="lede" style="margin-top:14px">A private, prompted archive of a child's childhood, for iPhone. Two prompts a day — a question, and a small mission to photograph, film, record or do. Each answer is filed with the prompt that caused it and the child's exact age, on a timeline they inherit.</p>
+      <div class="btnrow">
+        <a class="btn" href="https://apps.apple.com/us/app/pocketchronicle-app/id6800155810">View on the App Store</a>
+        <a class="btn ghost" href="https://pocketchronicle.app">pocketchronicle.app</a>
+      </div>
+    </div>
+  </div>
+</div></header>
+
+<div class="wrap">
+
+<section id="facts">
+  <p class="eyebrow">The facts</p>
+  <h2>Everything in one place</h2>
+  <p class="muted small" style="margin-bottom:20px">Verified against the shipped app on September 7, 2026.</p>
+  <table class="facts">
+    <tr><th>Name</th><td>Pocket Chronicle. <span class="muted">The App Store lists it as <strong>PocketChronicle.App</strong>; on the home screen it reads <strong>Chronicle</strong>.</span></td></tr>
+    <tr><th>What it is</th><td>A prompted childhood archive. One question and one mission a day, answered in about fifteen seconds.</td></tr>
+    <tr><th>Platform</th><td>iPhone. Requires iOS 18.6 or later.</td></tr>
+    <tr><th>Released</th><td>September 7, 2026</td></tr>
+    <tr><th>Price</th><td>Free to download. The first 14 days are fully open, with no card and nothing to cancel. After that the daily question stays free forever, and anything that needs storage — photographs, video, voice — is part of membership: <strong>$5.99 a month or $59.99 a year</strong>, one membership per household.</td></tr>
+    <tr><th>Category</th><td>Lifestyle. Rated 4+.</td></tr>
+    <tr><th>Developer</th><td>Travis Terry, working alone. No company, no investors.</td></tr>
+    <tr><th>App Store</th><td><a href="https://apps.apple.com/us/app/pocketchronicle-app/id6800155810">apps.apple.com/us/app/pocketchronicle-app/id6800155810</a></td></tr>
+    <tr><th>Website</th><td><a href="https://pocketchronicle.app">pocketchronicle.app</a> — all 133 prompts are published there, readable before you sign up for anything.</td></tr>
+    <tr><th>Press contact</th><td><a href="mailto:hello@pocketchronicle.app">hello@pocketchronicle.app</a></td></tr>
+    <tr><th>Instagram</th><td><a href="https://www.instagram.com/pocketchronicle.app">@pocketchronicle.app</a></td></tr>
+  </table>
+</section>
+
+<section id="story">
+  <p class="eyebrow">Why it exists</p>
+  <h2>A dad who forgets to take pictures</h2>
+  <p>Travis Terry built Pocket Chronicle for himself. He forgets to take pictures, and on the days he remembers, a year later he cannot say what was happening or why he took the shot. The camera roll remembers what his kid looked like. It remembers nothing about what they were like.</p>
+  <p>So the app gives him a reason to write one thing down, and a reason to take the picture — and then keeps the reason attached to it. Every entry carries the prompt that caused it, the day it happened, and the child's age on that day, on a timeline the kid eventually inherits.</p>
+  <p>The rules it is built under come from the same place. Nothing counts down, nothing keeps a streak, and a missed day is never described as a failure. There is no feed, because a childhood is not a performance. There are no ads on any tier, and no analytics or advertising code in the app at all.</p>
+</section>
+
+<section id="different">
+  <p class="eyebrow">What's different</p>
+  <h2>Six things worth knowing</h2>
+  <div class="cards">
+    <div class="card terra">
+      <h3>Two prompts a day, not a blank page</h3>
+      <p>One is always a question — <em>"What word do they mispronounce that you don't want to correct?"</em> The other is a mission: a photo, a video, their voice, or something to do together. Weekends add a second mission.</p>
+    </div>
+    <div class="card">
+      <h3>The reason is saved with the moment</h3>
+      <p>A photo with the question that made you take it is a story. Every entry keeps its prompt, the date it happened, and the child's exact age on that day.</p>
+    </div>
+    <div class="card peri">
+      <h3>Their voice, transcribed on the phone</h3>
+      <p>Recordings run up to ten minutes. On an iPhone running iOS 26 the phone writes the transcript itself, so what a child said out loud becomes searchable text. The audio never goes to a transcription service.</p>
+    </div>
+    <div class="card">
+      <h3>You can fill in the past</h3>
+      <p>Any entry backdates to any day, years ago, and it lands at the age the child was then. "Look back" walks the camera roll month by month to find the months never written about — reading only dates and counts, on the phone.</p>
+    </div>
+    <div class="card">
+      <h3>No streaks, no feed, no ads</h3>
+      <p>One notification a day at most, at a time you pick. Nothing public, nothing to perform for. No advertising on any tier, including the free one, and no third-party code in the app.</p>
+    </div>
+    <div class="card">
+      <h3>An export that outlives the company</h3>
+      <p>One tap, free on every tier: a zip of every entry, photograph and recording in folders by date, plus a viewer that opens offline by double-clicking. Plain JPEG, MP4, M4A, text and HTML.</p>
+    </div>
+  </div>
+</section>
+
+<section id="video">
+  <p class="eyebrow">Demo</p>
+  <h2>Thirty seconds of the real app</h2>
+  <div class="videoWrap">
+    <video controls preload="metadata" playsinline poster="video/pocket-chronicle-demo-poster.jpg">
+      <source src="video/pocket-chronicle-demo.mp4" type="video/mp4">
+      Your browser cannot play this video. Open <code>video/pocket-chronicle-demo.mp4</code> directly.
+    </video>
+    <div>
+      <p class="small muted" style="margin-bottom:12px">1080 × 1920, H.264, silent, 29.8 seconds. Every moving frame is a screen recording of the app; nothing is animated or mocked up.</p>
+      <ol class="beats">
+        <li>The morning board: a photo mission, a video mission, the question.</li>
+        <li>A voice prompt is tapped and the recorder opens on its own.</li>
+        <li>The recording runs, is kept, and saves against the prompt.</li>
+        <li>The entry, open, with its transcript and "4 years, 2 months".</li>
+        <li>A note written tonight, dated back to 2023.</li>
+        <li>The timeline at 2023, with the entry sitting where it belongs.</li>
+      </ol>
+      <p class="small" style="margin-top:14px"><a href="video/pocket-chronicle-demo.mp4" download>Download the MP4</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <p class="eyebrow">Screenshots</p>
+  <h2>The six that tell the story</h2>
+  <p class="muted small">Click any image for the full-resolution PNG — 1206 × 2622, straight off the device, no frame or shadow added. Captions are written to be usable as-is.</p>
+  <div class="shots">
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-01-today-board.png"><img src="screenshots/thumbs/pocket-chronicle-01-today-board.jpg" alt="The Today screen showing a photo mission and the day's question."></a>
+      <figcaption><b>The morning board</b>Two prompts a day: a mission to capture something, and a question to answer in a sentence.</figcaption>
+    </figure>
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-02-timeline.png"><img src="screenshots/thumbs/pocket-chronicle-02-timeline.jpg" alt="The timeline, grouped by day, each day stamped with the child's age."></a>
+      <figcaption><b>The archive</b>Grouped by the day it happened, with the child's exact age stamped on every day.</figcaption>
+    </figure>
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-03-voice-transcript.png"><img src="screenshots/thumbs/pocket-chronicle-03-voice-transcript.jpg" alt="A voice entry open, showing a waveform and the transcript beneath it."></a>
+      <figcaption><b>Their voice, in words</b>Recordings are transcribed on the phone, so a sentence a four-year-old said is searchable years later.</figcaption>
+    </figure>
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-04-moments.png"><img src="screenshots/thumbs/pocket-chronicle-04-moments.jpg" alt="The Moments screen showing this day in earlier years."></a>
+      <figcaption><b>On this day</b>The archive gives back: the same date in earlier years, with how old they were.</figcaption>
+    </figure>
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-05-recording.png"><img src="screenshots/thumbs/pocket-chronicle-05-recording.jpg" alt="The voice recorder mid-recording with a live waveform."></a>
+      <figcaption><b>Recording</b>A voice mission opens straight onto the recorder. Up to ten minutes, one-handed.</figcaption>
+    </figure>
+    <figure class="shot">
+      <a href="screenshots/full/pocket-chronicle-06-filled-in-2023.png"><img src="screenshots/thumbs/pocket-chronicle-06-filled-in-2023.jpg" alt="The timeline scrolled to 2023, showing an entry written today and dated back."></a>
+      <figcaption><b>Filling in the past</b>A note written tonight, filed under September 2023, carrying the age they were then.</figcaption>
+    </figure>
+  </div>
+
+  <h3 style="margin:38px 0 0;font-size:17px">More, if you need them</h3>
+  <p class="muted small">Onboarding, the composer, the capture sheet, settings and the export.</p>
+  <div class="shots">
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-weekend-board.png"><img src="screenshots/thumbs/pocket-chronicle-weekend-board.jpg" alt="A weekend board with a photo mission, a video mission, an activity and the question."></a><figcaption>A weekend board — the second mission lands on Saturday and Sunday.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-add-to-the-archive.png"><img src="screenshots/thumbs/pocket-chronicle-add-to-the-archive.jpg" alt="The add sheet: photo, camera, voice, write, and browse your camera roll."></a><figcaption>Adding something yourself, including browsing the camera roll for months never written about.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-composer-question.png"><img src="screenshots/thumbs/pocket-chronicle-composer-question.jpg" alt="The composer open on the daily question with a text field."></a><figcaption>Answering the daily question — it opens on a text field.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-composer-backdated.png"><img src="screenshots/thumbs/pocket-chronicle-composer-backdated.jpg" alt="The composer's date control open on September 2023."></a><figcaption>The date control, open on 2023.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-recorder.png"><img src="screenshots/thumbs/pocket-chronicle-recorder.jpg" alt="The voice recorder before recording starts."></a><figcaption>The recorder, before it starts.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-recorder-review.png"><img src="screenshots/thumbs/pocket-chronicle-recorder-review.jpg" alt="The recorder after recording, offering a listen before keeping it."></a><figcaption>"Have a listen before you keep it."</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-onboarding-pronouns.png"><img src="screenshots/thumbs/pocket-chronicle-onboarding-pronouns.jpg" alt="Onboarding asking for the child's pronouns: he/him, she/her, they/them."></a><figcaption>Setup asks for pronouns and every prompt uses them. Nothing assumes a gender.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-onboarding-birthdate.png"><img src="screenshots/thumbs/pocket-chronicle-onboarding-birthdate.jpg" alt="Onboarding asking for the child's birthdate."></a><figcaption>The birthday is what stamps every entry with an exact age.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-onboarding-notifications.png"><img src="screenshots/thumbs/pocket-chronicle-onboarding-notifications.jpg" alt="Onboarding offering one notification a day."></a><figcaption>"One note a day?" Never more than one, off whenever you want.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-trial.png"><img src="screenshots/thumbs/pocket-chronicle-trial.jpg" alt="The screen explaining the first two weeks are open with no card."></a><figcaption>The first 14 days, with no card on file.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-settings.png"><img src="screenshots/thumbs/pocket-chronicle-settings.jpg" alt="Settings showing the child, birthday, pronouns and timezone."></a><figcaption>Settings opens on the child, not on configuration.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-settings-membership.png"><img src="screenshots/thumbs/pocket-chronicle-settings-membership.jpg" alt="The membership card in settings showing the trial and its end date."></a><figcaption>The membership card reads like a receipt.</figcaption></figure>
+    <figure class="shot"><a href="screenshots/more/pocket-chronicle-settings-export.png"><img src="screenshots/thumbs/pocket-chronicle-settings-export.jpg" alt="The export row: every entry, photo and recording as a zip."></a><figcaption>Export the archive — free on every tier.</figcaption></figure>
+  </div>
+</section>
+
+<section id="quotes">
+  <p class="eyebrow">Quotes</p>
+  <h2>Quotes you can use</h2>
+  <p class="muted small">From Travis Terry, founder. Use them as they are, or ask for something specific — he will answer the same day.</p>
+  <blockquote>
+    <p>"I'm the dad who forgets to take pictures. And on the days I remember, a year later I can't tell you what was happening or why I took the shot. My camera roll knows what my kid looked like. It knows nothing about what they were like."</p>
+    <cite>Travis Terry, founder</cite>
+  </blockquote>
+  <blockquote>
+    <p>"A photo on its own is a photo. A photo with the question that made you take it is a story. That's the whole product — the app keeps the reason attached to the thing."</p>
+    <cite>Travis Terry, founder</cite>
+  </blockquote>
+  <blockquote>
+    <p>"There are no streaks and there never will be. A parent who opens this after two weeks away should feel welcomed back, not audited. If a feature only works by making you feel behind, it isn't going in."</p>
+    <cite>Travis Terry, founder</cite>
+  </blockquote>
+</section>
+
+<section id="boilerplate">
+  <p class="eyebrow">Boilerplate</p>
+  <h2>Descriptions, ready to paste</h2>
+
+  <div class="copyblock">
+    <div class="head"><span class="label">One line — 18 words</span><button type="button" data-copy="one">Copy</button></div>
+    <p id="one">Pocket Chronicle is a private, prompted archive of a child's childhood for iPhone, built by one parent.</p>
+  </div>
+
+  <div class="copyblock">
+    <div class="head"><span class="label">Short — 46 words</span><button type="button" data-copy="short">Copy</button></div>
+    <p id="short">Pocket Chronicle sends two prompts a day about your kid — a question, and a small mission to photograph, film, record or do. Answers take about fifteen seconds and are filed with the prompt that caused them, the date, and your child's exact age. Free on iPhone.</p>
+  </div>
+
+  <div class="copyblock">
+    <div class="head"><span class="label">Medium — 92 words</span><button type="button" data-copy="medium">Copy</button></div>
+    <p id="medium">Pocket Chronicle is a private, prompted archive of a child's childhood for iPhone. Two prompts arrive each morning: a question about your kid, and a small mission — a photo, a video, their voice, or something to do together. Answering takes about fifteen seconds, and every entry is filed with the prompt that caused it, the day it happened, and the child's exact age on that day. Voice notes are transcribed on the phone. There are no ads, no feed and no streaks, and the whole archive exports in one tap.</p>
+  </div>
+
+  <div class="copyblock">
+    <div class="head"><span class="label">Founder credit</span><button type="button" data-copy="founder">Copy</button></div>
+    <p id="founder">Pocket Chronicle is made by Travis Terry, a parent working alone. It shipped on the App Store on September 7, 2026.</p>
+  </div>
+</section>
+
+<section id="accuracy">
+  <p class="eyebrow">Fact check</p>
+  <h2>Details that are easy to get wrong</h2>
+  <p class="muted small">Not corrections to anything you have written — just the six things that most often come out slightly off.</p>
+  <ul class="plain">
+    <li><strong>Two prompts a day, not one.</strong> One is always a question; the second is a mission. The App Store subtitle says "one prompt a day", which is shorthand for the daily question.</li>
+    <li><strong>The daily question is answered by typing.</strong> Voice recording answers a <em>voice mission</em>, or a freeform entry you start yourself. It is not how the question is answered.</li>
+    <li><strong>Transcription needs iOS 26.</strong> The app itself runs on iOS 18.6 and later. On an older iPhone the recording is saved and kept; only the transcript is missing.</li>
+    <li><strong>It is private, not local-only.</strong> Entries sync to Pocket Chronicle's own server, which is what lets a second parent write into the same archive and a new phone pick it up. What stays on the device is the voice-to-text and the cache. Please don't call it "local-first".</li>
+    <li><strong>The recorder holds ten minutes.</strong> Not two.</li>
+    <li><strong>After the first 14 days, free means the daily question.</strong> Anything that needs storage — photographs, video, voice — is part of membership. Everything already in the archive stays readable, searchable and exportable forever, on any tier.</li>
+  </ul>
+</section>
+
+<section id="contact">
+  <p class="eyebrow">Press access</p>
+  <h2>A full account, free, for as long as you want it</h2>
+  <p>Download it from the App Store and tell us the email you signed up with, and we will put a lifetime membership on the account the same day. No trial clock, no card, nothing to cancel.</p>
+  <p>Interviews, extra screenshots, a different cut of the video, a specific screen shot on a device you name — ask and it will come back quickly. There is one person to ask.</p>
+  <p style="margin-top:22px"><strong>Travis Terry</strong> · Founder, Pocket Chronicle<br>
+  <a href="mailto:hello@pocketchronicle.app">hello@pocketchronicle.app</a> · <a href="https://pocketchronicle.app">pocketchronicle.app</a></p>
+  <div class="btnrow"><a class="btn" href="https://apps.apple.com/us/app/pocketchronicle-app/id6800155810">View on the App Store</a></div>
+</section>
+
+<footer>
+  <div class="note" style="margin-bottom:22px">
+    <p class="small" style="margin:0"><strong>About the archive in these images.</strong> Every screenshot and every second of the video shows a real build of the app, but the child in them — Wren — is invented, and every entry was written for this press kit. No real family's data appears anywhere.</p>
+  </div>
+  <p class="small" style="margin:0">Pocket Chronicle press kit · assembled September 7, 2026 · <a href="mailto:hello@pocketchronicle.app">hello@pocketchronicle.app</a><br>
+  Images and video in this folder may be reproduced in coverage of Pocket Chronicle.</p>
+</footer>
+
+</div>
+
+<script>
+document.querySelectorAll("button[data-copy]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var el = document.getElementById(b.getAttribute("data-copy"));
+    if (!el) return;
+    var done = function () { var t = b.textContent; b.textContent = "Copied"; setTimeout(function () { b.textContent = t; }, 1400); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(el.textContent.trim()).then(done, function () { select(el); });
+    } else { select(el); }
+    function select(node) {
+      var r = document.createRange(); r.selectNodeContents(node);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      b.textContent = "Selected — press ⌘C";
+      setTimeout(function () { b.textContent = "Copy"; }, 2200);
+    }
+  });
+});
+</script>
+</body>
+</html>

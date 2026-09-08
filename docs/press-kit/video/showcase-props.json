@@ -1,0 +1,51 @@
+{
+  "tint": "peri",
+  "scenes": [
+    {
+      "kind": "card",
+      "text": "Two prompts a day. A childhood you can find again.",
+      "seconds": 2.0
+    },
+    {
+      "kind": "clip",
+      "clip": "v2-board",
+      "caption": "Every morning: a question, and a mission.",
+      "seconds": 2.9
+    },
+    {
+      "kind": "clip",
+      "clip": "v2-record",
+      "caption": "Tap the prompt. Talk.",
+      "seconds": 5.9
+    },
+    {
+      "kind": "clip",
+      "clip": "v2-keep",
+      "caption": "Keep it. It's saved with the prompt that caused it.",
+      "seconds": 3.0
+    },
+    {
+      "kind": "screen",
+      "screen": "demo-transcript2",
+      "caption": "Transcribed on the phone. Filed with their exact age.",
+      "seconds": 4.8
+    },
+    {
+      "kind": "clip",
+      "clip": "v2-backdate",
+      "caption": "Missed a year? Pick the day. It lands at the age they were.",
+      "seconds": 6.8
+    },
+    {
+      "kind": "screen",
+      "screen": "demo-2023",
+      "caption": "Filled in, three years later.",
+      "seconds": 2.4
+    },
+    {
+      "kind": "card",
+      "text": "Pocket Chronicle. On the App Store.",
+      "seconds": 2.0
+    }
+  ]
+}

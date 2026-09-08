@@ -239,3 +239,8 @@ ios/**/Config.xcconfig
 .claude/reviews/
 
 .DS_Store
+
+# The press kit zip is presskit-final/ zipped — a build artifact, not a source.
+# Regenerate: cd docs/press-kit && zip -r pocket-chronicle-press-kit.zip presskit-final -x "*.DS_Store"
+# The published copy the site serves lives in Rascal-Marketing/src/assets/press/.
+docs/press-kit/*.zip
