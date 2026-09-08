@@ -1863,3 +1863,15 @@ and the code rather than from memory, and recorded as backfill so nobody reads t
   loading — which the fail-open rule makes an ordinary sequence, not an edge — would have watched
   their files leave the screen while `canSave` and `save()` went on attaching them. Files already
   staged are theirs; only the way to add more closes. `captureIt` already had it this way.
+
+- **Sep 7, 2026, phase 148 — a reported defect that did not reproduce was not fixed, and the report
+  was corrected instead.** An audio entry's timeline card was reported as refusing to open, with the
+  detail that it happened on entries created through the API rather than on the phone. Six deliberate
+  taps — the waveform band, the title and the chip row, on one API-created card and one app-created
+  card, each with 3.5 seconds of settle — opened the detail six times out of six. The original
+  observation was real: those taps did nothing. Every one of them landed within about 1.5 seconds of
+  dismissing a `fullScreenCover` or the search field, which is a `List` still settling. **`EntryAudioRow`
+  carries no gesture and `TimelineScreen` wraps the whole card in one `Button`, so there was nothing to
+  fix** — and a plausible fix (a `contentShape`, an `allowsHitTesting`) would have been change with no
+  defect under it, in a file phase 147 is already rewriting. The rule this is filed under: **a repro that
+  needs a stopwatch is a repro of the harness, not of the app.**

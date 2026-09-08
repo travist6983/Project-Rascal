@@ -24,7 +24,7 @@ struct MediaPreviewRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(drafts.count == 1 ? "1 photo" : "\(drafts.count) photos")
+            SectionLabel(MediaCountLabel.label(kinds: drafts.map(\.kind)))
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
@@ -106,7 +106,9 @@ struct MediaPreviewRow: View {
                 RoundedRectangle(cornerRadius: Layout.mediaInsetRadius, style: .continuous)
                     .strokeBorder(Color.border, lineWidth: Layout.borderWidth)
             )
-            .accessibilityLabel("\(overflow) more photos")
+            // Neutral for the same reason the heading above is: the tiles this stands in for
+            // are whatever was attached, and past the fourth one it cannot say which.
+            .accessibilityLabel("\(overflow) more")
     }
 
     private var addMoreTile: some View {
