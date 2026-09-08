@@ -116,7 +116,7 @@ nonisolated enum MembershipCopy {
         "A mission every day — a photo, a video, {their} voice, or something to do together",
         "Three on Saturdays and Sundays",
         "The monthly measurement, and letters you seal until {they_are} old enough",
-        "Video, and photographs without a limit",
+        "Photographs, video and {their} voice — everything that has to be stored somewhere",
         "{Their} other parent, on the same archive",
     ]
 
@@ -127,6 +127,7 @@ nonisolated enum MembershipCopy {
     /// footnote"* — which is the same instruction this phase's prompt gives in different words.
     static let stayFree = [
         "A new question every day, with no limit and no countdown.",
+        "As many written entries and did-it entries as you want.",
         "Everything you've already written and captured stays yours.",
         "Search the whole archive, and export all of it whenever you want.",
     ]
@@ -141,9 +142,14 @@ nonisolated enum MembershipCopy {
     /// The owner's call of Sep 6, 2026 stops a non-entitled household adding new media at all —
     /// photo, video and voice — while writing and did-it stay free and unlimited. That leaves the
     /// **+** sheet with three verbs it must not offer, and **no approved sentence says why.** §2's
-    /// nearest bullet is *"Video, and photographs without a limit"*, which was written against D2's
-    /// hundred-photo lifetime cap and now describes a difference from zero — using it here would
-    /// tell a free parent they have photographs with a limit when they have none.
+    /// nearest bullet *was* *"Video, and photographs without a limit"*, which had been written
+    /// against D2's hundred-photo lifetime cap and by then described a difference from zero — using
+    /// it here would have told a free parent they have photographs with a limit when they have
+    /// none. That bullet was corrected on Sep 7, 2026 (see `adds` above) as part of the marketing
+    /// site's accuracy pass, which found the same string on seven pages of pocketchronicle.app; it
+    /// now names the shapes rather than a cap, so the objection below no longer applies to it —
+    /// the sentence this property holds is kept anyway, because it says *why* the verbs are absent
+    /// and the §2 bullet says what membership adds. Two different jobs.
     ///
     /// So this is built out of the two approved fragments rather than written fresh: rule 4's
     /// *"Included with membership"* — the file's own words for a lock that states inclusion rather
