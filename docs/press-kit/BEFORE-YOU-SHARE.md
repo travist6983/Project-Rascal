@@ -24,11 +24,13 @@ outreach emails, the raw screen recordings, the tracker.
    and then the daily question free with anything needing storage behind membership. That last rule
    went live with phase 147, deployed on the merge of PR #197.
 
-4. **Fix the marketing site before a writer compares the two.** `pocketchronicle.app/pricing` still
-   advertises 100 free photographs and unlimited two-minute voice notes on the free tier, which the
-   app no longer does. The work order is
-   `Rascal-Marketing/docs/site-accuracy-update-prompt.md`. A journalist checking the press kit
-   against the website today will find them disagreeing about what is free.
+4. ~~**Fix the marketing site before a writer compares the two.**~~ **Done — nothing owed here.**
+   All 36 findings from `Rascal-Marketing/docs/site-accuracy-update-prompt.md` shipped and are live.
+   The pricing page's free column now reads an em dash for photographs, video and voice notes; the
+   recorder is ten minutes everywhere; and the six "uploads pause" sentences describe the gate that
+   is actually enforcing. A journalist comparing this kit to the website will find them agreeing.
+   Two lines on `/press` itself were corrected in the same pass: a screenshot caption claimed
+   transcription unconditionally, and a quoted prompt used wording the published library does not.
 
 ## How to share it — settled
 

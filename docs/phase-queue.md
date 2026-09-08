@@ -928,7 +928,7 @@ both **two lanes, one number, one row**, which is the shape 140 set.
 
 ~~**The highest number used is 148. A genuinely new phase takes 149.**~~ — **struck Sep 7, 2026 by 149 taking the number this sentence offered, and it is the first unanimous allocation since 133**: commits, `git for-each-ref`, `gh pr list` and `grep -rhoiE 'phase[- ][0-9]{3}' docs/` all answered 148, with nothing on any branch or in any document carrying 149. **149 is the press kit and the page it is published on** (docs lane, `docs/phase-149-press-kit`): `docs/press-kit/` and its shareable `presskit-final/`, fourteen outreach emails, and the `/press` page shipped in `Rascal-Marketing` and live at https://pocketchronicle.app/press. Its row went into `roadmap-status.md` at allocation.
 
-**The highest number used is 149. A genuinely new phase takes 150.**
+~~**The highest number used is 149. A genuinely new phase takes 150.**~~ — **struck Sep 8, 2026 by 150.** **150 is the press kit's own staleness** (docs lane, `docs/phase-150-presskit-staleness`): three warnings 149 wrote about the marketing site were fixed and deployed within the hour by the accuracy pass, so the kit was talking a writer out of claims that had become true. Verified against the live site and the live API, not the branches. **It was worked in a worktree**, which is now the rule here rather than a preference: 149 and PR #201 collided in the shared checkout the same night, two sessions moving `HEAD` under each other, and no amount of care in one of them prevents that. **The highest number used is 150. A genuinely new phase takes 151.**
 
 ## Follow-ups phase 134 generated (docs/app-icon/, Aug 29, 2026)
 

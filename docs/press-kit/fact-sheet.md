@@ -38,6 +38,16 @@ lands on a timeline they'll inherit."*
 - **Live on the App Store**: https://apps.apple.com/us/app/pocketchronicle-app/id6800155810
   Listing name "PocketChronicle.App", subtitle "One prompt a day, kept forever", category Lifestyle,
   rated 4+, iPhone. Free download; Monthly Membership $5.99, Annual Membership $59.99 (in-app).
+
+  *Those two names are the **user-facing display names**, and the store page proves it without a
+  console login: its structured In-App Purchases annotation reads
+  `[["Monthly Membership","$5.99"],["Annual Membership","$59.99"]]`, and "Membership Annual" — which
+  is what App Store Connect's own list shows — appears **zero times** in the 222 KB page. A reference
+  name is supposed to be invisible, and that one is. `decisions.md` D5a had the label wrong, calling
+  both strings display names and then saying neither was user-facing; corrected in PR #202. **Quote
+  these safely** — or, if a writer only needs the money, give them $5.99 a month or $59.99 a year and
+  skip the names, which is what the published `/press` page does.*
+
 - **The first 14 days are full access, no card, nothing to cancel.** After that the daily question
   stays free forever and everything that needs storage — photos, video, voice — is part of
   membership. Source: `api/src/rascal/constants.py` `FREE_SLOTS = ("question",)`; the owner's rule
@@ -72,8 +82,9 @@ question by voice." Source: `ComposerView.swift` switches on the prompt's comple
 The words are written back to the archive so they are searchable; the audio is never sent to a
 transcription service. On an iPhone without the on-device model the recording still saves, without a
 transcript. Source: `ios/Rascal/Rascal/Media/SpeechTranscription.swift`.
-*Recording length:* the recorder in the app allows up to ten minutes; the marketing site says two
-minutes per voice note. **Discrepancy — do not quote a number to press until the owner picks one.**
+*Recording length:* **ten minutes, and it is safe to quote.** ~~The marketing site said two minutes;
+do not quote a number until the owner picks one.~~ The site was corrected and deployed Sep 8, 2026 and
+now says ten minutes too, so the app, the site and this kit agree.
 
 **Fill in the past.** The composer's date control backdates any entry to any day — years ago if you
 like — and *Look back* walks month by month through photos already on the phone to find months worth
@@ -144,8 +155,17 @@ the device: the voice-to-text model, the SwiftData cache, and no trackers. Say "
 | Ads | None | None |
 | Price | $0 | $5.99/month or $59.99/year, one membership per household |
 
-*The marketing site's pricing page still lists "100 photographs, lifetime" and "voice notes, unlimited"
-on the free tier. That is stale against the owner's rule above; do not quote it.*
+*~~The marketing site's pricing page still lists "100 photographs, lifetime" and "voice notes,
+unlimited" on the free tier; do not quote it.~~ **Fixed and deployed Sep 8, 2026.** The site's free
+column now reads an em dash for photographs, video and voice notes, and the site and the app agree.
+Verified on the live page rather than the branch.*
+
+*The gate is not merely written down, it is **enforcing in production**: `POST /v1/media/upload-url`
+answers `402 subscription_required` unless the household is entitled, which
+`rascal-api.fly.dev/openapi.json` documents in its own words. A household inside its fourteen days
+passes; a free one does not. **Reads are untouched** — download, export, search and sync all work on
+the free tier, so an archive already captured stays readable forever. That is the sentence to give a
+writer who asks what happens to their photographs when they stop paying.*
 
 ## Design and tone — the rules the product is built under
 
