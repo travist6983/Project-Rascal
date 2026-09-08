@@ -39,15 +39,15 @@ lands on a timeline they'll inherit."*
   Listing name "PocketChronicle.App", subtitle "One prompt a day, kept forever", category Lifestyle,
   rated 4+, iPhone. Free download; Monthly Membership $5.99, Annual Membership $59.99 (in-app).
 
-  *Those two product names are read off the **public App Store product page**, which is the
-  storefront a reader can check, so they are the user-facing display names by definition. App Store
-  Connect's own list shows "Membership Annual" instead — that is the internal **reference** name, and
-  the difference is the thing `decisions.md` D5a has wrong. D5a calls both strings "display names"
-  and then says "neither is user-facing"; both cannot be true, and `asc-verification-2026-09-05.md`
-  rows 4b/4c call them reference names. **The report is right and the store page proves it**: Apple
-  renders the display name on the product page and on the purchase sheet alike, so what is printed
-  above is what a parent sees. Quote it safely — and if a writer needs only the money, give them
-  $5.99 a month or $59.99 a year and skip the names, which is all they usually want.*
+  *Those two names are the **user-facing display names**, and the store page proves it without a
+  console login: its structured In-App Purchases annotation reads
+  `[["Monthly Membership","$5.99"],["Annual Membership","$59.99"]]`, and "Membership Annual" — which
+  is what App Store Connect's own list shows — appears **zero times** in the 222 KB page. A reference
+  name is supposed to be invisible, and that one is. `decisions.md` D5a had the label wrong, calling
+  both strings display names and then saying neither was user-facing; corrected in PR #202. **Quote
+  these safely** — or, if a writer only needs the money, give them $5.99 a month or $59.99 a year and
+  skip the names, which is what the published `/press` page does.*
+
 - **The first 14 days are full access, no card, nothing to cancel.** After that the daily question
   stays free forever and everything that needs storage — photos, video, voice — is part of
   membership. Source: `api/src/rascal/constants.py` `FREE_SLOTS = ("question",)`; the owner's rule
