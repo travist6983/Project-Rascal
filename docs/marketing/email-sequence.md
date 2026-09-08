@@ -1,9 +1,19 @@
-# Vellum — email copy
+# Pocket Chronicle — email copy
 
 > **Reviewed and approved by the owner, Aug 16, 2026.** Story 4 implements this copy **verbatim**.
 > An agent does not author, edit, extend or "improve" anything in this file — not a subject line,
 > not a prompt. If copy will not fit a template, report the conflict; do not resolve it by rewriting
 > the copy. The owner edits this file directly and the change takes effect on the next send.
+
+> **Renamed Sep 7, 2026, at the owner's request, and nothing else was touched.** The five
+> occurrences of *Vellum* became *Pocket Chronicle* — the name the product has carried since
+> Aug 27, 2026 and the one every other string in this repository already used. Not an edit to
+> the copy under the rule above: same sentences, same rhythm, the product's actual name. It was
+> found by the marketing site's accuracy pass, which swept `pocketchronicle.app` and then looked
+> downstream for the same fact told wrong somewhere a reader would see it. This file was the
+> last place the retired name survived in anything that gets sent, which is why a subscriber
+> confirming today was still being welcomed to a product that does not exist under that name.
+> Regenerate `api/seeds/email_copy.yaml` after any edit here — the YAML is what ships.
 
 Two things live here: a **five-email welcome sequence** sent per-subscriber off their own
 `confirmed_at`, and a **daily prompt pool** the broadcast draws from.
@@ -32,7 +42,7 @@ pitch sits underneath it, never on top of it.
 > Write it down somewhere — a notes app, a napkin, the back of your hand. The point isn't where. The
 > point is that in nine years you will not remember it, and right now you do.
 >
-> That's the whole idea behind Vellum. One question a day about your kid, and one small mission —
+> That's the whole idea behind Pocket Chronicle. One question a day about your kid, and one small mission —
 > take a photo, record their voice, get on the floor for ten minutes. What you capture becomes a
 > timeline they inherit, with the question that caused it still attached.
 >
@@ -52,7 +62,7 @@ pitch sits underneath it, never on top of it.
 > it doesn't have is why. Which one was the day they finally let go of the couch. Which blurry one
 > is the good one.
 >
-> Vellum isn't storage. You've got storage. It's the prompt, the context, and being able to find it
+> Pocket Chronicle isn't storage. You've got storage. It's the prompt, the context, and being able to find it
 > again in 2040.
 
 ---
@@ -81,7 +91,7 @@ pitch sits underneath it, never on top of it.
 > If you haven't written anything down since the first email — that's fine, and it's the reason this
 > email exists.
 >
-> Vellum has no streaks. Nothing turns red. Missed prompts stack up quietly and expire after two
+> Pocket Chronicle has no streaks. Nothing turns red. Missed prompts stack up quietly and expire after two
 > weeks without ever mentioning it again. An app that makes you feel worse about parenting has
 > failed at the only thing it was for.
 >
@@ -96,7 +106,7 @@ pitch sits underneath it, never on top of it.
 >
 > Write that one down. Trust me.
 >
-> Quick note on what Vellum actually is, since you've been getting these for a couple of weeks.
+> Quick note on what Pocket Chronicle actually is, since you've been getting these for a couple of weeks.
 >
 > It's an iPhone app. One question a day, one mission, a bigger mission weekly, a measurement monthly.
 > Everything lands on a searchable timeline — searchable through what was said, not just when it
