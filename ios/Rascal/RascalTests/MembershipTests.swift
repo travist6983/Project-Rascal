@@ -468,6 +468,13 @@ struct MembershipTests {
             "Subscription/MembershipPresentation.swift",
             "Today/LockedPromptCard.swift",
             "Today/TodayBoardView.swift",
+            // Phase 147: the **+** sheet became a membership surface — a *Become a member* row
+            // stands where the camera roll does for a household that may not add media. It draws
+            // its two strings from `MembershipCopy`, which is the point of adding it here rather
+            // than because it holds any today: the guard is what keeps the next edit from
+            // authoring one at the call site, which is the gap phases 126 and 140 each closed
+            // one file at a time.
+            "Backfill/AddToArchiveSheet.swift",
             "Onboarding/TrialWelcomeScreen.swift",
             "DesignSystem/Notice.swift",
         ].map { root.appendingPathComponent($0) }

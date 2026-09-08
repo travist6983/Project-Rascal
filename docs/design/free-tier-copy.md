@@ -475,6 +475,48 @@ server has not answered for — and is hidden for every member state, because fo
 only re-read the answer already on the card. The paywall keeps its own Restore and its Terms and
 Privacy links for App Review.
 
+### 10 · The **+** sheet, when a household may not add media — phase 147, Sep 6, 2026
+
+**One authored sentence, ⚠️ NOT APPROVED, shipped and flagged rather than held back.** It is
+`MembershipCopy.mediaIncluded` and it renders in exactly one place: the row under the divider on
+the **+** sheet, beneath *Become a member*. **Reword or replace it in that one constant and it
+changes everywhere it can appear** — the sheet, and the board notice below.
+
+| id | Where | String | Status |
+|---|---|---|---|
+| M1 | **+** sheet, membership row, title | `Become a member` | §2 primary action, unchanged |
+| M2 | **+** sheet, membership row, detail | `Photos, video and voice notes are included with membership.` | ⚠️ **authored by phase 147, unapproved** |
+| M3 | Today, the notice on a refused upload | M2, verbatim | same constant, one sentence for one fact |
+
+**The notice's two buttons are §3's, unchanged and not authored here** — `See what's included` and
+`Dismiss` (`MembershipCopy.postTrialOpen` / `postTrialDismiss`). They open the same sheet, so the
+label is true of a refusal as well as of a trial ending, and writing a second pair of button words
+for one row was the alternative.
+
+**Why anything was authored at all.** The owner's call of Sep 6, 2026 stops a household that is not
+entitled adding new media — photo, video *and* audio — while writing and did-it stay free and
+unlimited. That leaves three of the sheet's four verbs unofferable, and **no approved sentence says
+why**. The nearest is §2's `Video, and photographs without a limit`, and it cannot be used here:
+see the note below.
+
+**What it is built from, so the authoring is as small as it could be.** Rule 4's own words —
+*"Included with membership"*, the file's phrase for a lock that states inclusion rather than
+deprivation, already shipping as `MembershipCopy.lockedFooter` — with the shapes named in front of
+it, the way §1's locked cards name the shape of what is missing without teasing its content. It
+states no count, no date, no consequence and nothing about the archive.
+
+**⚠️ A consequence for §2 that phase 147 did not touch and cannot fix on its own.** The bullet
+`Video, and photographs without a limit` was written against D2's *100 photos lifetime, no video*.
+After this call a free household has **no** photographs, so *"without a limit"* now describes a
+difference from zero rather than from a hundred, and the same is true of D2's row in
+`decisions.md`. Both are the owner's to revise; the iOS lane has changed neither and is reporting
+them.
+
+**Where the shipped strings live:** `MembershipCopy.mediaIncluded`, `MembershipCopy.primaryAction`.
+The sheet reads them through `AddToArchiveModel.membershipTitle` / `.membershipSubtitle`, so no view
+in this lane holds a literal.
+
+
 ## Conflicts
 
 **1 · The design recommended treatment A; the owner chose C.** Artboard `1d` rendered four locked-card

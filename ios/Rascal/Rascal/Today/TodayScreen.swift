@@ -134,7 +134,14 @@ final class TodayModel {
         // to being a member without the board ever reloading underneath it — and the sheet's
         // dismissal refetches, which lands here. Leaving it up would have the app advertising
         // membership to somebody who just bought it.
-        if access.isEntitled { membershipNotice = nil }
+        if access.isEntitled {
+            membershipNotice = nil
+            // **And the refusal note, for the identical reason** (phase 147). The server refusing a
+            // photo is a statement about a household that is not entitled; the moment it says the
+            // household *is*, the sentence is false and must not be left standing over a board that
+            // has just unlocked.
+            mediaRefusalNotice = nil
+        }
 
         var record = presentation.load()
 
@@ -151,8 +158,52 @@ final class TodayModel {
 
     /// The parent tapped Dismiss. The flag was already spent when it was shown, so this only takes
     /// it off the screen.
+    ///
+    /// **The standing one goes, not both** (phase 147). The two channels are coalesced for display
+    /// by `MembershipPresentation.boardMembershipNotice`, so exactly one is on screen; clearing
+    /// both would silently spend a note the parent never read.
     func dismissMembershipNotice() {
-        membershipNotice = nil
+        if mediaRefusalNotice != nil {
+            mediaRefusalNotice = nil
+        } else {
+            membershipNotice = nil
+        }
+    }
+
+    /// **The server refused a media upload because this household is not a member** (phase 147).
+    ///
+    /// Its own property rather than a second writer to `membershipNotice`, for the reason that one
+    /// records: two meanings on one channel means network timing decides which sentence a parent
+    /// reads. `MembershipPresentation.boardMembershipNotice` is where the two meet, and it is pure
+    /// so the rule can be asserted.
+    ///
+    /// **The sentence is the same one the + sheet uses**, which is the point of it being in
+    /// `MembershipCopy` rather than written here: the app says one thing about this, in one place.
+    private(set) var mediaRefusalNotice: String?
+
+    func noteMediaRefusal() {
+        mediaRefusalNotice = MembershipCopy.mediaIncluded
+    }
+
+    /// What the board actually draws in its membership slot.
+    var standingMembershipNotice: String? {
+        MembershipPresentation.boardMembershipNotice(
+            refusal: mediaRefusalNotice, postTrial: membershipNotice
+        )
+    }
+
+    /// What the server last said this household may be served. **Nil until a board has landed**,
+    /// and nil on a board that failed — neither is `free`, and the difference matters to everything
+    /// that reads it.
+    ///
+    /// **The board's own answer, and not the media gate** (phase 147, corrected Sep 6). The gate is
+    /// `GET /families/me`'s `entitled`, read in `RootView` through
+    /// `MembershipPresentation.mayAddMedia(household:)`. This is what the locked cards key on, and
+    /// the two are the same boolean by construction —
+    /// `MediaMembershipTests.theTwoServerAnswersCannotDisagree` is that invariant as a test.
+    var reportedAccess: Access? {
+        if case .loaded(let response) = state { return response.access }
+        return nil
     }
 
     // MARK: Skipping
@@ -391,7 +442,7 @@ struct TodayScreen: View {
                 onSkip: { model.skip($0.assignment) },
                 onUndoSkip: { model.undoSkip() },
                 onDismissNotice: { model.notice = nil },
-                membershipNotice: model.membershipNotice,
+                membershipNotice: model.standingMembershipNotice,
                 // **Guarded at the point of opening, not after.**
                 //
                 // `subscription` is built in `RootView`'s `.task` and is nil for the first frame.

@@ -16,6 +16,10 @@ struct SyncScreen: View {
 
     @State private var showingDryRun = false
     @State private var showingCaptionProbe = false
+    /// The server's word on whether this household may add new media (phase 147). Every row the
+    /// retry below can reach is a media upload, so this is the one condition `SyncUploadsModel`
+    /// cannot see — it never asks the server anything.
+    @Environment(\.mayAddMedia) private var mayAddMedia
 
     var body: some View {
         ScrollView {
@@ -79,7 +83,15 @@ struct SyncScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(Layout.cardPadding)
 
-                if !uploads.counts.isClear {
+                // **`mayAddMedia` as well as the counts, since phase 147.** Every row this retry can
+                // reach is a media upload, and a household the server will answer `402
+                // subscription_required` to has none it can move: `retry()` resets the ladder, the
+                // sweep re-requests, the server refuses, and the rows land back where they were.
+                // `SyncUploadsModel.canRetry` states the rule — *"Never show a control that cannot
+                // act"* — and this is the one condition it cannot see, because it is the server's
+                // and this model never asks the server anything. The counts above stay: they are
+                // true, and they are what a parent came to this screen to read.
+                if !uploads.counts.isClear, mayAddMedia {
                     SettingsDivider()
                     SettingsActionRow(
                         label: uploads.isRetrying ? "Retrying" : "Retry now",
