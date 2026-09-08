@@ -35,7 +35,11 @@ router = APIRouter(prefix="/media", tags=["media"])
     description=(
         "A single presigned PUT under the multipart threshold, presigned multipart above it. "
         "Video always assumes multipart. The client uploads directly to S3 on a background "
-        "URLSession; the server never proxies bytes."
+        "URLSession; the server never proxies bytes.\n\n"
+        "**`402 subscription_required` unless the household is entitled** — phase 147, Sep 6, "
+        "2026, reversing the storage half of D2. Adding new photos, video and audio is part of "
+        "membership; a household in its trial passes, one on the free tier does not. Nothing "
+        "about media it already has changes: every read path is unaffected."
     ),
 )
 async def upload_url(
@@ -48,6 +52,10 @@ async def upload_url(
     plan = await service.plan_upload(
         session,
         access.child_id,
+        # The caller's household, the read `GET /today` takes. `plan_upload` refuses unless it
+        # is entitled — the gate is in the service because that is where the one `Media(...)`
+        # construction is, so it cannot be routed around by a second caller.
+        family_id=access.user.family_id,
         entry_id=payload.entry_id,
         kind=payload.kind,
         filename=payload.filename,
@@ -73,7 +81,14 @@ async def upload_url(
     summary="Mark an upload finished",
     description=(
         "Completes the multipart upload if there was one and sets `upload_status`. "
-        "`thumb_key` stays null: thumbnail and poster-frame generation is out of P0 scope."
+        "`thumb_key` stays null: thumbnail and poster-frame generation is out of P0 scope.\n\n"
+        "**Deliberately not behind the membership gate phase 147 put on `upload-url`.** This "
+        "route creates nothing — the row and the presigned URLs were minted by an "
+        "`upload-url` call the server already approved, and the bytes are already in storage "
+        "by the time it is called. Refusing here would strand those bytes under a `pending` "
+        "row that `GET /media/{id}/url` will not presign and no client can retry, which is "
+        "D3's forbidden outcome — an object a household already captured made permanently "
+        "unreadable. The window is bounded by the presign TTL in any case."
     ),
 )
 async def complete(

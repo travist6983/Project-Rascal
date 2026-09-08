@@ -1143,9 +1143,26 @@ Single presigned PUT at or under ~15MB; presigned multipart above that. **Size i
 
 **Client uploads directly to S3** on a background `URLSession`. This survives app backgrounding and cellular flakiness, which matters more than anything else in the capture path.
 
+#### `402 subscription_required` — adding media is part of membership (phase 147, Sep 6, 2026)
+
+**This route refuses a household that is not entitled**, by the owner's call of Sep 6, 2026, which reverses the storage half of D2 and names the word D3 left out. Photo, video **and audio** — *any kind*. `docs/decisions.md` carries the decision and the fact that the allowances it replaces (100 photos lifetime, audio at two minutes, no video) were **never implemented**, so this is the first entitlement check the media path has ever had.
+
+| Status | When |
+|---|---|
+| `401` `unauthenticated` | No bearer token. Resolved before anything else, as everywhere |
+| `403` `not_authorized` | Not a `parent` guardian of the child that owns `entry_id`, or not a guardian at all. **Always before the 402** — the gate cannot be used to learn whether an entry exists |
+| `404` `not_found` | No such `entry_id`, from the same dependency |
+| `402` `subscription_required` | **The caller's household is not entitled.** `entitled` is the union `GET /families/me` reports — a live receipt, an active grant, **or a live trial** — so a household inside its fourteen days uploads normally and one reading `access: "free"` does not. Deliberately **not** `Access.is_member`, which is what `POST /families/me/invites` asks: a trial does not add a second parent and does not need to, where a trial that cannot photograph a child is not a trial of this product. The message is one sentence with no call to action — the client renders its own — and it is a door rather than a wall |
+| `409` `conflict` | `media_id` already exists |
+| `422` `validation_failed` | The entry belongs to a different child, or `bytes` needs more than 10,000 parts |
+
+**Nothing about media the household already has changes**, and that is D3's operative test rather than a courtesy: *if a change would make an existing entry unreadable, unexportable or unsearchable on a free tier, it is wrong.* `GET /media/{id}/url`, `GET /entries` (including `?q=` over transcripts and captions), `GET /sync`, `POST /sync/push`, `GET /children/{id}/export` and `PATCH /media/{id}/derived` behave for a free household exactly as they behave for a subscribed one. **`POST /entries` and `POST /sync/push` are not gated and cannot be**: an entry cannot arrive carrying media (`EntryCreate` has no media field) and a push carries metadata only (`PushMedia` has no `kind`, no `bytes` and no `s3_key`, and an unknown id comes back as a `conflict` naming this route), so every media row in the archive passed through here. Text and `did_it` entries are unlimited and free, unchanged.
+
 **`POST /media/{id}/complete`**
 Body: `{ etags?, captured_at, duration_seconds? }`
 Server marks `upload_status = complete`. ~~kicks off thumbnail and poster-frame generation~~ — **nothing is kicked off, and nothing ever has been.** `thumb_key` stays null; thumbnail and transcode pipelines are named out of scope in `CLAUDE.md` and were cut from P0 in `decisions.md`. **Struck Aug 18, 2026** — a client written from this line would have waited for a thumbnail that is never coming.
+
+**Deliberately not behind phase 147's membership gate**, and it was considered as a belt against a client holding a presigned URL across a lapse. It creates nothing — the row and the URLs came from an `upload-url` call the server already approved, and the bytes are in storage by the time this is called. Refusing here would leave them under a `pending` row that `GET /media/{id}/url` will not presign and no client can retry, which is an object the household already captured made permanently unreadable: D3's forbidden outcome. The window is bounded by `presign_ttl_seconds` in any case.
 
 **`GET /media/{id}/url`**
 → `{ media_id, url, expires_in }`
@@ -1867,6 +1884,15 @@ a `psycopg` message in a client alert is a leak, not a debugging aid.
 and cannot reach Postgres, which is a readiness answer rather than a request that went wrong. No
 other route returns it: a normal handler that loses the database still renders `internal_error`.
 
+`subscription_required` is returned by **two routes, and they do not ask the same question** —
+`POST /families/me/invites` since phase 107, and `POST /media/upload-url` since phase 147 (Sep 6,
+2026). The invite gate is `Access.is_member` (a receipt or an active grant) and the media gate is
+`Access.entitled` (either of those **or** a live trial), so a household inside its fourteen days
+uploads a photo and is still refused an invite. **A client switching on the code alone is correct
+for both**: both mean *this household has not bought this yet*, both carry one sentence with no
+call to action, and both are a door rather than a wall. Neither is a permission problem, which is
+why neither is `not_authorized`.
+
 `publish_failed` is **502 rather than 500** because this service worked and the platform it
 called did not — an expired token, an image Instagram could not fetch, a limit on their side.
 The console shows the platform's own sentence next to the button; what it never shows is a raw
@@ -2290,6 +2316,45 @@ reported now so the client that will show it does not need a second response sha
 **The device never decides whether a household is subscribed.** A StoreKit transaction on the phone
 is a receipt, not an entitlement, in exactly the way an Apple identity token is a credential and not
 the identity model. Every gate reads the server, for the same reason the server owns what day it is.
+
+#### Phase 147, Sep 6, 2026 — what `entitled` now gates, and what it deliberately does not
+
+**One route gained a paywall: `POST /media/upload-url`.** The owner's call reverses the storage
+half of D2 — a free household's *"100 photos lifetime"*, *"audio unlimited at two minutes a
+recording"* and *"no video"* — and replaces all three with one sentence: **a household that is not
+entitled may not add new media of any kind.** The full error table is under **Media** above; this
+section is the monetization view of it.
+
+**What the free tier is, stated positively and in full, as of this date:**
+
+| Free, forever, uncapped | Membership |
+|---|---|
+| The daily question, every day, with no cap and no countdown (D2 as reversed Aug 21) | The mission half of the board: `mission`, `mission_b`, `weekly`, `monthly`, `letter` |
+| Unlimited `text` entries and unlimited `did_it` entries | **Adding new photos, video and audio** — phase 147 |
+| **Every entry and every media object it already has** — readable, searchable, exportable, syncable, forever | A second parent in the household (D4) |
+| Full export, complete, including the bytes | |
+
+**There is no counter anywhere in this**, and that is deliberate: the three allowances phase 147
+removed were the only numbers the free tier ever had, none of them was implemented, and what
+replaced them needs no meter. A client never has to ask how many photos are left, because the
+answer is not a number.
+
+**The gate reads `entitled`, not `is_member`, and this API now has both — on purpose.**
+
+| Gate | Predicate | A household in its trial |
+|---|---|---|
+| `POST /media/upload-url` | `Access.entitled` — receipt **or** grant **or** live trial | **Uploads normally** |
+| `POST /families/me/invites` | `Access.is_member` — receipt **or** grant | **Is refused** |
+
+Both answer `402 subscription_required`, and a client that switches on the code alone is correct
+for both. The difference is the question: D4 sells the second parent on a subscription and a
+fortnight's free look does not add one, where a trial that cannot photograph a child is not a trial
+of a product whose whole subject is photographing one. `services/guardians.Access` carries both
+properties and `access_for` is still the single authority behind them.
+
+**Nothing on any read path moved**, which is D3's operative test and not a courtesy — see the Media
+section for the enumerated list. `POST /entries` and `POST /sync/push` are ungated and cannot
+create media in the first place.
 
 ### Sign in with Apple server-to-server notifications
 
