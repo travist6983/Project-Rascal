@@ -1,262 +1,140 @@
-# RASCAL
+<p align="center">
+  <img src="docs/press-kit/icon/pocket-chronicle-app-icon-1024-rounded.png" width="96" alt="Pocket Chronicle app icon">
+</p>
 
-A private archive of a childhood, built one prompt at a time.
+<h1 align="center">Pocket Chronicle</h1>
 
-Each day the app hands a parent two things: **a question** to answer about their kid, and
-**a mission** — take a photo, shoot a video, record their voice, or do a thing together.
-Completed items become entries on a searchable timeline. Years later, the kid gets the keys.
+<p align="center">
+  <b>One question a day. A childhood you can find again.</b><br>
+  A private, prompted archive of a child's childhood for iPhone. Live on the App Store.
+</p>
 
-This repository holds **both halves**: the backend in `api/` and the iOS client in `ios/`. ~~*The iOS client is a separate piece of work; `ios/` is empty.*~~ — **that was true when this file was written and stopped being true long before Aug 18, 2026**, when it was finally corrected: `ios/` is a full SwiftUI app of 241 Swift files, on TestFlight against the deployed API. The two are separate **lanes** rather than separate repositories — an agent working in `ios/` never edits `api/` and vice versa, CI is path-scoped, and `ios/CLAUDE.md` carries that lane's rules. **The product is called Pocket Chronicle** — ~~*Vellum*~~, struck Aug 27, 2026 on an attorney's trademark-conflict finding, and Dogear before that; `RASCAL` is the repository and package name and deliberately stays put, the way `manifest.format` has stayed `rascal-export` across **three** renames.
+<p align="center">
+  <a href="https://apps.apple.com/us/app/pocketchronicle-app/id6800155810"><img src="https://img.shields.io/badge/App_Store-Download-0D96F6?logo=apple&logoColor=white" alt="Download on the App Store"></a>
+  <a href="https://pocketchronicle.app"><img src="https://img.shields.io/badge/website-pocketchronicle.app-C8664A" alt="Website"></a>
+  <a href="https://github.com/travist6983/Project-Rascal/actions/workflows/ci.yml"><img src="https://github.com/travist6983/Project-Rascal/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
-- **Specs live in `docs/` and are authoritative.** `data-model.md` is the schema,
-  `api-contract.md` is the endpoints, `decisions.md` is settled and not up for relitigation,
-  `mission-library.md` is the seed content, `memory-app-roadmap.md` is the scope.
-- **Standing rules for anyone working here — human or agent — are in `CLAUDE.md`.**
-- Judgment calls made while building are in `docs/decisions-log.md`, and anything waiting on
-  you is in `docs/blocked.md`.
+Every morning the app gives a parent two prompts: **a question** about their kid ("Describe their
+laugh.") and **a small mission**: take a photo, film something, record their voice, or just do a
+thing together. Each answer is filed with the prompt that caused it, the date it happened and the
+child's exact age, on a searchable timeline the kid inherits.
 
-**Python 3.12 · FastAPI · SQLAlchemy 2.0 · Alembic · Postgres 16 · S3 · uv · Fly.io**
+I built it solo, end to end: product, design, the iOS app, the backend, infrastructure, App Store
+release and the marketing site. It started as a fix for my own problem: I forget to take pictures,
+and when I do, a year later I can't remember why I took them.
 
----
+<table>
+  <tr>
+    <td align="center"><img src="docs/press-kit/screenshots/01-today-daily-prompts.png" width="200" alt="Today: the daily question and mission"><br><sub>Today's two prompts</sub></td>
+    <td align="center"><img src="docs/press-kit/screenshots/02-timeline-archive.png" width="200" alt="The timeline archive"><br><sub>The timeline</sub></td>
+    <td align="center"><img src="docs/press-kit/screenshots/05-voice-recording.png" width="200" alt="Recording a voice mission"><br><sub>A voice mission</sub></td>
+    <td align="center"><img src="docs/press-kit/screenshots/03-voice-entry-transcript.png" width="200" alt="A voice entry with its on-device transcript"><br><sub>On-device transcript</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <a href="docs/press-kit/video/pocket-chronicle-demo.mp4"><img src="docs/press-kit/presskit-final/video/pocket-chronicle-demo-poster.jpg" width="220" alt="Watch the 30-second demo"></a><br>
+  <sub><a href="docs/press-kit/video/pocket-chronicle-demo.mp4">Watch the 30-second demo</a> · screenshots use a fictional demo child</sub>
+</p>
+
+## What it does
+
+- **Two prompts a day** from a library of 133, rotated by a server-side scheduler per child and time zone.
+- **Four ways to answer:** photo or video, voice, a written note, or "did it" with nothing to upload.
+- **Voice is transcribed on the phone** with Apple's `SpeechAnalyzer`. Audio never goes to a
+  transcription service, and the words become searchable.
+- **Fill in the past.** Backdate any entry, or walk month by month through the photo library to find
+  moments worth writing about. Every entry carries the child's age when it *happened*.
+- **Search everything**, including what was said out loud. Postgres full-text search over titles,
+  bodies, captions and transcripts.
+- **Sealed letters** that open at an age you choose, **Moments** that resurface this day in earlier
+  years, a Home Screen widget, and a Share extension.
+- **Households, not accounts:** several children, a second parent writing into the same archive.
+- **One-tap export:** a zip with every entry and file, plus an `index.html` viewer that works offline.
+
+## Engineering highlights
+
+- **Native iOS with zero third-party dependencies.** SwiftUI, SwiftData and URLSession only. No
+  analytics, ad or tracking SDKs in the binary. Sign in with Apple, StoreKit subscriptions, WidgetKit,
+  a Share extension and push notifications.
+- **Async Python backend.** FastAPI, SQLAlchemy 2.0 and Pydantic v2 on Postgres. Routers are thin;
+  business logic lives in services that take a session and return objects, with no HTTP in sight.
+- **Schema you can trust.** 26 Alembic migrations with named constraints, CHECKs, a functional index
+  and triggers. A test runs `upgrade head`, asserts every table, index and trigger by name, then
+  runs `downgrade base` and asserts nothing survives.
+- **About 1,300 tests against a real Postgres**, not SQLite. S3 is mocked with `moto`, Apple's JWKS
+  with a local keypair, and no test touches the network. One acceptance test walks the whole daily
+  loop end to end.
+- **Entitlements enforced on the server.** Uploads go straight from the phone to object storage
+  through presigned URLs, and the upload endpoint returns `402` unless the household is entitled.
+  Reads are never gated: a family that stops paying keeps a readable, searchable, exportable archive.
+- **Private by design.** The admin console returns counts, never archive content; no entry body,
+  caption, transcript, child name or object key is reachable from an admin route, and a test asserts
+  it. Account deletion waits seven days, then hard-deletes.
+- **Production operations.** Fly.io with migrations in the `release_command`, an hourly scheduler
+  machine, Neon Postgres, App Store Server Notifications, APNs, and seven GitHub Actions workflows
+  (path-scoped API and iOS CI, deploy, smoke tests, backups).
+- **Claude in the admin console.** A "Studio" tab drafts social posts and shot lists with Claude,
+  and draws on-brand cards locally on a canvas, so images cost nothing and cannot drift off-brand.
+- **Built with AI agents, under rules.** The API and iOS code are separate lanes with their own
+  `CLAUDE.md` rules, specs in `docs/` are authoritative, and judgment calls are logged in
+  `docs/decisions-log.md`. Over 200 pull requests merged.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph phone["iPhone"]
+    app["SwiftUI app<br/>SwiftData cache"]
+    stt["On-device transcription<br/>(SpeechAnalyzer)"]
+    ext["Widget + Share extension"]
+  end
+  app --> stt
+  app --- ext
+  app -- "HTTPS / JSON" --> api["FastAPI on Fly.io"]
+  app -- "presigned upload" --> obj[("S3-compatible<br/>object storage")]
+  api --> db[("Neon Postgres")]
+  api --> obj
+  sched["Hourly scheduler machine"] --> db
+  api --> apns["APNs"]
+  apple["App Store + Sign in with Apple<br/>server notifications"] --> api
+  admin["Admin console"] --> api
+```
+
+| Layer | Stack |
+|---|---|
+| iOS | Swift, SwiftUI, SwiftData, StoreKit 2, WidgetKit, AuthenticationServices, Speech |
+| API | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic, uv, ruff |
+| Data | Postgres 16 (Neon in production), S3-compatible object storage |
+| Infra | Fly.io, Docker, GitHub Actions |
+| AI | Anthropic Claude (admin Studio), Apple on-device speech recognition |
+
+## Repository layout
+
+```
+api/        FastAPI backend: routers, services, models, migrations, tests
+ios/        SwiftUI app, widget, share extension, unit tests (its own CLAUDE.md)
+docs/       specs (data model, API contract, decisions), runbooks, press kit
+.github/    CI, deploy, smoke, backup workflows
+```
 
 ## Run it locally
 
-Five commands from a clean clone. You need [`uv`](https://docs.astral.sh/uv/) and Docker.
+You need [`uv`](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
-cp .env.example .env    # safe local defaults, no real credentials anywhere
-make up                 # Postgres 16 on localhost:5433, waits until healthy
+cp .env.example .env    # safe local defaults, no real credentials
+make up                 # Postgres 16 on localhost:5433
 make migrate            # alembic upgrade head
-make seed               # 113 prompts from api/seeds/prompts.yaml
+make seed               # load the prompt library
 make test               # the full suite against a real Postgres
+make dev                # http://localhost:8000, OpenAPI docs at /docs
 ```
 
-Then:
-
-```bash
-make dev                # http://localhost:8000 — OpenAPI docs at /docs
-```
-
-Port 5433, not 5432, so a Postgres you already have installed keeps working.
-
-### A session, without an Apple Developer account
-
-`dev-login` exists only when `ENVIRONMENT=local`, which is what `.env.example` sets.
-
-```bash
-TOKEN=$(curl -s -X POST localhost:8000/v1/auth/dev-login -H 'content-type: application/json' \
-  -d '{}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-
-CHILD=$(curl -s -X POST localhost:8000/v1/children \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d '{"name":"Miles","birthdate":"2022-06-14","family_timezone":"America/Detroit"}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-
-# Run the daily loop for any date you like, as often as you like.
-curl -s -X POST localhost:8000/v1/debug/scheduler/run \
-  -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-  -d "{\"date\":\"2026-08-15\",\"child_id\":\"$CHILD\"}"
-
-curl -s "localhost:8000/v1/children/$CHILD/today?date=2026-08-15" \
-  -H "authorization: Bearer $TOKEN"
-```
-
-`POST /v1/debug/reset-today` clears a day so you can run it again against an edited library.
-Both debug routes and `dev-login` are absent from a production build, and there are tests
-that assert it.
+The full developer guide (dev login without an Apple account, migrations, the mission library, the
+admin console, deploying) is in [`docs/DEVELOPING.md`](docs/DEVELOPING.md).
 
 ---
 
-## Make targets
-
-| Target | What it does |
-|---|---|
-| `make up` / `make down` | Postgres 16 on 5433, named volume, healthcheck |
-| `make dev` | uvicorn with reload on :8000 |
-| `make test` | pytest against a real Postgres (`<dbname>_test`) |
-| `make lint` / `make fmt` | ruff check and format |
-| `make migrate` | `alembic upgrade head` |
-| `make revision m="..."` | new empty migration |
-| `make seed` | load `api/seeds/prompts.yaml` — idempotent |
-| `make scheduler d=2026-08-15` | run the daily job; omit `d` for now |
-| `make reset-db` | downgrade to base, re-migrate, reseed |
-| `make psql` | psql shell against the dev database |
-| `make fixtures` | capture real API responses into `ios/Fixtures/` |
-
-### `make fixtures`
-
-Logs in with `dev-login`, resolves the child from `GET /v1/children`, and writes the real
-responses to `ios/Fixtures/dev-login.json` and `ios/Fixtures/today.json`. **Re-run it
-whenever an API response shape changes** — those two files are the iOS client's ground
-truth for JSON decoding, and a stale fixture is a client that compiles against a contract
-the server no longer serves.
-
-It needs a running API and a child that exists; it fails loudly and writes nothing rather
-than capturing an error body. Point it elsewhere with
-`make fixtures API_BASE=https://rascal-api.fly.dev` — though note `dev-login` is `404` on a
-production build, by design.
-
----
-
-## Tests
-
-```bash
-make test                                             # everything
-cd api && uv run pytest -q tests/test_acceptance.py   # the loop, end to end
-cd api && uv run pytest -q -k scheduler
-```
-
-Every test runs against a real Postgres. The schema is full of CHECK constraints, a
-functional index, and a trigger, and SQLite would verify none of it. The suite owns a
-separate `<dbname>_test` database, builds it once per session by running the real migrations,
-and truncates between tests — your dev database is never touched.
-
-S3 is `moto`. Apple's JWKS is a locally generated RSA keypair. **No test touches the
-network.**
-
-`tests/test_acceptance.py` is the one that matters: dev-login, create a child, run the
-scheduler for an arbitrary date, fetch `/today`, complete one assignment with a text entry
-and another with a `did_it` entry, and see both in `GET /entries`.
-
----
-
-## Adding a migration
-
-```bash
-cd api
-uv run alembic revision --autogenerate -m "add whatever"   # or: make revision m="add whatever"
-# read the generated file — autogenerate does not see triggers, functional indexes,
-# or raw SQL, and it guesses badly about server defaults
-make migrate
-```
-
-Two conventions the schema depends on:
-
-- **Name every index and constraint.** Alembic autogenerate against unnamed constraints
-  produces migrations that cannot be reversed cleanly. `api/src/rascal/models/base.py` sets
-  a naming convention that handles this for you.
-- **A new table with `updated_at` needs the trigger.** Add it to `TABLES_WITH_UPDATED_AT` in
-  `models/base.py` and attach `set_updated_at()` in the migration. `updated_at` is never set
-  by application code — a bulk `UPDATE` from psql has to move the sync cursor too.
-
-Every migration must be reversible. `tests/test_migrations.py` runs `upgrade head`, asserts
-every table, index, CHECK, function, and trigger by name, then runs `downgrade base` and
-asserts nothing survives.
-
----
-
-## Editing the mission library
-
-`docs/mission-library.md` is the authoring surface. Runtime never parses a markdown table.
-
-```bash
-cd api
-uv run python scripts/mission_library_to_yaml.py   # regenerates seeds/prompts.yaml
-make seed                                          # upserts; never duplicates, never deletes
-```
-
-Commit both files. A test regenerates the YAML from the markdown and fails if they disagree.
-
-Tone rules for new prompts are at the top of `docs/mission-library.md`: specific over
-sentimental, second person, imperative for missions, never sanctimonious.
-
-### …or from the admin console
-
-`make dev`, then <http://localhost:8000/admin> → **Sign in with dev-login**. The Library tab edits
-bodies with a live three-column pronoun preview and refuses a token no client can render.
-
-**The markdown is still the tidier path when you have the repo open**, and the console says so on
-every seeded prompt it opens. Editing a *seeded* body there cannot be a plain update: `make seed`
-runs on every deploy and reconciles the table against `prompts.yaml`, so the console **forks** it
-instead — a new `source: "user"` prompt carries the new words and the original is retired through
-`prompt_library_overrides`, the one table the re-seed reads rather than overwrites. `Hand back to
-the seed file` undoes that and returns the prompt to whatever the markdown says.
-
----
-
-## The admin console
-
-<http://localhost:8000/admin>. Requires `users.is_admin`; `dev-login`'s fixture user has it.
-
-| Tab | What it answers |
-|---|---|
-| Today | Households, kids, entries per day, completion rate, bytes stored, newest accounts |
-| Library | Every prompt with served/completed counts, filters, and the editor |
-| Studio | Art direction, post concepts, brand cards, shot lists — see below |
-| Costs | Anthropic, Fly, Neon, Tigris and Resend — see `.env.example` for the four optional keys |
-| Ops | Did the scheduler run, which switches are on, the job ledgers and the deletion queue |
-
-Three static files under `api/src/rascal/admin/static/`, no build step and no dependency. It holds
-no credential — it asks the same API the app does, with a bearer token in `localStorage`.
-
-**It returns counts and never archive content.** No entry body, caption, transcript, child name or
-object key is reachable through any admin route, and a test asserts it.
-
-**The Ops tab reads what the scheduler produced**, not whether its deploy was green — the check PR
-#57 did not have. A daily slot that served nothing across the window is flagged in red.
-
-### The Studio
-
-Set `ANTHROPIC_API_KEY` (an ordinary `sk-ant-api…` key — *not* the `sk-ant-admin…` one the cost
-panel uses) and the Studio tab will:
-
-- **talk to an art director** who knows the product, the voice and the rules,
-- **write post concepts** — angle, headline, caption, alt text, hashtags and an image brief,
-- **draw the card** on a canvas in the Pocket Chronicle palette and export it as a **PNG** at any platform
-  size, or as a **WebM** of the card settling in,
-- **write a shot list** for a short vertical video, with a WebVTT caption track.
-
-**Claude does not generate images or video** — there is no such endpoint on any Anthropic model.
-The cards are drawn locally by `admin/static/cards.js`, which is why they need no vendor, cost
-nothing per image, and cannot drift off-brand. For photographs, set `OPENAI_API_KEY` or
-`REPLICATE_API_TOKEN` and Claude's image brief goes to whichever is configured.
-
-**Nothing posts anything.** Generate, look at it, download the file, put it out yourself.
-
-**Featuring a mission-library prompt is capped.** D7 keeps the library out of anything public,
-so Claude never sees it, the body is read server-side from a prompt id you pick, and the Studio
-counts how much of the library has been shown against `SOCIAL_FEATURED_PROMPT_CAP`.
-
----
-
-## Layout
-
-```
-CLAUDE.md                  standing rules, for a future session
-Makefile                   the whole local loop
-docker-compose.yml         Postgres 16 on 5433
-.env.example               every key, with safe local defaults
-.github/workflows/ci.yml   lint + tests against a Postgres service container
-docs/                      the specs, plus decisions-log.md, blocked.md, DEPLOY.md
-ios/                       the SwiftUI client — 241 Swift files, its own lane, its own CLAUDE.md
-api/
-  pyproject.toml           deps, ruff, pytest
-  Dockerfile               multi-stage, non-root
-  fly.toml                 release_command runs migrations
-  alembic/versions/        0001_initial — the whole schema, reversible
-  seeds/prompts.yaml       generated; what the loader reads
-  scripts/                 the markdown-to-YAML converter (never runs at request time)
-  src/rascal/
-    main.py                the app factory; all routes mount under /v1 except /health*
-    config.py              pydantic-settings, reads the repo-root .env
-    db.py                  async engine, session-per-request
-    deps.py                current_user and child_access. All authorization lives here.
-    errors.py              ErrorCode, RascalError, and the one exception handler
-    constants.py           every constrained value set, shared by models and schemas
-    models/                SQLAlchemy 2.0 declarative
-    schemas/               Pydantic v2 wire models
-    routers/               HTTP only — no business logic
-    services/              scheduler, entries, media, sync, seeding, tokens, apple
-    jobs/                  python -m rascal.jobs.{scheduler,seed}
-  tests/
-```
-
-Routers are thin. Anything worth testing lives in `services/`, which takes a session and
-returns objects — no `Request`, no `Response`, no HTTP.
-
----
-
-## Deploying
-
-`docs/DEPLOY.md`. Fly.io + Neon + S3, with the exact commands, the IAM policy, and how to
-verify. Nothing has been deployed for you.
+Made by [Travis Terry](https://travisjterry.dev) · [LinkedIn](https://www.linkedin.com/in/travisjterry)
