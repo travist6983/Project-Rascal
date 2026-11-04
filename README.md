@@ -6,12 +6,12 @@
 
 <p align="center">
   <b>One question a day. A childhood you can find again.</b><br>
-  A private, prompted archive of a child's childhood for iPhone. Live on the App Store.
+  A private, prompted archive of a child's childhood for iPhone.<br>
+  Shipped solo to the App Store in 2026, now retired.
 </p>
 
 <p align="center">
-  <a href="https://apps.apple.com/us/app/pocketchronicle-app/id6800155810"><img src="https://img.shields.io/badge/App_Store-Download-0D96F6?logo=apple&logoColor=white" alt="Download on the App Store"></a>
-  <a href="https://pocketchronicle.app"><img src="https://img.shields.io/badge/website-pocketchronicle.app-C8664A" alt="Website"></a>
+  <img src="https://img.shields.io/badge/App_Store-shipped_2026,_retired-8A8A8A?logo=apple&logoColor=white" alt="App Store: shipped in 2026, now retired">
   <a href="https://github.com/travist6983/Project-Rascal/actions/workflows/ci.yml"><img src="https://github.com/travist6983/Project-Rascal/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
@@ -21,8 +21,12 @@ thing together. Each answer is filed with the prompt that caused it, the date it
 child's exact age, on a searchable timeline the kid inherits.
 
 I built it solo, end to end: product, design, the iOS app, the backend, infrastructure, App Store
-release and the marketing site. It started as a fix for my own problem: I forget to take pictures,
-and when I do, a year later I can't remember why I took them.
+release and the marketing site. It went from concept to the App Store in about a month, built by
+directing AI agents in a stack outside my primary one (Swift). It started as a fix for my own
+problem: I forget to take pictures, and when I do, a year later I can't remember why I took them.
+
+**Status:** it worked end to end but did not find users, so I shut it down rather than keep paying to
+run the backend. The code stays here as a complete example of a shipped native app and its service.
 
 <table>
   <tr>
@@ -55,31 +59,31 @@ and when I do, a year later I can't remember why I took them.
 
 ## Engineering highlights
 
-- **Native iOS with zero third-party dependencies.** SwiftUI, SwiftData and URLSession only. No
-  analytics, ad or tracking SDKs in the binary. Sign in with Apple, StoreKit subscriptions, WidgetKit,
-  a Share extension and push notifications.
+- **Native iOS with zero third-party dependencies.** SwiftUI, SwiftData with offline sync, and
+  URLSession only. No analytics, ad or tracking SDKs in the binary. Sign in with Apple, StoreKit 2
+  subscriptions, Apple Foundation Models, WidgetKit, a Share extension and push notifications.
 - **Async Python backend.** FastAPI, SQLAlchemy 2.0 and Pydantic v2 on Postgres. Routers are thin;
   business logic lives in services that take a session and return objects, with no HTTP in sight.
 - **Schema you can trust.** 26 Alembic migrations with named constraints, CHECKs, a functional index
   and triggers. A test runs `upgrade head`, asserts every table, index and trigger by name, then
   runs `downgrade base` and asserts nothing survives.
-- **About 1,300 tests against a real Postgres**, not SQLite. S3 is mocked with `moto`, Apple's JWKS
-  with a local keypair, and no test touches the network. One acceptance test walks the whole daily
-  loop end to end.
+- **About 2,700 automated tests** across the iOS app and the API. The API's run against a real
+  Postgres, not SQLite; S3 is mocked with `moto`, Apple's JWKS with a local keypair, and no test
+  touches the network. One acceptance test walks the whole daily loop end to end.
 - **Entitlements enforced on the server.** Uploads go straight from the phone to object storage
   through presigned URLs, and the upload endpoint returns `402` unless the household is entitled.
   Reads are never gated: a family that stops paying keeps a readable, searchable, exportable archive.
 - **Private by design.** The admin console returns counts, never archive content; no entry body,
   caption, transcript, child name or object key is reachable from an admin route, and a test asserts
   it. Account deletion waits seven days, then hard-deletes.
-- **Production operations.** Fly.io with migrations in the `release_command`, an hourly scheduler
-  machine, Neon Postgres, App Store Server Notifications, APNs, and seven GitHub Actions workflows
+- **Production operations** while it ran: Fly.io with migrations in the `release_command`, an hourly
+  scheduler machine, Neon Postgres, App Store Server Notifications, APNs, and seven GitHub Actions workflows
   (path-scoped API and iOS CI, deploy, smoke tests, backups).
 - **Claude in the admin console.** A "Studio" tab drafts social posts and shot lists with Claude,
   and draws on-brand cards locally on a canvas, so images cost nothing and cannot drift off-brand.
 - **Built with AI agents, under rules.** The API and iOS code are separate lanes with their own
   `CLAUDE.md` rules, specs in `docs/` are authoritative, and judgment calls are logged in
-  `docs/decisions-log.md`. Over 200 pull requests merged.
+  `docs/decisions-log.md`. 200 pull requests merged.
 
 ## Architecture
 
@@ -104,11 +108,11 @@ flowchart LR
 
 | Layer | Stack |
 |---|---|
-| iOS | Swift, SwiftUI, SwiftData, StoreKit 2, WidgetKit, AuthenticationServices, Speech |
+| iOS | Swift, SwiftUI, SwiftData, StoreKit 2, WidgetKit, AuthenticationServices, Speech, Foundation Models |
 | API | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Pydantic v2, Alembic, uv, ruff |
 | Data | Postgres 16 (Neon in production), S3-compatible object storage |
 | Infra | Fly.io, Docker, GitHub Actions |
-| AI | Anthropic Claude (admin Studio), Apple on-device speech recognition |
+| AI | Anthropic Claude (admin Studio), Apple on-device speech recognition and Foundation Models |
 
 ## Repository layout
 

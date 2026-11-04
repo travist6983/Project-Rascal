@@ -256,6 +256,7 @@ returns objects — no `Request`, no `Response`, no HTTP.
 
 ## Deploying
 
-The API runs on Fly.io (app `rascal-api`) with Neon Postgres and S3-compatible object storage.
+The API ran on Fly.io (app `rascal-api`) with Neon Postgres and S3-compatible object storage until
+the app was retired.
 `docs/runbook-deploy.md` is the runbook and `docs/Infastructure/DEPLOY.md` is the reference behind
 it: the exact commands, the IAM policy, and how to verify a deploy.
